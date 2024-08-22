@@ -2018,6 +2018,7 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     }
 
     list->cmd.iteration_count = 1;
+    list->cmd.estimated_cost = 0;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
@@ -2046,6 +2047,10 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
 
     if (list->cmd.iteration_count >= VKD3D_MAX_COMMAND_LIST_SEQUENCES)
         return;
+
+    assert(list->cmd.iteration_count);
+    list->cmd.iterations[list->cmd.iteration_count - 1].estimated_cost = list->cmd.estimated_cost;
+    list->cmd.estimated_cost = 0;
 
     iteration = &list->cmd.iterations[list->cmd.iteration_count];
     command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -3654,6 +3659,9 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
     VkExtent3D view_extent;
     VkAccessFlags2 access;
     bool clear_op;
+
+    /* This does not get called with LOAD_OP_LOAD */
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     memset(initial_layouts, 0, sizeof(initial_layouts));
     memset(final_layouts, 0, sizeof(final_layouts));
@@ -5390,6 +5398,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         WARN("Failed to end command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
     }
+
+    assert(list->cmd.iteration_count);
+    list->cmd.iterations[list->cmd.iteration_count - 1].estimated_cost = list->cmd.estimated_cost;
 
     if (list->allocator)
     {
@@ -7179,6 +7190,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
         return;
     }
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
+
     if (!list->predication.fallback_enabled)
         VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, vertex_count_per_instance,
                 instance_count, start_vertex_location, start_instance_location));
@@ -7263,6 +7276,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
         WARN("Failed to begin render pass, ignoring draw call.\n");
         return;
     }
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     d3d12_command_list_check_index_buffer_strip_cut_value(list);
 
@@ -7388,6 +7403,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
         return;
     }
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
+
     if (!list->predication.fallback_enabled)
         VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, x, y, z));
     else
@@ -7416,6 +7433,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
 
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "CopyBufferRegion called within a render pass.\n");
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     vk_procs = &list->device->vk_procs;
 
@@ -8248,6 +8267,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
     d3d12_command_list_ensure_transfer_batch(list, copy_info.batch_type);
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
+
     alias = false;
     for (i = 0; !alias && i < list->transfer_batch.batch_len; i++)
     {
@@ -8327,6 +8348,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     if (d3d12_resource_is_buffer(dst_resource))
     {
@@ -8521,6 +8544,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     tiled_res = impl_from_ID3D12Resource(tiled_resource);
     linear_res = impl_from_ID3D12Resource(buffer);
@@ -9435,6 +9460,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
 
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "ResolveSubresource called within a render pass.\n");
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     dst_resource = impl_from_ID3D12Resource(dst);
     src_resource = impl_from_ID3D12Resource(src);
@@ -11522,6 +11549,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "ClearDepthStencilView called within a render pass.\n");
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
+
     if (flags & D3D12_CLEAR_FLAG_DEPTH)
         clear_aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
 
@@ -11552,6 +11581,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
 
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "ClearRenderTargetView called within a render pass.\n");
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_UINT)
     {
@@ -12140,6 +12171,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "ClearUnorderedAccessViewUint called within a render pass.\n");
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
+
     memcpy(color.uint32, values, sizeof(color.uint32));
 
     metadata = d3d12_desc_decode_metadata(list->device, cpu_handle.ptr);
@@ -12268,6 +12301,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
 
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "ClearUnorderedAccessViewFloat called within a render pass.\n");
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     metadata = d3d12_desc_decode_metadata(list->device, cpu_handle.ptr);
     memcpy(color.float32, values, sizeof(color.float32));
@@ -12846,6 +12881,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         WARN("Destination resource is not a buffer.\n");
         return;
     }
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     d3d12_command_list_track_query_heap(list, query_heap);
 
@@ -13772,6 +13809,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         FIXME("Count buffers not supported by Vulkan implementation.\n");
         return;
     }
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH * max_command_count;
 
     unrolled_stride = signature_desc->ByteStride;
 
@@ -14796,6 +14835,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "ResolveSubresourceRegion called within a render pass.\n");
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
+
     dst_resource = impl_from_ID3D12Resource(dst);
     src_resource = impl_from_ID3D12Resource(src);
 
@@ -15274,6 +15315,8 @@ static void d3d12_command_list_add_render_pass_resolve(struct d3d12_command_list
     bool merged_regions;
     unsigned int i, j;
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
+
     vkd3d_array_reserve((void **)&list->rtv_resolves, &list->rtv_resolve_size,
             list->rtv_resolve_count + 1, sizeof(*list->rtv_resolves));
 
@@ -15532,6 +15575,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_com
     if (!meta_command_object->init_proc)
         return;
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
+
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_invalidate_all_state(list);
@@ -15547,6 +15592,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_comman
 
     TRACE("iface %p, meta_command %p, parameter_data %p, parameter_size %lu.\n",
             iface, meta_command, parameter_data, parameter_size);
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
@@ -15678,6 +15725,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         WARN("Acceleration structure is not supported. Calling this is invalid.\n");
         return;
     }
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     /* Do not batch TLAS and BLAS builds into the same command, since doing so
      * is disallowed if there are data dependencies between the builds. This
@@ -15858,6 +15907,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
         return;
     }
 
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
+
     d3d12_command_list_end_current_render_pass(list, true);
     vkd3d_acceleration_structure_emit_postbuild_info(list,
             desc, num_acceleration_structures, src_data);
@@ -15882,6 +15933,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
         WARN("Acceleration structure is not supported. Calling this is invalid.\n");
         return;
     }
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
@@ -15965,6 +16018,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
         WARN("Ray tracing is not supported. Calling this is invalid.\n");
         return;
     }
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     raygen_table.deviceAddress = desc->RayGenerationShaderRecord.StartAddress;
     raygen_table.size = desc->RayGenerationShaderRecord.SizeInBytes;
@@ -16122,6 +16177,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
         WARN("Failed to begin render pass, ignoring draw call.\n");
         return;
     }
+
+    list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     if (!list->predication.fallback_enabled)
         VK_CALL(vkCmdDrawMeshTasksEXT(list->cmd.vk_command_buffer, x, y, z));
@@ -17227,6 +17284,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int *breadcrumb_indices;
 #endif
+    uint32_t *cmd_cost;
     unsigned int iter;
     unsigned int i, j;
     HRESULT hr;
@@ -17279,6 +17337,12 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         return;
     }
 
+    if (!(cmd_cost = vkd3d_calloc(num_command_buffers, sizeof(*cmd_cost))))
+    {
+        ERR("Failed to allocate command buffer cost array.\n");
+        return;
+    }
+
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
         breadcrumb_indices = vkd3d_malloc(sizeof(unsigned int) * command_list_count);
@@ -17317,6 +17381,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
             vkd3d_free(allocators);
             vkd3d_free(buffers);
+            vkd3d_free(cmd_cost);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
             vkd3d_free(breadcrumb_indices);
 #endif
@@ -17334,10 +17399,16 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         {
             if (cmd_list->cmd.iterations[iter].vk_init_commands)
             {
+                /* Assume high cost for DGC preprocessing, everything else is cheap enough to be ignored. */
+                cmd_cost[j] = cmd_list->cmd.iterations[iter].indirect_meta.need_preprocess_barrier
+                        ? VKD3D_COMMAND_COST_LOW : 0u;
+
                 buffer = &buffers[j++];
                 buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
                 buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_init_commands;
             }
+
+            cmd_cost[j] = cmd_list->cmd.iterations[iter].estimated_cost;
 
             buffer = &buffers[j++];
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -17375,6 +17446,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     {
         /* Append a full GPU barrier between submissions.
          * This command buffer is SIMULTANEOUS_BIT. */
+        cmd_cost[j] = 0u;
+
         buffer = &buffers[j++];
         buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
         buffer->commandBuffer = command_queue->vkd3d_queue->barrier_command_buffer;
@@ -17412,6 +17485,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     sub.type = VKD3D_SUBMISSION_EXECUTE;
     sub.execute.cmd = buffers;
+    sub.execute.cmd_cost = cmd_cost;
     sub.execute.cmd_count = num_command_buffers;
     sub.execute.command_allocators = allocators;
     sub.execute.num_command_allocators = command_list_count;
@@ -18203,7 +18277,7 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
 }
 
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
-        const VkCommandBufferSubmitInfo *cmd, UINT count,
+        const VkCommandBufferSubmitInfo *cmd, const uint32_t *cmd_cost, UINT count,
         const VkCommandBufferSubmitInfo *transition_cmd,
         const VkSemaphoreSubmitInfo *transition_semaphore,
         struct d3d12_command_allocator **command_allocators, size_t num_command_allocators,
@@ -18216,12 +18290,13 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     VkSemaphoreSubmitInfo binary_semaphore_info;
+    bool stagger_submissions, is_first, is_last;
+    uint32_t cmd_index, cmd_count, total_cost;
     VkSubmitInfo2 submit_desc[4], *submit;
-    uint32_t num_submits, split_count;
     uint64_t consumed_present_id;
-    bool stagger_submissions;
-    unsigned int i, j;
+    uint32_t num_submits;
     VkQueue vk_queue;
+    unsigned int i;
     VkResult vr;
     HRESULT hr;
 
@@ -18260,8 +18335,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
                 stagger_submissions ? "En" : "Dis", command_queue, command_queue->vkd3d_queue->vk_family_index);
     }
 
-    split_count = stagger_submissions ? count : 1;
-
     memset(submit_desc, 0, sizeof(submit_desc));
     num_submits = 0;
 
@@ -18283,40 +18356,65 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         submit->pCommandBufferInfos = transition_cmd;
     }
 
-    for (j = 0; j < split_count; j++)
+    cmd_index = 0;
+
+    while (cmd_index < count)
     {
+        is_first = cmd_index == 0;
+
         memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
         signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         signal_semaphore_info.semaphore = vkd3d_queue->submission_timeline;
         signal_semaphore_info.value = ++vkd3d_queue->submission_timeline_count;
         signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-        submit = &submit_desc[num_submits++];
-        submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-
         if (stagger_submissions)
         {
-            submit->commandBufferInfoCount = 1;
-            submit->pCommandBufferInfos = &cmd[j];
+            /* Group up command buffers in such a way that any submission at least reaches the
+             * minimum cost threshold in order to reduce delays from CPU<->GPU round-trips. */
+            total_cost = cmd_cost[cmd_index];
+            cmd_count = 1;
+
+            while (cmd_index + cmd_count < count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD)
+            {
+                total_cost += cmd_cost[cmd_index + cmd_count];
+                cmd_count++;
+            }
+
+            /* If all remaining command buffers in the set are low cost, add them as well. */
+            total_cost = 0;
+
+            for (i = cmd_index + cmd_count; i < count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD; i++)
+                total_cost += cmd_cost[i];
+
+            if (total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD)
+                cmd_count = count - cmd_index;
         }
         else
         {
-            submit->commandBufferInfoCount = count;
-            submit->pCommandBufferInfos = cmd;
+            /* Submit everything at once */
+            cmd_count = count;
         }
 
+        submit = &submit_desc[num_submits++];
+        submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit->commandBufferInfoCount = cmd_count;
+        submit->pCommandBufferInfos = &cmd[cmd_index];
         submit->signalSemaphoreInfoCount = 1;
         submit->pSignalSemaphoreInfos = &signal_semaphore_info;
 
-        if (transition_cmd->commandBuffer && !j)
+        if (transition_cmd->commandBuffer && is_first)
         {
             submit->waitSemaphoreInfoCount = 1;
             submit->pWaitSemaphoreInfos = transition_semaphore;
         }
 
+        cmd_index += cmd_count;
+        is_last = cmd_index == count;
+
         /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
          * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives more easily. */
-        if (!command_queue->vkd3d_queue->barrier_command_buffer && j + 1 == split_count)
+        if (!command_queue->vkd3d_queue->barrier_command_buffer && is_last)
         {
             binary_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
             binary_semaphore_info.pNext = NULL;
@@ -18872,6 +18970,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     &transition_semaphore.value);
 
             d3d12_command_queue_execute(queue, submission.execute.cmd,
+                    submission.execute.cmd_cost,
                     submission.execute.cmd_count,
                     &transition_cmd, &transition_semaphore,
                     submission.execute.command_allocators,
@@ -18886,6 +18985,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
              * The atomic counters are decremented when the submission is observed to be freed.
              * On error, the counters are freed early, so there is no risk of leak. */
             vkd3d_free(submission.execute.cmd);
+            vkd3d_free(submission.execute.cmd_cost);
             vkd3d_free(submission.execute.transitions);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
             for (i = 0; i < submission.execute.breadcrumb_indices_count; i++)
