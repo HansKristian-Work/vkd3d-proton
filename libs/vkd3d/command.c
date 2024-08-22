@@ -290,13 +290,11 @@ void vkd3d_queue_release(struct vkd3d_queue *queue)
     pthread_mutex_unlock(&queue->mutex);
 }
 
-void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, VkSemaphore semaphore,
+static void vkd3d_queue_add_wait_locked(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, VkSemaphore semaphore,
         uint64_t value, uint64_t virtual_value)
 {
     VkSemaphoreSubmitInfo *wait_semaphore;
     uint32_t i;
-
-    pthread_mutex_lock(&queue->mutex);
 
     for (i = 0; i < queue->wait_count; i++)
     {
@@ -304,7 +302,6 @@ void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, 
         {
             if (queue->wait_semaphores[i].value < value)
                 queue->wait_semaphores[i].value = value;
-            pthread_mutex_unlock(&queue->mutex);
             return;
         }
     }
@@ -315,7 +312,6 @@ void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, 
             queue->wait_count + 1, sizeof(*queue->wait_fences)))
     {
         ERR("Failed to add semaphore wait to queue.\n");
-        pthread_mutex_unlock(&queue->mutex);
         return;
     }
 
@@ -325,7 +321,6 @@ void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, 
                 queue->wait_count + 1, sizeof(*queue->wait_values_virtual)))
         {
             ERR("Failed to add semaphore wait to queue.\n");
-            pthread_mutex_unlock(&queue->mutex);
             return;
         }
     }
@@ -342,10 +337,17 @@ void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, 
     if (queue->need_virtual_wait_values)
         queue->wait_values_virtual[queue->wait_count] = virtual_value;
     queue->wait_count += 1;
-    pthread_mutex_unlock(&queue->mutex);
 
     if (waiter)
         d3d12_fence_iface_inc_ref(waiter);
+}
+
+void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, VkSemaphore semaphore,
+        uint64_t value, uint64_t virtual_value)
+{
+    pthread_mutex_lock(&queue->mutex);
+    vkd3d_queue_add_wait_locked(queue, waiter, semaphore, value, virtual_value);
+    pthread_mutex_unlock(&queue->mutex);
 }
 
 static void vkd3d_queue_reset_wait_count_locked(struct vkd3d_queue *vkd3d_queue)
@@ -17606,11 +17608,42 @@ static CONST_VTBL struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
     d3d12_command_queue_GetDesc,
 };
 
+static bool d3d12_command_queue_needs_cpu_waits_locked(struct d3d12_command_queue *command_queue)
+{
+    uint64_t current_time_ns, queue_submit_time_ns;
+    unsigned int i;
+
+    if (command_queue->vkd3d_queue->command_queue_count == 1)
+        return false;
+
+    current_time_ns = vkd3d_get_current_time_ns();
+
+    for (i = 0; i < command_queue->vkd3d_queue->command_queue_count; i++)
+    {
+        struct d3d12_command_queue *q = command_queue->vkd3d_queue->command_queues[i];
+
+        if (q == command_queue)
+            continue;
+
+        /* If any other virtual queue is actively doing submissions, resolve waits
+         * on the CPU in order to avoid delays caused by false dependencies. */
+        queue_submit_time_ns = vkd3d_atomic_uint64_load_explicit(&q->last_submission_time_ns, vkd3d_memory_order_relaxed);
+
+        if (queue_submit_time_ns + VKD3D_QUEUE_INACTIVE_THRESHOLD_NS > current_time_ns)
+            return true;
+    }
+
+    return false;
+}
+
 static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         struct d3d12_fence *fence, UINT64 value)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
+    VkSemaphoreWaitInfo wait_info;
     struct vkd3d_queue *queue;
     uint64_t wait_count;
+    VkResult vr;
 
     queue = command_queue->vkd3d_queue;
 
@@ -17637,11 +17670,31 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
 
     d3d12_fence_unlock(fence);
 
-    /* Defer the wait to next submit.
-     * This is also important, since we have to hold on to a private reference on the fence
-     * until we have observed the wait to actually complete. */
     assert(fence->timeline_semaphore);
-    vkd3d_queue_add_wait(command_queue->vkd3d_queue, &fence->ID3D12Fence_iface, fence->timeline_semaphore, wait_count, value);
+
+    pthread_mutex_lock(&queue->mutex);
+
+    if (d3d12_command_queue_needs_cpu_waits_locked(command_queue))
+    {
+        pthread_mutex_unlock(&queue->mutex);
+
+        memset(&wait_info, 0, sizeof(wait_info));
+        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        wait_info.semaphoreCount = 1;
+        wait_info.pSemaphores = &fence->timeline_semaphore;
+        wait_info.pValues = &wait_count;
+
+        if ((vr = VK_CALL(vkWaitSemaphores(command_queue->device->vk_device, &wait_info, UINT64_MAX))))
+            ERR("Failed to wait for timeline semaphore, vr %d.\n", vr);
+    }
+    else
+    {
+        /* Defer the wait to next submit.
+         * This is also important, since we have to hold on to a private reference on the fence
+         * until we have observed the wait to actually complete. */
+        vkd3d_queue_add_wait_locked(command_queue->vkd3d_queue, &fence->ID3D12Fence_iface, fence->timeline_semaphore, wait_count, value);
+        pthread_mutex_unlock(&queue->mutex);
+    }
 }
 
 static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue,
