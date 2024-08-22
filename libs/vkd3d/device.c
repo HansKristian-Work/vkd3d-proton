@@ -710,6 +710,17 @@ static const struct vkd3d_shader_quirk_info ac_mirage_quirks = {
     ac_mirage_hashes, ARRAY_SIZE(ac_mirage_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash ffxvi_hashes[] = {
+    /* On RADV 24.1.6 RDNA3, we seem to be plagued with a compiler bug/hardware quirk.
+     * It works on main, but only by chance.
+     * https://gitlab.freedesktop.org/mesa/mesa/-/issues/11738. */
+    { 0xa98606e01cdd5924, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
+};
+
+static const struct vkd3d_shader_quirk_info ffxvi_quirks = {
+    ffxvi_hashes, ARRAY_SIZE(ffxvi_hashes),
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -734,6 +745,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* AC: Mirage */
     { VKD3D_STRING_COMPARE_EXACT, "ACMirage.exe", &ac_mirage_quirks },
     { VKD3D_STRING_COMPARE_EXACT, "ACMirage_plus.exe", &ac_mirage_quirks },
+    /* FF XVI. */
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", &ffxvi_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
