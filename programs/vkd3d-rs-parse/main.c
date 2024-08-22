@@ -208,7 +208,7 @@ static void dump_root_signature(const struct vkd3d_root_signature_desc2 *rs)
         printf("  AddrV: #%x\n", sampler->address_v);
         printf("  AddrW: #%x\n", sampler->address_w);
         printf("  MipLODBias: %f\n", sampler->mip_lod_bias);
-        printf("  MaxAniso: %f\n", sampler->max_anisotropy);
+        printf("  MaxAniso: %u\n", sampler->max_anisotropy);
         printf("  Comparison: #%x\n", sampler->comparison_func);
         printf("  StaticBorderColor: #%x\n", sampler->border_color);
         printf("  MinLOD: %f\n", sampler->min_lod);
