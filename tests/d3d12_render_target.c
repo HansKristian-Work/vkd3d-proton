@@ -870,7 +870,7 @@ void test_renderpass_validation(void)
     }
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void**)&allocator);
-    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
         allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
@@ -1152,7 +1152,7 @@ void test_renderpass_rendering(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.SampleDesc.Count = 4;
@@ -1160,7 +1160,7 @@ void test_renderpass_rendering(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.DepthOrArraySize = 1;
@@ -1171,7 +1171,7 @@ void test_renderpass_rendering(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
             NULL, &IID_ID3D12Resource, (void**)&ds);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 8);
     dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);

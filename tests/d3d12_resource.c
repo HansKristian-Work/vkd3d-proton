@@ -1963,7 +1963,7 @@ void test_suballocate_small_textures_size(void)
                             (unsigned int)info_small.SizeInBytes, expected_size);
                     bug_if(is_old_radv_gpu || is_bugged_thin)
                     ok(info_normal.SizeInBytes <= align(expected_size, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT),
-                            "Resource size %u is larger than expected %u.\n",
+                            "Resource size %u is larger than expected %zu.\n",
                             (unsigned int)info_normal.SizeInBytes,
                             align(expected_size, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT));
 
@@ -3148,7 +3148,7 @@ void test_placed_image_alignment(void)
     resource_desc.SampleDesc.Count = 1;
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     alloc_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &resource_desc);
-    ok(alloc_info.Alignment <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Requirement alignment %u is > 64KiB.\n", alloc_info.Alignment);
+    ok(alloc_info.Alignment <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Requirement alignment %"PRIu64" is > 64KiB.\n", alloc_info.Alignment);
 
     memset(&heap_desc, 0, sizeof(heap_desc));
     heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -4099,7 +4099,7 @@ void test_planar_video_formats(void)
 
                 init_pipeline_state_desc(&graphics_pso_desc, context.root_signature, plane->view_format, NULL, &ps_copy_simple_dxbc, NULL);
                 hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &graphics_pso_desc, &IID_ID3D12PipelineState, (void**)&graphics_psos[j]);
-                ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+                ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
             }
 
             /* Test reading image data via SRV */

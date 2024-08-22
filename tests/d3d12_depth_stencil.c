@@ -2298,7 +2298,7 @@ void test_depth_bias_behaviour(void)
     /* Render reference image with no depth bias and no depth test enabled */
     init_pipeline_state_desc(&pso_desc, rs, DXGI_FORMAT_R32_FLOAT, &vs_depth_bias_behaviour_dxbc, &ps_depth_bias_behaviour_dxbc, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n");
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_no_bias, FALSE, NULL);
@@ -2346,7 +2346,7 @@ void test_depth_bias_behaviour(void)
             }
 
             hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-            ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n");
+            ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", hr);
 
             ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv, FALSE, tests[i].dsv_handle);
             ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv, black, 0, NULL);
@@ -2541,7 +2541,7 @@ void test_depth_bias_formats(void)
             }
 
             hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
-            ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+            ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
 
             memcpy(&clear_depth, &tests[i].depth_clear, sizeof(clear_depth));
 

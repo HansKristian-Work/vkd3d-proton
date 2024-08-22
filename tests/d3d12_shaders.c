@@ -814,7 +814,7 @@ void test_shader_instructions_dxil(void)
             else if (tests[i].output_data[j] == UINT32_MAX)
             {
                 todo_if(tests[i].is_todo)
-                ok((value & 0x7fff) > 0x7c00, "Value %u mismatch: Expected NaN, got %x.\n", value);
+                ok((value & 0x7fff) > 0x7c00, "Value %u mismatch: Expected NaN, got %x.\n", j, value);
             }
             else
             {

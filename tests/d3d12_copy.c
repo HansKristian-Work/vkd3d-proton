@@ -1376,12 +1376,12 @@ void test_multisample_resolve_formats(void)
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     hr = create_root_signature(context.device, &rs_desc, &rs_setup_render_targets);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     rs_desc.NumParameters = 1;
     rs_desc.pParameters = &rs_param;
     hr = create_root_signature(context.device, &rs_desc, &rs_setup_stencil);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     init_pipeline_state_desc(&pipeline_desc, rs_setup_render_targets,
             DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_rt_dxbc, NULL);
@@ -1397,7 +1397,7 @@ void test_multisample_resolve_formats(void)
     pipeline_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pipeline_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pipeline_desc, &IID_ID3D12PipelineState, (void**)&pso_setup_render_targets);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
 
     init_pipeline_state_desc(&pipeline_desc, rs_setup_stencil,
             DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_stencil_dxbc, NULL);
@@ -1411,7 +1411,7 @@ void test_multisample_resolve_formats(void)
     pipeline_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
     pipeline_desc.DepthStencilState.BackFace = pipeline_desc.DepthStencilState.FrontFace;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pipeline_desc, &IID_ID3D12PipelineState, (void**)&pso_setup_stencil);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -1430,15 +1430,15 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_f32_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_u32_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_s32_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.SampleDesc.Count = 1;
@@ -1446,26 +1446,26 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_f32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_u32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_s32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
 
     /* FIXME we should not require UAV usage */
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
             NULL, &IID_ID3D12Resource, (void**)&image_u32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
             NULL, &IID_ID3D12Resource, (void**)&image_s32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
@@ -1475,7 +1475,7 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
             NULL, &IID_ID3D12Resource, (void**)&ds_ms);
-    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.Format = DXGI_FORMAT_R32G8X24_TYPELESS;
@@ -1485,7 +1485,7 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
             NULL, &IID_ID3D12Resource, (void**)&ds);
-    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
 
     memset(&resource_desc, 0, sizeof(resource_desc));
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -1500,7 +1500,7 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
             NULL, &IID_ID3D12Resource, (void**)&combined_image);
-    ok(hr == S_OK, "Failed to create combined image, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create combined image, hr %#x.\n", hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 6);
     dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 2);
@@ -1898,7 +1898,7 @@ void test_multisample_resolve_strongly_typed(void)
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     init_pipeline_state_desc(&pso_desc, context.root_signature,
             DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_simple_dxbc, NULL);
@@ -1965,7 +1965,7 @@ void test_multisample_resolve_strongly_typed(void)
         pso_desc.RTVFormats[0] = tests[i].src_format;
 
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
-        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, src_rtv, green, 0, NULL);
         ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, dst_rtv, red, 0, NULL);
