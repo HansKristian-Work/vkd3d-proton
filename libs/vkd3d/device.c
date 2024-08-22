@@ -4788,8 +4788,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             }
 
             TRACE("input_data_size = %zu, input_data = %p, output_data_size = %zu, output_data = %p.\n",
-                    data->QueryInputDataSizeInBytes, data->pQueryInputData, data->QueryOutputDataSizeInBytes,
-                    data->pQueryOutputData);
+                    (size_t)data->QueryInputDataSizeInBytes, data->pQueryInputData,
+                    (size_t)data->QueryOutputDataSizeInBytes, data->pQueryOutputData);
 
             if ((data->QueryInputDataSizeInBytes && !data->pQueryInputData) ||
                     (data->QueryOutputDataSizeInBytes && !data->pQueryOutputData))
@@ -4807,7 +4807,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 if (data->QueryInputDataSizeInBytes < sizeof(*in_args) || data->QueryOutputDataSizeInBytes < sizeof(*out_args))
                 {
                     FIXME("Unexpected input/output sizes for DirectStorage meta command: %zu, %zu.\n",
-                            data->QueryInputDataSizeInBytes, data->QueryOutputDataSizeInBytes);
+                            (size_t)data->QueryInputDataSizeInBytes, (size_t)data->QueryOutputDataSizeInBytes);
                     return E_INVALIDARG;
                 }
 
