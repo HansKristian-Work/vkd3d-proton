@@ -1349,7 +1349,8 @@ static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chai
      * Only attempt this if the application is asking for an "unusual" priority, since this
      * implies some out of order shenanigans. */
     family_info = chain->queue->device->queue_families[VKD3D_QUEUE_FAMILY_COMPUTE];
-    if (chain->queue->device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS]->queue_count == 1 &&
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_ASYNC_PRESENT) &&
+            chain->queue->device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS]->queue_count == 1 &&
             family_info->vk_family_index != chain->queue->vkd3d_queue->vk_family_index &&
             VK_CALL(vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device,
                     family_info->vk_family_index, chain->vk_surface, &supported)) == VK_SUCCESS && supported)
