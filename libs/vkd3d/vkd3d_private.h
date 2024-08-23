@@ -917,14 +917,15 @@ static inline struct d3d12_heap *impl_from_ID3D12Heap(ID3D12Heap *iface)
 
 enum vkd3d_resource_flag
 {
-    VKD3D_RESOURCE_COMMITTED              = (1u << 0),
-    VKD3D_RESOURCE_PLACED                 = (1u << 1),
-    VKD3D_RESOURCE_RESERVED               = (1u << 2),
-    VKD3D_RESOURCE_ALLOCATION             = (1u << 3),
-    VKD3D_RESOURCE_LINEAR_STAGING_COPY    = (1u << 4),
-    VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
-    VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
-    VKD3D_RESOURCE_GENERAL_LAYOUT         = (1u << 7),
+    VKD3D_RESOURCE_COMMITTED                = (1u << 0),
+    VKD3D_RESOURCE_PLACED                   = (1u << 1),
+    VKD3D_RESOURCE_RESERVED                 = (1u << 2),
+    VKD3D_RESOURCE_ALLOCATION               = (1u << 3),
+    VKD3D_RESOURCE_LINEAR_STAGING_COPY      = (1u << 4),
+    VKD3D_RESOURCE_EXTERNAL                 = (1u << 5),
+    VKD3D_RESOURCE_ACCELERATION_STRUCTURE   = (1u << 6),
+    VKD3D_RESOURCE_GENERAL_LAYOUT           = (1u << 7),
+    VKD3D_RESOURCE_SWAP_CHAIN_IMPLICIT_SYNC = (1u << 8),
 };
 
 struct d3d12_sparse_image_region
@@ -1008,6 +1009,7 @@ struct d3d12_resource
     struct d3d12_heap *heap;
 
     uint32_t flags;
+    uint32_t swap_chain_implicit_sync_index;
 
     /* To keep track of initial layout. */
     VkImageLayout common_layout;
@@ -2900,6 +2902,8 @@ struct d3d12_command_list
     size_t init_transitions_size;
     size_t init_transitions_count;
 
+    uint32_t implicit_sync_mask;
+
     struct vkd3d_query_range *query_ranges;
     size_t query_ranges_size;
     size_t query_ranges_count;
@@ -3115,6 +3119,10 @@ struct d3d12_command_queue_submission_signal
     UINT64 value;
 };
 
+/* Assume BufferCount is <= 4, otherwise there might be over-sync.
+ * Increasing this just means creating a lot of redundant timeline semaphores. */
+#define VKD3D_IMPLICIT_SYNC_NUM_TIMELINES 4
+
 struct d3d12_command_queue_submission_execute
 {
     VkCommandBufferSubmitInfo *cmd;
@@ -3125,6 +3133,8 @@ struct d3d12_command_queue_submission_execute
 
     struct vkd3d_initial_transition *transitions;
     size_t transition_count;
+
+    uint32_t implicit_sync_mask;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* Replays commands in submission order for heavy debug. */
@@ -4547,7 +4557,19 @@ struct vkd3d_device_swapchain_info
     bool mode;
     bool boost;
     uint32_t minimum_us;
+    spinlock_t spinlock;
+
+    VkSemaphore implicit_sync_timeline[VKD3D_IMPLICIT_SYNC_NUM_TIMELINES];
+    uint64_t implicit_sync_timeline_values[VKD3D_IMPLICIT_SYNC_NUM_TIMELINES];
 };
+
+HRESULT vkd3d_device_swapchain_info_init(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device);
+void vkd3d_device_swapchain_info_cleanup(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device);
+void vkd3d_device_swapchain_patch_implicit_sync_semaphores(struct vkd3d_device_swapchain_info *info,
+        VkSubmitInfo2 *wait_submit, VkSubmitInfo2 *signal_submit,
+        VkSemaphoreSubmitInfo *wait_semaphores,
+        VkSemaphoreSubmitInfo *signal_semaphores,
+        uint32_t implicit_sync_mask);
 
 #define VKD3D_LOW_LATENCY_FRAME_ID_STRIDE 10000
 struct vkd3d_device_frame_markers
@@ -4601,6 +4623,9 @@ enum vkd3d_queue_timeline_trace_state_type
 
     /* Time spent blocking in LowLatencySleep in user thread. */
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_LOW_LATENCY_SLEEP,
+
+    /* Time spent sleeping in frame limiter. */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_DELAY_SLEEP,
 
     /* Reset() and Close() are useful instant events to see when command recording is happening and
      * which threads do so. */
@@ -4670,6 +4695,8 @@ struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_present_wait(struct vkd3d_queue_timeline_trace *trace,
         uint64_t present_id);
 struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_delay_sleep(struct vkd3d_queue_timeline_trace *trace);
+struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_present_block(struct vkd3d_queue_timeline_trace *trace,
         uint64_t present_id);
 struct vkd3d_queue_timeline_trace_cookie
@@ -4695,6 +4722,8 @@ void vkd3d_queue_timeline_trace_complete_present_wait(struct vkd3d_queue_timelin
 void vkd3d_queue_timeline_trace_complete_present_block(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 void vkd3d_queue_timeline_trace_complete_low_latency_sleep(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_complete_delay_sleep(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 void vkd3d_queue_timeline_trace_close_command_list(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
@@ -4800,7 +4829,6 @@ struct d3d12_device
 
     pthread_mutex_t mutex;
     pthread_mutex_t global_submission_mutex;
-    spinlock_t low_latency_swapchain_spinlock;
 
     VkPhysicalDeviceMemoryProperties memory_properties;
 
@@ -5092,7 +5120,7 @@ bool d3d12_device_supports_required_subgroup_size_for_stage(
 
 static inline void d3d12_device_register_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
 {
-    spinlock_acquire(&device->low_latency_swapchain_spinlock);
+    spinlock_acquire(&device->swapchain_info.spinlock);
 
     if (!device->swapchain_info.low_latency_swapchain && device->swapchain_info.swapchain_count == 0)
     {
@@ -5109,12 +5137,12 @@ static inline void d3d12_device_register_swapchain(struct d3d12_device *device, 
 
     device->swapchain_info.swapchain_count++;
 
-    spinlock_release(&device->low_latency_swapchain_spinlock);
+    spinlock_release(&device->swapchain_info.spinlock);
 }
 
 static inline void d3d12_device_remove_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
 {
-    spinlock_acquire(&device->low_latency_swapchain_spinlock);
+    spinlock_acquire(&device->swapchain_info.spinlock);
 
     if (device->swapchain_info.low_latency_swapchain == chain)
     {
@@ -5124,7 +5152,7 @@ static inline void d3d12_device_remove_swapchain(struct d3d12_device *device, st
 
     device->swapchain_info.swapchain_count--;
 
-    spinlock_release(&device->low_latency_swapchain_spinlock);
+    spinlock_release(&device->swapchain_info.spinlock);
 }
 
 /* ID3DBlob */

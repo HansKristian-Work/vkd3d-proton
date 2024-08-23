@@ -252,6 +252,12 @@ void vkd3d_queue_timeline_trace_complete_low_latency_sleep(struct vkd3d_queue_ti
     vkd3d_queue_timeline_trace_complete_blocking(trace, cookie, "ID3DLowLatencyDevice::LatencySleep()");
 }
 
+void vkd3d_queue_timeline_trace_complete_delay_sleep(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie)
+{
+    vkd3d_queue_timeline_trace_complete_blocking(trace, cookie, "Delay Sleep");
+}
+
 struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_execute(struct vkd3d_queue_timeline_trace *trace,
         ID3D12CommandList * const *command_lists, unsigned int count)
@@ -437,6 +443,12 @@ vkd3d_queue_timeline_trace_register_low_latency_sleep(struct vkd3d_queue_timelin
     char str[128];
     snprintf(str, sizeof(str), "LATENCY SLEEP (id = %"PRIu64")", present_id);
     return vkd3d_queue_timeline_trace_register_generic_op(trace, VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_LOW_LATENCY_SLEEP, str);
+}
+
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_delay_sleep(struct vkd3d_queue_timeline_trace *trace)
+{
+    return vkd3d_queue_timeline_trace_register_generic_op(trace, VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_DELAY_SLEEP, "DELAY SLEEP");
 }
 
 static void vkd3d_queue_timeline_trace_flush_instantaneous(struct vkd3d_queue_timeline_trace *trace,

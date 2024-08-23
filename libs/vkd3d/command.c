@@ -5076,6 +5076,15 @@ static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *l
         transition.resource.perform_initial_transition = perform_initial_transition;
         d3d12_command_list_add_transition(list, &transition);
     }
+
+    /* We're guaranteed to observe first use and last use of a swapchain image.
+     * COMMON/PRESENT state must be transitioned out of, and swapchain image must transition into PRESENT.
+     * We also track any case with rendering. UAVs are banned, so the only potential case is sampling bindless
+     * straight out of COMMON, but it's unclear if that is legal in D3D12, since DXGI swapchains have implicit
+     * sync semantics to begin with. It would also be a moot scenario from a sync PoV, since it would be read-after-read,
+     * so there is no hazard to worry about. */
+    if (resource->flags & VKD3D_RESOURCE_SWAP_CHAIN_IMPLICIT_SYNC)
+        list->implicit_sync_mask |= 1u << resource->swap_chain_implicit_sync_index;
 }
 
 static void d3d12_command_list_track_query_heap(struct d3d12_command_list *list,
@@ -5674,6 +5683,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
     list->submit_allocator = NULL;
+    list->implicit_sync_mask = 0;
 
     d3d12_command_list_clear_rtas_batch(list);
 }
@@ -17292,6 +17302,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     sub.execute.debug_capture = false;
     sub.execute.split_submission = false;
+    sub.execute.implicit_sync_mask = 0;
 
     num_transitions = 0;
 
@@ -17354,6 +17365,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         {
             sub.execute.split_submission = true;
         }
+
+        sub.execute.implicit_sync_mask |= cmd_list->implicit_sync_mask;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
         if (breadcrumb_indices)
@@ -17705,9 +17718,12 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     VkSemaphoreSubmitInfo signal_semaphore_info;
     struct vkd3d_queue *vkd3d_queue;
     struct d3d12_device *device;
+    VkSemaphoreSignalInfo sig;
     VkSubmitInfo2 submit_info;
+    uint64_t completed_value;
     uint64_t physical_value;
     uint64_t signal_value;
+    bool early_signal;
     VkQueue vk_queue;
     VkResult vr;
     HRESULT hr;
@@ -17744,7 +17760,25 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
         return;
     }
 
-    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    early_signal = false;
+
+    /* If there is no meaningful work in the queue, there's no reason to submit anything,
+     * just joink the timeline forward.
+     * We want to ignore any incidental work submitted to the queue which is outside the scope of D3D12,
+     * e.g. swapchain blits, so we cannot rely on driver eliding these submissions. */
+    if (VK_CALL(vkGetSemaphoreCounterValue(command_queue->device->vk_device,
+            vkd3d_queue->submission_timeline, &completed_value)) == VK_SUCCESS &&
+            completed_value == vkd3d_queue->submission_timeline_count)
+    {
+        sig.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
+        sig.pNext = NULL;
+        sig.semaphore = signal_semaphore_info.semaphore;
+        sig.value = signal_semaphore_info.value;
+        vr = VK_CALL(vkSignalSemaphore(command_queue->device->vk_device, &sig));
+        early_signal = true;
+    }
+    else
+        vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
 
     if (vr == VK_SUCCESS)
         d3d12_fence_update_pending_value_locked(fence);
@@ -17760,13 +17794,21 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
 
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
-    cookie = vkd3d_queue_timeline_trace_register_signal(&command_queue->device->queue_timeline_trace,
-            &fence->ID3D12Fence_iface, value);
-
-    if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence->ID3D12Fence_iface,
-            fence->timeline_semaphore, physical_value, true, NULL, 0, &cookie)))
+    if (early_signal)
     {
-        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", hr);
+        if (FAILED(hr = d3d12_fence_signal(fence, &command_queue->fence_worker, physical_value)))
+            ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
+    }
+    else
+    {
+        cookie = vkd3d_queue_timeline_trace_register_signal(&command_queue->device->queue_timeline_trace,
+                &fence->ID3D12Fence_iface, value);
+
+        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence->ID3D12Fence_iface,
+                fence->timeline_semaphore, physical_value, true, NULL, 0, &cookie)))
+        {
+            ERR("Failed to enqueue timeline semaphore, hr #%x.\n", hr);
+        }
     }
 
     /* We should probably trigger DEVICE_REMOVED if we hit any errors in the submission thread. */
@@ -18208,15 +18250,19 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         const VkSemaphoreSubmitInfo *transition_semaphore,
         struct d3d12_command_allocator **command_allocators, size_t num_command_allocators,
         struct vkd3d_queue_timeline_trace_cookie timeline_cookie,
-        uint64_t low_latency_frame_id, bool debug_capture, bool split_submissions)
+        uint64_t low_latency_frame_id, bool debug_capture, bool split_submissions,
+        uint32_t implicit_sync_mask)
 {
+    VkSemaphoreSubmitInfo implicit_sync_signal_info[VKD3D_IMPLICIT_SYNC_NUM_TIMELINES + 1];
+    VkSemaphoreSubmitInfo implicit_sync_wait_info[VKD3D_IMPLICIT_SYNC_NUM_TIMELINES + 1];
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
     VkLatencySubmissionPresentIdNV latency_submit_present_info;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     VkSemaphoreSubmitInfo binary_semaphore_info;
-    VkSubmitInfo2 submit_desc[4], *submit;
+    VkSubmitInfo2 submit_desc[5], *submit;
+    VkSubmitInfo2 implicit_sync_signal;
     uint32_t num_submits, split_count;
     uint64_t consumed_present_id;
     bool stagger_submissions;
@@ -18314,6 +18360,28 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
             submit->pWaitSemaphoreInfos = transition_semaphore;
         }
 
+        if (implicit_sync_mask)
+        {
+            if (j == 0)
+            {
+                memset(&implicit_sync_signal, 0, sizeof(implicit_sync_signal));
+                implicit_sync_signal.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+
+                /* We hold the queue lock while this called until we have made the first submission,
+                 * so once we have committed a wait/signal value, we're guaranteed forward progress. */
+                vkd3d_device_swapchain_patch_implicit_sync_semaphores(&command_queue->device->swapchain_info,
+                        submit, &implicit_sync_signal,
+                        implicit_sync_wait_info, implicit_sync_signal_info,
+                        implicit_sync_mask);
+            }
+
+            if (j + 1 == split_count)
+            {
+                submit = &submit_desc[num_submits++];
+                *submit = implicit_sync_signal;
+            }
+        }
+
         /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
          * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives more easily. */
         if (!command_queue->vkd3d_queue->barrier_command_buffer && j + 1 == split_count)
@@ -18338,11 +18406,11 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         if (command_queue->device->vk_info.NV_low_latency2)
         {
-            spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
+            spinlock_acquire(&command_queue->device->swapchain_info.spinlock);
             if ((low_latency_swapchain = command_queue->device->swapchain_info.low_latency_swapchain))
                 dxgi_vk_swap_chain_incref(low_latency_swapchain);
             consumed_present_id = command_queue->device->frame_markers.consumed_present_id;
-            spinlock_release(&command_queue->device->low_latency_swapchain_spinlock);
+            spinlock_release(&command_queue->device->swapchain_info.spinlock);
 
             /* If we have submitted a swapchain blit to Vulkan,
              * it is not possible for a present ID to keep contributing to the frame's completion.
@@ -18879,7 +18947,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     submission.execute.timeline_cookie,
                     submission.execute.low_latency_frame_id,
                     submission.execute.debug_capture,
-                    submission.execute.split_submission);
+                    submission.execute.split_submission,
+                    submission.execute.implicit_sync_mask);
 
             /* command_queue_execute takes ownership of the
              * outstanding_submission_counters and queue_timeline_indices allocations.

@@ -953,6 +953,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"app_debug_marker_only", VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY},
     {"small_vram_rebar", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR},
     {"staggered_submit", VKD3D_CONFIG_FLAG_STAGGERED_SUBMIT},
+    {"async_present", VKD3D_CONFIG_FLAG_ASYNC_PRESENT},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -3551,6 +3552,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
 #endif
+    vkd3d_device_swapchain_info_cleanup(&device->swapchain_info, device);
     vkd3d_pipeline_library_flush_disk_cache(&device->disk_cache);
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
     vkd3d_view_map_destroy(&device->sampler_map, device);
@@ -8797,8 +8799,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         goto out_free_mutex;
     }
 
-    spinlock_init(&device->low_latency_swapchain_spinlock);
-
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
     device->ID3D12DXVKInteropDevice_iface.lpVtbl = &d3d12_dxvk_interop_device_vtbl;
     device->ID3DLowLatencyDevice_iface.lpVtbl = &d3d_low_latency_device_vtbl;
@@ -8900,6 +8900,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_pipeline_library_init_disk_cache(&device->disk_cache, device)))
         goto out_cleanup_descriptor_qa_global_info;
 
+    if (FAILED(hr = vkd3d_device_swapchain_info_init(&device->swapchain_info, device)))
+        goto out_cleanup_disk_cache;
+
     d3d12_device_replace_vtable(device);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
@@ -8909,6 +8912,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     return S_OK;
 
+out_cleanup_disk_cache:
+    vkd3d_pipeline_library_flush_disk_cache(&device->disk_cache);
 out_cleanup_descriptor_qa_global_info:
     vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
 out_cleanup_breadcrumb_tracer:
