@@ -232,6 +232,13 @@ struct dxgi_vk_swap_chain
 
     struct
     {
+        uint64_t last_timestamp_ns;
+        int64_t frame_times_us[256];
+        unsigned int count;
+    } frame_stats;
+
+    struct
+    {
         VkSurfaceFormatKHR *formats;
 		size_t formats_size;
         uint32_t format_count;
@@ -2944,6 +2951,40 @@ static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain
     vkd3d_queue_timeline_trace_complete_delay_sleep(timeline_trace, cookie);
 }
 
+static void dxgi_vk_swap_chain_update_frame_stats(struct dxgi_vk_swap_chain *chain, uint64_t end_time_ns)
+{
+    if (chain->frame_stats.last_timestamp_ns)
+    {
+        chain->frame_stats.frame_times_us[chain->frame_stats.count++] =
+                (int64_t)(end_time_ns - chain->frame_stats.last_timestamp_ns) / 1000;
+    }
+
+    chain->frame_stats.last_timestamp_ns = end_time_ns;
+
+    if (chain->frame_stats.count == ARRAY_SIZE(chain->frame_stats.frame_times_us))
+    {
+        double avg_time, avg_time_squared, variance, stddev;
+        int64_t total_time_squared = 0;
+        int64_t total_time = 0;
+        unsigned int i;
+
+        for (i = 0; i < ARRAY_SIZE(chain->frame_stats.frame_times_us); i++)
+        {
+            total_time += chain->frame_stats.frame_times_us[i];
+            total_time_squared += chain->frame_stats.frame_times_us[i] * chain->frame_stats.frame_times_us[i];
+        }
+
+        avg_time = (double)total_time / (double)ARRAY_SIZE(chain->frame_stats.frame_times_us);
+        avg_time_squared = (double)total_time_squared / (double)ARRAY_SIZE(chain->frame_stats.frame_times_us);
+        variance = avg_time_squared - avg_time * avg_time;
+        stddev = sqrt(variance);
+
+        INFO("AVG FRAME TIME: %.3f ms, stddev: %.3f ms.\n", avg_time * 1e-3, stddev * 1e-3);
+
+        chain->frame_stats.count = 0;
+    }
+}
+
 static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
 {
     struct dxgi_vk_swap_chain *chain = chain_;
@@ -2987,6 +3028,7 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         }
 
         end_frame_time_ns = vkd3d_get_current_time_ns();
+        dxgi_vk_swap_chain_update_frame_stats(chain, end_frame_time_ns);
 
         if (chain->wait_thread.supports_present_wait)
             dxgi_vk_swap_chain_delay_next_frame(chain, end_frame_time_ns);
