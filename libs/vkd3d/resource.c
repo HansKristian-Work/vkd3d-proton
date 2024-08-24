@@ -3619,6 +3619,11 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             allocate_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER |
                     VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION;
 
+            /* If image suballocation is allowed force the memory alignment to respect
+             * the device buffer image granularity to prevent resource aliasing */
+            allocate_info.memory_requirements.alignment = max(allocate_info.memory_requirements.alignment,
+                    device->device_info.properties2.properties.limits.bufferImageGranularity);
+
             /* For suballocations, we only care about being able to clear the memory,
              * not anything else. */
             allocate_info.explicit_global_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
