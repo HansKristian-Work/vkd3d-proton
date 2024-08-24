@@ -402,15 +402,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanResourceInfo
     {
         *vk_handle = (UINT64)resource_impl->res.vk_buffer;
         *buffer_offset = (UINT64)resource_impl->mem.offset;
-        *format = VK_FORMAT_UNDEFINED;
+
+        if (format)
+            *format = VK_FORMAT_UNDEFINED;
     }
     else
     {
         *vk_handle = (UINT64)resource_impl->res.vk_image;
-        if (resource_impl->format)
-            *format = resource_impl->format->vk_format;
-        else
-            *format = VK_FORMAT_UNDEFINED;
+
+        if (format)
+        {
+            if (resource_impl->format)
+                *format = resource_impl->format->vk_format;
+            else
+                *format = VK_FORMAT_UNDEFINED;
+        }
 
         *buffer_offset = 0;
     }
