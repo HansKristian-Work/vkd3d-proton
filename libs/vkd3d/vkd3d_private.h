@@ -230,6 +230,7 @@ enum vkd3d_fence_signal_mode
 {
     VKD3D_FENCE_SIGNAL_NONE,
     VKD3D_FENCE_SIGNAL_GPU_PHYSICAL,
+    VKD3D_FENCE_SIGNAL_CPU_VIRTUAL,
 };
 
 struct vkd3d_fence_wait_info
@@ -237,6 +238,7 @@ struct vkd3d_fence_wait_info
     d3d12_fence_iface *fence;
     VkSemaphore vk_semaphore;
     uint64_t vk_semaphore_value;
+    uint64_t virtual_value;
     struct d3d12_command_allocator **command_allocators;
     size_t num_command_allocators;
     enum vkd3d_fence_signal_mode signal_mode;
