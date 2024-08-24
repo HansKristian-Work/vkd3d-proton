@@ -275,10 +275,10 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 {
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
     const struct vkd3d_subresource_layout *subresource_layout;
+    VkSemaphoreSubmitInfo signal_semaphore_infos[2];
     VkImageSubresourceLayers vk_subresource_layers;
     VkCopyBufferToImageInfo2 buffer_to_image_copy;
     struct vkd3d_queue_family_info *queue_family;
-    VkSemaphoreSubmitInfo signal_semaphore_info;
     VkCommandBufferSubmitInfo cmd_buffer_info;
     VkCommandBufferBeginInfo begin_info;
     VkImageMemoryBarrier2 image_barrier;
@@ -411,18 +411,24 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     cmd_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
     cmd_buffer_info.commandBuffer = vk_cmd_buffer;
 
-    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
-    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    signal_semaphore_info.semaphore = queue->vk_semaphore;
-    signal_semaphore_info.value = queue->next_signal_value;
-    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    memset(&signal_semaphore_infos, 0, sizeof(signal_semaphore_infos));
+    signal_semaphore_infos[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_infos[0].semaphore = queue->vk_semaphore;
+    signal_semaphore_infos[0].value = queue->next_signal_value;
+    signal_semaphore_infos[0].stageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+
+    /* External submission */
+    signal_semaphore_infos[1].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_infos[1].semaphore = queue->vkd3d_queue->submission_timeline;
+    signal_semaphore_infos[1].value = ++queue->vkd3d_queue->submission_timeline_count;
+    signal_semaphore_infos[1].stageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
 
     memset(&submit_info, 0, sizeof(submit_info));
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
     submit_info.commandBufferInfoCount = 1;
     submit_info.pCommandBufferInfos = &cmd_buffer_info;
-    submit_info.signalSemaphoreInfoCount = 1;
-    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
+    submit_info.signalSemaphoreInfoCount = ARRAY_SIZE(signal_semaphore_infos);
+    submit_info.pSignalSemaphoreInfos = signal_semaphore_infos;
 
     vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     vkd3d_queue_release(queue->vkd3d_queue);
