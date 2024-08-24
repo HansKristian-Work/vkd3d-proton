@@ -2112,7 +2112,7 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkDevice vk_device = chain->queue->device->vk_device;
-    VkSemaphoreSubmitInfo signal_semaphore_info[2];
+    VkSemaphoreSubmitInfo signal_semaphore_info[3];
     VkSemaphoreCreateInfo semaphore_create_info;
     VkSemaphoreSubmitInfo wait_semaphore_info;
     VkCommandBufferAllocateInfo allocate_info;
@@ -2167,6 +2167,9 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     VK_CALL(vkEndCommandBuffer(vk_cmd));
 
     assert(chain->present.acquire_semaphore_signalled[chain->present.acquire_semaphore_index]);
+
+    vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
+
     memset(&wait_semaphore_info, 0, sizeof(wait_semaphore_info));
     wait_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     wait_semaphore_info.semaphore = chain->present.vk_acquire_semaphore[chain->present.acquire_semaphore_index];
@@ -2182,6 +2185,12 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     signal_semaphore_info[1].semaphore = chain->present.vk_internal_blit_semaphore;
     signal_semaphore_info[1].value = chain->present.internal_blit_count;
     signal_semaphore_info[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    /* External submission */
+    signal_semaphore_info[2].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info[2].semaphore = chain->queue->vkd3d_queue->submission_timeline;
+    signal_semaphore_info[2].value = ++chain->queue->vkd3d_queue->submission_timeline_count;
+    signal_semaphore_info[2].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
     memset(&cmd_buffer_info, 0, sizeof(cmd_buffer_info));
     cmd_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -2199,10 +2208,9 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     /* Internal blit semaphore must be signaled after we signal vk_release_semaphores.
      * To guarantee this, the signals must happen in different batches. */
     submit_infos[1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-    submit_infos[1].signalSemaphoreInfoCount = 1;
+    submit_infos[1].signalSemaphoreInfoCount = 2;
     submit_infos[1].pSignalSemaphoreInfos = &signal_semaphore_info[1];
 
-    vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
     vr = VK_CALL(vkQueueSubmit2(vk_queue, ARRAY_SIZE(submit_infos), submit_infos, VK_NULL_HANDLE));
     vkd3d_queue_release(chain->queue->vkd3d_queue);
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
