@@ -18299,7 +18299,7 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
     vkd3d_atomic_uint64_store_explicit(&command_queue->last_submission_time_ns,
             current_time_ns, vkd3d_memory_order_relaxed);
 
-    /* Never stagger submissions for the highest-priority active queue. */
+    /* Do not stagger submissions for the highest-priority active queue. */
     max_priority = command_queue->desc.Priority;
 
     for (i = 0; i < command_queue->vkd3d_queue->command_queue_count; i++)
@@ -18309,7 +18309,16 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
         queue_submit_time_ns = vkd3d_atomic_uint64_load_explicit(&q->last_submission_time_ns, vkd3d_memory_order_relaxed);
 
         if (queue_submit_time_ns + VKD3D_QUEUE_INACTIVE_THRESHOLD_NS > current_time_ns)
+        {
             max_priority = max(max_priority, q->desc.Priority);
+
+            /* Enable staggered submission logic if graphics and non-graphics
+             * queues are active at the same time. This should only happen on
+             * devices with one queue family, or when setting single_queue. */
+            if (q->desc.Type != command_queue->desc.Type &&
+                    (q->desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT || command_queue->desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT))
+                return true;
+        }
     }
 
     if (command_queue->desc.Priority == max_priority)
