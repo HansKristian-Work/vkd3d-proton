@@ -226,15 +226,26 @@ struct vkd3d_queue_timeline_trace_cookie
     unsigned int index;
 };
 
-struct vkd3d_waiting_fence
+enum vkd3d_fence_signal_mode
+{
+    VKD3D_FENCE_SIGNAL_NONE,
+    VKD3D_FENCE_SIGNAL_GPU_PHYSICAL,
+};
+
+struct vkd3d_fence_wait_info
 {
     d3d12_fence_iface *fence;
-    VkSemaphore submission_timeline;
-    uint64_t value;
+    VkSemaphore vk_semaphore;
+    uint64_t vk_semaphore_value;
     struct d3d12_command_allocator **command_allocators;
     size_t num_command_allocators;
+    enum vkd3d_fence_signal_mode signal_mode;
+};
+
+struct vkd3d_waiting_fence
+{
+    struct vkd3d_fence_wait_info fence_info;
     struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
-    bool signal;
 };
 
 struct vkd3d_fence_worker
@@ -286,8 +297,7 @@ struct vkd3d_fence_worker
 #define VKD3D_VA_NEXT_MASK (VKD3D_VA_NEXT_COUNT - 1)
 
 HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
-        d3d12_fence_iface *fence, VkSemaphore timeline, uint64_t value, bool signal,
-        struct d3d12_command_allocator **command_allocators, size_t num_command_allocators,
+        const struct vkd3d_fence_wait_info *fence_info,
         const struct vkd3d_queue_timeline_trace_cookie *timeline_cookie);
 
 struct vkd3d_unique_resource;

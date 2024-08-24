@@ -1928,6 +1928,7 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     struct vkd3d_queue_timeline_trace_cookie cookie;
     VkSemaphoreSubmitInfo signal_semaphore_info;
+    struct vkd3d_fence_wait_info fence_info;
     VkSubmitInfo2 submit_info;
     VkQueue vk_queue;
     VkResult vr;
@@ -1957,8 +1958,11 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
 
     if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
     {
-        vkd3d_enqueue_timeline_semaphore(&chain->queue->fence_worker, NULL, chain->present.vk_complete_semaphore,
-                present_count, false, NULL, 0, &cookie);
+        memset(&fence_info, 0, sizeof(fence_info));
+        fence_info.vk_semaphore = chain->present.vk_complete_semaphore;
+        fence_info.vk_semaphore_value = chain->present.present_count;
+
+        vkd3d_enqueue_timeline_semaphore(&chain->queue->fence_worker, &fence_info, &cookie);
     }
 
     if (vr)
