@@ -599,11 +599,13 @@ static const struct vkd3d_instance_application_meta application_override[] = {
             VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
     /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
     { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", 0, 0, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
-    /* FF XVI. Work around poor FSR3 performance on RADV. */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_STAGGERED_SUBMIT, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
-     * AMD windows drivers also seem to have some kind of general app-opt for UE titles. */
-    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0 },
+     * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
+     * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
+     * unless we see proof that UE titles want staggered,
+     * we'll disable for now to be defensive and de-risk any large scale regressions. */
+    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Win64-Shipping.exe",
+            VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -952,7 +954,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"disable_color_compression", VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION},
     {"app_debug_marker_only", VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY},
     {"small_vram_rebar", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR},
-    {"staggered_submit", VKD3D_CONFIG_FLAG_STAGGERED_SUBMIT},
+    {"no_staggered_submit", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT},
 };
 
 static void vkd3d_config_flags_init_once(void)
