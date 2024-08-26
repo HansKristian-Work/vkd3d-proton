@@ -17703,6 +17703,9 @@ static bool d3d12_command_queue_needs_cpu_waits_locked(struct d3d12_command_queu
     if (command_queue->vkd3d_queue->command_queue_count == 1)
         return false;
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT)
+        return false;
+
     current_time_ns = vkd3d_get_current_time_ns();
 
     for (i = 0; i < command_queue->vkd3d_queue->command_queue_count; i++)
@@ -18290,7 +18293,7 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
     if (command_queue->vkd3d_queue->command_queue_count == 1)
         return false;
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_STAGGERED_SUBMIT))
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT)
         return false;
 
     current_time_ns = vkd3d_get_current_time_ns();
