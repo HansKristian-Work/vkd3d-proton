@@ -520,7 +520,9 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
     size_t i;
     int rc;
 
-    TRACE("worker %p, fence %p, value %#"PRIx64".\n", worker, fence_info->fence, fence_info->vk_semaphore_value);
+    TRACE("worker %p, fence %p, value %#"PRIx64", vk_semaphore %p, vk_semaphore_value %#"PRIx64", signal %d.\n",
+            worker, fence_info->fence, fence_info->virtual_value, fence_info->vk_semaphore,
+            fence_info->vk_semaphore_value, fence_info->signal);
 
     if ((rc = pthread_mutex_lock(&worker->mutex)))
     {
@@ -591,9 +593,11 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     HRESULT hr;
     int vr;
 
+    TRACE("worker %p, vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", worker,
+            fence->fence_info.vk_semaphore, fence->fence_info.vk_semaphore_value);
+
+    memset(&wait_info, 0, sizeof(wait_info));
     wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-    wait_info.pNext = NULL;
-    wait_info.flags = 0;
     wait_info.semaphoreCount = 1;
     wait_info.pSemaphores = &fence->fence_info.vk_semaphore;
     wait_info.pValues = &fence->fence_info.vk_semaphore_value;
@@ -623,8 +627,8 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     {
         local_fence = impl_from_ID3D12Fence1(fence->fence_info.fence);
 
-        TRACE("Signaling fence %p to virtual value %"PRIu64", update count %#"PRIx64".\n", local_fence,
-                fence->fence_info.virtual_value, fence->fence_info.update_count);
+        TRACE("Signaling fence %p to virtual value %"PRIu64".\n", local_fence,
+                fence->fence_info.virtual_value);
 
         if (FAILED(hr = d3d12_fence_signal(local_fence, worker, fence->fence_info.update_count)))
             ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
@@ -17749,14 +17753,15 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         return;
     }
 
-    TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
-
     has_wait = d3d12_fence_get_physical_wait_value_locked(fence, value, &fence_value);
 
     d3d12_fence_unlock(fence);
 
     if (!has_wait)
         return;
+
+    TRACE("queue %p, fence %p, value %#"PRIx64", vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", command_queue,
+            fence, value, fence_value.vk_semaphore, fence_value.vk_semaphore_value);
 
     pthread_mutex_lock(&queue->mutex);
 
@@ -17792,7 +17797,8 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     uint64_t update_count;
     HRESULT hr;
 
-    TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
+    TRACE("queue %p, fence %p, value %#"PRIx64", vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", command_queue,
+            fence, value, command_queue->vkd3d_queue->submission_timeline, command_queue->last_submission_timeline_value);
 
     assert(!fence->timeline_semaphore);
 
