@@ -907,6 +907,27 @@ void d3d12_command_list_debug_mark_execution(struct d3d12_command_list *list, Vk
                 (list->cmd.stages_synced & (VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)) ==
                 list->cmd.stages_synced;
 
+        if (list->state)
+        {
+            if ((list->cmd.stages_pending_execution & VK_PIPELINE_STAGE_2_CLEAR_BIT) &&
+                    (stages & VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT))
+            {
+                INFO("Potential UAV clear -> compute hazard for #%"PRIx64" (%s).\n",
+                        list->state->compute.code.meta.hash,
+                        list->state->compute.code_debug.debug_entry_point_name ?
+                                list->state->compute.code_debug.debug_entry_point_name : "N/A");
+            }
+#if 0
+            else if ((list->cmd.stages_pending_execution & VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT) &&
+                    (stages & VK_PIPELINE_STAGE_2_CLEAR_BIT))
+            {
+                INFO("Potential compute -> UAV clear hazard for #%"PRIx64" (%s).\n", list->state->compute.code.meta.hash,
+                        list->state->compute.code_debug.debug_entry_point_name ?
+                                list->state->compute.code_debug.debug_entry_point_name : "N/A");
+            }
+#endif
+        }
+
         if (!assume_synchronized)
         {
             if (list->cmd.stages_pending_execution != 0)
