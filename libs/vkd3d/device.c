@@ -600,8 +600,11 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
     { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", 0, 0, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
     /* Basically never bothers doing initial transitions.
-     * GPU hang observed on RDNA1 cards at least during intro cutscene. */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0 },
+     * GPU hang observed on RDNA1 cards at least during intro cutscene.
+     * Game does not use UAV barrier between ClearUAV and GDeflate shader.
+     * NVIDIA does not hit that particular hazard since it uses metacommand, but ClearUAV barrier
+     * still works around sync issues. */
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION | VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
