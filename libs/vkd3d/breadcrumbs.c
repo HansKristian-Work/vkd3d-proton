@@ -867,7 +867,10 @@ void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_trace
                 while (*end_ptr != '\0' && !isalnum(*end_ptr))
                     end_ptr++;
 
-                hi_hash = strtoull(end_ptr, NULL, 16);
+                hi_hash = strtoull(end_ptr, &end_ptr, 16);
+
+                while (*end_ptr != '\0' && !isalpha(*end_ptr))
+                    end_ptr++;
 
                 if (!hi_hash)
                     hi_hash = lo_hash;
@@ -879,6 +882,48 @@ void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_trace
 
                     tracer->barrier_hashes[new_count].lo = lo_hash;
                     tracer->barrier_hashes[new_count].hi = hi_hash;
+
+                    if (*end_ptr != '\0')
+                    {
+                        char *stray_newline = end_ptr + (strlen(end_ptr) - 1);
+                        if (*stray_newline == '\n')
+                            *stray_newline = '\0';
+                    }
+
+                    if (*end_ptr == '\0')
+                    {
+                        tracer->barrier_hashes[new_count].flags =
+                                VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH;
+                        end_ptr = "post-compute (default)";
+                    }
+                    else if (strcmp(end_ptr, "pre-compute") == 0)
+                    {
+                        tracer->barrier_hashes[new_count].flags =
+                                VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH;
+                    }
+                    else if (strcmp(end_ptr, "post-compute") == 0)
+                    {
+                        tracer->barrier_hashes[new_count].flags =
+                                VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
+                    }
+                    else if (strcmp(end_ptr, "pre-raster") == 0)
+                    {
+                        tracer->barrier_hashes[new_count].flags =
+                                VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH;
+                    }
+                    else if (strcmp(end_ptr, "graphics") == 0)
+                    {
+                        tracer->barrier_hashes[new_count].flags =
+                                VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH;
+                    }
+                    else
+                        end_ptr = "N/A";
+
+                    INFO("Inserting %s barrier for %016"PRIx64" - %016"PRIx64".\n",
+                            end_ptr,
+                            tracer->barrier_hashes[new_count].lo,
+                            tracer->barrier_hashes[new_count].hi);
+
                     new_count++;
                 }
             }
@@ -891,9 +936,10 @@ void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_trace
     }
 }
 
-bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_tracer *tracer, vkd3d_shader_hash_t hash)
+uint32_t vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_tracer *tracer,
+        vkd3d_shader_hash_t hash)
 {
-    bool ret = false;
+    uint32_t flags = 0;
     size_t i;
 
     /* Avoid taking lock every dispatch when we're not explicitly using the feature.
@@ -901,9 +947,10 @@ bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_
     if (vkd3d_atomic_uint32_load_explicit(&tracer->barrier_hashes_count, vkd3d_memory_order_relaxed) != 0)
     {
         pthread_mutex_lock(&tracer->barrier_hash_lock);
-        for (i = 0; i < tracer->barrier_hashes_count && !ret; i++)
-            ret = tracer->barrier_hashes[i].lo <= hash && hash <= tracer->barrier_hashes[i].hi;
+        for (i = 0; i < tracer->barrier_hashes_count; i++)
+            if (tracer->barrier_hashes[i].lo <= hash && hash <= tracer->barrier_hashes[i].hi)
+                flags |= tracer->barrier_hashes[i].flags;
         pthread_mutex_unlock(&tracer->barrier_hash_lock);
     }
-    return ret;
+    return flags;
 }
