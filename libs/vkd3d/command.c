@@ -17027,11 +17027,14 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
         vkd3d_private_store_destroy(&command_queue->private_store);
 
         d3d12_command_queue_submit_stop(command_queue);
-        vkd3d_fence_worker_stop(&command_queue->fence_worker, device);
-        d3d12_device_unmap_vkd3d_queue(command_queue->vkd3d_queue, command_queue);
+
         pthread_join(command_queue->submission_thread, NULL);
         pthread_mutex_destroy(&command_queue->queue_lock);
         pthread_cond_destroy(&command_queue->queue_cond);
+
+        d3d12_device_unmap_vkd3d_queue(command_queue->vkd3d_queue, command_queue);
+
+        vkd3d_fence_worker_stop(&command_queue->fence_worker, device);
 
         vkd3d_free(command_queue->submissions);
         vkd3d_free(command_queue);
