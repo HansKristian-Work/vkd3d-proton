@@ -563,6 +563,7 @@ struct d3d12_fence
 
     D3D12_FENCE_FLAGS d3d12_flags;
 
+    /* only used for shared semaphores */
     VkSemaphore timeline_semaphore;
 
     uint64_t max_pending_virtual_timeline_value;
