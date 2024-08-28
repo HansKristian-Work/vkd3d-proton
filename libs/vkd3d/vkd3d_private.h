@@ -538,7 +538,8 @@ struct d3d12_fence_value
 {
     uint64_t virtual_value;
     uint64_t physical_value;
-    const struct vkd3d_queue *signalling_queue;
+    VkSemaphore vk_semaphore;
+    uint64_t vk_semaphore_value;
 };
 
 #define VKD3D_WAITING_EVENT_SIGNAL_BIT (1u << 31)
