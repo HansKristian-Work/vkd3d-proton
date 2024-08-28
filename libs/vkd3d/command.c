@@ -1017,7 +1017,7 @@ static bool d3d12_fence_can_elide_wait_semaphore_locked(struct d3d12_fence *fenc
      */
     for (i = 0; i < fence->pending_updates_count; i++)
     {
-        if (fence->pending_updates[i].signalling_queue == waiting_queue &&
+        if (fence->pending_updates[i].vk_semaphore == waiting_queue->submission_timeline &&
                 fence->pending_updates[i].virtual_value >= value)
             return true;
     }
@@ -1043,7 +1043,7 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
 }
 
 static uint64_t d3d12_fence_add_pending_signal_locked(struct d3d12_fence *fence, uint64_t virtual_value,
-        const struct vkd3d_queue *signalling_queue)
+        const struct d3d12_command_queue *signalling_queue)
 {
     struct d3d12_fence_value *update;
     vkd3d_array_reserve((void**)&fence->pending_updates, &fence->pending_updates_size,
@@ -1052,30 +1052,38 @@ static uint64_t d3d12_fence_add_pending_signal_locked(struct d3d12_fence *fence,
     update = &fence->pending_updates[fence->pending_updates_count++];
     update->virtual_value = virtual_value;
     update->physical_value = ++fence->counter;
-    update->signalling_queue = signalling_queue;
+    update->vk_semaphore = signalling_queue->vkd3d_queue->submission_timeline;
+    update->vk_semaphore_value = signalling_queue->last_submission_timeline_value;
     return fence->counter;
 }
 
-static uint64_t d3d12_fence_get_physical_wait_value_locked(struct d3d12_fence *fence, uint64_t virtual_value)
+static bool d3d12_fence_get_physical_wait_value_locked(struct d3d12_fence *fence, uint64_t virtual_value,
+        struct d3d12_fence_value *fence_value)
 {
-    uint64_t target_physical_value = UINT64_MAX;
+    const struct d3d12_fence_value *selected = NULL;
     size_t i;
 
     /* This shouldn't happen, we will have elided the wait completely in can_elide_wait_semaphore_locked. */
     assert(virtual_value > fence->virtual_value);
 
-    /* Find the smallest physical value which is at least the virtual value. */
+    /* Find the first update which signals least the virtual value. */
     for (i = 0; i < fence->pending_updates_count; i++)
-        if (virtual_value <= fence->pending_updates[i].virtual_value)
-            target_physical_value = min(target_physical_value, fence->pending_updates[i].physical_value);
-
-    if (target_physical_value == UINT64_MAX)
     {
-        FIXME("Cannot find a pending physical wait value. Emitting a noop wait.\n");
-        return 0;
+        if (virtual_value <= fence->pending_updates[i].virtual_value)
+        {
+            if (!selected || fence->pending_updates[i].physical_value < selected->physical_value)
+                selected = &fence->pending_updates[i];
+        }
     }
-    else
-        return target_physical_value;
+
+    if (!selected)
+    {
+        FIXME("Cannot find a wait for fence %p, virtual value %"PRIu64". Ignoring wait.\n", fence, virtual_value);
+        return false;
+    }
+
+    *fence_value = *selected;
+    return true;
 }
 
 static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_worker *worker, uint64_t physical_value)
@@ -17730,9 +17738,10 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         struct d3d12_fence *fence, UINT64 value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
+    struct d3d12_fence_value fence_value;
     VkSemaphoreWaitInfo wait_info;
     struct vkd3d_queue *queue;
-    uint64_t wait_count;
+    bool has_wait;
     VkResult vr;
 
     queue = command_queue->vkd3d_queue;
@@ -17756,11 +17765,12 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
 
     TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
 
-    wait_count = d3d12_fence_get_physical_wait_value_locked(fence, value);
+    has_wait = d3d12_fence_get_physical_wait_value_locked(fence, value, &fence_value);
 
     d3d12_fence_unlock(fence);
 
-    assert(fence->timeline_semaphore);
+    if (!has_wait)
+        return;
 
     pthread_mutex_lock(&queue->mutex);
 
@@ -17771,8 +17781,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         memset(&wait_info, 0, sizeof(wait_info));
         wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         wait_info.semaphoreCount = 1;
-        wait_info.pSemaphores = &fence->timeline_semaphore;
-        wait_info.pValues = &wait_count;
+        wait_info.pSemaphores = &fence_value.vk_semaphore;
+        wait_info.pValues = &fence_value.vk_semaphore_value;
 
         if ((vr = VK_CALL(vkWaitSemaphores(command_queue->device->vk_device, &wait_info, UINT64_MAX))))
             ERR("Failed to wait for timeline semaphore, vr %d.\n", vr);
@@ -17782,7 +17792,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         /* Defer the wait to next submit.
          * This is also important, since we have to hold on to a private reference on the fence
          * until we have observed the wait to actually complete. */
-        vkd3d_queue_add_wait_locked(command_queue->vkd3d_queue, &fence->ID3D12Fence_iface, fence->timeline_semaphore, wait_count, value);
+        vkd3d_queue_add_wait_locked(command_queue->vkd3d_queue, &fence->ID3D12Fence_iface,
+                fence_value.vk_semaphore, fence_value.vk_semaphore_value, value);
         pthread_mutex_unlock(&queue->mutex);
     }
 }
@@ -17845,7 +17856,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     {
         d3d12_fence_lock(fence);
 
-        physical_value = d3d12_fence_add_pending_signal_locked(fence, value, vkd3d_queue);
+        physical_value = d3d12_fence_add_pending_signal_locked(fence, value, command_queue);
 
         signal_value = physical_value;
 
