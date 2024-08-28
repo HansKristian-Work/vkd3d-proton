@@ -3491,10 +3491,11 @@ struct vkd3d_breadcrumb_command_list_trace_context
     uint32_t next;
 };
 
-struct vkd3d_barrier_hash_range
+struct vkd3d_shader_hash_range
 {
     vkd3d_shader_hash_t lo;
     vkd3d_shader_hash_t hi;
+    uint32_t flags;
 };
 
 struct vkd3d_breadcrumb_tracer
@@ -3517,7 +3518,7 @@ struct vkd3d_breadcrumb_tracer
     pthread_mutex_t lock;
 
     pthread_mutex_t barrier_hash_lock;
-    struct vkd3d_barrier_hash_range *barrier_hashes;
+    struct vkd3d_shader_hash_range *barrier_hashes;
     size_t barrier_hashes_size;
     uint32_t barrier_hashes_count;
 
@@ -3544,7 +3545,7 @@ void vkd3d_breadcrumb_tracer_link_submission(struct d3d12_command_list *list,
         struct d3d12_command_list *prev, struct d3d12_command_list *next);
 
 void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer);
-bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
+uint32_t vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
         struct vkd3d_breadcrumb_tracer *device, vkd3d_shader_hash_t hash);
 
 #define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) do { \
