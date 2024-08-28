@@ -1383,29 +1383,19 @@ CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl =
     d3d12_fence_GetCreationFlags,
 };
 
-static HRESULT d3d12_fence_init_timeline(struct d3d12_fence *fence, struct d3d12_device *device,
-        UINT64 initial_value)
-{
-    fence->virtual_value = initial_value;
-    fence->max_pending_virtual_timeline_value = initial_value;
-    fence->signal_count = 0;
-    fence->update_count = 0;
-    return vkd3d_create_timeline_semaphore(device, 0, false, &fence->timeline_semaphore);
-}
-
 static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *device,
         UINT64 initial_value, D3D12_FENCE_FLAGS flags)
 {
     HRESULT hr;
     int rc;
 
+    memset(fence, 0, sizeof(*fence));
     fence->ID3D12Fence_iface.lpVtbl = &d3d12_fence_vtbl;
     fence->refcount_internal = 1;
     fence->refcount = 1;
     fence->d3d12_flags = flags;
-
-    if (FAILED(hr = d3d12_fence_init_timeline(fence, device, initial_value)))
-        return hr;
+    fence->max_pending_virtual_timeline_value = initial_value;
+    fence->virtual_value = initial_value;
 
     if ((rc = pthread_mutex_init(&fence->mutex, NULL)))
     {
@@ -17737,6 +17727,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
 
     queue = command_queue->vkd3d_queue;
 
+    assert(!fence->timeline_semaphore);
+
     d3d12_fence_lock(fence);
 
     /* This is the critical part required to support out-of-order signal.
@@ -17798,6 +17790,8 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     HRESULT hr;
 
     TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
+
+    assert(!fence->timeline_semaphore);
 
     cookie = vkd3d_queue_timeline_trace_register_signal(&command_queue->device->queue_timeline_trace,
             &fence->ID3D12Fence_iface, value);
