@@ -219,8 +219,8 @@ struct dxgi_vk_swap_chain
         bool has_user_override;
         uint64_t target_interval_ns;
         uint64_t next_deadline_ns;
-        uint64_t frame_timestamps[16];
-        uint32_t frame_window_index;
+        uint64_t heuristic_frame_time_ns;
+        uint32_t heuristic_frame_count;
 
         struct platform_sleep_state sleep_state;
     } frame_rate_limit;
@@ -1202,8 +1202,8 @@ static void STDMETHODCALLTYPE dxgi_vk_swap_chain_SetTargetFrameRate(IDXGIVkSwapC
         chain->frame_rate_limit.target_interval_ns = (uint64_t)(1.0e9 / fabs(frame_rate));
         chain->frame_rate_limit.next_deadline_ns = 0;
 
-        memset(chain->frame_rate_limit.frame_timestamps, 0, sizeof(chain->frame_rate_limit.frame_timestamps));
-        chain->frame_rate_limit.frame_window_index = 0;
+        chain->frame_rate_limit.heuristic_frame_time_ns = 0;
+        chain->frame_rate_limit.heuristic_frame_count = 0;
     }
     else
     {
@@ -2614,8 +2614,12 @@ static void dxgi_vk_swap_chain_platform_sleep_for_ns(struct platform_sleep_state
 static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain, uint64_t current_time_ns)
 {
     struct platform_sleep_state *sleep_state = &chain->frame_rate_limit.sleep_state;
-    uint64_t window_start_time_ns, window_total_time_ns;
+    uint64_t window_start_time_ns, window_total_time_ns, window_expected_time_ns;
+    uint32_t frame_count_min, frame_count_max, frame_count;
     uint64_t sleep_threshold_ns, sleep_duration_ns;
+    uint32_t frame_latency = DEFAULT_FRAME_LATENCY;
+    static const uint32_t max_window_size = 128u;
+    static const uint32_t min_window_size = 8u;
     uint64_t next_deadline_ns = 0;
 
     pthread_mutex_lock(&chain->frame_rate_limit.lock);
@@ -2624,27 +2628,38 @@ static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain
     {
         if (!chain->frame_rate_limit.enable)
         {
-            const uint32_t window_size = ARRAY_SIZE(chain->frame_rate_limit.frame_timestamps);
+            /* Ignore app-provided frame latency since it may not be reliable */
+            if (chain->queue->device->device_info.present_wait_features.presentWait)
+                frame_latency = chain->frame_latency_internal;
 
-            window_start_time_ns = chain->frame_rate_limit.frame_timestamps[chain->frame_rate_limit.frame_window_index % window_size];
+            frame_count = chain->frame_rate_limit.heuristic_frame_count;
 
-            chain->frame_rate_limit.frame_timestamps[chain->frame_rate_limit.frame_window_index % window_size] = current_time_ns;
-            chain->frame_rate_limit.frame_window_index += 1;
-
-            window_total_time_ns = current_time_ns - window_start_time_ns;
-
-            /* Enable the frame rate limiter if frames are being delivered faster than expected.
-             * Discard the first window of data since it may be inaccurate, especially if we do
-             * not hit the present_wait path. Allow for a 3% error. */
-            if (chain->frame_rate_limit.frame_window_index >= 2 * window_size)
+            if (frame_count >= min_window_size)
             {
-                chain->frame_rate_limit.enable = 103 * window_total_time_ns < 100 * window_size * chain->frame_rate_limit.target_interval_ns;
+                window_start_time_ns = chain->frame_rate_limit.heuristic_frame_time_ns;
+                window_total_time_ns = current_time_ns - window_start_time_ns;
 
-                if (chain->frame_rate_limit.enable)
+                window_expected_time_ns = frame_count * chain->frame_rate_limit.target_interval_ns;
+
+                frame_count_min = frame_count - 1;
+                frame_count_max = frame_count + frame_latency;
+
+                if ((frame_count_max * window_total_time_ns) < (frame_count * window_expected_time_ns))
                 {
+                    /* Frame delivery has been faster than the refresh rate even
+                     * accounting for swap chain buffering, enable limiter. */
+                    chain->frame_rate_limit.enable = true;
+
                     INFO("Measured frame rate of %.1lf FPS exceeds desired refresh rate of %.1lf Hz, enabling limiter.\n",
-                            1.0e9 / (double)(window_total_time_ns) * (double)(window_size),
+                            1.0e9 / (double)(window_total_time_ns) * (double)(frame_count),
                             1.0e9 / (double)(chain->frame_rate_limit.target_interval_ns));
+                }
+                else if ((frame_count_min * window_total_time_ns) > (frame_count * window_expected_time_ns) ||
+                        (frame_count >= max_window_size))
+                {
+                    /* Frame rate has been lower than the refresh rate, reset frame window. */
+                    chain->frame_rate_limit.heuristic_frame_count = 0;
+                    chain->frame_rate_limit.heuristic_frame_time_ns = 0;
                 }
             }
         }
@@ -2662,6 +2677,14 @@ static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain
                 chain->frame_rate_limit.next_deadline_ns += chain->frame_rate_limit.target_interval_ns;
             else
                 chain->frame_rate_limit.next_deadline_ns = current_time_ns + chain->frame_rate_limit.target_interval_ns;
+        }
+        else
+        {
+            /* Advance or initialize the frame window used to measure the current frame rate. */
+            if (!chain->frame_rate_limit.heuristic_frame_time_ns)
+                chain->frame_rate_limit.heuristic_frame_time_ns = current_time_ns;
+
+            chain->frame_rate_limit.heuristic_frame_count++;
         }
     }
 
