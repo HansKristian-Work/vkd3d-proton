@@ -474,6 +474,16 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
 
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
+    VKD3D_BREADCRUMB_TAG("[Control VA + Size, Input VA + Size, Output VA + Size, Scratch VA + Size, StreamCount]");
+    VKD3D_BREADCRUMB_AUX64(parameters->control_buffer_va);
+    VKD3D_BREADCRUMB_AUX64(parameters->control_buffer_size);
+    VKD3D_BREADCRUMB_AUX64(parameters->input_buffer_va);
+    VKD3D_BREADCRUMB_AUX64(parameters->input_buffer_size);
+    VKD3D_BREADCRUMB_AUX64(parameters->output_buffer_va);
+    VKD3D_BREADCRUMB_AUX64(parameters->output_buffer_size);
+    VKD3D_BREADCRUMB_AUX64(parameters->scratch_buffer_va);
+    VKD3D_BREADCRUMB_AUX64(parameters->scratch_buffer_size);
+    VKD3D_BREADCRUMB_AUX32(parameters->stream_count);
     VKD3D_BREADCRUMB_COMMAND(DSTORAGE);
 }
 
