@@ -148,6 +148,7 @@ decl_test(test_execute_indirect_state_predication);
 decl_test(test_execute_indirect_multi_dispatch);
 decl_test(test_execute_indirect_multi_dispatch_root_constants);
 decl_test(test_execute_indirect_multi_dispatch_root_descriptors);
+decl_test(test_execute_indirect_state_vbo_offsets);
 decl_test(test_dispatch_zero_thread_groups);
 decl_test(test_unaligned_vertex_stride);
 decl_test(test_zero_vertex_stride);

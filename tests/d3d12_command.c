@@ -2951,6 +2951,132 @@ void test_execute_indirect_state(void)
     destroy_test_context(&context);
 }
 
+void test_execute_indirect_state_vbo_offsets(void)
+{
+    D3D12_INDIRECT_ARGUMENT_DESC indirect_args[2];
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_COMMAND_SIGNATURE_DESC cs_desc;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    ID3D12CommandSignature *command_sig;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12Resource *indirect_buffer;
+    ID3D12Resource *instance_buffer;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    ID3D12Resource *index_buffer;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_INDEX_BUFFER_VIEW ibv;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"I", 0, DXGI_FORMAT_R32_UINT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 0},
+    };
+
+    static const struct indirect_args
+    {
+        float values[4];
+        D3D12_DRAW_INDEXED_ARGUMENTS draw_indexed;
+    } draw = {
+        { 100, 200, 300, 400 }, { 3, 1, 0, 0, 4 },
+    };
+
+    static const uint32_t instance_data[] = { 0, 1, 2, 3, 4, 5 };
+    static const uint32_t index_buffer_data[] = { 0, 1, 2 };
+
+#include "shaders/command/headers/indirect_state_vbo_offsets_vs.h"
+#include "shaders/command/headers/indirect_state_vbo_offsets_ps.h"
+
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+    input_layout.pInputElementDescs = layout_desc;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.rt_width = 1;
+    desc.rt_height = 1;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    indirect_buffer = create_upload_buffer(context.device, sizeof(draw), &draw);
+    instance_buffer = create_upload_buffer(context.device, sizeof(instance_data), instance_data);
+    index_buffer = create_upload_buffer(context.device, sizeof(index_buffer_data), index_buffer_data);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param.Constants.Num32BitValues = 4;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R32G32B32A32_FLOAT,
+        &indirect_state_vbo_offsets_vs_dxbc, &indirect_state_vbo_offsets_ps_dxbc, &input_layout);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DepthStencilState.StencilEnable = FALSE;
+
+    ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+
+    memset(&cs_desc, 0, sizeof(cs_desc));
+    memset(indirect_args, 0, sizeof(indirect_args));
+    cs_desc.NumArgumentDescs = ARRAY_SIZE(indirect_args);
+    cs_desc.pArgumentDescs = indirect_args;
+    cs_desc.ByteStride = sizeof(struct indirect_args);
+
+    indirect_args[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+    indirect_args[0].Constant.Num32BitValuesToSet = 4;
+    indirect_args[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+
+    ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature, &IID_ID3D12CommandSignature, (void **)&command_sig);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    set_viewport(&vp, 0, 0, 1, 1, 0, 1);
+    set_rect(&sci, 0, 0, 1, 1);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(index_buffer);
+    ibv.Format = DXGI_FORMAT_R32_UINT;
+    ibv.SizeInBytes = sizeof(index_buffer_data);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(instance_buffer);
+    vbv.SizeInBytes = sizeof(instance_data);
+    vbv.StrideInBytes = sizeof(uint32_t);
+    ID3D12GraphicsCommandList_IASetIndexBuffer(context.list, &ibv);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(context.list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_ExecuteIndirect(context.list, command_sig, 1, indirect_buffer, 0, NULL, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+    {
+        float r, g, b, a;
+        r = get_readback_float(&rb, 0, 0);
+        g = get_readback_float(&rb, 1, 0);
+        b = get_readback_float(&rb, 2, 0);
+        a = get_readback_float(&rb, 3, 0);
+        bug_if(is_radv_device(context.device))
+        ok(r == draw.values[0] + draw.draw_indexed.StartInstanceLocation, "r: Expected %f, got %f\n", draw.values[0] + draw.draw_indexed.StartInstanceLocation, r);
+        ok(g == draw.values[1], "r: Expected %f, got %f\n", draw.values[1], g);
+        ok(b == draw.values[2], "r: Expected %f, got %f\n", draw.values[2], b);
+        ok(a == draw.values[3], "r: Expected %f, got %f\n", draw.values[3], a);
+    }
+
+    ID3D12Resource_Release(indirect_buffer);
+    ID3D12Resource_Release(instance_buffer);
+    ID3D12Resource_Release(index_buffer);
+    ID3D12CommandSignature_Release(command_sig);
+    release_resource_readback(&rb);
+    destroy_test_context(&context);
+}
+
 void test_execute_indirect(void)
 {
     ID3D12Resource *argument_buffer, *count_buffer, *uav;
