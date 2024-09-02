@@ -76,9 +76,9 @@ run_tests() {
 	while (($counter < $nr_cpus)) ; do
 		# output to /dev/null by default
 		if [[ -z "$output_dir" ]] ; then
-			VKD3D_TEST_FILTER=${tests[$test_idx]} "$d3d12_bin" &>/dev/null &
+			VKD3D_TEST_MATCH=${tests[$test_idx]} "$d3d12_bin" &>/dev/null &
 		else
-			VKD3D_TEST_FILTER=${tests[$test_idx]} "$d3d12_bin" &> "$output_dir/${tests[$test_idx]}.log" &
+			VKD3D_TEST_MATCH=${tests[$test_idx]} "$d3d12_bin" &> "$output_dir/${tests[$test_idx]}.log" &
 		fi
 		# capture pid of subprocess
 		pids[$test_idx]=${!}
@@ -132,7 +132,7 @@ echo "***********************"
 echo "Finished in ${SECONDS}s!"
 
 if [[ "${#fails[@]}" != 0 ]] ; then
-	echo "${#fails[@]} FAILURES: (run with 'VKD3D_TEST_FILTER=<name> $d3d12_bin')"
+	echo "${#fails[@]} FAILURES: (run with 'VKD3D_TEST_MATCH=<name> $d3d12_bin')"
 	for fail in "${fails[@]}" ; do
 		echo "$fail"
 	done

@@ -166,8 +166,13 @@ commas or semicolons.
    not use even if available.
  - `VKD3D_TEST_DEBUG` - enables additional debug messages in tests. Set to 0, 1
    or 2.
+ - `VKD3D_TEST_MATCH` - a match string. Only the tests whose names exactly match the
+   string will be run, e.g. `VKD3D_TEST_FILTER=clear_render_target` will only match
+   tests named 'clear_render_target'.
+   Useful for debugging or developing new tests.
  - `VKD3D_TEST_FILTER` - a filter string. Only the tests whose names matches the
-   filter string will be run, e.g. `VKD3D_TEST_FILTER=clear_render_target`.
+   filter string will be run, e.g. `VKD3D_TEST_FILTER=clear_render` will match
+   tests named 'clear_render_target' or 'target_clear_render'.
    Useful for debugging or developing new tests.
  - `VKD3D_TEST_EXCLUDE` - excludes tests of which the name is included in the string,
    e.g. `VKD3D_TEST_EXCLUDE=test_root_signature_priority,test_conservative_rasterization_dxil`.
