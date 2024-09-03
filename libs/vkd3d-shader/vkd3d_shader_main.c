@@ -26,6 +26,10 @@
 #include <stdio.h>
 #include <inttypes.h>
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+#include "vkd3d_threads.h"
+#endif
+
 static void vkd3d_shader_dump_blob(const char *path, vkd3d_shader_hash_t hash, const void *data, size_t size, const char *ext)
 {
     char filename[1024];
@@ -1028,3 +1032,49 @@ vkd3d_shader_hash_t vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
 
     return hash;
 }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+static vkd3d_shader_hash_t *descriptor_qa_skip_hashes;
+static size_t descriptor_qa_skip_hashes_count;
+
+static void vkd3d_shader_hash_parse_list(void)
+{
+    size_t descriptor_qa_skip_hashes_size = 0;
+    char env[VKD3D_PATH_MAX];
+    FILE *file;
+
+    if (!vkd3d_get_env_var("VKD3D_DESCRIPTOR_QA_SKIP_HASHES", env, sizeof(env)) || *env == '\0')
+        return;
+
+    file = fopen(env, "r");
+    if (!file)
+    {
+        ERR("Failed to open file: %s\n", env);
+        return;
+    }
+
+    while (fgets(env, sizeof(env), file))
+    {
+        /* These won't be freed on exit, but this is purely a debug-only QA path, and we don't really care. */
+        vkd3d_array_reserve((void **)&descriptor_qa_skip_hashes, &descriptor_qa_skip_hashes_size,
+                descriptor_qa_skip_hashes_count + 1, sizeof(*descriptor_qa_skip_hashes));
+        descriptor_qa_skip_hashes[descriptor_qa_skip_hashes_count++] = strtoull(env, NULL, 16);
+    }
+
+    fclose(file);
+}
+
+bool vkd3d_shader_hash_allows_descriptor_qa(vkd3d_shader_hash_t hash)
+{
+    static pthread_once_t once_lock = PTHREAD_ONCE_INIT;
+    size_t i;
+    pthread_once(&once_lock, vkd3d_shader_hash_parse_list);
+
+    for (i = 0; i < descriptor_qa_skip_hashes_count; i++)
+        if (descriptor_qa_skip_hashes[i] == hash)
+            return false;
+
+    return true;
+}
+#endif
+

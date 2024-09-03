@@ -6060,7 +6060,8 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
             /* We introduce side effects into fragment shaders when we enable descriptor QA,
              * so try to force EarlyFragmentTests if it's safe to do so. */
-            if ((compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER) &&
+            if (vkd3d_shader_hash_allows_descriptor_qa(compiler->descriptor_qa_shader_hash) &&
+                    (compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER) &&
                     !compiler->scan_info->early_fragment_tests && !compiler->scan_info->has_side_effects &&
                     !compiler->scan_info->discards && !compiler->scan_info->needs_late_zs)
             {
@@ -6379,7 +6380,8 @@ static void vkd3d_dxbc_compiler_emit_descriptor_qa_checks(struct vkd3d_dxbc_comp
     uint32_t parameter_ids[3];
     uint32_t i;
 
-    if (!(shader_interface->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER))
+    if (!vkd3d_shader_hash_allows_descriptor_qa(compiler->descriptor_qa_shader_hash) ||
+            !(shader_interface->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER))
         return;
 
     heap_buffer_id = vkd3d_dxbc_compiler_emit_descriptor_qa_heap(compiler);

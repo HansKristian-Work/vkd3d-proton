@@ -453,6 +453,10 @@ struct vkd3d_shader_quirk_hash
     uint32_t quirks;
 };
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+bool vkd3d_shader_hash_allows_descriptor_qa(vkd3d_shader_hash_t hash);
+#endif
+
 struct vkd3d_shader_quirk_info
 {
     const struct vkd3d_shader_quirk_hash *hashes;
