@@ -730,6 +730,7 @@ static const struct vkd3d_shader_quirk_hash ffxvi_hashes[] = {
      * It works on main, but only by chance.
      * https://gitlab.freedesktop.org/mesa/mesa/-/issues/11738. */
     { 0xa98606e01cdd5924, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
+    { 0x66213ff2688d7f69, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
 };
 
 static const struct vkd3d_shader_quirk_info ffxvi_quirks = {
