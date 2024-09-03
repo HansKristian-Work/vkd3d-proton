@@ -938,6 +938,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                 dxil_spv_option_quad_control_reconvergence helper = { { DXIL_SPV_OPTION_QUAD_CONTROL_RECONVERGENCE } };
                 helper.supports_maximal_reconvergence = DXIL_SPV_TRUE;
                 helper.supports_quad_control = DXIL_SPV_TRUE;
+                helper.force_maximal_reconvergence = !!(quirks & VKD3D_SHADER_QUIRK_FORCE_MAXIMAL_RECONVERGENCE);
 
                 if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
                 {

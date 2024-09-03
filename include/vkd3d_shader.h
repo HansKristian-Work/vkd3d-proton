@@ -444,7 +444,9 @@ enum vkd3d_shader_quirk
     VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER = (1 << 17),
 
     /* VK_PIPELINE_CREATE_DISABLE_OPTIMIZATIONS. For driver workarounds where optimizations break stuff. */
-    VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS = (1 << 18)
+    VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS = (1 << 18),
+
+    VKD3D_SHADER_QUIRK_FORCE_MAXIMAL_RECONVERGENCE = (1 << 19)
 };
 
 struct vkd3d_shader_quirk_hash
