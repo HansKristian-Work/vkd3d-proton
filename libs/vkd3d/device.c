@@ -79,6 +79,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_MAINTENANCE_6, KHR_maintenance6),
     VK_EXTENSION(KHR_SHADER_MAXIMAL_RECONVERGENCE, KHR_shader_maximal_reconvergence),
     VK_EXTENSION(KHR_SHADER_QUAD_CONTROL, KHR_shader_quad_control),
+    VK_EXTENSION(KHR_COMPUTE_SHADER_DERIVATIVES, KHR_compute_shader_derivatives),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -1737,13 +1738,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->barycentric_features_khr);
     }
 
-    if (vulkan_info->NV_compute_shader_derivatives)
-    {
-        info->compute_shader_derivatives_features_nv.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_NV;
-        vk_prepend_struct(&info->features2, &info->compute_shader_derivatives_features_nv);
-    }
-
     if (vulkan_info->NV_device_generated_commands)
     {
         info->device_generated_commands_features_nv.sType =
@@ -1838,6 +1832,20 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->shader_quad_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_QUAD_CONTROL_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->shader_quad_control_features);
+    }
+
+    if (vulkan_info->KHR_compute_shader_derivatives || vulkan_info->NV_compute_shader_derivatives)
+    {
+        info->compute_shader_derivatives_features_khr.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->compute_shader_derivatives_features_khr);
+    }
+
+    if (vulkan_info->KHR_compute_shader_derivatives)
+    {
+        info->compute_shader_derivatives_properties_khr.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, &info->compute_shader_derivatives_properties_khr);
     }
 
     if (vulkan_info->EXT_descriptor_buffer)
@@ -7949,7 +7957,9 @@ static void d3d12_device_caps_init_feature_options9(struct d3d12_device *device)
     options9->AtomicInt64OnTypedResourceSupported =
             device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics &&
             device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
-    options9->DerivativesInMeshAndAmplificationShadersSupported = FALSE;
+    options9->DerivativesInMeshAndAmplificationShadersSupported = d3d12_device_determine_mesh_shader_tier(device) &&
+            device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_6 &&
+            device->device_info.compute_shader_derivatives_properties_khr.meshAndTaskShaderDerivatives;
     options9->MeshShaderSupportsFullRangeRenderTargetArrayIndex = d3d12_device_determine_mesh_shader_tier(device) &&
             device->device_info.mesh_shader_properties.maxMeshOutputLayers >= device->device_info.properties2.properties.limits.maxFramebufferLayers;
     options9->MeshShaderPipelineStatsSupported = FALSE;
@@ -8289,14 +8299,14 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * - RayPayload attribute (purely metadata in DXIL land, irrelevant for us).
          */
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_5 &&
-                (device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear ||
+                (device->device_info.compute_shader_derivatives_features_khr.computeDerivativeGroupLinear ||
                         device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY) &&
                 device->device_info.vulkan_1_2_features.shaderBufferInt64Atomics &&
                 device->device_info.vulkan_1_2_features.shaderInt8 &&
                 d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
             INFO("Enabling support for SM 6.6.\n");
-            if (!device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear)
+            if (!device->device_info.compute_shader_derivatives_features_khr.computeDerivativeGroupLinear)
                 WARN("Enabling SM 6.6 on pre-Turing NVIDIA despite lack of native compute shader derivatives.\n");
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_6;
         }
@@ -8548,10 +8558,14 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
                 VKD3D_SHADER_TARGET_EXTENSION_BARYCENTRIC_KHR;
     }
 
-    if (device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear)
+    if (device->device_info.compute_shader_derivatives_features_khr.computeDerivativeGroupLinear)
     {
-        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
-                VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_NV;
+        enum vkd3d_shader_target_extension compute_derivative_ext = VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_NV;
+
+        if (device->vk_info.KHR_compute_shader_derivatives)
+            compute_derivative_ext = VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_KHR;
+
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] = compute_derivative_ext;
     }
 
     if (device->d3d12_caps.options4.Native16BitShaderOpsSupported &&

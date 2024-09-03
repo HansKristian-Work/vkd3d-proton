@@ -557,10 +557,10 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
+    dxil_spv_option_compute_shader_derivatives compute_shader_derivatives = {{ DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES }};
     dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
     uint32_t wave_size_min, wave_size_max, wave_size_preferred;
     struct vkd3d_dxil_remap_userdata remap_userdata;
-    bool compute_shader_derivatives = false;
     unsigned int raw_va_binding_count = 0;
     unsigned int num_root_descriptors = 0;
     unsigned int root_constant_words = 0;
@@ -899,8 +899,11 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_NV)
             {
-                /* See comments below. */
-                compute_shader_derivatives = true;
+                compute_shader_derivatives.supports_nv = DXIL_SPV_TRUE;
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_KHR)
+            {
+                compute_shader_derivatives.supports_khr = DXIL_SPV_TRUE;
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
             {
@@ -1026,17 +1029,11 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     /* For legacy reasons, COMPUTE_SHADER_DERIVATIVES_NV is default true in dxil-spirv,
      * so we have to override it to false as needed. */
+    if (dxil_spv_converter_add_option(converter, &compute_shader_derivatives.base) != DXIL_SPV_SUCCESS)
     {
-        const dxil_spv_option_compute_shader_derivatives_nv helper =
-                { { DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES_NV },
-                        compute_shader_derivatives ? DXIL_SPV_TRUE : DXIL_SPV_FALSE};
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support COMPUTE_SHADER_DERIVATIVES_NV.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
+        ERR("dxil-spirv does not support COMPUTE_SHADER_DERIVATIVES.\n");
+        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+        goto end;
     }
 
     if (quirks & VKD3D_SHADER_QUIRK_INVARIANT_POSITION)
