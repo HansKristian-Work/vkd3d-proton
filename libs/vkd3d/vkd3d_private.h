@@ -129,6 +129,7 @@ struct vkd3d_vulkan_info
     bool KHR_maintenance6;
     bool KHR_shader_maximal_reconvergence;
     bool KHR_shader_quad_control;
+    bool KHR_compute_shader_derivatives;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -4432,6 +4433,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMaintenance5PropertiesKHR maintenance_5_properties;
     VkPhysicalDeviceMaintenance6PropertiesKHR maintenance_6_properties;
     VkPhysicalDeviceLineRasterizationPropertiesEXT line_rasterization_properties;
+    VkPhysicalDeviceComputeShaderDerivativesPropertiesKHR compute_shader_derivatives_properties_khr;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -4454,7 +4456,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV barycentric_features_nv;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric_features_khr;
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features;
-    VkPhysicalDeviceComputeShaderDerivativesFeaturesNV compute_shader_derivatives_features_nv;
+    VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR compute_shader_derivatives_features_khr;
     VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shader_image_atomic_int64_features;
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
     VkPhysicalDeviceDescriptorSetHostMappingFeaturesVALVE descriptor_set_host_mapping_features;
