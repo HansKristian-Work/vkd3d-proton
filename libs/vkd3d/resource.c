@@ -5393,6 +5393,8 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     struct vkd3d_view *view = NULL;
     uint32_t vk_write_count = 0;
     struct d3d12_desc_split d;
+    bool sibling_null_typed;
+    bool sibling_null_ssbo;
     unsigned int vk_flags;
     uint32_t info_index;
     bool desc_is_raw;
@@ -5470,6 +5472,18 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         return;
     }
 
+    /* A workaround for cases where games write a buffer descriptor, but sample as image in a bugged way. */
+    if (VKD3D_EXPECT_FALSE(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NULL_SIBLING_BUFFER_DESCRIPTORS))
+    {
+        sibling_null_ssbo = !desc_is_raw || !emit_ssbo;
+        sibling_null_typed = !sibling_null_ssbo;
+    }
+    else
+    {
+        sibling_null_ssbo = false;
+        sibling_null_typed = false;
+    }
+
     d.types->set_info_mask = 0;
     vkd3d_get_metadata_buffer_view_for_resource(device, resource,
             desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
@@ -5490,19 +5504,28 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         d.types->single_binding = binding;
 
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT;
+
+        if (VKD3D_EXPECT_TRUE(!sibling_null_ssbo))
+            descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT;
 
         if (d3d12_device_uses_descriptor_buffers(device))
         {
             get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
             get_info.pNext = NULL;
             get_info.type = vk_descriptor_type;
-            get_info.data.pStorageBuffer = &addr_info;
-            addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
-            addr_info.pNext = NULL;
-            addr_info.address = d.view->info.buffer.va;
-            addr_info.range = d.view->info.buffer.range;
-            addr_info.format = VK_FORMAT_UNDEFINED;
+
+            if (VKD3D_EXPECT_TRUE(!sibling_null_ssbo))
+            {
+                get_info.data.pStorageBuffer = &addr_info;
+                addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+                addr_info.pNext = NULL;
+                addr_info.address = d.view->info.buffer.va;
+                addr_info.range = d.view->info.buffer.range;
+                addr_info.format = VK_FORMAT_UNDEFINED;
+            }
+            else
+                get_info.data.pStorageBuffer = NULL;
+
             payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
             VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
                     device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
@@ -5520,6 +5543,14 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
 
             vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
                     vk_descriptor_type, &descriptor_info[vk_write_count]);
+
+            if (VKD3D_EXPECT_FALSE(sibling_null_ssbo))
+            {
+                descriptor_info[vk_write_count].buffer.buffer = VK_NULL_HANDLE;
+                descriptor_info[vk_write_count].buffer.offset = 0;
+                descriptor_info[vk_write_count].buffer.range = VK_WHOLE_SIZE;
+            }
+
             vk_write_count++;
         }
     }
@@ -5539,26 +5570,42 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         d.types->single_binding = binding;
 
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-        descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_UNIFORM_TEXEL_BUFFER_BIT;
+
+        if (VKD3D_EXPECT_TRUE(!sibling_null_typed))
+            descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_UNIFORM_TEXEL_BUFFER_BIT;
 
         if (d3d12_device_uses_descriptor_buffers(device))
         {
+            size_t desc_size;
             get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
             get_info.pNext = NULL;
             get_info.type = vk_descriptor_type;
-            get_info.data.pUniformTexelBuffer = &addr_info;
-            addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
-            addr_info.pNext = NULL;
-            addr_info.address = d.view->info.buffer.va;
-            addr_info.range = d.view->info.buffer.range;
-            addr_info.format = vkd3d_internal_get_vk_format(device, d.view->info.buffer.dxgi_format);
-            /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
-            if (addr_info.format == VK_FORMAT_UNDEFINED)
-                addr_info.format = VK_FORMAT_R32_UINT;
+
+            if (VKD3D_EXPECT_TRUE(!sibling_null_typed))
+            {
+                get_info.data.pUniformTexelBuffer = &addr_info;
+                addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+                addr_info.pNext = NULL;
+                addr_info.address = d.view->info.buffer.va;
+                addr_info.range = d.view->info.buffer.range;
+                addr_info.format = vkd3d_internal_get_vk_format(device, d.view->info.buffer.dxgi_format);
+                /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
+                if (addr_info.format == VK_FORMAT_UNDEFINED)
+                    addr_info.format = VK_FORMAT_R32_UINT;
+                desc_size = device->device_info.descriptor_buffer_properties.robustUniformTexelBufferDescriptorSize;
+            }
+            else
+            {
+                get_info.data.pSampledImage = NULL;
+                /* We want to safeguard against bad image access in FF XVI, not texel buffer.
+                 * Null sampled image descriptor is UINT32_MAX on NV. */
+                get_info.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                desc_size = device->device_info.descriptor_buffer_properties.sampledImageDescriptorSize;
+            }
+
             payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
             VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
-                    device->device_info.descriptor_buffer_properties.robustUniformTexelBufferDescriptorSize,
-                    payload));
+                    desc_size, payload));
         }
         else
         {
@@ -5569,8 +5616,17 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
                 return;
 
             descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
+            if (VKD3D_EXPECT_FALSE(sibling_null_typed))
+            {
+                descriptor_info[vk_write_count].image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                descriptor_info[vk_write_count].image.imageView = VK_NULL_HANDLE;
+                descriptor_info[vk_write_count].image.sampler = VK_NULL_HANDLE;
+                vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            }
+
             vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
                     vk_descriptor_type, &descriptor_info[vk_write_count]);
+
             vk_write_count++;
         }
     }
@@ -6126,6 +6182,8 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     struct vkd3d_view *view = NULL;
     struct d3d12_desc_split d;
     uint32_t descriptor_index;
+    bool sibling_null_typed;
+    bool sibling_null_ssbo;
     uint32_t info_index;
     bool desc_is_raw;
     bool emit_typed;
@@ -6166,6 +6224,18 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         return;
     }
 
+    /* A workaround for cases where games write a buffer descriptor, but sample as image in a bugged way. */
+    if (VKD3D_EXPECT_FALSE(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NULL_SIBLING_BUFFER_DESCRIPTORS))
+    {
+        sibling_null_ssbo = !desc_is_raw || !emit_ssbo;
+        sibling_null_typed = !sibling_null_ssbo;
+    }
+    else
+    {
+        sibling_null_ssbo = false;
+        sibling_null_typed = false;
+    }
+
     d = d3d12_desc_decode_va(desc_va);
 
     /* Handle UAV itself */
@@ -6191,19 +6261,27 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         d.types->single_binding = binding;
 
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT;
+
+        if (VKD3D_EXPECT_TRUE(!sibling_null_ssbo))
+            descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT;
 
         if (d3d12_device_uses_descriptor_buffers(device))
         {
             get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
             get_info.pNext = NULL;
             get_info.type = vk_descriptor_type;
-            get_info.data.pStorageBuffer = &addr_info;
-            addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
-            addr_info.pNext = NULL;
-            addr_info.address = d.view->info.buffer.va;
-            addr_info.range = d.view->info.buffer.range;
-            addr_info.format = VK_FORMAT_UNDEFINED;
+            if (VKD3D_EXPECT_TRUE(!sibling_null_ssbo))
+            {
+                get_info.data.pStorageBuffer = &addr_info;
+                addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+                addr_info.pNext = NULL;
+                addr_info.address = d.view->info.buffer.va;
+                addr_info.range = d.view->info.buffer.range;
+                addr_info.format = VK_FORMAT_UNDEFINED;
+            }
+            else
+                get_info.data.pStorageBuffer = NULL;
+
             payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
             VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
                     device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
@@ -6222,6 +6300,14 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
 
             vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
                     vk_descriptor_type, &descriptor_info[vk_write_count]);
+
+            if (VKD3D_EXPECT_FALSE(sibling_null_ssbo))
+            {
+                descriptor_info[vk_write_count].buffer.buffer = VK_NULL_HANDLE;
+                descriptor_info[vk_write_count].buffer.offset = 0;
+                descriptor_info[vk_write_count].buffer.range = VK_WHOLE_SIZE;
+            }
+
             vk_write_count++;
         }
     }
@@ -6241,26 +6327,42 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         d.types->single_binding = binding;
 
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-        descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_TEXEL_BUFFER_BIT;
+
+        if (VKD3D_EXPECT_TRUE(!sibling_null_typed))
+            descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_TEXEL_BUFFER_BIT;
 
         if (d3d12_device_uses_descriptor_buffers(device))
         {
+            size_t desc_size;
             get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
             get_info.pNext = NULL;
             get_info.type = vk_descriptor_type;
-            get_info.data.pStorageTexelBuffer = &addr_info;
-            addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
-            addr_info.pNext = NULL;
-            addr_info.address = d.view->info.buffer.va;
-            addr_info.range = d.view->info.buffer.range;
-            addr_info.format = vkd3d_internal_get_vk_format(device, d.view->info.buffer.dxgi_format);
-            /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
-            if (addr_info.format == VK_FORMAT_UNDEFINED)
-                addr_info.format = VK_FORMAT_R32_UINT;
+
+            if (VKD3D_EXPECT_TRUE(!sibling_null_typed))
+            {
+                get_info.data.pStorageTexelBuffer = &addr_info;
+                addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+                addr_info.pNext = NULL;
+                addr_info.address = d.view->info.buffer.va;
+                addr_info.range = d.view->info.buffer.range;
+                addr_info.format = vkd3d_internal_get_vk_format(device, d.view->info.buffer.dxgi_format);
+                /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
+                if (addr_info.format == VK_FORMAT_UNDEFINED)
+                    addr_info.format = VK_FORMAT_R32_UINT;
+
+                desc_size = device->device_info.descriptor_buffer_properties.robustStorageTexelBufferDescriptorSize;
+            }
+            else
+            {
+                /* Guard against bad image access, not texel buffer. */
+                get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                get_info.data.pStorageImage = NULL;
+                desc_size = device->device_info.descriptor_buffer_properties.storageImageDescriptorSize;
+            }
+
             payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
             VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
-                    device->device_info.descriptor_buffer_properties.robustStorageTexelBufferDescriptorSize,
-                    payload));
+                    desc_size, payload));
         }
         else
         {
@@ -6272,6 +6374,14 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
                 return;
 
             descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
+
+            if (VKD3D_EXPECT_FALSE(sibling_null_typed))
+            {
+                descriptor_info[vk_write_count].image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                descriptor_info[vk_write_count].image.imageView = VK_NULL_HANDLE;
+                descriptor_info[vk_write_count].image.sampler = VK_NULL_HANDLE;
+                vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            }
 
             vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
                     vk_descriptor_type, &descriptor_info[vk_write_count]);
