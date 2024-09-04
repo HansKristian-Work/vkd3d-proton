@@ -103,18 +103,7 @@ void main() {
 
   // Allocate an output region structure from the scratch buffer
   memory_regions_t region_buffer = memory_regions_t(scratch_buffer);
-
-  uvec4 ballot = subgroupBallot(true);
-
-  uint out_count = subgroupBallotBitCount(ballot);
-  uint out_index = subgroupBallotExclusiveBitCount(ballot);
-
-  uint out_first;
-
-  if (subgroupElect())
-    out_first = atomicAdd(region_buffer.region_count.x, out_count);
-
-  out_index += subgroupBroadcastFirst(out_first);
+  uint out_index = atomicAdd(region_buffer.region_count.x, 1);
 
   // Compute absolute VAs for vkCmdDecompressMemoryIndirectCountNV
   region_buffer.memory_regions[out_index] = memory_region_t(
