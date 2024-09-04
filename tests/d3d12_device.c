@@ -655,6 +655,15 @@ void test_multisample_quality_levels(void)
     ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
     ok(format_support.NumQualityLevels >= 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
 
+    /* DXGI_FORMAT_D32_FLOAT_S8X24_UINT */
+    format_support.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    format_support.SampleCount = 4;
+    format_support.NumQualityLevels = 0xdeadbeef;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+            &format_support, sizeof(format_support));
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(format_support.NumQualityLevels >= 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+
     for (i = 0; i < ARRAY_SIZE(depth_stencil_formats); ++i)
     {
         memset(&format_support, 0, sizeof(format_support));
