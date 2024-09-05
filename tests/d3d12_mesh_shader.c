@@ -192,6 +192,7 @@ void test_mesh_shader_rendering(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12Resource *srv_resource, *uav_resource;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS9 options9;
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7;
     ID3D12GraphicsCommandList6 *command_list6;
     D3D12_ROOT_PARAMETER root_parameters[3];
@@ -210,10 +211,12 @@ void test_mesh_shader_rendering(void)
 #include "shaders/mesh_shader/headers/ms_clip_distance.h"
 #include "shaders/mesh_shader/headers/ms_cull_primitive.h"
 #include "shaders/mesh_shader/headers/ms_culling.h"
+#include "shaders/mesh_shader/headers/ms_derivatives.h"
 #include "shaders/mesh_shader/headers/ms_interface_matching.h"
 #include "shaders/mesh_shader/headers/ms_simple.h"
 #include "shaders/mesh_shader/headers/ms_system_values.h"
 #include "shaders/mesh_shader/headers/ps_culling.h"
+#include "shaders/mesh_shader/headers/ps_derivatives.h"
 #include "shaders/mesh_shader/headers/ps_green.h"
 #include "shaders/mesh_shader/headers/ps_interface_matching.h"
 #include "shaders/mesh_shader/headers/ps_system_values.h"
@@ -226,6 +229,8 @@ void test_mesh_shader_rendering(void)
             {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_culling_code_dxil, sizeof(ps_culling_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ps_system_values_subobject =
             {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_system_values_code_dxil, sizeof(ps_system_values_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject ps_derivatives_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_derivatives_code_dxil, sizeof(ps_derivatives_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_simple_subobject =
             {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_simple_code_dxil, sizeof(ms_simple_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_interface_matching_subobject =
@@ -238,6 +243,8 @@ void test_mesh_shader_rendering(void)
             {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_cull_primitive_code_dxil, sizeof(ms_cull_primitive_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_system_values_subobject =
             {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_system_values_code_dxil, sizeof(ms_system_values_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject ms_derivatives_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_derivatives_code_dxil, sizeof(ms_derivatives_code_dxil) } }};
 
     static const union d3d12_rasterizer_subobject rasterizer_subobject =
     {{
@@ -312,6 +319,9 @@ void test_mesh_shader_rendering(void)
     memset(&options7, 0, sizeof(options7));
     hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
     ok(SUCCEEDED(hr), "OPTIONS7 is not supported by runtime.\n");
+
+    memset(&options9, 0, sizeof(options9));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS9, &options9, sizeof(options9));
 
     if (options7.MeshShaderTier < D3D12_MESH_SHADER_TIER_1)
     {
@@ -575,6 +585,36 @@ void test_mesh_shader_rendering(void)
 
     release_resource_readback(&rb);
     ID3D12PipelineState_Release(pipeline_state);
+
+    if (options9.DerivativesInMeshAndAmplificationShadersSupported)
+    {
+        pipeline_desc.ms = ms_derivatives_subobject;
+        pipeline_desc.ps = ps_derivatives_subobject;
+
+        hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
+        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList6_ClearRenderTargetView(command_list6, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList6_OMSetRenderTargets(command_list6, 1, &context.rtv, false, NULL);
+        ID3D12GraphicsCommandList6_SetGraphicsRootSignature(command_list6, root_signature);
+        ID3D12GraphicsCommandList6_SetGraphicsRootUnorderedAccessView(command_list6, 1, ID3D12Resource_GetGPUVirtualAddress(uav_resource));
+        ID3D12GraphicsCommandList6_SetPipelineState(command_list6, pipeline_state);
+        ID3D12GraphicsCommandList6_RSSetViewports(command_list6, 1, &context.viewport);
+        ID3D12GraphicsCommandList6_RSSetScissorRects(command_list6, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList6_DispatchMesh(command_list6, 1, 1, 1);
+
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, context.queue, context.list, 0x24000011, 1);
+
+        ID3D12PipelineState_Release(pipeline_state);
+    }
+    else
+    {
+        skip("Derivatives in mesh and amplification shaders not supported.\n");
+    }
 
     ID3D12Resource_Release(srv_resource);
     ID3D12Resource_Release(uav_resource);
