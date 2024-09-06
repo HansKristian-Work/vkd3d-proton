@@ -428,7 +428,7 @@
         },
         "shader_model_66": {
             "extensions": {
-                "VK_NV_compute_shader_derivatives": 1,
+                "VK_KHR_compute_shader_derivatives": 1,
                 "VK_EXT_shader_image_atomic_int64": 1
             },
             "features": {
@@ -440,7 +440,7 @@
                     "shaderSharedInt64Atomics": true,
                     "shaderInt8": true
                 },
-                "VkPhysicalDeviceComputeShaderDerivativesFeaturesNV": {
+                "VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR": {
                     "computeDerivativeGroupLinear": true
                 },
                 "VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT": {
