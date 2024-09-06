@@ -3062,7 +3062,6 @@ void test_execute_indirect_state_vbo_offsets(void)
         g = get_readback_float(&rb, 1, 0);
         b = get_readback_float(&rb, 2, 0);
         a = get_readback_float(&rb, 3, 0);
-        bug_if(is_radv_device(context.device))
         ok(r == draw.values[0] + draw.draw_indexed.StartInstanceLocation, "r: Expected %f, got %f\n", draw.values[0] + draw.draw_indexed.StartInstanceLocation, r);
         ok(g == draw.values[1], "r: Expected %f, got %f\n", draw.values[1], g);
         ok(b == draw.values[2], "r: Expected %f, got %f\n", draw.values[2], b);
