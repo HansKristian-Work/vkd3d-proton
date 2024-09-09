@@ -609,6 +609,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION | VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC, 0 },
     /* World of Warcraft retail. Broken MSAA code where it renders to multi-sampled target with single sampled PSO. */
     { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA, 0 },
+    /* Pioneers of Pagonia (2155180). Does not expose MSAA without sample position tier 2. */
+    { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", 0, 0, VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
