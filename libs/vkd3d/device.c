@@ -509,6 +509,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE,
     VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
+    VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -8401,6 +8402,11 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
                 INFO("Limiting reported DXR tier to 1.0.\n");
                 device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_1_0;
             }
+            break;
+
+        case VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS:
+            /* For games that don't use SetSamplePositions, but do use ResolveSubresourceRegion */
+            device->d3d12_caps.options2.ProgrammableSamplePositionsTier = D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_2;
             break;
 
         default:
