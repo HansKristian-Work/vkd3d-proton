@@ -611,6 +611,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA, 0 },
     /* Pioneers of Pagonia (2155180). Does not expose MSAA without sample position tier 2. */
     { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", 0, 0, VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS },
+    /* The Last of Us Part I (1888930). Submits hundreds of command buffers per frame. */
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
