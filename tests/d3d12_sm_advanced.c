@@ -3995,6 +3995,7 @@ void test_sm67_integer_sampling(void)
 void test_sm68_draw_parameters(void)
 {
     ID3D12CommandSignature *simple_sig, *complex_sig;
+    ID3D12DescriptorHeap *uav_heap, *uav_cpu_heap;
     D3D12_FEATURE_DATA_D3D12_OPTIONS21 options21;
     D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -4007,7 +4008,6 @@ void test_sm68_draw_parameters(void)
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *uav, *draw_buffer;
-    ID3D12DescriptorHeap *uav_heap;
     struct resource_readback rb;
     struct test_context context;
     D3D12_VIEWPORT viewport;
@@ -4138,6 +4138,7 @@ void test_sm68_draw_parameters(void)
     ok(hr == S_OK, "Failed to create UAV buffer, hr %#x.\n", hr);
 
     uav_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    uav_cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     memset(&uav_desc, 0, sizeof(uav_desc));
     uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
@@ -4146,6 +4147,8 @@ void test_sm68_draw_parameters(void)
 
     ID3D12Device_CreateUnorderedAccessView(context.device, uav, NULL, &uav_desc,
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(uav_heap));
+    ID3D12Device_CreateUnorderedAccessView(context.device, uav, NULL, &uav_desc,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(uav_cpu_heap));
 
     heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
     heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
@@ -4179,7 +4182,7 @@ void test_sm68_draw_parameters(void)
 
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
                 ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(uav_heap),
-                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(uav_heap),
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(uav_cpu_heap),
                 uav, zero_uint, 0, NULL);
 
         uav_barrier(context.list, uav);
@@ -4250,6 +4253,7 @@ void test_sm68_draw_parameters(void)
         ID3D12CommandSignature_Release(complex_sig);
 
     ID3D12DescriptorHeap_Release(uav_heap);
+    ID3D12DescriptorHeap_Release(uav_cpu_heap);
 
     destroy_test_context(&context);
 }
