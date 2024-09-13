@@ -3598,6 +3598,7 @@ static void check_video_format_subresource_(unsigned int line, struct resource_r
 void test_planar_video_formats(void)
 {
 #define MAX_PLANES 2
+    ID3D12DescriptorHeap *rtv_heap, *srv_uav_heap, *srv_uav_cpu_heap;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprints[MAX_PLANES];
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     UINT64 row_sizes[MAX_PLANES], total_sizes[MAX_PLANES];
@@ -3606,7 +3607,6 @@ void test_planar_video_formats(void)
     D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support;
     unsigned int subsample_x_log2, subsample_y_log2;
     ID3D12PipelineState *graphics_psos[MAX_PLANES];
-    ID3D12DescriptorHeap *rtv_heap, *srv_uav_heap;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     D3D12_FEATURE_DATA_FORMAT_INFO format_info;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
@@ -3773,6 +3773,7 @@ void test_planar_video_formats(void)
     rtv = get_cpu_descriptor_handle(&context, rtv_heap, 0);
 
     srv_uav_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, MAX_PLANES * 2);
+    srv_uav_cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, MAX_PLANES * 2);
 
     memset(&scissor, 0, sizeof(scissor));
     memset(&viewport, 0, sizeof(viewport));
@@ -4263,6 +4264,8 @@ void test_planar_video_formats(void)
 
                     ID3D12Device_CreateUnorderedAccessView(context.device, resources[1], NULL, &uav_desc,
                             get_cpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1));
+                    ID3D12Device_CreateUnorderedAccessView(context.device, resources[1], NULL, &uav_desc,
+                            get_cpu_descriptor_handle(&context, srv_uav_cpu_heap, 2 * j + 1));
 
                     ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &srv_uav_heap);
                     ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
@@ -4285,7 +4288,7 @@ void test_planar_video_formats(void)
 
                     ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(context.list,
                             get_gpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1),
-                            get_cpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1),
+                            get_cpu_descriptor_handle(&context, srv_uav_cpu_heap, 2 * j + 1),
                             resources[1], clear_color, 0, NULL);
 
                     transition_sub_resource_state(context.list, resources[1], j,
@@ -4302,7 +4305,7 @@ void test_planar_video_formats(void)
 
                     ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
                             get_gpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1),
-                            get_cpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1),
+                            get_cpu_descriptor_handle(&context, srv_uav_cpu_heap, 2 * j + 1),
                             resources[1], clear_color_uint, 0, NULL);
 
                     transition_sub_resource_state(context.list, resources[1], j,
@@ -4364,6 +4367,7 @@ void test_planar_video_formats(void)
 
     ID3D12DescriptorHeap_Release(rtv_heap);
     ID3D12DescriptorHeap_Release(srv_uav_heap);
+    ID3D12DescriptorHeap_Release(srv_uav_cpu_heap);
 
     ID3D12PipelineState_Release(compute_pso);
 
