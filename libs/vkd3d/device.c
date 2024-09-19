@@ -509,6 +509,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE,
     VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
+    VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX,
     VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS,
 };
 
@@ -613,6 +614,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", 0, 0, VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS },
     /* The Last of Us Part I (1888930). Submits hundreds of command buffers per frame. */
     { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
+    /* Skull and Bones (2853730). Seems to require unsupported dcomp when reflex is enabled for some reason *shrug */
+    { VKD3D_STRING_COMPARE_EXACT, "skullandbones.exe", 0, 0, VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
@@ -8411,6 +8414,10 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
         case VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS:
             /* For games that don't use SetSamplePositions, but do use ResolveSubresourceRegion */
             device->d3d12_caps.options2.ProgrammableSamplePositionsTier = D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_2;
+            break;
+
+        case VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX:
+            device->vk_info.NV_low_latency2 = false;
             break;
 
         default:
