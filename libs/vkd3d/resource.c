@@ -7432,7 +7432,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
             vk_pool_size->type = set_info->vk_descriptor_type;
             vk_pool_size->descriptorCount = descriptor_heap->desc.NumDescriptors;
 
-            if (vkd3d_descriptor_debug_active_qa_checks() &&
+            if (vkd3d_descriptor_debug_active_descriptor_qa_checks() &&
                     descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
             {
                 vk_pool_size->descriptorCount += VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
@@ -7587,7 +7587,8 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descript
     VkDescriptorSetAllocateInfo vk_set_info;
     VkResult vr;
 
-    if (vkd3d_descriptor_debug_active_qa_checks() && descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks() &&
+            descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
         descriptor_count += VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
 
     vk_variable_count_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT;
@@ -7661,13 +7662,13 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
     if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && !d3d12_device_use_embedded_mutable_descriptors(device))
     {
         raw_va_buffer_size = align(desc->NumDescriptors * sizeof(VkDeviceAddress), alignment);
-        if (vkd3d_descriptor_debug_active_qa_checks())
+        if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
             raw_va_buffer_size += align(VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS * sizeof(VkDeviceAddress), alignment);
 
         if (device->bindless_state.flags & (VKD3D_SSBO_OFFSET_BUFFER | VKD3D_TYPED_OFFSET_BUFFER))
             offset_buffer_size = align(desc->NumDescriptors * sizeof(struct vkd3d_bound_buffer_range), alignment);
 
-        if (vkd3d_descriptor_debug_active_qa_checks())
+        if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
             descriptor_heap_info_size = align(vkd3d_descriptor_debug_heap_info_size(desc->NumDescriptors), alignment);
     }
 
@@ -7815,12 +7816,12 @@ static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_
                     break;
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-                case VKD3D_BINDLESS_SET_EXTRA_GLOBAL_HEAP_INFO_BUFFER:
-                    *vk_buffer = *vkd3d_descriptor_debug_get_global_info_descriptor(device->descriptor_qa_global_info);
+                case VKD3D_BINDLESS_SET_EXTRA_FEEDBACK_PAYLOAD_INFO_BUFFER:
+                    *vk_buffer = *vkd3d_descriptor_debug_get_payload_info_descriptor(device->descriptor_qa_global_info);
                     assert(!d3d12_device_use_embedded_mutable_descriptors(device));
                     break;
 
-                case VKD3D_BINDLESS_SET_EXTRA_DESCRIPTOR_HEAP_INFO_BUFFER:
+                case VKD3D_BINDLESS_SET_EXTRA_FEEDBACK_CONTROL_INFO_BUFFER:
                     *vk_buffer = descriptor_heap->descriptor_heap_info.descriptor;
                     assert(!d3d12_device_use_embedded_mutable_descriptors(device));
                     break;
@@ -8263,7 +8264,7 @@ bool d3d12_descriptor_heap_require_padding_descriptors(void)
     uint32_t quirks;
     unsigned int i;
 
-    if (vkd3d_descriptor_debug_active_qa_checks())
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
         return true;
 
     /* If we use descriptor heap robustness, reserve a dummy descriptor we can use

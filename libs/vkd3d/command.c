@@ -4800,6 +4800,13 @@ static void d3d12_command_list_invalidate_push_constants(struct vkd3d_pipeline_b
     bindings->root_descriptor_dirty_mask =
             bindings->root_signature->root_descriptor_raw_va_mask |
             bindings->root_signature->root_descriptor_push_mask;
+
+    if (vkd3d_descriptor_debug_active_instruction_qa_checks())
+    {
+        /* Even if root signature itself doesn't have root descriptors, force us to go through that path. */
+        bindings->root_descriptor_dirty_mask = UINT64_MAX;
+    }
+
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 }
 
@@ -5654,6 +5661,13 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     memset(&list->compute_bindings, 0, sizeof(list->compute_bindings));
     memset(&list->descriptor_heap, 0, sizeof(list->descriptor_heap));
 
+    if (vkd3d_descriptor_debug_active_instruction_qa_checks())
+    {
+        /* Even if root signature does not have root descriptors, force us to go through that path. */
+        list->graphics_bindings.root_descriptor_dirty_mask = UINT64_MAX;
+        list->compute_bindings.root_descriptor_dirty_mask = UINT64_MAX;
+    }
+
     d3d12_command_list_init_default_descriptor_buffers(list);
 
     list->state = NULL;
@@ -6419,6 +6433,27 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
                 0, va_count * sizeof(*root_parameter_data.root_descriptor_vas),
                 root_parameter_data.root_descriptor_vas));
     }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    if (vkd3d_descriptor_debug_active_instruction_qa_checks())
+    {
+        VkWriteDescriptorSet *write = &descriptor_writes[descriptor_write_count];
+        memset(write, 0, 2 * sizeof(*write));
+        write[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        write[0].descriptorCount = 1;
+        write[0].dstBinding = root_signature->descriptor_qa_control_binding.binding;
+        write[0].pBufferInfo = vkd3d_descriptor_debug_get_control_info_descriptor(list->device->descriptor_qa_global_info);
+
+        write[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        write[1].descriptorCount = 1;
+        write[1].dstBinding = root_signature->descriptor_qa_payload_binding.binding;
+        write[1].pBufferInfo = vkd3d_descriptor_debug_get_payload_info_descriptor(list->device->descriptor_qa_global_info);
+
+        descriptor_write_count += 2;
+    }
+#endif
 
     if (descriptor_write_count)
     {

@@ -26,16 +26,24 @@
 
 static pthread_once_t debug_once = PTHREAD_ONCE_INIT;
 static pthread_mutex_t debug_lock = PTHREAD_MUTEX_INITIALIZER;
-static bool descriptor_debug_active_qa_checks;
+static bool descriptor_debug_active_descriptor_checks;
+static bool descriptor_debug_active_instruction_checks;
 static bool descriptor_debug_active_log;
 static FILE *descriptor_debug_file;
 
 struct vkd3d_descriptor_qa_global_info
 {
-    struct vkd3d_descriptor_qa_global_buffer_data *data;
-    VkDescriptorBufferInfo descriptor;
-    VkBuffer vk_buffer;
-    struct vkd3d_device_memory_allocation device_allocation;
+    struct vkd3d_descriptor_qa_global_buffer_data *payload_data;
+
+    VkDescriptorBufferInfo payload_descriptor;
+    VkBuffer vk_payload_buffer;
+    struct vkd3d_device_memory_allocation payload_device_allocation;
+
+    uint32_t *control_data;
+    VkBuffer vk_control_buffer;
+    struct vkd3d_device_memory_allocation control_device_allocation;
+    VkDescriptorBufferInfo control_descriptor;
+
     unsigned int num_cookies;
 
     pthread_t ring_thread;
@@ -92,7 +100,12 @@ static void vkd3d_descriptor_debug_init_once(void)
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS)
     {
         INFO("Enabling descriptor QA checks!\n");
-        descriptor_debug_active_qa_checks = true;
+        descriptor_debug_active_descriptor_checks = true;
+    }
+    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    {
+        INFO("Enabling instruction-level QA checks!\n");
+        descriptor_debug_active_instruction_checks = true;
     }
 }
 
@@ -106,9 +119,14 @@ bool vkd3d_descriptor_debug_active_log(void)
     return descriptor_debug_active_log;
 }
 
-bool vkd3d_descriptor_debug_active_qa_checks(void)
+bool vkd3d_descriptor_debug_active_instruction_qa_checks(void)
 {
-    return descriptor_debug_active_qa_checks;
+    return descriptor_debug_active_instruction_checks;
+}
+
+bool vkd3d_descriptor_debug_active_descriptor_qa_checks(void)
+{
+    return descriptor_debug_active_descriptor_checks;
 }
 
 VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
@@ -120,12 +138,13 @@ VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
 static void vkd3d_descriptor_debug_set_live_status_bit(
         struct vkd3d_descriptor_qa_global_info *global_info, uint64_t cookie)
 {
-    if (!global_info || !global_info->active || !global_info->data)
+    if (!global_info || !descriptor_debug_active_descriptor_checks ||
+            !global_info->active || !global_info->payload_data)
         return;
 
     if (cookie < global_info->num_cookies)
     {
-        vkd3d_atomic_uint32_or(&global_info->data->live_status_table[cookie / 32],
+        vkd3d_atomic_uint32_or(&global_info->payload_data->live_status_table[cookie / 32],
                 1u << (cookie & 31), vkd3d_memory_order_relaxed);
     }
     else
@@ -135,14 +154,60 @@ static void vkd3d_descriptor_debug_set_live_status_bit(
 static void vkd3d_descriptor_debug_unset_live_status_bit(
         struct vkd3d_descriptor_qa_global_info *global_info, uint64_t cookie)
 {
-    if (!global_info || !global_info->active || !global_info->data)
+    if (!global_info || !descriptor_debug_active_descriptor_checks ||
+            !global_info->active || !global_info->payload_data)
         return;
 
     if (cookie < global_info->num_cookies)
     {
-        vkd3d_atomic_uint32_and(&global_info->data->live_status_table[cookie / 32],
+        vkd3d_atomic_uint32_and(&global_info->payload_data->live_status_table[cookie / 32],
                 ~(1u << (cookie & 31)), vkd3d_memory_order_relaxed);
     }
+}
+
+static void *vkd3d_descriptor_debug_qa_check_instruction(void *userdata)
+{
+    struct vkd3d_descriptor_qa_global_info *global_info = userdata;
+    const struct vkd3d_instruction_qa_payload_data *payload_data;
+    uint32_t control_words = global_info->num_cookies / 16;
+    bool active = true;
+    uint32_t i;
+
+    payload_data = (const struct vkd3d_instruction_qa_payload_data *)global_info->payload_data;
+
+    while (active)
+    {
+        /* Don't spin endlessly, this thread is kicked after a successful fence wait. */
+        pthread_mutex_lock(&global_info->ring_lock);
+        if (global_info->active)
+            pthread_cond_wait(&global_info->ring_cond, &global_info->ring_lock);
+        active = global_info->active;
+        pthread_mutex_unlock(&global_info->ring_lock);
+
+        for (i = 0; i < control_words; i++)
+        {
+            uint32_t word, payload_index;
+            word = vkd3d_atomic_uint32_load_explicit(&global_info->control_data[i], vkd3d_memory_order_acquire);
+            /* The upper 16 bits mark that there is valid data. */
+            word &= 0xffff0000u;
+
+            if (word)
+            {
+                while (word)
+                {
+                    payload_index = i * 16 + (vkd3d_bitmask_iter32(&word) - 16);
+                    ERR("QA: non-normal value || shader %016"PRIx64", inst %u, value #%x.\n",
+                            payload_data[payload_index].hash,
+                            payload_data[payload_index].instruction,
+                            payload_data[payload_index].value);
+                }
+
+                vkd3d_atomic_uint32_store_explicit(&global_info->control_data[i], 0, vkd3d_memory_order_release);
+            }
+        }
+    }
+
+    return NULL;
 }
 
 static void vkd3d_descriptor_debug_qa_check_report_fault(
@@ -162,14 +227,14 @@ static void *vkd3d_descriptor_debug_qa_check_entry(void *userdata)
         active = global_info->active;
         pthread_mutex_unlock(&global_info->ring_lock);
 
-        if (global_info->data->fault_type != 0)
+        if (global_info->payload_data->fault_type != 0)
         {
             vkd3d_descriptor_debug_qa_check_report_fault(global_info);
-            ERR("Num failed checks: %u\n", global_info->data->fault_atomic);
+            ERR("Num failed checks: %u\n", global_info->payload_data->fault_atomic);
 
             /* Reset the latch so we can get more reports. */
-            vkd3d_atomic_uint32_store_explicit(&global_info->data->fault_type, 0, vkd3d_memory_order_relaxed);
-            vkd3d_atomic_uint32_store_explicit(&global_info->data->fault_atomic, 0, vkd3d_memory_order_release);
+            vkd3d_atomic_uint32_store_explicit(&global_info->payload_data->fault_type, 0, vkd3d_memory_order_relaxed);
+            vkd3d_atomic_uint32_store_explicit(&global_info->payload_data->fault_atomic, 0, vkd3d_memory_order_release);
         }
     }
 
@@ -182,16 +247,138 @@ void vkd3d_descriptor_debug_kick_qa_check(struct vkd3d_descriptor_qa_global_info
         pthread_cond_signal(&global_info->ring_cond);
 }
 
-const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_global_info_descriptor(
+const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_payload_info_descriptor(
         struct vkd3d_descriptor_qa_global_info *global_info)
 {
     if (global_info)
-        return &global_info->descriptor;
+        return &global_info->payload_descriptor;
     else
         return NULL;
 }
 
-HRESULT vkd3d_descriptor_debug_alloc_global_info(
+const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_control_info_descriptor(
+        struct vkd3d_descriptor_qa_global_info *global_info)
+{
+    if (global_info)
+        return &global_info->control_descriptor;
+    else
+        return NULL;
+}
+
+static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
+        struct vkd3d_descriptor_qa_global_info **out_global_info,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_descriptor_qa_global_info *global_info;
+    const uint32_t num_payloads = 4096;
+    D3D12_RESOURCE_DESC1 buffer_desc;
+    D3D12_HEAP_PROPERTIES heap_info;
+    D3D12_HEAP_FLAGS heap_flags;
+    VkResult vr;
+    HRESULT hr;
+
+    global_info = vkd3d_calloc(1, sizeof(*global_info));
+    if (!global_info)
+        return E_OUTOFMEMORY;
+
+    memset(&buffer_desc, 0, sizeof(buffer_desc));
+    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer_desc.Width = sizeof(struct vkd3d_instruction_qa_payload_data) * num_payloads;
+    buffer_desc.Height = 1;
+    buffer_desc.DepthOrArraySize = 1;
+    buffer_desc.MipLevels = 1;
+    buffer_desc.SampleDesc.Count = 1;
+    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    buffer_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    /* host-visible device memory */
+    memset(&heap_info, 0, sizeof(heap_info));
+    heap_info.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+    /* Create the payload buffer. */
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc,
+            "qa-payload", &global_info->vk_payload_buffer)))
+    {
+        vkd3d_descriptor_debug_free_global_info(global_info, device);
+        return hr;
+    }
+
+    if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &global_info->payload_device_allocation)))
+    {
+        vkd3d_descriptor_debug_free_global_info(global_info, device);
+        return hr;
+    }
+
+    if ((vr = VK_CALL(vkMapMemory(device->vk_device, global_info->payload_device_allocation.vk_memory,
+            0, VK_WHOLE_SIZE, 0, (void**)&global_info->payload_data))))
+    {
+        ERR("Failed to map buffer, vr %d.\n", vr);
+        vkd3d_descriptor_debug_free_global_info(global_info, device);
+        return hresult_from_vk_result(vr);
+    }
+
+    memset(global_info->payload_data, 0, buffer_desc.Width);
+
+    global_info->payload_descriptor.buffer = global_info->vk_payload_buffer;
+    global_info->payload_descriptor.offset = 0;
+    global_info->payload_descriptor.range = buffer_desc.Width;
+
+    /* Create the atomic buffer. Keep it device local to keep GPU performance high.
+     * We'll eat the insanely slow readback cost on CPU. */
+    heap_info.Type = D3D12_HEAP_TYPE_DEFAULT;
+    buffer_desc.Width = (num_payloads / 16) * sizeof(uint32_t);
+
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc,
+            "qa-control", &global_info->vk_control_buffer)))
+    {
+        vkd3d_descriptor_debug_free_global_info(global_info, device);
+        return hr;
+    }
+
+    if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_control_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &global_info->control_device_allocation)))
+    {
+        vkd3d_descriptor_debug_free_global_info(global_info, device);
+        return hr;
+    }
+
+    if ((vr = VK_CALL(vkMapMemory(device->vk_device, global_info->control_device_allocation.vk_memory,
+            0, VK_WHOLE_SIZE, 0, (void**)&global_info->control_data))))
+    {
+        ERR("Failed to map buffer, vr %d.\n", vr);
+        vkd3d_descriptor_debug_free_global_info(global_info, device);
+        return hresult_from_vk_result(vr);
+    }
+
+    memset(global_info->control_data, 0, buffer_desc.Width);
+
+    global_info->control_descriptor.buffer = global_info->vk_control_buffer;
+    global_info->control_descriptor.offset = 0;
+    global_info->control_descriptor.range = buffer_desc.Width;
+
+    global_info->num_cookies = num_payloads;
+
+    pthread_mutex_init(&global_info->ring_lock, NULL);
+    pthread_cond_init(&global_info->ring_cond, NULL);
+    global_info->active = true;
+    if (pthread_create(&global_info->ring_thread, NULL, vkd3d_descriptor_debug_qa_check_instruction, global_info) != 0)
+    {
+        vkd3d_descriptor_debug_free_global_info(global_info, device);
+        return E_OUTOFMEMORY;
+    }
+
+    *out_global_info = global_info;
+    return S_OK;
+}
+
+static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
         struct vkd3d_descriptor_qa_global_info **out_global_info, unsigned int num_cookies,
         struct d3d12_device *device)
 {
@@ -224,36 +411,37 @@ HRESULT vkd3d_descriptor_debug_alloc_global_info(
 
     heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
-    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, "qa-buffer", &global_info->vk_buffer)))
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc,
+            "qa-buffer", &global_info->vk_payload_buffer)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hr;
     }
 
-    if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_buffer,
+    if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            &global_info->device_allocation)))
+            &global_info->payload_device_allocation)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hr;
     }
 
-    if ((vr = VK_CALL(vkMapMemory(device->vk_device, global_info->device_allocation.vk_memory,
-            0, VK_WHOLE_SIZE, 0, (void**)&global_info->data))))
+    if ((vr = VK_CALL(vkMapMemory(device->vk_device, global_info->payload_device_allocation.vk_memory,
+            0, VK_WHOLE_SIZE, 0, (void**)&global_info->payload_data))))
     {
         ERR("Failed to map buffer, vr %d.\n", vr);
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hresult_from_vk_result(vr);
     }
 
-    memset(global_info->data, 0, buffer_desc.Width);
+    memset(global_info->payload_data, 0, buffer_desc.Width);
 
     /* The NULL descriptor has cookie 0, and is always considered live. */
-    global_info->data->live_status_table[0] = 1u << 0;
+    global_info->payload_data->live_status_table[0] = 1u << 0;
 
-    global_info->descriptor.buffer = global_info->vk_buffer;
-    global_info->descriptor.offset = 0;
-    global_info->descriptor.range = buffer_desc.Width;
+    global_info->payload_descriptor.buffer = global_info->vk_payload_buffer;
+    global_info->payload_descriptor.offset = 0;
+    global_info->payload_descriptor.range = buffer_desc.Width;
     global_info->num_cookies = num_cookies;
 
     pthread_mutex_init(&global_info->ring_lock, NULL);
@@ -267,6 +455,18 @@ HRESULT vkd3d_descriptor_debug_alloc_global_info(
 
     *out_global_info = global_info;
     return S_OK;
+}
+
+HRESULT vkd3d_descriptor_debug_alloc_global_info(
+        struct vkd3d_descriptor_qa_global_info **out_global_info, unsigned int num_cookies,
+        struct d3d12_device *device)
+{
+    if (descriptor_debug_active_descriptor_checks)
+        return vkd3d_descriptor_debug_alloc_global_info_descriptors(out_global_info, num_cookies, device);
+    else if (descriptor_debug_active_instruction_checks)
+        return vkd3d_descriptor_debug_alloc_global_info_instructions(out_global_info, device);
+    else
+        return E_INVALIDARG;
 }
 
 void vkd3d_descriptor_debug_free_global_info(
@@ -289,8 +489,11 @@ void vkd3d_descriptor_debug_free_global_info(
         pthread_cond_destroy(&global_info->ring_cond);
     }
 
-    vkd3d_free_device_memory(device, &global_info->device_allocation);
-    VK_CALL(vkDestroyBuffer(device->vk_device, global_info->vk_buffer, NULL));
+    vkd3d_free_device_memory(device, &global_info->control_device_allocation);
+    VK_CALL(vkDestroyBuffer(device->vk_device, global_info->vk_control_buffer, NULL));
+
+    vkd3d_free_device_memory(device, &global_info->payload_device_allocation);
+    VK_CALL(vkDestroyBuffer(device->vk_device, global_info->vk_payload_buffer, NULL));
     vkd3d_free(global_info);
 }
 
@@ -314,24 +517,24 @@ static void vkd3d_descriptor_debug_qa_check_report_fault(
 {
     DECL_BUFFER();
 
-    if (global_info->data->fault_type & VKD3D_DESCRIPTOR_FAULT_TYPE_HEAP_OF_OF_RANGE)
+    if (global_info->payload_data->fault_type & VKD3D_DESCRIPTOR_FAULT_TYPE_HEAP_OF_OF_RANGE)
         APPEND_SNPRINTF("Fault type: HEAP_OUT_OF_RANGE\n");
-    if (global_info->data->fault_type & VKD3D_DESCRIPTOR_FAULT_TYPE_MISMATCH_DESCRIPTOR_TYPE)
+    if (global_info->payload_data->fault_type & VKD3D_DESCRIPTOR_FAULT_TYPE_MISMATCH_DESCRIPTOR_TYPE)
         APPEND_SNPRINTF("Fault type: MISMATCH_DESCRIPTOR_TYPE\n");
-    if (global_info->data->fault_type & VKD3D_DESCRIPTOR_FAULT_TYPE_DESTROYED_RESOURCE)
+    if (global_info->payload_data->fault_type & VKD3D_DESCRIPTOR_FAULT_TYPE_DESTROYED_RESOURCE)
         APPEND_SNPRINTF("Fault type: DESTROYED_RESOURCE\n");
 
-    APPEND_SNPRINTF("CBV_SRV_UAV heap cookie: %u\n", global_info->data->failed_heap);
+    APPEND_SNPRINTF("CBV_SRV_UAV heap cookie: %u\n", global_info->payload_data->failed_heap);
     APPEND_SNPRINTF("Shader hash and instruction: %"PRIx64" (%u)\n",
-            global_info->data->failed_hash, global_info->data->failed_instruction);
-    APPEND_SNPRINTF("Accessed resource/view cookie: %u\n", global_info->data->failed_cookie);
+            global_info->payload_data->failed_hash, global_info->payload_data->failed_instruction);
+    APPEND_SNPRINTF("Accessed resource/view cookie: %u\n", global_info->payload_data->failed_cookie);
     APPEND_SNPRINTF("Shader desired descriptor type: %u (%s)\n",
-            global_info->data->failed_descriptor_type_mask,
-            debug_descriptor_type(global_info->data->failed_descriptor_type_mask));
+            global_info->payload_data->failed_descriptor_type_mask,
+            debug_descriptor_type(global_info->payload_data->failed_descriptor_type_mask));
     APPEND_SNPRINTF("Found descriptor type in heap: %u (%s)\n",
-            global_info->data->actual_descriptor_type_mask,
-            debug_descriptor_type(global_info->data->actual_descriptor_type_mask));
-    APPEND_SNPRINTF("Failed heap index: %u\n", global_info->data->failed_offset);
+            global_info->payload_data->actual_descriptor_type_mask,
+            debug_descriptor_type(global_info->payload_data->actual_descriptor_type_mask));
+    APPEND_SNPRINTF("Failed heap index: %u\n", global_info->payload_data->failed_offset);
     ERR("\n============\n%s==========\n", buffer);
     if (!vkd3d_descriptor_debug_active_log())
         return;

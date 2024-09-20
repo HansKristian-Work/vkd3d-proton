@@ -2207,8 +2207,8 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
             shader_interface_info.push_constant_ubo_binding = &per_entry_global_signature->push_constant_ubo_binding;
             shader_interface_info.offset_buffer_binding = &per_entry_global_signature->offset_buffer_binding;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-            shader_interface_info.descriptor_qa_global_binding = &per_entry_global_signature->descriptor_qa_global_info;
-            shader_interface_info.descriptor_qa_heap_binding = &per_entry_global_signature->descriptor_qa_heap_binding;
+            shader_interface_info.descriptor_qa_payload_binding = &per_entry_global_signature->descriptor_qa_payload_binding;
+            shader_interface_info.descriptor_qa_control_binding = &per_entry_global_signature->descriptor_qa_control_binding;
 #endif
         }
         else
@@ -2254,6 +2254,16 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
 
             /* Promote state which might only be active in local root signature. */
             shader_interface_info.flags |= d3d12_root_signature_get_shader_interface_flags(local_signature, VKD3D_PIPELINE_TYPE_RAY_TRACING);
+
+            if (!per_entry_global_signature)
+            {
+                /* We won't have any root signature with push descriptors.
+                 * This is a potential hole, but ray tracing shaders without a global root
+                 * signature is questionable at best.
+                 * The outer raygen shader will usually be the one with true side effects. */
+                shader_interface_info.flags &= ~VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
+            }
+
             if (local_signature->raygen.flags & (VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER | VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER))
                 shader_interface_info.offset_buffer_binding = &local_signature->offset_buffer_binding;
         }

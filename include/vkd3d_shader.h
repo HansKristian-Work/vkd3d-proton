@@ -228,6 +228,7 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER             = 0x00000010u,
     /* In this model, use descriptor_size_cbv_srv_uav as array stride for raw VA buffer. */
     VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER   = 0x00000020u,
+    VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER            = 0x00000040u,
 };
 
 struct vkd3d_shader_stage_io_entry
@@ -270,10 +271,10 @@ struct vkd3d_shader_interface_info
     const struct vkd3d_shader_descriptor_binding *offset_buffer_binding;
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    /* Ignored unless VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER is set. */
-    const struct vkd3d_shader_descriptor_binding *descriptor_qa_global_binding;
-    /* Ignored unless VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER is set. */
-    const struct vkd3d_shader_descriptor_binding *descriptor_qa_heap_binding;
+    /* Ignored unless VKD3D_SHADER_INTERFACE_{DESCRIPTOR,INSTRUCTION}_QA_BUFFER is set. */
+    const struct vkd3d_shader_descriptor_binding *descriptor_qa_payload_binding;
+    /* Ignored unless VKD3D_SHADER_INTERFACE_{DESCRIPTOR,INSTRUCTION}_QA_BUFFER is set. */
+    const struct vkd3d_shader_descriptor_binding *descriptor_qa_control_binding;
 #endif
 
     const struct vkd3d_shader_stage_io_map *stage_input_map;
