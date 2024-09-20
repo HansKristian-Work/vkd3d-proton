@@ -4377,6 +4377,7 @@ void test_planar_video_formats(void)
 
 void test_large_texel_buffer_view(void)
 {
+    ID3D12DescriptorHeap *descriptor_heap, *descriptor_cpu_heap;
     ID3D12Resource *data_buffer, *feedback_buffer;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12GraphicsCommandList2 *command_list2;
@@ -4384,7 +4385,6 @@ void test_large_texel_buffer_view(void)
     D3D12_DESCRIPTOR_RANGE rs_desc_ranges[2];
     ID3D12PipelineState *uav_pso, *srv_pso;
     D3D12_HEAP_PROPERTIES heap_properties;
-    ID3D12DescriptorHeap *descriptor_heap;
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_RESOURCE_DESC resource_desc;
     D3D12_ROOT_PARAMETER rs_args[2];
@@ -4483,6 +4483,7 @@ void test_large_texel_buffer_view(void)
     ok(hr == S_OK, "Failed to create feedback buffer, hr %#x.\n", hr);
 
     descriptor_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4);
+    descriptor_cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     memset(&uav_desc, 0, sizeof(uav_desc));
     uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
@@ -4549,6 +4550,8 @@ void test_large_texel_buffer_view(void)
 
         ID3D12Device_CreateUnorderedAccessView(context.device, data_buffer, NULL,
                 &uav_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 3));
+        ID3D12Device_CreateUnorderedAccessView(context.device, data_buffer, NULL,
+                &uav_desc, get_cpu_descriptor_handle(&context, descriptor_cpu_heap, 0));
 
         shader_args.offset = tests[i].element_count - 1u;
         shader_args.data = tests[i].element_data;
@@ -4559,7 +4562,7 @@ void test_large_texel_buffer_view(void)
 
         ID3D12GraphicsCommandList2_ClearUnorderedAccessViewUint(command_list2,
                 get_gpu_descriptor_handle(&context, descriptor_heap, 3),
-                get_cpu_descriptor_handle(&context, descriptor_heap, 3),
+                get_cpu_descriptor_handle(&context, descriptor_cpu_heap, 0),
                 data_buffer, clear_color, 0, NULL);
 
         transition_resource_state(context.list, data_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -4620,6 +4623,7 @@ void test_large_texel_buffer_view(void)
     ID3D12Resource_Release(data_buffer);
 
     ID3D12DescriptorHeap_Release(descriptor_heap);
+    ID3D12DescriptorHeap_Release(descriptor_cpu_heap);
 
     ID3D12GraphicsCommandList2_Release(command_list2);
 
