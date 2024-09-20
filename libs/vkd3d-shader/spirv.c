@@ -6269,8 +6269,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_descriptor_qa_heap(struct vkd3d_dxbc_co
     vkd3d_spirv_build_op_name(builder, heap_struct_type_id, "descriptor_qa_heap_data");
     pointer_id = vkd3d_spirv_build_op_type_pointer(builder, SpvStorageClassUniform, heap_struct_type_id);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream, pointer_id, SpvStorageClassUniform, 0);
-    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationDescriptorSet, shader_interface->descriptor_qa_heap_binding->set);
-    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationBinding, shader_interface->descriptor_qa_heap_binding->binding);
+    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationDescriptorSet, shader_interface->descriptor_qa_control_binding->set);
+    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationBinding, shader_interface->descriptor_qa_control_binding->binding);
     vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonWritable, NULL, 0);
     vkd3d_spirv_build_op_name(builder, var_id, "descriptor_qa_heap");
 
@@ -6314,8 +6314,8 @@ static uint32_t vkd3d_dxbc_compiler_emit_descriptor_qa_global_data(struct vkd3d_
     vkd3d_spirv_build_op_name(builder, global_struct_type_id, "descriptor_qa_global_data");
     pointer_id = vkd3d_spirv_build_op_type_pointer(builder, SpvStorageClassUniform, global_struct_type_id);
     var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream, pointer_id, SpvStorageClassUniform, 0);
-    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationDescriptorSet, shader_interface->descriptor_qa_global_binding->set);
-    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationBinding, shader_interface->descriptor_qa_global_binding->binding);
+    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationDescriptorSet, shader_interface->descriptor_qa_payload_binding->set);
+    vkd3d_spirv_build_op_decorate1(builder, var_id, SpvDecorationBinding, shader_interface->descriptor_qa_payload_binding->binding);
     vkd3d_spirv_build_op_name(builder, var_id, "descriptor_qa_global");
 
     return var_id;

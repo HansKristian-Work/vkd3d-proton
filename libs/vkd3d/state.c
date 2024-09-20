@@ -547,6 +547,9 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
         info->push_descriptor_count += info->hoist_descriptor_count;
         info->binding_count += info->hoist_descriptor_count;
         info->binding_count += desc->NumStaticSamplers;
+
+        if (vkd3d_descriptor_debug_active_instruction_qa_checks())
+            info->push_descriptor_count += 2;
     }
 
     info->parameter_count = desc->NumParameters + info->hoist_descriptor_count;
@@ -914,14 +917,14 @@ static void d3d12_root_signature_init_extra_bindings(struct d3d12_root_signature
     }
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    if (vkd3d_descriptor_debug_active_qa_checks())
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
     {
         vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
-                VKD3D_BINDLESS_SET_EXTRA_DESCRIPTOR_HEAP_INFO_BUFFER,
-                &root_signature->descriptor_qa_heap_binding);
+                VKD3D_BINDLESS_SET_EXTRA_FEEDBACK_CONTROL_INFO_BUFFER,
+                &root_signature->descriptor_qa_control_binding);
         vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
-                VKD3D_BINDLESS_SET_EXTRA_GLOBAL_HEAP_INFO_BUFFER,
-                &root_signature->descriptor_qa_global_info);
+                VKD3D_BINDLESS_SET_EXTRA_FEEDBACK_PAYLOAD_INFO_BUFFER,
+                &root_signature->descriptor_qa_payload_binding);
     }
 #endif
 }
@@ -1123,6 +1126,33 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         context->vk_binding += 1;
     }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    if (vkd3d_descriptor_debug_active_instruction_qa_checks())
+    {
+        vk_binding = &vk_binding_info[j++];
+        vk_binding->binding = context->vk_binding;
+        vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        vk_binding->descriptorCount = 1;
+        vk_binding->stageFlags = VK_SHADER_STAGE_ALL;
+        vk_binding->pImmutableSamplers = NULL;
+
+        root_signature->descriptor_qa_control_binding.set = context->vk_set;
+        root_signature->descriptor_qa_control_binding.binding = context->vk_binding;
+        context->vk_binding += 1;
+
+        vk_binding = &vk_binding_info[j++];
+        vk_binding->binding = context->vk_binding;
+        vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        vk_binding->descriptorCount = 1;
+        vk_binding->stageFlags = VK_SHADER_STAGE_ALL;
+        vk_binding->pImmutableSamplers = NULL;
+
+        root_signature->descriptor_qa_payload_binding.set = context->vk_set;
+        root_signature->descriptor_qa_payload_binding.binding = context->vk_binding;
+        context->vk_binding += 1;
+    }
+#endif
 
     /* This should never happen. Min requirement for push descriptors is 32 and we can always fit into that limit. */
     if (j > root_signature->device->device_info.push_descriptor_properties.maxPushDescriptors)
@@ -1677,8 +1707,10 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
     if (d3d12_device_use_embedded_mutable_descriptors(root_signature->device))
         flags |= VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER;
 
-    if (vkd3d_descriptor_debug_active_qa_checks())
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
         flags |= VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER;
+    if (vkd3d_descriptor_debug_active_instruction_qa_checks())
+        flags |= VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
 
     return flags;
 }
@@ -2469,8 +2501,8 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
     }
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    shader_interface->descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
-    shader_interface->descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
+    shader_interface->descriptor_qa_payload_binding = &root_signature->descriptor_qa_payload_binding;
+    shader_interface->descriptor_qa_control_binding = &root_signature->descriptor_qa_control_binding;
 #endif
 }
 
@@ -6035,7 +6067,7 @@ static uint32_t d3d12_max_descriptor_count_from_heap_type(D3D12_DESCRIPTOR_HEAP_
     switch (heap_type)
     {
         case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-            if (vkd3d_descriptor_debug_active_qa_checks())
+            if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
                 return 1000000 + VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
             return 1000000;
 
@@ -6473,7 +6505,7 @@ bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, 
 
     /* If we're using descriptor QA, we need more complex CPU VA decode to decode heap, offsets, types, etc,
      * so the fast path is not feasible. */
-    if (vkd3d_descriptor_debug_active_qa_checks())
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
         return false;
 
     /* We don't want to keep metadata around for shader visible heap.
@@ -6878,10 +6910,10 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
     if (bindless_state->flags & (VKD3D_SSBO_OFFSET_BUFFER | VKD3D_TYPED_OFFSET_BUFFER))
         extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER;
 
-    if (vkd3d_descriptor_debug_active_qa_checks())
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
     {
-        extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_GLOBAL_HEAP_INFO_BUFFER |
-                VKD3D_BINDLESS_SET_EXTRA_DESCRIPTOR_HEAP_INFO_BUFFER;
+        extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_FEEDBACK_PAYLOAD_INFO_BUFFER |
+                VKD3D_BINDLESS_SET_EXTRA_FEEDBACK_CONTROL_INFO_BUFFER;
     }
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,

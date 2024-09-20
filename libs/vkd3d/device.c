@@ -974,6 +974,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"no_staggered_submit", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT},
     {"clear_uav_sync", VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC},
     {"force_dynamic_msaa", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA},
+    {"instruction_qa_checks", VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -8697,6 +8698,10 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
         key = hash_fnv1_iterate_u32(key, device->device_info.properties2.properties.driverVersion);
     }
 
+    /* QA checks don't necessarily modify bindless flags, so have to check them separately. */
+    hash_fnv1_iterate_u32(key, vkd3d_descriptor_debug_active_instruction_qa_checks());
+    hash_fnv1_iterate_u32(key, vkd3d_descriptor_debug_active_descriptor_qa_checks());
+
     device->shader_interface_key = key;
 }
 
@@ -8709,7 +8714,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
 {
     /* Don't bother replacing the vtable unless we have to. */
 
-    if (vkd3d_descriptor_debug_active_qa_checks())
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
         return;
 
 #ifdef VKD3D_ENABLE_PROFILING
@@ -8914,7 +8919,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     }
 #endif
 
-    if (vkd3d_descriptor_debug_active_qa_checks())
+    if (vkd3d_descriptor_debug_active_instruction_qa_checks() || vkd3d_descriptor_debug_active_descriptor_qa_checks())
     {
         if (FAILED(hr = vkd3d_descriptor_debug_alloc_global_info(&device->descriptor_qa_global_info,
                 VKD3D_DESCRIPTOR_DEBUG_DEFAULT_NUM_COOKIES, device)))

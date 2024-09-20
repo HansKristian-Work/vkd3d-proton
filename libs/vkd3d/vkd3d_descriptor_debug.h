@@ -38,12 +38,15 @@ void vkd3d_descriptor_debug_free_global_info(
 
 void vkd3d_descriptor_debug_kick_qa_check(struct vkd3d_descriptor_qa_global_info *global_info);
 
-const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_global_info_descriptor(
+const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_payload_info_descriptor(
+        struct vkd3d_descriptor_qa_global_info *global_info);
+const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_control_info_descriptor(
         struct vkd3d_descriptor_qa_global_info *global_info);
 
 void vkd3d_descriptor_debug_init(void);
 bool vkd3d_descriptor_debug_active_log(void);
-bool vkd3d_descriptor_debug_active_qa_checks(void);
+bool vkd3d_descriptor_debug_active_instruction_qa_checks(void);
+bool vkd3d_descriptor_debug_active_descriptor_qa_checks(void);
 
 void vkd3d_descriptor_debug_register_heap(
         struct vkd3d_descriptor_qa_heap_buffer_data *heap, uint64_t cookie,
@@ -79,10 +82,12 @@ VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
 #define vkd3d_descriptor_debug_alloc_global_info(global_info, num_cookies, device) (S_OK)
 #define vkd3d_descriptor_debug_free_global_info(global_info, device) ((void)0)
 #define vkd3d_descriptor_debug_kick_qa_check(global_info) ((void)0)
-#define vkd3d_descriptor_debug_get_global_info_descriptor(global_info) ((const VkDescriptorBufferInfo *)NULL)
+#define vkd3d_descriptor_debug_get_payload_info_descriptor(global_info) ((const VkDescriptorBufferInfo *)NULL)
+#define vkd3d_descriptor_debug_get_control_info_descriptor(global_info) ((const VkDescriptorBufferInfo *)NULL)
 #define vkd3d_descriptor_debug_init() ((void)0)
 #define vkd3d_descriptor_debug_active_log() ((void)0)
-#define vkd3d_descriptor_debug_active_qa_checks() (false)
+#define vkd3d_descriptor_debug_active_instruction_qa_checks() (false)
+#define vkd3d_descriptor_debug_active_descriptor_qa_checks() (false)
 #define vkd3d_descriptor_debug_register_heap(heap, cookie, desc) ((void)0)
 #define vkd3d_descriptor_debug_unregister_heap(cookie) ((void)0)
 #define vkd3d_descriptor_debug_register_resource_cookie(global_info, cookie, desc) ((void)0)

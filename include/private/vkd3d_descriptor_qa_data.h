@@ -66,6 +66,13 @@ struct vkd3d_descriptor_qa_global_buffer_data
     uint32_t live_status_table[];
 };
 
+struct vkd3d_instruction_qa_payload_data
+{
+    uint64_t hash;
+    uint32_t instruction;
+    uint32_t value;
+};
+
 /* Physical layout of QA heap buffer. */
 struct vkd3d_descriptor_qa_heap_buffer_data
 {

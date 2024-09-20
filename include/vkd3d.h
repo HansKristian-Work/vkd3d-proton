@@ -108,6 +108,7 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT (1ull << 50)
 #define VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC (1ull << 51)
 #define VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA (1ull << 52)
+#define VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS (1ull << 53)
 
 struct vkd3d_instance;
 

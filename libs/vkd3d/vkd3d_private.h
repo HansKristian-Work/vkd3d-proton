@@ -1781,8 +1781,8 @@ struct d3d12_root_signature
     struct vkd3d_shader_descriptor_binding raw_va_aux_buffer_binding;
     struct vkd3d_shader_descriptor_binding offset_buffer_binding;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    struct vkd3d_shader_descriptor_binding descriptor_qa_heap_binding;
-    struct vkd3d_shader_descriptor_binding descriptor_qa_global_info;
+    struct vkd3d_shader_descriptor_binding descriptor_qa_payload_binding;
+    struct vkd3d_shader_descriptor_binding descriptor_qa_control_binding;
 #endif
 
     VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
@@ -3764,10 +3764,10 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_MUTABLE_RAW   = (1u << 8),
     VKD3D_BINDLESS_SET_MUTABLE_TYPED = (1u << 9),
 
-    VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER           = (1u << 24),
-    VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER               = (1u << 25),
-    VKD3D_BINDLESS_SET_EXTRA_GLOBAL_HEAP_INFO_BUFFER     = (1u << 26),
-    VKD3D_BINDLESS_SET_EXTRA_DESCRIPTOR_HEAP_INFO_BUFFER = (1u << 27),
+    VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER            = (1u << 24),
+    VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER                = (1u << 25),
+    VKD3D_BINDLESS_SET_EXTRA_FEEDBACK_PAYLOAD_INFO_BUFFER = (1u << 26),
+    VKD3D_BINDLESS_SET_EXTRA_FEEDBACK_CONTROL_INFO_BUFFER = (1u << 27),
     VKD3D_BINDLESS_SET_EXTRA_MASK = 0xff000000u
 };
 
