@@ -5012,7 +5012,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
         }
         else
         {
-            vkd3d_get_depth_bias_representation(&graphics->rs_depth_bias_info, device, format);
+            vkd3d_get_depth_bias_representation(&graphics->rs_depth_bias_info, device, desc->dsv_format);
             vk_prepend_struct(&graphics->rs_desc, &graphics->rs_depth_bias_info);
         }
     }

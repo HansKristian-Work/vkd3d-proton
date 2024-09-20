@@ -5580,7 +5580,7 @@ static inline unsigned int d3d12_resource_get_sub_resource_count(const struct d3
 }
 
 static inline void vkd3d_get_depth_bias_representation(VkDepthBiasRepresentationInfoEXT *info,
-        const struct d3d12_device *device, const struct vkd3d_format *dsv_format)
+        const struct d3d12_device *device, DXGI_FORMAT dsv_format)
 {
     memset(info, 0, sizeof(*info));
     info->sType = VK_STRUCTURE_TYPE_DEPTH_BIAS_REPRESENTATION_INFO_EXT;
@@ -5590,7 +5590,7 @@ static inline void vkd3d_get_depth_bias_representation(VkDepthBiasRepresentation
     /* Checking only strongly typed formats should work here since we take the
      * format from the DSV or PSO desc, where typeless formats are not allowed */
     if (device->device_info.depth_bias_control_features.leastRepresentableValueForceUnormRepresentation &&
-            dsv_format && (dsv_format->dxgi_format == DXGI_FORMAT_D16_UNORM || dsv_format->dxgi_format == DXGI_FORMAT_D24_UNORM_S8_UINT))
+            (dsv_format == DXGI_FORMAT_D16_UNORM || dsv_format == DXGI_FORMAT_D24_UNORM_S8_UINT))
         info->depthBiasRepresentation = VK_DEPTH_BIAS_REPRESENTATION_LEAST_REPRESENTABLE_VALUE_FORCE_UNORM_EXT;
 }
 
