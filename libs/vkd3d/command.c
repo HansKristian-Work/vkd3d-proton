@@ -6740,7 +6740,8 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 
         if (list->device->device_info.depth_bias_control_features.depthBiasControl)
         {
-            vkd3d_get_depth_bias_representation(&depth_bias_representation, list->device, list->dsv.format);
+            vkd3d_get_depth_bias_representation(&depth_bias_representation, list->device,
+                    list->dsv.format ? list->dsv.format->dxgi_format : DXGI_FORMAT_UNKNOWN);
 
             memset(&depth_bias_info, 0, sizeof(depth_bias_info));
             depth_bias_info.sType = VK_STRUCTURE_TYPE_DEPTH_BIAS_INFO_EXT;
