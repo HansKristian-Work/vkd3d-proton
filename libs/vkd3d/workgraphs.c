@@ -378,6 +378,19 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
     return S_OK;
 }
 
+static uint32_t d3d12_work_graph_find_array_size_by_id(
+        const struct vkd3d_shader_library_entry_point *entries,
+        size_t entry_count, const char *node_id)
+{
+    size_t i;
+
+    for (i = entry_count; i; i--)
+        if (entries[i - 1].node_input && strcmp(entries[i - 1].node_input->node_id, node_id) == 0)
+            return entries[i - 1].node_input->node_array_index + 1;
+
+    return UINT32_MAX;
+}
+
 static uint32_t d3d12_work_graph_find_node_by_id(
         const struct vkd3d_shader_library_entry_point *entries,
         size_t entry_count, const char *node_id, UINT node_array_index)
@@ -659,9 +672,16 @@ static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_
     {
         for (j = 0; j < data->entry_points[i].node_outputs_count; j++)
         {
-            const struct vkd3d_shader_node_output_data *output = &data->entry_points[i].node_outputs[j];
+            struct vkd3d_shader_node_output_data *output = &data->entry_points[i].node_outputs[j];
             uint32_t node_array_size;
             uint32_t node_index;
+
+            if (output->node_array_size == UINT32_MAX)
+            {
+                /* Try to find the appropriate array size here. */
+                output->node_array_size = d3d12_work_graph_find_array_size_by_id(
+                        data->entry_points, data->entry_points_count, output->node_id);
+            }
 
             if (output->node_array_size == UINT32_MAX)
             {
@@ -1541,7 +1561,7 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     const struct vkd3d_shader_library_entry_point *entry;
     VkComputePipelineCreateInfo pipeline_info;
     VkSpecializationInfo spec_info;
-    unsigned int i;
+    unsigned int i, j;
     VkResult vr;
 
     memset(&pipeline_info, 0, sizeof(pipeline_info));
@@ -1602,9 +1622,26 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
         tmp->map_entries[i].offset = sizeof(uint32_t) * i;
         tmp->map_entries[i].size = sizeof(uint32_t);
         tmp->map_entries[i].constantID = entry->node_outputs[i].node_index_spec_constant_id;
-        tmp->spec_data[i] = d3d12_work_graph_find_node_by_id(
-                data->entry_points, data->entry_points_count,
-                entry->node_outputs[i].node_id, entry->node_outputs[i].node_array_index);
+
+        /* If we have sparse nodes, we may have to look through the full array to find something useful. */
+        for (j = 0; j < entry->node_outputs[i].node_array_size; j++)
+        {
+            tmp->spec_data[i] = d3d12_work_graph_find_node_by_id(
+                    data->entry_points, data->entry_points_count,
+                    entry->node_outputs[i].node_id,
+                    entry->node_outputs[i].node_array_index + j);
+
+            if (tmp->spec_data[i] != UINT32_MAX)
+            {
+                /* The shader will end up offseting, so compensate for that here. */
+                assert(tmp->spec_data[i] >= j);
+                tmp->spec_data[i] -= j;
+                break;
+            }
+        }
+
+        /* This should be impossible since we validated earlier. */
+        assert(tmp->spec_data[i] != UINT32_MAX);
     }
 
     if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
@@ -1948,9 +1985,12 @@ static HRESULT d3d12_wg_state_object_compile_programs(
 
     for (i = 0; i < data->entry_points_count; i++)
     {
-        if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, data, &object->modules[i],
-                &data->entry_points[i])))
-            return hr;
+        if (data->entry_points[i].node_input)
+        {
+            if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, data, &object->modules[i],
+                    &data->entry_points[i])))
+                return hr;
+        }
     }
 
     /* Create pipelines. Every program can have different overrides like node assignments, so we'll have to
