@@ -2333,6 +2333,15 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
                     push.node_grid_dispatch[2] = z;
                     push.node_linear_offset_bda = offset_scratch.va;
 
+                    if (list->device->vk_info.EXT_debug_utils)
+                    {
+                        char buf[256];
+                        snprintf(buf, sizeof(buf), "CPU entry - %s[%u] - (%u, %u, %u)",
+                                node_input->node_id, node_input->node_array_index,
+                                x, y, z);
+                        d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
+                    }
+
                     VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                             vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
                             offsetof(struct vkd3d_shader_node_input_push_signature, node_grid_dispatch),
@@ -2363,6 +2372,14 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
     else
     {
         uint32_t num_wgs_x;
+
+        if (list->device->vk_info.EXT_debug_utils)
+        {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "CPU entry - %s[%u]", node_input->node_id, node_input->node_array_index);
+            d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
+        }
+
         if (node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_COALESCING)
             num_wgs_x = (desc->NumRecords + node_input->coalesce_factor - 1) / node_input->coalesce_factor;
         else
@@ -2428,6 +2445,9 @@ static void d3d12_command_list_emit_distribute_workgroups(struct d3d12_command_l
     VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
             program->workgroup_distributor.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             0, sizeof(args), &args));
+
+    if (list->device->vk_info.EXT_debug_utils)
+        d3d12_command_list_debug_mark_label(list, "Distribute Work Groups", 1.0f, 0.8f, 0.8f, 1.0f);
 
     VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, 1, 1, 1));
 
@@ -2498,6 +2518,14 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
         vk_offset += program->indirect_commands_scratch_offset;
         vk_offset += node_index * sizeof(struct d3d12_workgraph_indirect_command);
         vk_offset += offsetof(struct d3d12_workgraph_indirect_command, expander_execute);
+
+        if (list->device->vk_info.EXT_debug_utils)
+        {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "Payload Distribute - level %u - node %s[%u]",
+                    level, node_input->node_id, node_input->node_array_index);
+            d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
+        }
 
         VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, resource->vk_buffer, vk_offset));
     }
@@ -2655,6 +2683,15 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
                 push.node_grid_dispatch[1] = y;
                 push.node_grid_dispatch[2] = z;
                 push.node_linear_offset_bda = primary_linear_offset_bda;
+
+                if (list->device->vk_info.EXT_debug_utils)
+                {
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "Node Dispatch - level %u - node %s[%u] - (%u, %u, %u)",
+                            level, node_input->node_id, node_input->node_array_index,
+                            x, y, z);
+                    d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
+                }
 
                 VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                         vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
