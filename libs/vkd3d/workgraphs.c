@@ -1619,12 +1619,15 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
 
     for (i = 0; i < entry->node_outputs_count; i++)
     {
+        uint32_t node_array_size = entry->node_outputs[i].node_array_size ?
+                entry->node_outputs[i].node_array_size : 1;
+
         tmp->map_entries[i].offset = sizeof(uint32_t) * i;
         tmp->map_entries[i].size = sizeof(uint32_t);
         tmp->map_entries[i].constantID = entry->node_outputs[i].node_index_spec_constant_id;
 
         /* If we have sparse nodes, we may have to look through the full array to find something useful. */
-        for (j = 0; j < entry->node_outputs[i].node_array_size; j++)
+        for (j = 0; j < node_array_size; j++)
         {
             tmp->spec_data[i] = d3d12_work_graph_find_node_by_id(
                     data->entry_points, data->entry_points_count,
