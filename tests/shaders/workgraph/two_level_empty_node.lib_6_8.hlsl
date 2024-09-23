@@ -19,21 +19,22 @@ void EntryNode(
 	c[1].ThreadIncrementOutputCount(6);
 	d[0].ThreadIncrementOutputCount(4);
 	d[1].ThreadIncrementOutputCount(6);
-	if (!e[0].IsValid() && e[1].IsValid())
+	// TODO: Test IsValid() later.
+	//if (!e[0].IsValid() && e[1].IsValid())
 		e[1].ThreadIncrementOutputCount(3);
-	if (!e[2].IsValid() && e[3].IsValid())
+	//if (!e[2].IsValid() && e[3].IsValid())
 		e[3].ThreadIncrementOutputCount(2);
-	if (!f[0].IsValid() && f[1].IsValid())
+	//if (!f[0].IsValid() && f[1].IsValid())
 		f[1].ThreadIncrementOutputCount(3);
-	if (!f[2].IsValid() && f[3].IsValid())
+	//if (!f[2].IsValid() && f[3].IsValid())
 		f[3].ThreadIncrementOutputCount(2);
-	if (!g[6].IsValid() && g[7].IsValid())
+	//if (!g[6].IsValid() && g[7].IsValid())
 		g[7].ThreadIncrementOutputCount(9);
-	if (!g[6].IsValid() && g[8].IsValid())
+	//if (!g[6].IsValid() && g[8].IsValid())
 		g[8].ThreadIncrementOutputCount(7);
-	if (!h[6].IsValid() && h[7].IsValid())
+	//if (!h[6].IsValid() && h[7].IsValid())
 		h[7].ThreadIncrementOutputCount(9);
-	if (!h[6].IsValid() && h[8].IsValid())
+	//if (!h[6].IsValid() && h[8].IsValid())
 		h[8].ThreadIncrementOutputCount(7);
 }
 
