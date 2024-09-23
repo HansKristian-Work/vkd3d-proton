@@ -4982,14 +4982,21 @@ static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, 
     return ID3D12Device12_QueryInterface(&device->ID3D12Device_iface, iid, object);
 }
 
+ULONG d3d12_device_add_ref_common(struct d3d12_device *device);
+ULONG d3d12_device_release_common(struct d3d12_device *device);
+
 static inline ULONG d3d12_device_add_ref(struct d3d12_device *device)
 {
-    return ID3D12Device12_AddRef(&device->ID3D12Device_iface);
+    ULONG refcount = d3d12_device_add_ref_common(device);
+    TRACE("Increasing refcount to %u.\n", refcount);
+    return refcount;
 }
 
 static inline ULONG d3d12_device_release(struct d3d12_device *device)
 {
-    return ID3D12Device12_Release(&device->ID3D12Device_iface);
+    ULONG refcount = d3d12_device_release_common(device);
+    TRACE("Decreasing refcount to %u.\n", refcount);
+    return refcount;
 }
 
 static inline bool d3d12_device_use_embedded_mutable_descriptors(struct d3d12_device *device)

@@ -3530,13 +3530,66 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
     return E_NOINTERFACE;
 }
 
+static void d3d12_device_destroy(struct d3d12_device *device);
+
+/* Split up the refcounting from logging so we can more easily deduce if ref-counting bugs
+ * are caused by internal issues or external ones. */
+ULONG d3d12_device_add_ref_common(struct d3d12_device *device)
+{
+    return InterlockedIncrement(&device->refcount);
+}
+
+ULONG d3d12_device_release_common(struct d3d12_device *device)
+{
+    ULONG cur_refcount, cas_refcount;
+    bool is_locked = false;
+
+    cur_refcount = 0;
+    cas_refcount = vkd3d_atomic_uint32_load_explicit(&device->refcount, vkd3d_memory_order_relaxed);
+
+    /* In order to prevent another thread from resurrecting a destroyed device,
+     * we need to lock the container mutex before decrementing the ref count to
+     * zero, so we'll have to use a CAS loop rather than basic atomic decrement */
+    while (cas_refcount != cur_refcount)
+    {
+        cur_refcount = cas_refcount;
+
+        if (cur_refcount == 1 && !is_locked)
+        {
+            pthread_mutex_lock(&d3d12_device_map_mutex);
+            is_locked = true;
+        }
+
+        cas_refcount = vkd3d_atomic_uint32_compare_exchange((uint32_t*)&device->refcount, cur_refcount,
+                cur_refcount - 1, vkd3d_memory_order_acq_rel, vkd3d_memory_order_relaxed);
+    }
+
+    if (cur_refcount == 1)
+    {
+        d3d12_remove_device_singleton(device->adapter_luid);
+        d3d12_device_destroy(device);
+        vkd3d_free_aligned(device);
+    }
+
+    if (is_locked)
+        pthread_mutex_unlock(&d3d12_device_map_mutex);
+
+    return cur_refcount - 1;
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_device_AddRef(d3d12_device_iface *iface)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    ULONG refcount = InterlockedIncrement(&device->refcount);
-
+    ULONG refcount = d3d12_device_add_ref_common(device);
     TRACE("%p increasing refcount to %u.\n", device, refcount);
+    return refcount;
+}
 
+static ULONG STDMETHODCALLTYPE d3d12_device_Release(d3d12_device_iface *iface)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    UINT refcount = d3d12_device_release_common(device);
+    TRACE("%p decreasing refcount to %u.\n", device, refcount);
     return refcount;
 }
 
@@ -3612,46 +3665,6 @@ static void d3d12_device_set_name(struct d3d12_device *device, const char *name)
 {
     vkd3d_set_vk_object_name(device, (uint64_t)(uintptr_t)device->vk_device,
             VK_OBJECT_TYPE_DEVICE, name);
-}
-
-static ULONG STDMETHODCALLTYPE d3d12_device_Release(d3d12_device_iface *iface)
-{
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    ULONG cur_refcount, cas_refcount;
-    bool is_locked = false;
-
-    cur_refcount = 0;
-    cas_refcount = vkd3d_atomic_uint32_load_explicit(&device->refcount, vkd3d_memory_order_relaxed);
-
-    /* In order to prevent another thread from resurrecting a destroyed device,
-     * we need to lock the container mutex before decrementing the ref count to
-     * zero, so we'll have to use a CAS loop rather than basic atomic decrement */
-    while (cas_refcount != cur_refcount)
-    {
-        cur_refcount = cas_refcount;
-
-        if (cur_refcount == 1 && !is_locked)
-        {
-            pthread_mutex_lock(&d3d12_device_map_mutex);
-            is_locked = true;
-        }
-
-        cas_refcount = vkd3d_atomic_uint32_compare_exchange((uint32_t*)&device->refcount, cur_refcount,
-                cur_refcount - 1, vkd3d_memory_order_acq_rel, vkd3d_memory_order_relaxed);
-    }
-
-    if (cur_refcount == 1)
-    {
-        d3d12_remove_device_singleton(device->adapter_luid);
-        d3d12_device_destroy(device);
-        vkd3d_free_aligned(device);
-    }
-
-    if (is_locked)
-        pthread_mutex_unlock(&d3d12_device_map_mutex);
-
-    TRACE("%p decreasing refcount to %u.\n", device, cur_refcount - 1);
-    return cur_refcount - 1;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_GetPrivateData(d3d12_device_iface *iface,
@@ -9150,7 +9163,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         return E_INVALIDARG;
     }
 
-    TRACE("Created device %p.\n", object);
+    TRACE("Created device %p (dummy d3d12_device_AddRef for debug grep purposes).\n", object);
 
     d3d12_add_device_singleton(object, create_info->adapter_luid);
 
