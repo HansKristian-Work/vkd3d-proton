@@ -539,6 +539,106 @@ static HRESULT d3d12_wg_state_object_program_add_node_to_level(
     return S_OK;
 }
 
+static int entry_point_compare_func(const void *a_, const void *b_)
+{
+    const struct vkd3d_shader_library_entry_point *a = a_;
+    const struct vkd3d_shader_library_entry_point *b = b_;
+    const char *a_name, *b_name;
+    int32_t a_index;
+    int32_t b_index;
+    int sort_key;
+
+    a_name = (a->node_input && a->node_input->node_id) ? a->node_input->node_id : "";
+    b_name = (b->node_input && b->node_input->node_id) ? b->node_input->node_id : "";
+    a_index = a->node_input ? a->node_input->node_array_index : 0;
+    b_index = b->node_input ? b->node_input->node_array_index : 0;
+
+    sort_key = strcmp(a_name, b_name);
+    if (sort_key != 0)
+        return sort_key;
+    else if (a_index != b_index)
+        return a_index < b_index ? -1 : 1;
+    else
+        return 0;
+}
+
+static HRESULT d3d12_wg_state_object_rearrange_entry_points(struct d3d12_wg_state_object_data *data)
+{
+    struct vkd3d_shader_library_entry_point *new_entries;
+    const struct vkd3d_shader_library_entry_point *entry;
+    const struct vkd3d_shader_library_entry_point *next;
+    size_t padded_entry_points = 0;
+    size_t padded_entry_offset = 0;
+    size_t i;
+
+    /* Rearrange and figure out how large unbounded arrays are, and place arrayed entry points
+     * in order so that we can index linearly. */
+    qsort(data->entry_points, data->entry_points_count, sizeof(*data->entry_points), entry_point_compare_func);
+
+    for (i = 0; i < data->entry_points_count; i++)
+    {
+        if (i + 1 == data->entry_points_count)
+        {
+            if (data->entry_points[i].node_input)
+                padded_entry_points += data->entry_points[i].node_input->node_array_index + 1;
+        }
+        else
+        {
+            entry = &data->entry_points[i];
+            next = &data->entry_points[i + 1];
+
+            if (entry->node_input && next->node_input)
+            {
+                if (strcmp(entry->node_input->node_id, next->node_input->node_id) != 0)
+                    padded_entry_points += entry->node_input->node_array_index + 1;
+                else if (entry->node_input->node_array_index == next->node_input->node_array_index)
+                    return E_INVALIDARG;
+            }
+        }
+    }
+
+    /* No need to do anything fancy. */
+    if (padded_entry_points == data->entry_points_count)
+        return S_OK;
+
+    new_entries = vkd3d_malloc(sizeof(*new_entries) * padded_entry_points);
+
+    for (i = 0; i < data->entry_points_count; i++)
+    {
+        const struct vkd3d_shader_node_input_data *node_input = data->entry_points[i].node_input;
+        const struct vkd3d_shader_node_input_data *prev_input = NULL;
+        size_t pad_count = 0;
+
+        if (!node_input)
+            continue;
+
+        if (i != 0)
+            prev_input = data->entry_points[i - 1].node_input;
+
+        if (i == 0 || !prev_input || strcmp(node_input->node_id, prev_input->node_id) != 0)
+            pad_count = node_input->node_array_index;
+        else
+            pad_count = node_input->node_array_index - prev_input->node_array_index - 1;
+
+        if (pad_count)
+        {
+            memset(&new_entries[padded_entry_offset], 0, pad_count * sizeof(*new_entries));
+            padded_entry_offset += pad_count;
+        }
+
+        new_entries[padded_entry_offset++] = data->entry_points[i];
+    }
+
+    assert(padded_entry_offset == padded_entry_points);
+
+    /* The entries themselves are pilfered. */
+    vkd3d_free(data->entry_points);
+    data->entry_points = new_entries;
+    data->entry_points_count = padded_entry_points;
+
+    return S_OK;
+}
+
 static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_object *object,
         struct d3d12_wg_state_object_data *data,
         struct d3d12_wg_state_object_program *program)
@@ -550,6 +650,9 @@ static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_
     bool *node_is_output_target = NULL;
     HRESULT hr = S_OK;
     size_t i, j, k;
+
+    if (FAILED(hr = d3d12_wg_state_object_rearrange_entry_points(data)))
+        return hr;
 
     node_is_output_target = vkd3d_calloc(data->entry_points_count, sizeof(*node_is_output_target));
     for (i = 0; i < data->entry_points_count; i++)
