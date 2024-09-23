@@ -2827,6 +2827,10 @@ static bool d3d12_command_list_workgraph_setup_indirect(
 
     num_wgs = align(args.num_entry_points, vkd3d_meta_get_workgraph_setup_gpu_input_workgroup_size()) /
             vkd3d_meta_get_workgraph_setup_gpu_input_workgroup_size();
+
+    if (list->device->vk_info.EXT_debug_utils)
+        d3d12_command_list_debug_mark_label(list, "Setup Indirect Nodes", 1.0f, 0.8f, 0.8f, 1.0f);
+
     VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs, 1, 1));
 
     memset(&vk_barrier, 0, sizeof(vk_barrier));
