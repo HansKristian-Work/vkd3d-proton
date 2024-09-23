@@ -1489,7 +1489,7 @@ static void STDMETHODCALLTYPE d3d12_work_graph_properties_GetWorkGraphMemoryRequ
 {
     /* Arbitrary */
     const VkDeviceSize packed_offset_payload_max_size = 256 * 1024 * 1024;
-    const VkDeviceSize packed_offset_payload_min_size = 16 * 1024 * 1024;
+    const VkDeviceSize packed_offset_payload_min_size = 64 * 1024 * 1024;
     const VkDeviceSize size_granularity = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT; /* arbitrary, but 64k is reasonable. */
 
     struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
@@ -2458,6 +2458,10 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
 
         node_index = program->levels[level].nodes[i];
         node_input = state->entry_points[node_index].node_input;
+
+        /* Empty nodes don't care about payloads. */
+        if (node_input->payload_stride == 0)
+            continue;
 
         VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 program->pipelines[node_index].payload_offset_expander.vk_pipeline));
