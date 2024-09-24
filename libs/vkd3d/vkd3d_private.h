@@ -3454,6 +3454,23 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_DSTORAGE,
 };
 
+#if defined(VKD3D_ENABLE_BREADCRUMBS) || defined(VKD3D_ENABLE_DESCRIPTOR_QA)
+struct vkd3d_shader_hash_range
+{
+    vkd3d_shader_hash_t lo;
+    vkd3d_shader_hash_t hi;
+    uint32_t flags;
+};
+
+enum vkd3d_shader_hash_range_kind
+{
+    VKD3D_SHADER_HASH_RANGE_KIND_BARRIERS = 0
+};
+
+void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **ranges,
+        size_t *range_size, size_t *range_count, enum vkd3d_shader_hash_range_kind kind);
+#endif
+
 #ifdef VKD3D_ENABLE_BREADCRUMBS
 struct vkd3d_breadcrumb_counter
 {
@@ -3489,13 +3506,6 @@ struct vkd3d_breadcrumb_command_list_trace_context
     uint32_t locked;
     uint32_t prev;
     uint32_t next;
-};
-
-struct vkd3d_shader_hash_range
-{
-    vkd3d_shader_hash_t lo;
-    vkd3d_shader_hash_t hi;
-    uint32_t flags;
 };
 
 struct vkd3d_breadcrumb_tracer
