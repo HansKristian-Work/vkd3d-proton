@@ -50,6 +50,10 @@ struct vkd3d_descriptor_qa_global_info
     pthread_mutex_t ring_lock;
     pthread_cond_t ring_cond;
     bool active;
+
+    struct vkd3d_shader_hash_range *qa_ranges;
+    size_t qa_range_size;
+    size_t qa_range_count;
 };
 
 static const char *debug_descriptor_type(vkd3d_descriptor_qa_flags type_flags)
@@ -265,6 +269,25 @@ const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_control_info_descriptor
         return NULL;
 }
 
+static void vkd3d_descriptor_debug_parse_shader_ranges(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        enum vkd3d_shader_hash_range_kind kind)
+{
+    char env[VKD3D_PATH_MAX];
+    FILE *file;
+
+    if (vkd3d_get_env_var("VKD3D_QA_HASHES", env, sizeof(env)))
+    {
+        file = fopen(env, "r");
+        if (file)
+        {
+            vkd3d_shader_hash_range_parse(file, &global_info->qa_ranges, &global_info->qa_range_size,
+                    &global_info->qa_range_count, kind);
+            fclose(file);
+        }
+    }
+}
+
 static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         struct vkd3d_descriptor_qa_global_info **out_global_info,
         struct d3d12_device *device)
@@ -374,8 +397,65 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         return E_OUTOFMEMORY;
     }
 
+    vkd3d_descriptor_debug_parse_shader_ranges(global_info, VKD3D_SHADER_HASH_RANGE_KIND_QA);
+
     *out_global_info = global_info;
     return S_OK;
+}
+
+uint32_t vkd3d_descriptor_debug_get_shader_interface_flags(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        const void *code, size_t size)
+{
+    struct vkd3d_shader_code dxbc;
+    vkd3d_shader_hash_t hash;
+    uint32_t flags = 0;
+    size_t i;
+
+    if (!global_info || !global_info->active)
+        return 0;
+
+    dxbc.code = code;
+    dxbc.size = size;
+    hash = vkd3d_shader_hash(&dxbc);
+
+    if (global_info->qa_range_count)
+    {
+        for (i = 0; i < global_info->qa_range_count; i++)
+            if (global_info->qa_ranges[i].lo <= hash && hash <= global_info->qa_ranges[i].hi)
+                flags |= global_info->qa_ranges[i].flags;
+    }
+    else
+    {
+        flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW;
+    }
+
+    if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_FULL_QA)
+        flags |= VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW;
+    if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_DISALLOW)
+        flags = 0;
+
+    if (descriptor_debug_active_descriptor_checks)
+    {
+        if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW)
+            flags = VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER;
+    }
+    else if (descriptor_debug_active_instruction_checks)
+    {
+        if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_FULL_QA)
+        {
+            flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL |
+                    VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
+        }
+        else if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW)
+            flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
+    }
+    else
+    {
+        flags = 0;
+    }
+
+    return flags;
 }
 
 static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
@@ -453,6 +533,8 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
         return E_OUTOFMEMORY;
     }
 
+    vkd3d_descriptor_debug_parse_shader_ranges(global_info, VKD3D_SHADER_HASH_RANGE_KIND_QA);
+
     *out_global_info = global_info;
     return S_OK;
 }
@@ -494,6 +576,8 @@ void vkd3d_descriptor_debug_free_global_info(
 
     vkd3d_free_device_memory(device, &global_info->payload_device_allocation);
     VK_CALL(vkDestroyBuffer(device->vk_device, global_info->vk_payload_buffer, NULL));
+
+    vkd3d_free(global_info->qa_ranges);
     vkd3d_free(global_info);
 }
 

@@ -19,6 +19,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "vkd3d_private.h"
 #include "vkd3d_string.h"
+#include "vkd3d_descriptor_debug.h"
 
 #define RT_TRACE TRACE
 
@@ -2338,6 +2339,10 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
          * we can amortize the parsing cost. */
         dxil.code = data->dxil_libraries[entry->identifier]->DXILLibrary.pShaderBytecode;
         dxil.size = data->dxil_libraries[entry->identifier]->DXILLibrary.BytecodeLength;
+
+        shader_interface_info.flags |= vkd3d_descriptor_debug_get_shader_interface_flags(
+                object->device->descriptor_qa_global_info,
+                dxil.code, dxil.size);
 
         if (vkd3d_shader_compile_dxil_export(&dxil, entry->real_entry_point, entry->debug_entry_point,
                 &spirv, NULL,

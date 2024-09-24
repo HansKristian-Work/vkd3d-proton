@@ -90,6 +90,27 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
                         (*ranges)[new_count].lo,
                         (*ranges)[new_count].hi);
             }
+            else if (kind == VKD3D_SHADER_HASH_RANGE_KIND_QA)
+            {
+                if (*end_ptr == '\0')
+                {
+                    (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW;
+                    end_ptr = "allow (default)";
+                }
+                else if (strcmp(end_ptr, "allow") == 0)
+                    (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW;
+                else if (strcmp(end_ptr, "disallow") == 0)
+                    (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_DISALLOW;
+                else if (strcmp(end_ptr, "full") == 0)
+                    (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_FULL_QA;
+                else
+                    end_ptr = "N/A";
+
+                INFO("Inserting %s QA check for %016"PRIx64" - %016"PRIx64".\n",
+                        end_ptr,
+                        (*ranges)[new_count].lo,
+                        (*ranges)[new_count].hi);
+            }
 
             new_count++;
         }

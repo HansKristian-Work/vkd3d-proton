@@ -1707,11 +1707,6 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
     if (d3d12_device_use_embedded_mutable_descriptors(root_signature->device))
         flags |= VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER;
 
-    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
-        flags |= VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER;
-    if (vkd3d_descriptor_debug_active_instruction_qa_checks())
-        flags |= VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
-
     return flags;
 }
 
@@ -2660,6 +2655,8 @@ static HRESULT vkd3d_compile_shader_stage(struct d3d12_pipeline_state *state, st
         TRACE("Calling vkd3d_shader_compile_dxbc.\n");
 
         d3d12_pipeline_state_init_shader_interface(state, device, stage, &shader_interface);
+        shader_interface.flags |= vkd3d_descriptor_debug_get_shader_interface_flags(
+                device->descriptor_qa_global_info, dxbc.code, dxbc.size);
         d3d12_pipeline_state_init_compile_arguments(state, device, stage, &compile_args);
 
         if ((ret = vkd3d_shader_compile_dxbc(&dxbc, spirv_code, spirv_code_debug,
@@ -2973,6 +2970,8 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     state->pipeline_type = VKD3D_PIPELINE_TYPE_COMPUTE;
     d3d12_pipeline_state_init_shader_interface(state, device,
             VK_SHADER_STAGE_COMPUTE_BIT, &shader_interface);
+    shader_interface.flags |= vkd3d_descriptor_debug_get_shader_interface_flags(
+            device->descriptor_qa_global_info, desc->cs.pShaderBytecode, desc->cs.BytecodeLength);
 
     vkd3d_load_spirv_from_cached_state(device, cached_pso,
             VK_SHADER_STAGE_COMPUTE_BIT, &state->compute.code,

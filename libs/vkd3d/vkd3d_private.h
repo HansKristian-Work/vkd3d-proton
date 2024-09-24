@@ -3455,16 +3455,25 @@ enum vkd3d_breadcrumb_command_type
 };
 
 #if defined(VKD3D_ENABLE_BREADCRUMBS) || defined(VKD3D_ENABLE_DESCRIPTOR_QA)
+
+enum vkd3d_shader_hash_range_qa_flags
+{
+    VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW = 1 << 0,
+    VKD3D_SHADER_HASH_RANGE_QA_FLAG_DISALLOW = 1 << 1,
+    VKD3D_SHADER_HASH_RANGE_QA_FLAG_FULL_QA = 1 << 2
+};
+
 struct vkd3d_shader_hash_range
 {
     vkd3d_shader_hash_t lo;
     vkd3d_shader_hash_t hi;
-    uint32_t flags;
+    uint32_t flags; /* interpretation of this depends on the kind. */
 };
 
 enum vkd3d_shader_hash_range_kind
 {
-    VKD3D_SHADER_HASH_RANGE_KIND_BARRIERS = 0
+    VKD3D_SHADER_HASH_RANGE_KIND_BARRIERS = 0,
+    VKD3D_SHADER_HASH_RANGE_KIND_QA,
 };
 
 void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **ranges,
