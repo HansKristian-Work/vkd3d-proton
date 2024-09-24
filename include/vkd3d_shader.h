@@ -229,6 +229,7 @@ enum vkd3d_shader_interface_flag
     /* In this model, use descriptor_size_cbv_srv_uav as array stride for raw VA buffer. */
     VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER   = 0x00000020u,
     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER            = 0x00000040u,
+    VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL       = 0x00000080u,
 };
 
 struct vkd3d_shader_stage_io_entry

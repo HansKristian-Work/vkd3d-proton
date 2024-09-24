@@ -746,6 +746,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         helper.control_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
         helper.control_binding = shader_interface_info->descriptor_qa_control_binding->binding;
         helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXTERNALLY_VISIBLE_WRITE_NAN_INF;
+        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL)
+            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FULL_NAN_INF;
 
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
