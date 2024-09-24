@@ -30,6 +30,7 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
     vkd3d_shader_hash_t lo_hash;
     vkd3d_shader_hash_t hi_hash;
     size_t new_count = 0;
+    char *old_end_ptr;
     char line[64];
     char *end_ptr;
 
@@ -44,7 +45,15 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
         while (*end_ptr != '\0' && !isalnum(*end_ptr))
             end_ptr++;
 
+        old_end_ptr = end_ptr;
         hi_hash = strtoull(end_ptr, &end_ptr, 16);
+
+        /* If we didn't fully consume a hex number here, back up. */
+        if (*end_ptr != '\0' && *end_ptr != ' ')
+        {
+            end_ptr = old_end_ptr;
+            hi_hash = 0;
+        }
 
         while (*end_ptr != '\0' && !isalpha(*end_ptr))
             end_ptr++;
