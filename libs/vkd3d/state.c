@@ -6237,8 +6237,6 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     VkDescriptorType mutable_descriptor_types[VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES];
     VkDescriptorSetLayoutBindingFlagsCreateInfo vk_binding_flags_info;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkDescriptorSetLayoutHostMappingInfoVALVE mapping_info;
-    VkDescriptorSetBindingReferenceVALVE binding_reference;
     VkDescriptorSetLayoutCreateInfo vk_set_layout_info;
     VkMutableDescriptorTypeCreateInfoEXT mutable_info;
     VkDescriptorSetLayoutBinding *vk_binding;
@@ -6346,34 +6344,14 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
         ERR("Failed to create descriptor set layout, vr %d.\n", vr);
 
     /* If we're able, we should implement descriptor copies with functions we roll ourselves. */
-    if (d3d12_device_uses_descriptor_buffers(device) ||
-            device->device_info.descriptor_set_host_mapping_features.descriptorSetHostMapping)
+    if (d3d12_device_uses_descriptor_buffers(device))
     {
-        if (d3d12_device_uses_descriptor_buffers(device))
-        {
-            INFO("Device supports VK_EXT_descriptor_buffer!\n");
-            VK_CALL(vkGetDescriptorSetLayoutBindingOffsetEXT(device->vk_device, set_info->vk_set_layout,
-                    set_info->binding_index, &desc_offset));
-            set_info->host_mapping_offset = desc_offset;
-            set_info->host_mapping_descriptor_size = vkd3d_get_descriptor_size_for_binding(device,
-                    &vk_set_layout_info, set_info->binding_index);
-        }
-        else
-        {
-            INFO("Device supports VK_VALVE_descriptor_set_host_mapping!\n");
-            binding_reference.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_BINDING_REFERENCE_VALVE;
-            binding_reference.pNext = NULL;
-            binding_reference.descriptorSetLayout = set_info->vk_set_layout;
-            binding_reference.binding = set_info->binding_index;
-            mapping_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_HOST_MAPPING_INFO_VALVE;
-            mapping_info.pNext = NULL;
-
-            VK_CALL(vkGetDescriptorSetLayoutHostMappingInfoVALVE(device->vk_device,
-                    &binding_reference, &mapping_info));
-
-            set_info->host_mapping_offset = mapping_info.descriptorOffset;
-            set_info->host_mapping_descriptor_size = mapping_info.descriptorSize;
-        }
+        INFO("Device supports VK_EXT_descriptor_buffer!\n");
+        VK_CALL(vkGetDescriptorSetLayoutBindingOffsetEXT(device->vk_device, set_info->vk_set_layout,
+                set_info->binding_index, &desc_offset));
+        set_info->host_mapping_offset = desc_offset;
+        set_info->host_mapping_descriptor_size = vkd3d_get_descriptor_size_for_binding(device,
+                &vk_set_layout_info, set_info->binding_index);
 
         set_info->host_copy_template =
                 vkd3d_bindless_find_copy_template(set_info->host_mapping_descriptor_size);

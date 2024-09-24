@@ -137,7 +137,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_RAW_ACCESS_CHAINS, NV_raw_access_chains),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
-    VK_EXTENSION(VALVE_DESCRIPTOR_SET_HOST_MAPPING, VALVE_descriptor_set_host_mapping),
     /* MESA extensions */
     VK_EXTENSION(MESA_IMAGE_ALIGNMENT_CONTROL, MESA_image_alignment_control),
 };
@@ -1768,13 +1767,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->shader_image_atomic_int64_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_IMAGE_ATOMIC_INT64_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->shader_image_atomic_int64_features);
-    }
-
-    if (vulkan_info->VALVE_descriptor_set_host_mapping)
-    {
-        info->descriptor_set_host_mapping_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_SET_HOST_MAPPING_FEATURES_VALVE;
-        vk_prepend_struct(&info->features2, &info->descriptor_set_host_mapping_features);
     }
 
     if (vulkan_info->AMD_device_coherent_memory)
