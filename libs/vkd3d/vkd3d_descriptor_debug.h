@@ -43,6 +43,10 @@ const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_payload_info_descriptor
 const VkDescriptorBufferInfo *vkd3d_descriptor_debug_get_control_info_descriptor(
         struct vkd3d_descriptor_qa_global_info *global_info);
 
+uint32_t vkd3d_descriptor_debug_get_shader_interface_flags(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        const void *code, size_t size);
+
 void vkd3d_descriptor_debug_init(void);
 bool vkd3d_descriptor_debug_active_log(void);
 bool vkd3d_descriptor_debug_active_instruction_qa_checks(void);
@@ -98,6 +102,7 @@ VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
 #define vkd3d_descriptor_debug_write_descriptor(heap, heap_cookie, offset, type_flags, cookie) ((void)0)
 #define vkd3d_descriptor_debug_copy_descriptor(dst_heap, dst_heap_cookie, dst_offset, src_heap, src_heap_cookie, src_offset, cookie) ((void)0)
 #define vkd3d_descriptor_debug_heap_info_size(num_descriptors) 0
+#define vkd3d_descriptor_debug_get_shader_interface_flags(global_info, code, size) 0
 #endif
 
 #endif
