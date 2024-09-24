@@ -841,12 +841,8 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
 
 void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
 {
-    vkd3d_shader_hash_t lo_hash;
-    vkd3d_shader_hash_t hi_hash;
     char env[VKD3D_PATH_MAX];
-    uint32_t new_count;
-    char line[64];
-    char *end_ptr;
+    size_t new_count;
     FILE *file;
 
     if (vkd3d_get_env_var("VKD3D_BARRIER_HASHES", env, sizeof(env)))
@@ -855,78 +851,8 @@ void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_trace
         if (file)
         {
             pthread_mutex_lock(&tracer->barrier_hash_lock);
-            new_count = 0;
-            while (fgets(line, sizeof(line), file))
-            {
-                /* Look for either a single number, or lohash-hihash format. */
-                if (!isalnum(*line))
-                    continue;
-
-                lo_hash = strtoull(line, &end_ptr, 16);
-
-                while (*end_ptr != '\0' && !isalnum(*end_ptr))
-                    end_ptr++;
-
-                hi_hash = strtoull(end_ptr, &end_ptr, 16);
-
-                while (*end_ptr != '\0' && !isalpha(*end_ptr))
-                    end_ptr++;
-
-                if (!hi_hash)
-                    hi_hash = lo_hash;
-
-                if (lo_hash || hi_hash)
-                {
-                    vkd3d_array_reserve((void **)&tracer->barrier_hashes, &tracer->barrier_hashes_size,
-                            new_count + 1, sizeof(*tracer->barrier_hashes));
-
-                    tracer->barrier_hashes[new_count].lo = lo_hash;
-                    tracer->barrier_hashes[new_count].hi = hi_hash;
-
-                    if (*end_ptr != '\0')
-                    {
-                        char *stray_newline = end_ptr + (strlen(end_ptr) - 1);
-                        if (*stray_newline == '\n')
-                            *stray_newline = '\0';
-                    }
-
-                    if (*end_ptr == '\0')
-                    {
-                        tracer->barrier_hashes[new_count].flags =
-                                VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH;
-                        end_ptr = "post-compute (default)";
-                    }
-                    else if (strcmp(end_ptr, "pre-compute") == 0)
-                    {
-                        tracer->barrier_hashes[new_count].flags =
-                                VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH;
-                    }
-                    else if (strcmp(end_ptr, "post-compute") == 0)
-                    {
-                        tracer->barrier_hashes[new_count].flags =
-                                VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
-                    }
-                    else if (strcmp(end_ptr, "pre-raster") == 0)
-                    {
-                        tracer->barrier_hashes[new_count].flags =
-                                VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH;
-                    }
-                    else if (strcmp(end_ptr, "graphics") == 0)
-                    {
-                        tracer->barrier_hashes[new_count].flags =
-                                VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH;
-                    }
-                    else
-                        end_ptr = "N/A";
-
-                    INFO("Inserting %s barrier for %016"PRIx64" - %016"PRIx64".\n",
-                            end_ptr,
-                            tracer->barrier_hashes[new_count].lo,
-                            tracer->barrier_hashes[new_count].hi);
-
-                    new_count++;
-                }
-            }
+            vkd3d_shader_hash_range_parse(file, &tracer->barrier_hashes, &tracer->barrier_hashes_size,
+                    &new_count, VKD3D_SHADER_HASH_RANGE_KIND_BARRIERS);
             vkd3d_atomic_uint32_store_explicit(&tracer->barrier_hashes_count, new_count, vkd3d_memory_order_relaxed);
             pthread_mutex_unlock(&tracer->barrier_hash_lock);
             fclose(file);
