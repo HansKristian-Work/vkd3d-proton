@@ -183,7 +183,6 @@ struct vkd3d_vulkan_info
     bool NV_raw_access_chains;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
-    bool VALVE_descriptor_set_host_mapping;
     /* MESA extensions */
     bool MESA_image_alignment_control;
 
@@ -4459,7 +4458,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR compute_shader_derivatives_features_khr;
     VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shader_image_atomic_int64_features;
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
-    VkPhysicalDeviceDescriptorSetHostMappingFeaturesVALVE descriptor_set_host_mapping_features;
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
     VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR ray_tracing_maintenance1_features;
     VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV device_generated_commands_features_nv;
