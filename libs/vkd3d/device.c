@@ -615,6 +615,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     /* Skull and Bones (2853730). Seems to require unsupported dcomp when reflex is enabled for some reason *shrug */
     { VKD3D_STRING_COMPARE_EXACT, "skullandbones.exe", 0, 0, VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX },
+    /* Test Drive Unlimited Solar Crown (1249970).
+     * Device releases ID3D12Device too many times, leading to subsequent crash on fence release.
+     * Appears to hang on Windows though, so ... */
+    { VKD3D_STRING_COMPARE_EXACT, "TDUSC.exe", VKD3D_CONFIG_FLAG_DELAY_DEVICE_DESTRUCTION, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
@@ -3531,6 +3535,20 @@ ULONG d3d12_device_add_ref_common(struct d3d12_device *device)
     return InterlockedIncrement(&device->refcount);
 }
 
+static void *device_destroy_thread(void *args)
+{
+    struct d3d12_device *device = args;
+#ifdef _WIN32
+    Sleep(1000);
+#else
+    sleep(1);
+#endif
+    INFO("Destroying device in a delayed way.\n");
+    d3d12_device_destroy(device);
+    vkd3d_free_aligned(device);
+    return NULL;
+}
+
 ULONG d3d12_device_release_common(struct d3d12_device *device)
 {
     ULONG cur_refcount, cas_refcount;
@@ -3559,8 +3577,26 @@ ULONG d3d12_device_release_common(struct d3d12_device *device)
     if (cur_refcount == 1)
     {
         d3d12_remove_device_singleton(device->adapter_luid);
-        d3d12_device_destroy(device);
-        vkd3d_free_aligned(device);
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DELAY_DEVICE_DESTRUCTION)
+        {
+            pthread_t thr;
+            INFO("Device hit 0 ref-count, but deferring destruction due to config flag.\n");
+            /* Workaround buggy games that release too many device references before all child objects
+             * are destroyed. This crashes native Windows too. */
+            if (pthread_create(&thr, NULL, device_destroy_thread, device))
+            {
+                d3d12_device_destroy(device);
+                vkd3d_free_aligned(device);
+            }
+            else
+                pthread_detach(thr);
+        }
+        else
+        {
+            d3d12_device_destroy(device);
+            vkd3d_free_aligned(device);
+        }
     }
 
     if (is_locked)

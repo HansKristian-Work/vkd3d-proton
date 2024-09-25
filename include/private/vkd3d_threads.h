@@ -38,6 +38,7 @@ struct pthread
 
     HMODULE d3d12core_reference;
     HMODULE dxgi_reference;
+    LONG refcount;
 };
 typedef struct pthread *pthread_t;
 
@@ -80,9 +81,15 @@ static DWORD WINAPI win32_thread_wrapper_routine(void *arg)
     /* We are executing in d3d12core.dll here, so we have to use the atomic FreeLibraryAndExit thread to make this work. */
     if (thread->d3d12core_reference)
     {
+        HMODULE module_ref = thread->d3d12core_reference;
         TRACE("Releasing module reference for d3d12core.dll and exiting thread: %p.\n", thread->d3d12core_reference);
-        FreeLibraryAndExitThread(thread->d3d12core_reference, 0);
+        if (!InterlockedDecrement(&thread->refcount))
+            vkd3d_free(thread);
+        FreeLibraryAndExitThread(module_ref, 0);
     }
+
+    if (!InterlockedDecrement(&thread->refcount))
+        vkd3d_free(thread);
 
     /* Otherwise, fall back to the implicit ExitThread(). */
     return 0;
@@ -97,6 +104,7 @@ static inline int pthread_create(pthread_t *out_thread, void *attr, void * (*thr
     (void)attr;
     thread->routine = thread_fun;
     thread->arg = arg;
+    thread->refcount = 2;
 
     /* Need GetModuleHandleEx which lets us get a refcount. */
     if (!GetModuleHandleExA(0, "d3d12core.dll", &thread->d3d12core_reference))
@@ -132,6 +140,14 @@ static inline int pthread_join(pthread_t thread, void **ret)
         vkd3d_free(thread);
     }
     return success ? 0 : -1;
+}
+
+static inline int pthread_detach(pthread_t thread)
+{
+    CloseHandle(thread->thread);
+    if (!InterlockedDecrement(&thread->refcount))
+        vkd3d_free(thread);
+    return 0;
 }
 
 static inline int pthread_mutex_init(pthread_mutex_t *lock, void *attr)
