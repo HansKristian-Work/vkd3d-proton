@@ -699,7 +699,7 @@ struct vkd3d_allocate_memory_info
     void *host_ptr;
     const void *pNext;
     uint32_t flags;
-    VkBufferUsageFlags explicit_global_buffer_usage;
+    VkBufferUsageFlags2KHR explicit_global_buffer_usage;
     VkMemoryPropertyFlags optional_memory_properties;
     float vk_memory_priority;
 };
@@ -758,7 +758,7 @@ struct vkd3d_memory_allocation
 
     D3D12_HEAP_TYPE heap_type;
     uint32_t flags;
-    VkBufferUsageFlags explicit_global_buffer_usage;
+    VkBufferUsageFlags2KHR explicit_global_buffer_usage;
 
     uint64_t clear_semaphore_value;
 
@@ -1131,7 +1131,7 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, const char *tag, VkBuffer *vk_buffer);
 HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
-        VkBufferUsageFlags vk_usage, VkDeviceSize vk_size, const char *tag, VkBuffer *vk_buffer);
+        VkBufferUsageFlags2KHR vk_usage, VkDeviceSize vk_size, const char *tag, VkBuffer *vk_buffer);
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC1 *desc,
         UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
@@ -3394,7 +3394,7 @@ struct vkd3d_global_descriptor_buffer
         VkBuffer vk_buffer;
         VkDeviceAddress va;
         struct vkd3d_device_memory_allocation device_allocation;
-        VkBufferUsageFlags usage;
+        VkBufferUsageFlags2KHR usage;
     } resource, sampler;
 };
 

@@ -88,9 +88,10 @@ VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *d
 }
 
 HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
-        VkBufferUsageFlags vk_usage_flags, VkDeviceSize size, const char *tag, VkBuffer *vk_buffer)
+        VkBufferUsageFlags2KHR vk_usage_flags, VkDeviceSize size, const char *tag, VkBuffer *vk_buffer)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkBufferUsageFlags2CreateInfoKHR flags2;
     VkBufferCreateInfo buffer_info;
     VkResult vr;
 
@@ -98,7 +99,19 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
     buffer_info.pNext = NULL;
     buffer_info.flags = 0;
     buffer_info.size = size;
-    buffer_info.usage = vk_usage_flags;
+
+    if (device->device_info.maintenance_5_features.maintenance5)
+    {
+        flags2.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO_KHR;
+        flags2.pNext = NULL;
+        flags2.usage = vk_usage_flags;
+        buffer_info.usage = 0;
+        vk_prepend_struct(&buffer_info, &flags2);
+    }
+    else
+    {
+        buffer_info.usage = vk_usage_flags;
+    }
 
     if (device->queue_family_count > 1)
     {
@@ -7247,7 +7260,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
     VkDeviceSize total_alloc_size = 0;
     VkDeviceSize descriptor_count;
     unsigned int i, j, set_count;
-    VkBufferUsageFlags usage;
+    VkBufferUsageFlags2KHR usage;
     VkDeviceSize alloc_size;
     VkResult vr;
     HRESULT hr;
@@ -8881,7 +8894,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
 HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffer *global_descriptor_buffer,
         struct d3d12_device *device)
 {
-    VkBufferUsageFlags vk_usage_flags;
+    VkBufferUsageFlags2KHR vk_usage_flags;
     HRESULT hr;
 
     bool requires_offset_buffer = device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment > 4;
