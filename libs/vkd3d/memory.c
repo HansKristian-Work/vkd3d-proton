@@ -1624,7 +1624,7 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, uint32_t type_mask,
         VkMemoryPropertyFlags optional_properties,
-        VkBufferUsageFlags explicit_global_buffer_usage,
+        VkBufferUsageFlags2KHR explicit_global_buffer_usage,
         VkDeviceSize minimum_size,
         struct vkd3d_memory_chunk **chunk)
 {
@@ -1673,7 +1673,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         struct d3d12_device *device, const VkMemoryRequirements *memory_requirements, uint32_t type_mask,
         VkMemoryPropertyFlags optional_properties,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkBufferUsageFlags explicit_global_buffer_usage,
+        VkBufferUsageFlags2KHR explicit_global_buffer_usage,
         struct vkd3d_memory_allocation *allocation)
 {
     const D3D12_HEAP_FLAGS heap_flag_mask = ~(D3D12_HEAP_FLAG_CREATE_NOT_ZEROED |
