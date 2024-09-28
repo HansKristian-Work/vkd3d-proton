@@ -204,11 +204,31 @@ HRESULT d3d12_device_validate_custom_heap_type(struct d3d12_device *device,
     if (heap_properties->Type != D3D12_HEAP_TYPE_CUSTOM)
         return S_OK;
 
-    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN
-            || (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
-            && (is_cpu_accessible_heap(heap_properties) || d3d12_device_is_uma(device, NULL))))
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN)
     {
         WARN("Invalid memory pool preference.\n");
+        return E_INVALIDARG;
+    }
+
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
+        && heap_properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK)
+    {
+        WARN("Invalid memory pool preference and CPU page property combination.\n");
+        return E_INVALIDARG;
+    }
+
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
+        && d3d12_device_is_uma(device, NULL))
+    {
+        WARN("Invalid memory pool preference on UMA device.\n");
+        return E_INVALIDARG;
+    }
+
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
+        && heap_properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
+        && !device->memory_info.has_gpu_upload_heap)
+    {
+        WARN("Invalid memory pool preference (device does not support rebar).\n");
         return E_INVALIDARG;
     }
 

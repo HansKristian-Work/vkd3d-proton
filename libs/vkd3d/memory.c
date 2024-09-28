@@ -642,7 +642,9 @@ static D3D12_HEAP_TYPE vkd3d_normalize_heap_type(const D3D12_HEAP_PROPERTIES *he
         case D3D12_CPU_PAGE_PROPERTY_WRITE_BACK:
             return D3D12_HEAP_TYPE_READBACK;
         case D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE:
-            return D3D12_HEAP_TYPE_UPLOAD;
+            return heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
+                ? D3D12_HEAP_TYPE_GPU_UPLOAD
+                : D3D12_HEAP_TYPE_UPLOAD;
         default:
             break;
     }
@@ -663,6 +665,10 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
             *type_flags = device->memory_info.upload_heap_memory_properties;
             break;
 
+        case D3D12_HEAP_TYPE_GPU_UPLOAD:
+            *type_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            break;
+
         case D3D12_HEAP_TYPE_READBACK:
             *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
             break;
@@ -678,8 +684,11 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
                     break;
                 case D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE:
                     *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
                     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
                         *type_flags |= VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+                    else if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1)
+                        *type_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
                     break;
                 case D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE:
                     *type_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
@@ -1061,6 +1070,9 @@ static void *vkd3d_allocate_write_watch_pointer(const D3D12_HEAP_PROPERTIES *pro
     case D3D12_HEAP_TYPE_UPLOAD:
         protect = PAGE_READWRITE | PAGE_WRITECOMBINE;
         break;
+    case D3D12_HEAP_TYPE_GPU_UPLOAD:
+        protect = PAGE_READWRITE | PAGE_WRITECOMBINE;
+        break;
     case D3D12_HEAP_TYPE_READBACK:
         /* WRITE_WATCH fails for this type in native D3D12,
          * otherwise it would be PAGE_READWRITE. */
@@ -1258,6 +1270,16 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         }
     }
 
+    /* Custom heaps have been resolved to regular heap types earlier. */
+    assert(allocation->heap_type != D3D12_HEAP_TYPE_CUSTOM);
+
+    if (allocation->heap_type == D3D12_HEAP_TYPE_GPU_UPLOAD
+        && !device->memory_info.has_gpu_upload_heap)
+    {
+        ERR("Trying to allocate memory on GPU_UPLOAD_HEAP which is not supported on current device.\n");
+        return E_INVALIDARG;
+    }
+
     if (device->device_info.memory_priority_features.memoryPriority &&
         (type_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
     {
@@ -1280,7 +1302,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     else
     {
         hr = vkd3d_allocate_device_memory(device, memory_requirements.size, type_flags,
-                type_mask, &flags_info, true, &allocation->device_allocation);
+                type_mask, &flags_info, allocation->heap_type == D3D12_HEAP_TYPE_UPLOAD, &allocation->device_allocation);
     }
 
     if (FAILED(hr))
@@ -1843,7 +1865,7 @@ static bool vkd3d_memory_info_allow_suballocate(struct d3d12_device *device,
     /* We may or may not want to disable this workaround if EXT_pageable is supported,
      * but it's good to not have two different allocation paths on NVIDIA and RADV for now. */
 
-    if (is_cpu_accessible_heap(&info->heap_properties) ||
+    if (is_cpu_accessible_system_memory_heap(&info->heap_properties) ||
             !(info->flags & VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION))
     {
         return false;
@@ -1919,7 +1941,7 @@ static bool vkd3d_heap_allocation_accept_deferred_resource_placements(struct d3d
 
     /* Only accept deferrals for DEFAULT / CPU_NOT_AVAILABLE heaps.
      * If we're going for host memory, we have nowhere left to fall back to either way. */
-    if (is_cpu_accessible_heap(heap_properties))
+    if (is_cpu_accessible_system_memory_heap(heap_properties))
         return false;
 
     type_mask = vkd3d_select_memory_types(device, heap_properties, heap_flags);
@@ -1957,7 +1979,7 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     if (info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)
         alloc_info.explicit_global_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
-    if (is_cpu_accessible_heap(&info->heap_desc.Properties))
+    if (is_cpu_accessible_system_memory_heap(&info->heap_desc.Properties))
     {
         if (info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)
         {

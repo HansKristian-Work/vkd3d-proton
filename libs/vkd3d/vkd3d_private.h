@@ -3922,6 +3922,8 @@ struct vkd3d_memory_info
     VkDeviceSize rebar_budget;
     VkDeviceSize rebar_current;
 
+    bool has_gpu_upload_heap;
+
     /* Only used for debug logging. */
     VkDeviceSize type_current[VK_MAX_MEMORY_TYPES];
 
@@ -4980,6 +4982,21 @@ static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *propertie
     {
         return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
                 || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    }
+    return true;
+}
+
+static inline bool is_cpu_accessible_system_memory_heap(const D3D12_HEAP_PROPERTIES *properties)
+{
+    if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
+        return false;
+    if (properties->Type == D3D12_HEAP_TYPE_GPU_UPLOAD)
+        return false;
+    if (properties->Type == D3D12_HEAP_TYPE_CUSTOM)
+    {
+        return (properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
+                || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK)
+                && properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L0;
     }
     return true;
 }

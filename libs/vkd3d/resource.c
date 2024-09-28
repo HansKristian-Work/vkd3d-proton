@@ -491,7 +491,7 @@ static bool vkd3d_resource_can_be_vrs(struct d3d12_device *device,
             desc->SampleDesc.Quality == 0 &&
             desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN &&
             heap_properties &&
-            !is_cpu_accessible_heap(heap_properties) &&
+            !is_cpu_accessible_system_memory_heap(heap_properties) &&
             !(desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL |
                 D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER |
                 D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS |
@@ -637,7 +637,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     if (heap_properties && is_cpu_accessible_heap(heap_properties) &&
             (format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
     {
-        FIXME("Creating host-visible depth-stencil images not supported.\n");
+        FIXME("Creating depth-stencil images in system memory is not supported.\n");
         return E_NOTIMPL;
     }
 
@@ -3405,6 +3405,14 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
         vkd3d_view_map_destroy(&object->view_map, device);
         vkd3d_free(object);
         return hr;
+    }
+
+    if (heap_properties
+        && is_cpu_accessible_heap(heap_properties)
+        && (heap_flags & (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_ALLOW_DISPLAY)))
+    {
+        WARN("D3D12_HEAP_FLAG_SHARED, D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER, D3D12_HEAP_FLAG_ALLOW_DISPLAY are not supported for CPU accessible heaps.\n");
+        return E_INVALIDARG;
     }
 
     object->refcount = 1;
@@ -8651,34 +8659,18 @@ static VkMemoryPropertyFlags vkd3d_memory_info_descriptor_heap_memory_properties
     }
 }
 
-static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
+static bool vkd3d_memory_info_decide_hvv_usage(
         const struct vkd3d_memory_topology *topology,
         const struct d3d12_device *device)
 {
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
-    {
-        INFO("Topology: Forcing HOST_CACHED | HOST_COHERENT for UPLOAD heap.\n");
-        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
-                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    }
-
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV)
-    {
-        INFO("Topology: Forcing HOST_COHERENT for UPLOAD heap.\n");
-        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    }
-
     if (vkd3d_memory_topology_is_uma_like(topology))
     {
         /* Verify that there exists a DEVICE_LOCAL type that is not HOST_VISIBLE on this device
          * which maps to the largest device local heap. That way, it is safe to mask out all memory types which are
          * DEVICE_LOCAL | HOST_VISIBLE.
          * Similarly, there must exist a host-only type. */
-        INFO("Topology: UMA-like topology. Using DEVICE_LOCAL | HOST_COHERENT for UPLOAD.\n");
-        return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        INFO("Topology: UMA-like topology.\n");
+        return true;
     }
     else if (topology->device_local_heap_count <= 1)
     {
@@ -8697,25 +8689,68 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
 
         if (largest_size < minimum_rebar_size)
         {
-            INFO("Topology largest device local heap is too small (%"PRIu64" bytes) for effective ReBAR, using HOST_COHERENT for UPLOAD.\n", largest_size);
-            return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            INFO("Topology largest device local heap is too small (%"PRIu64" bytes) for effective ReBAR.\n", largest_size);
+            return false;
         }
         else
         {
             /* If we only have one device local heap. */
-            INFO("Topology: No more than 1 device local heap, assuming ReBAR-style access. Using DEVICE_LOCAL | HOST_COHERENT for UPLOAD.\n");
+            INFO("Topology: No more than 1 device local heap, assuming ReBAR-style access.\n");
             /* If DEVICE_LOCAL_BIT does not actually exist, that is fine,
              * we'll fallback to VISIBLE | COHERENT when allocating. */
-            return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            return true;
         }
     }
     else
     {
-        INFO("Topology: Device heaps are split. Assuming small BAR situation. Using HOST_COHERENT only.\n");
+        INFO("Topology: Device heaps are split. Assuming small BAR situation.\n");
+        return false;
+    }
+}
+
+static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(bool is_hvv_use_allowed)
+{
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
+    {
+        INFO("Topology: Forcing HOST_CACHED | HOST_COHERENT for UPLOAD heap.\n");
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV)
+    {
+        INFO("Topology: Forcing HOST_COHERENT for UPLOAD heap.\n");
         return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     }
+
+    if (is_hvv_use_allowed)
+    {
+        INFO("Topology: HVV usage is allowed, using DEVICE_LOCAL | HOST_COHERENT for UPLOAD.\n");
+        return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+    else
+    {
+        INFO("Topology: HVV usage is not allowed, using HOST_COHERENT for UPLOAD.\n");
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+}
+
+
+static bool vkd3d_memory_info_decide_gpu_upload_heap(bool is_hvv_use_allowed)
+{
+    if (!is_hvv_use_allowed)
+        return false;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
+        return false;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP)
+        return false;
+
+    return true;
 }
 
 static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
@@ -8780,11 +8815,14 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     uint32_t host_visible_mask;
     uint32_t buffer_type_mask;
     uint32_t rt_ds_type_mask;
+    bool is_hvv_use_allowed;
     uint32_t i;
 
     vkd3d_memory_info_get_topology(&topology, device);
+    is_hvv_use_allowed = vkd3d_memory_info_decide_hvv_usage(&topology, device);
     info->upload_heap_memory_properties =
-            vkd3d_memory_info_upload_hvv_memory_properties(&topology, device);
+            vkd3d_memory_info_upload_hvv_memory_properties(is_hvv_use_allowed);
+    info->has_gpu_upload_heap = vkd3d_memory_info_decide_gpu_upload_heap(is_hvv_use_allowed);
     info->descriptor_heap_memory_properties =
             vkd3d_memory_info_descriptor_heap_memory_properties(&topology, device);
     vkd3d_memory_info_init_budgets(info, &topology, device);
