@@ -977,6 +977,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"force_dynamic_msaa", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA},
     {"instruction_qa_checks", VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS},
     {"transfer_queue", VKD3D_CONFIG_FLAG_TRANSFER_QUEUE},
+    {"no_gpu_upload_heap", VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -5719,7 +5720,7 @@ static D3D12_HEAP_PROPERTIES * STDMETHODCALLTYPE d3d12_device_GetCustomHeapPrope
         case D3D12_HEAP_TYPE_DEFAULT:
             heap_properties->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE;
             heap_properties->MemoryPoolPreference = d3d12_device_is_uma(device, NULL)
-                    ?  D3D12_MEMORY_POOL_L0 : D3D12_MEMORY_POOL_L1;
+                    ? D3D12_MEMORY_POOL_L0 : D3D12_MEMORY_POOL_L1;
             break;
 
         case D3D12_HEAP_TYPE_UPLOAD:
@@ -5731,6 +5732,13 @@ static D3D12_HEAP_PROPERTIES * STDMETHODCALLTYPE d3d12_device_GetCustomHeapPrope
         case D3D12_HEAP_TYPE_READBACK:
             heap_properties->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
             heap_properties->MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+            break;
+
+        case D3D12_HEAP_TYPE_GPU_UPLOAD:
+            heap_properties->CPUPageProperty = d3d12_device_is_uma(device, &coherent) && coherent
+                    ? D3D12_CPU_PAGE_PROPERTY_WRITE_BACK : D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
+            heap_properties->MemoryPoolPreference = d3d12_device_is_uma(device, NULL)
+                    ? D3D12_MEMORY_POOL_L0 : D3D12_MEMORY_POOL_L1;
             break;
 
         default:
@@ -8106,7 +8114,7 @@ static void d3d12_device_caps_init_feature_options16(struct d3d12_device *device
     D3D12_FEATURE_DATA_D3D12_OPTIONS16 *options16 = &device->d3d12_caps.options16;
 
     options16->DynamicDepthBiasSupported = TRUE;
-    options16->GPUUploadHeapSupported = FALSE;
+    options16->GPUUploadHeapSupported = device->memory_info.has_gpu_upload_heap;
 }
 
 static void d3d12_device_caps_init_feature_options17(struct d3d12_device *device)
