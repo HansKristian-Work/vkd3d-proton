@@ -20185,15 +20185,12 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
         struct d3d12_root_signature *root_signature,
         struct d3d12_device *device)
 {
-    VkIndirectCommandsVertexBufferTokenEXT vb_tokens[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
-    VkIndirectCommandsPushConstantTokenEXT pc_tokens[D3D12_MAX_ROOT_COST];
     const enum vkd3d_patch_command_token *generic_u32_copy_types;
     const struct vkd3d_shader_root_parameter *root_parameter;
     const struct d3d12_bind_point_layout *bind_point_layout;
     const struct vkd3d_shader_root_constant *root_constant;
     struct vkd3d_patch_command *patch_commands = NULL;
     VkIndirectCommandsLayoutTokenEXT *tokens = NULL;
-    VkIndirectCommandsIndexBufferTokenEXT ib_token;
     uint32_t required_stride_alignment = 0;
     VkIndirectCommandsLayoutTokenEXT token;
     uint32_t generic_u32_copy_count;
@@ -20285,8 +20282,8 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
                 }
 
                 token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
-                assert(pc_token_count < ARRAY_SIZE(pc_tokens));
-                pc_token = &pc_tokens[pc_token_count++];
+                assert(pc_token_count < ARRAY_SIZE(signature->state_template.dgc.pc_tokens));
+                pc_token = &signature->state_template.dgc.pc_tokens[pc_token_count++];
                 token.data.pPushConstant = pc_token;
                 pc_token->updateRange.stageFlags = bind_point_layout->vk_push_stages;
                 pc_token->updateRange.offset = root_constant->constant_index + argument_desc->Constant.DestOffsetIn32BitValues;
@@ -20326,8 +20323,8 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
                 }
 
                 token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
-                assert(pc_token_count < ARRAY_SIZE(pc_tokens));
-                pc_token = &pc_tokens[pc_token_count++];
+                assert(pc_token_count < ARRAY_SIZE(signature->state_template.dgc.pc_tokens));
+                pc_token = &signature->state_template.dgc.pc_tokens[pc_token_count++];
                 token.data.pPushConstant = pc_token;
                 pc_token->updateRange.stageFlags = bind_point_layout->vk_push_stages;
                 pc_token->updateRange.offset = root_parameter->descriptor.raw_va_root_descriptor_index * sizeof(VkDeviceAddress);
@@ -20346,8 +20343,8 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
                 token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_VERTEX_BUFFER_EXT;
-                assert(vb_token_count < ARRAY_SIZE(vb_tokens));
-                vb_token = &vb_tokens[vb_token_count++];
+                assert(vb_token_count < ARRAY_SIZE(signature->state_template.dgc.vb_tokens));
+                vb_token = &signature->state_template.dgc.vb_tokens[vb_token_count++];
                 token.data.pVertexBuffer = vb_token;
                 vb_token->vertexBindingUnit = argument_desc->VertexBuffer.Slot;
 
@@ -20366,8 +20363,8 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
                 token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_EXT;
-                ib_token.mode = VK_INDIRECT_COMMANDS_INPUT_MODE_DXGI_INDEX_BUFFER_EXT;
-                token.data.pIndexBuffer = &ib_token;
+                signature->state_template.dgc.ib_token.mode = VK_INDIRECT_COMMANDS_INPUT_MODE_DXGI_INDEX_BUFFER_EXT;
+                token.data.pIndexBuffer = &signature->state_template.dgc.ib_token;
 
                 /* alignment is always 4 with EXT DGC */
                 required_alignment = 4;
