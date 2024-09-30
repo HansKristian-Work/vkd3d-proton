@@ -976,6 +976,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"clear_uav_sync", VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC},
     {"force_dynamic_msaa", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA},
     {"instruction_qa_checks", VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS},
+    {"transfer_queue", VKD3D_CONFIG_FLAG_TRANSFER_QUEUE},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -2932,8 +2933,20 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
     if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
 
+    /* Vulkan transfer queue cannot represent some esoteric edge cases that D3D12 copy queue can. */
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_TRANSFER_QUEUE)
+    {
+        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = vkd3d_find_queue(count, queue_properties,
+                VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, VK_QUEUE_TRANSFER_BIT);
+    }
+    else
+    {
+        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
+    }
+
     /* Prefer compute queues for transfer. When using concurrent sharing, DMA queue tends to force compression off. */
-    info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
+    if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == VK_QUEUE_FAMILY_IGNORED)
+        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
     info->family_index[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
 
     if (single_queue)

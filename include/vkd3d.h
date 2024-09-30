@@ -109,6 +109,7 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC (1ull << 51)
 #define VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA (1ull << 52)
 #define VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS (1ull << 53)
+#define VKD3D_CONFIG_FLAG_TRANSFER_QUEUE (1ull << 54)
 
 struct vkd3d_instance;
 
