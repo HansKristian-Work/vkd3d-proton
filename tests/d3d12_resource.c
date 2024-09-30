@@ -28,6 +28,7 @@ void test_create_committed_resource(void)
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Device *device, *tmp_device;
+    bool is_gpu_upload_heap_supported;
     D3D12_CLEAR_VALUE clear_value;
     D3D12_RESOURCE_STATES state;
     ID3D12Resource *resource;
@@ -43,13 +44,14 @@ void test_create_committed_resource(void)
     invalid_buffer_desc_tests[] =
     {
         /* Render target or unordered access resources are not allowed with UPLOAD or READBACK. */
-        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
-        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
-        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
-        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
-        {D3D12_HEAP_TYPE_DEFAULT,  D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS},
-        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS},
-        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS},
+        {D3D12_HEAP_TYPE_UPLOAD,     D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_READBACK,   D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_UPLOAD,     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+        {D3D12_HEAP_TYPE_READBACK,   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+        {D3D12_HEAP_TYPE_DEFAULT,    D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS},
+        {D3D12_HEAP_TYPE_UPLOAD,     D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS},
+        {D3D12_HEAP_TYPE_READBACK,   D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS},
+        {D3D12_HEAP_TYPE_GPU_UPLOAD, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS},
     };
 
     if (!(device = create_device()))
@@ -57,6 +59,8 @@ void test_create_committed_resource(void)
         skip("Failed to create device.\n");
         return;
     }
+
+    is_gpu_upload_heap_supported = device_supports_gpu_upload_heap(device);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -159,6 +163,35 @@ void test_create_committed_resource(void)
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     ok(!resource, "Got unexpected pointer %p.\n", resource);
 
+    /* A texture *can* be created on a GPU UPLOAD heap. */
+    heap_properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource = (void*)(uintptr_t)0xdeadbeef;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    if (is_gpu_upload_heap_supported)
+        ok(hr == S_OK, "Failed to create committed resource (rendertarget) on GPU upload heap, hr %#x.\n", hr);
+    else
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    resource_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    resource = (void*)(uintptr_t)0xdeadbeef;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, D3D12_RESOURCE_STATE_DEPTH_READ, NULL,
+        &IID_ID3D12Resource, (void**)&resource);
+    if (is_gpu_upload_heap_supported)
+        todo ok(hr == S_OK, "Failed to create committed resource (depth texture) on GPU upload heap, hr %#x.\n", hr);
+    else
+        todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+    resource_desc.Flags = 0;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
     /* A texture cannot be created on a READBACK heap. */
     heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
@@ -251,6 +284,29 @@ void test_create_committed_resource(void)
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
 
+    heap_properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    if (is_gpu_upload_heap_supported)
+    {
+        ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+
+        check_interface(resource, &IID_ID3D12Object, true);
+        check_interface(resource, &IID_ID3D12DeviceChild, true);
+        check_interface(resource, &IID_ID3D12Pageable, true);
+        check_interface(resource, &IID_ID3D12Resource, true);
+
+        gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
+        ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
+
+        refcount = ID3D12Resource_Release(resource);
+        ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    }
+    else
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
     resource_desc.MipLevels = 0;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, &clear_value,
@@ -278,6 +334,29 @@ void test_create_committed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     /* AgilitySDK 606 allows partial GENERIC_READ for UPLOAD heap now. */
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
+    heap_properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
+    /* D3D12_HEAP_TYPE_GPU_UPLOAD does not have the same restrictions for the state. */
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+        &IID_ID3D12Resource, (void**)&resource);
+    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -328,7 +407,7 @@ void test_create_committed_resource(void)
         resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         resource_desc.Flags = invalid_buffer_desc_tests[i].flags;
 
-        if (invalid_buffer_desc_tests[i].heap_type == D3D12_HEAP_TYPE_UPLOAD)
+        if (invalid_buffer_desc_tests[i].heap_type == D3D12_HEAP_TYPE_UPLOAD || invalid_buffer_desc_tests[i].heap_type == D3D12_HEAP_TYPE_GPU_UPLOAD)
             state = D3D12_RESOURCE_STATE_GENERIC_READ;
         else
             state = D3D12_RESOURCE_STATE_COPY_DEST;
@@ -348,6 +427,7 @@ void test_create_heap(void)
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     D3D12_HEAP_DESC desc, result_desc;
     ID3D12Device *device, *tmp_device;
+    bool is_gpu_upload_heap_supported;
     bool is_pool_L1_supported;
     HRESULT hr, expected_hr;
     unsigned int i, j;
@@ -396,7 +476,7 @@ void test_create_heap(void)
         {D3D12_CPU_PAGE_PROPERTY_WRITE_BACK, D3D12_MEMORY_POOL_L0, S_OK},
         {D3D12_CPU_PAGE_PROPERTY_UNKNOWN, D3D12_MEMORY_POOL_L1, E_INVALIDARG},
         {D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE, D3D12_MEMORY_POOL_L1, S_OK},
-        {D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE, D3D12_MEMORY_POOL_L1, E_INVALIDARG},
+        {D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE, D3D12_MEMORY_POOL_L1, S_OK},
         {D3D12_CPU_PAGE_PROPERTY_WRITE_BACK, D3D12_MEMORY_POOL_L1, E_INVALIDARG},
     };
 
@@ -405,6 +485,8 @@ void test_create_heap(void)
         skip("Failed to create device.\n");
         return;
     }
+
+    is_gpu_upload_heap_supported = device_supports_gpu_upload_heap(device);
 
     desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     memset(&desc.Properties, 0, sizeof(desc.Properties));
@@ -494,8 +576,11 @@ void test_create_heap(void)
     memset(&architecture, 0, sizeof(architecture));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE, &architecture, sizeof(architecture));
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-    for (i = D3D12_HEAP_TYPE_DEFAULT; i < D3D12_HEAP_TYPE_CUSTOM; ++i)
+    for (i = D3D12_HEAP_TYPE_DEFAULT; i <= D3D12_HEAP_TYPE_GPU_UPLOAD; ++i)
     {
+        if (i == D3D12_HEAP_TYPE_CUSTOM || (i == D3D12_HEAP_TYPE_GPU_UPLOAD && !is_gpu_upload_heap_supported))
+            continue;
+
         vkd3d_test_set_context("Test %u\n", i);
         desc.Properties = ID3D12Device_GetCustomHeapProperties(device, 1, i);
         ok(desc.Properties.Type == D3D12_HEAP_TYPE_CUSTOM, "Got unexpected heap type %#x.\n", desc.Properties.Type);
@@ -525,6 +610,15 @@ void test_create_heap(void)
                         "Got unexpected MemoryPoolPreference %#x.\n", desc.Properties.MemoryPoolPreference);
                 break;
 
+            case D3D12_HEAP_TYPE_GPU_UPLOAD:
+                ok(desc.Properties.CPUPageProperty == (architecture.CacheCoherentUMA
+                        ? D3D12_CPU_PAGE_PROPERTY_WRITE_BACK : D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE),
+                        "Got unexpected CPUPageProperty %#x.\n", desc.Properties.CPUPageProperty);
+                ok(desc.Properties.MemoryPoolPreference == (architecture.UMA
+                        ? D3D12_MEMORY_POOL_L0 : D3D12_MEMORY_POOL_L1),
+                        "Got unexpected MemoryPoolPreference %#x.\n", desc.Properties.MemoryPoolPreference);
+                break;
+
             default:
               ok(0, "Invalid heap type %#x.\n", i);
               continue;
@@ -549,7 +643,12 @@ void test_create_heap(void)
         desc.Properties.CPUPageProperty = custom_tests[i].page_property;
         desc.Properties.MemoryPoolPreference = custom_tests[i].pool_preference;
         hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
-        expected_hr = (custom_tests[i].pool_preference != D3D12_MEMORY_POOL_L1 || is_pool_L1_supported) ? custom_tests[i].expected_hr : E_INVALIDARG;
+        expected_hr = custom_tests[i].expected_hr;
+        if (custom_tests[i].pool_preference == D3D12_MEMORY_POOL_L1 && !is_pool_L1_supported)
+            expected_hr = E_INVALIDARG;
+        if (custom_tests[i].pool_preference == D3D12_MEMORY_POOL_L1 && custom_tests[i].page_property != D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE && !is_gpu_upload_heap_supported)
+            expected_hr = E_INVALIDARG;
+
         ok(hr == expected_hr, "Test %u, page_property %u, pool_preference %u: Got hr %#x, expected %#x.\n",
                 i, custom_tests[i].page_property, custom_tests[i].pool_preference, hr, expected_hr);
         if (FAILED(hr))
@@ -639,6 +738,7 @@ void test_create_placed_resource(void)
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Device *device, *tmp_device;
+    bool is_gpu_upload_heap_supported;
     D3D12_CLEAR_VALUE clear_value;
     D3D12_RESOURCE_STATES state;
     D3D12_HEAP_DESC heap_desc;
@@ -656,10 +756,12 @@ void test_create_placed_resource(void)
     invalid_buffer_desc_tests[] =
     {
         /* Render target or unordered access resources are not allowed with UPLOAD or READBACK. */
-        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
-        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
-        {D3D12_HEAP_TYPE_UPLOAD,   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
-        {D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+        {D3D12_HEAP_TYPE_UPLOAD,     D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_READBACK,   D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_GPU_UPLOAD, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET},
+        {D3D12_HEAP_TYPE_UPLOAD,     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+        {D3D12_HEAP_TYPE_READBACK,   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
+        {D3D12_HEAP_TYPE_GPU_UPLOAD, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS},
     };
 
     if (!(device = create_device()))
@@ -667,6 +769,8 @@ void test_create_placed_resource(void)
         skip("Failed to create device.\n");
         return;
     }
+
+    is_gpu_upload_heap_supported = device_supports_gpu_upload_heap(device);
 
     heap_desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
@@ -751,7 +855,13 @@ void test_create_placed_resource(void)
         heap_desc.Alignment = 0;
         heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-        ok(hr == S_OK, "Test %u: Failed to create heap, hr %#x.\n", i, hr);
+        if (heap_desc.Properties.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported)
+            ok(hr == S_OK, "Test %u: Failed to create heap, hr %#x.\n", i, hr);
+        else
+        {
+            ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+            continue;
+        }
 
         resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
         resource_desc.Alignment = 0;
@@ -765,7 +875,7 @@ void test_create_placed_resource(void)
         resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         resource_desc.Flags = invalid_buffer_desc_tests[i].flags;
 
-        if (invalid_buffer_desc_tests[i].heap_type == D3D12_HEAP_TYPE_UPLOAD)
+        if (invalid_buffer_desc_tests[i].heap_type == D3D12_HEAP_TYPE_UPLOAD || invalid_buffer_desc_tests[i].heap_type == D3D12_HEAP_TYPE_GPU_UPLOAD)
             state = D3D12_RESOURCE_STATE_GENERIC_READ;
         else
             state = D3D12_RESOURCE_STATE_COPY_DEST;
@@ -956,6 +1066,7 @@ void test_map_resource(void)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
+    bool is_gpu_upload_heap_supported;
     ID3D12Resource *resource;
     ID3D12Device *device;
     ULONG refcount;
@@ -967,6 +1078,8 @@ void test_map_resource(void)
         skip("Failed to create device.\n");
         return;
     }
+
+    is_gpu_upload_heap_supported = device_supports_gpu_upload_heap(device);
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_desc.Alignment = 0;
@@ -1072,17 +1185,55 @@ void test_map_resource(void)
 
     ID3D12Resource_Release(resource);
 
+    heap_properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    if (is_gpu_upload_heap_supported)
+    {
+        ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+
+        data = NULL;
+        hr = ID3D12Resource_Map(resource, 0, NULL, &data);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(data, "Got NULL pointer.\n");
+        ID3D12Resource_Unmap(resource, 0, NULL);
+
+        data = (void *)(uintptr_t)0xdeadbeef;
+        hr = ID3D12Resource_Map(resource, 1, NULL, &data);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
+
+        data = NULL;
+        hr = ID3D12Resource_Map(resource, 0, NULL, &data);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(data, "Got NULL pointer.\n");
+        ID3D12Resource_Unmap(resource, 1, NULL);
+        ID3D12Resource_Unmap(resource, 0, NULL);
+
+        /* Passing NULL to Map should map, but not disclose the CPU VA to caller. */
+        hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ID3D12Resource_Unmap(resource, 0, NULL);
+
+        ID3D12Resource_Release(resource);
+    }
+    else
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
 void test_map_placed_resources(void)
 {
+    ID3D12Heap *upload_heap, *readback_heap, *gpu_upload_heap;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12GraphicsCommandList *command_list;
-    ID3D12Heap *upload_heap, *readback_heap;
     D3D12_ROOT_PARAMETER root_parameters[2];
     D3D12_RESOURCE_DESC resource_desc;
+    bool is_gpu_upload_heap_supported;
     ID3D12Resource *readback_buffer;
     struct test_context_desc desc;
     struct resource_readback rb;
@@ -1111,6 +1262,8 @@ void test_map_placed_resources(void)
     device = context.device;
     command_list = context.list;
     queue = context.queue;
+
+    is_gpu_upload_heap_supported = device_supports_gpu_upload_heap(device);
 
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     root_parameters[0].Descriptor.ShaderRegister = 0;
@@ -1240,6 +1393,51 @@ void test_map_placed_resources(void)
     ID3D12Heap_Release(readback_heap);
     for (i = 0; i < ARRAY_SIZE(cb); ++i)
         ID3D12Resource_Release(cb[i]);
+
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&gpu_upload_heap);
+    if (is_gpu_upload_heap_supported)
+        ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+    else
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    if (is_gpu_upload_heap_supported)
+    {
+
+        hr = ID3D12Device_CreatePlacedResource(device, gpu_upload_heap, 0,
+            &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
+            &IID_ID3D12Resource, (void**)&cb[0]);
+        ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+
+        cb_data[0] = NULL;
+        hr = ID3D12Resource_Map(cb[0], 0, NULL, (void **)&cb_data[0]);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(cb_data[0], "Got NULL pointer.\n");
+        ID3D12Resource_Unmap(cb[0], 0, NULL);
+
+        cb_data[0] = (void *)(uintptr_t)0xdeadbeef;
+        hr = ID3D12Resource_Map(cb[0], 1, NULL, (void **)&cb_data[0]);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(cb_data[0] == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", cb_data[0]);
+
+        cb_data[0] = NULL;
+        hr = ID3D12Resource_Map(cb[0], 0, NULL, (void **)&cb_data[0]);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(cb_data[0], "Got NULL pointer.\n");
+        ID3D12Resource_Unmap(cb[0], 1, NULL);
+        ID3D12Resource_Unmap(cb[0], 0, NULL);
+
+        /* Passing NULL to Map should map, but not disclose the CPU VA to caller. */
+        hr = ID3D12Resource_Map(cb[0], 0, NULL, NULL);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ID3D12Resource_Unmap(cb[0], 0, NULL);
+
+        ID3D12Resource_Release(cb[0]);
+        ID3D12Heap_Release(gpu_upload_heap);
+    }
+    else
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     destroy_test_context(&context);
 }
 
@@ -3251,6 +3449,7 @@ void test_placed_image_alignment(void)
 void test_map_texture_validation(void)
 {
     D3D12_RESOURCE_ALLOCATION_INFO alloc_info;
+    bool is_gpu_upload_heap_supported;
     D3D12_HEAP_PROPERTIES heap_props;
     struct test_context context;
     D3D12_HEAP_DESC heap_desc;
@@ -3275,7 +3474,7 @@ void test_map_texture_validation(void)
         HRESULT creation_hr;
         HRESULT map_hr_with_ppdata;
         HRESULT map_hr_without_ppdata;
-        bool custom_heap;
+        D3D12_HEAP_TYPE heap_type;
         bool is_todo;
     };
 
@@ -3288,7 +3487,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 2, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
-                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_CUSTOM },
 
         /* LayerCount 2 not allowed. */
         { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
@@ -3296,7 +3495,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 1, 2, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
-                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_CUSTOM },
 
         /* Need SHARED resource flag. */
         { D3D12_HEAP_FLAG_NONE,
@@ -3304,7 +3503,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 1, 1, D3D12_RESOURCE_FLAG_NONE,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
-                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_CUSTOM },
 
         /* WRITE_BACK not allowed. */
         { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
@@ -3312,7 +3511,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
-                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_CUSTOM },
 
         /* OK, but cannot map. */
         { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
@@ -3320,7 +3519,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
                 D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
-                S_OK, S_OK, E_INVALIDARG, E_INVALIDARG, true, true },
+                S_OK, S_OK, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_CUSTOM, true },
 
         /* 1D texture not allowed. */
         { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
@@ -3328,7 +3527,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE1D,
                 1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
                 D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
-                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_CUSTOM },
 
         /* 3D texture not allowed. */
         { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
@@ -3336,7 +3535,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE3D,
                 1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
                 D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
-                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_CUSTOM },
 
         /* UPLOAD heap not allowed. */
         { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
@@ -3344,7 +3543,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
                 D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, false },
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_UPLOAD },
 
         /* UPLOAD heap not allowed. */
         { D3D12_HEAP_FLAG_NONE,
@@ -3352,7 +3551,23 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 2, 2, D3D12_RESOURCE_FLAG_NONE,
                 D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, false },
+                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_UPLOAD },
+
+        /* GPU_UPLOAD heap not allowed. */
+        { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
+                D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_GPU_UPLOAD, true },
+
+        /* GPU_UPLOAD heap mostly allowed. */
+        { D3D12_HEAP_FLAG_NONE,
+                D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                2, 2, D3D12_RESOURCE_FLAG_NONE,
+                D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+                S_OK, S_OK, E_INVALIDARG, S_OK, D3D12_HEAP_TYPE_GPU_UPLOAD },
 
         /* Allowed, but cannot get concrete pointer.
          * TODO: 1D linear not supported in general. */
@@ -3361,7 +3576,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE1D,
                 1, 1, D3D12_RESOURCE_FLAG_NONE,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
-                S_OK, S_OK, E_INVALIDARG, S_OK, true, true },
+                S_OK, S_OK, E_INVALIDARG, S_OK, D3D12_HEAP_TYPE_CUSTOM, true },
 
         /* Allowed, but cannot get concrete pointer. */
         { D3D12_HEAP_FLAG_NONE,
@@ -3369,7 +3584,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 1, 1, D3D12_RESOURCE_FLAG_NONE,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
-                S_OK, S_OK, E_INVALIDARG, S_OK, true, true },
+                S_OK, S_OK, E_INVALIDARG, S_OK, D3D12_HEAP_TYPE_CUSTOM, true },
 
         /* Allowed, but cannot get concrete pointer.
          * TODO: Mipmapped linear not supported in general. */
@@ -3378,7 +3593,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 2, 2, D3D12_RESOURCE_FLAG_NONE,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
-                S_OK, S_OK, E_INVALIDARG, S_OK, true, true },
+                S_OK, S_OK, E_INVALIDARG, S_OK, D3D12_HEAP_TYPE_CUSTOM, true },
 
         /* Allowed, but cannot map 3D with mip levels > 1.
          * TODO: 3D linear not supported in general. */
@@ -3387,7 +3602,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE3D,
                 2, 2, D3D12_RESOURCE_FLAG_NONE,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
-                S_OK, S_OK, E_INVALIDARG, E_INVALIDARG, true, true },
+                S_OK, S_OK, E_INVALIDARG, E_INVALIDARG, D3D12_HEAP_TYPE_CUSTOM, true },
 
         /* Allowed.
          * TODO: 3D linear not supported in general. */
@@ -3396,13 +3611,15 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE3D,
                 1, 2, D3D12_RESOURCE_FLAG_NONE,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
-                S_OK, S_OK, E_INVALIDARG, S_OK, true, true },
+                S_OK, S_OK, E_INVALIDARG, S_OK, D3D12_HEAP_TYPE_CUSTOM, true },
     };
 
     if (!init_compute_test_context(&context))
         return;
 
     device = context.device;
+
+    is_gpu_upload_heap_supported = device_supports_gpu_upload_heap(device);
 
     memset(&desc, 0, sizeof(desc));
     desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -3425,15 +3642,21 @@ void test_map_texture_validation(void)
         desc.Layout = tests[i].layout;
         desc.Dimension = tests[i].dimension;
 
-        if (tests[i].custom_heap)
+        heap_props.Type = tests[i].heap_type;
+        switch (heap_props.Type)
         {
-            heap_props.Type = D3D12_HEAP_TYPE_CUSTOM;
-            heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
-        }
-        else
-        {
-            heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
-            heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+            case D3D12_HEAP_TYPE_UPLOAD:
+                heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+                break;
+
+            case D3D12_HEAP_TYPE_GPU_UPLOAD:
+                heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+                break;
+
+            default:
+            case D3D12_HEAP_TYPE_CUSTOM:
+                heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+                break;
         }
 
         alloc_info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
@@ -3454,13 +3677,13 @@ void test_map_texture_validation(void)
 
             /* We cannot successfully create host visible linear RT on all implementations. */
             todo_if(tests[i].is_todo)
-            ok(hr == tests[i].heap_creation_hr, "Unexpected hr %#x.\n", hr);
+            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].heap_creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
 
             if (SUCCEEDED(hr))
             {
                 hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &desc, D3D12_RESOURCE_STATE_GENERIC_READ,
                         NULL, &IID_ID3D12Resource, (void**)&resource);
-                todo_if(tests[i].is_todo) ok(hr == tests[i].creation_hr, "Unexpected hr %#x.\n", hr);
+                todo_if(tests[i].is_todo) ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
                 if (SUCCEEDED(hr))
                     ID3D12Resource_Release(resource);
                 ID3D12Heap_Release(heap);
@@ -3470,17 +3693,17 @@ void test_map_texture_validation(void)
         hr = ID3D12Device_CreateCommittedResource(device, &heap_props, tests[i].heap_flags,
                 &desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource,
                 (void**)&resource);
-        todo_if(tests[i].is_todo) ok(hr == tests[i].creation_hr, "Unexpected hr %#x.\n", hr);
+        todo_if(tests[i].is_todo) ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
 
         if (SUCCEEDED(hr))
         {
             hr = ID3D12Resource_Map(resource, 0, NULL, &mapped_ptr);
-            ok(hr == tests[i].map_hr_with_ppdata, "Unexpected hr %#x.\n", hr);
+            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].map_hr_with_ppdata : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
             if (SUCCEEDED(hr))
                 ID3D12Resource_Unmap(resource, 0, NULL);
 
             hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
-            ok(hr == tests[i].map_hr_without_ppdata, "Unexpected hr %#x.\n", hr);
+            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].map_hr_without_ppdata : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
             if (SUCCEEDED(hr))
                 ID3D12Resource_Unmap(resource, 0, NULL);
             ID3D12Resource_Release(resource);
