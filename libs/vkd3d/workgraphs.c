@@ -1870,8 +1870,8 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
         shader_interface_info.push_constant_ubo_binding = &rs->push_constant_ubo_binding;
         shader_interface_info.offset_buffer_binding = &rs->offset_buffer_binding;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-        shader_interface_info.descriptor_qa_global_binding = &rs->descriptor_qa_global_info;
-        shader_interface_info.descriptor_qa_heap_binding = &rs->descriptor_qa_heap_binding;
+        shader_interface_info.descriptor_qa_payload_binding = &rs->descriptor_qa_payload_binding;
+        shader_interface_info.descriptor_qa_control_binding = &rs->descriptor_qa_control_binding;
 #endif
 
         if (!(shader_interface_info.flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK))
