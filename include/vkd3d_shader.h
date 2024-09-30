@@ -1000,12 +1000,15 @@ struct vkd3d_shader_node_input_data
     uint32_t dispatch_grid_type_bits;
     uint32_t dispatch_grid_components;
     uint32_t broadcast_grid[3]; /* For broadcast nodes. */
+    uint32_t thread_group_size_spec_id[3];
     uint32_t recursion_factor; /* [NodeMaxRecursionDepth] */
     uint32_t coalesce_factor;
     const char *node_share_input_id;
     uint32_t node_share_input_array_index;
     uint32_t local_root_arguments_table_index;
     uint32_t is_indirect_bda_stride_program_entry_spec_id;
+    uint32_t is_entry_point_spec_id;
+    uint32_t dispatch_grid_is_upper_bound_spec_id;
     bool dispatch_grid_is_upper_bound; /* [NodeMaxDispatchGrid] if true. */
     bool node_track_rw_input_sharing; /* Payload is tagged with [NodeTrackRWInputSharing]. */
     bool is_program_entry; /* [NodeIsProgramEntry] */
