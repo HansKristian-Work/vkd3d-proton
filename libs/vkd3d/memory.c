@@ -663,6 +663,14 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
 
         case D3D12_HEAP_TYPE_UPLOAD:
             *type_flags = device->memory_info.upload_heap_memory_properties;
+            if (vkd3d_atomic_uint32_load_explicit(&device->memory_info.has_used_gpu_upload_heap, vkd3d_memory_order_relaxed) == 1)
+            {
+                *type_flags &= ~VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+                {
+                    INFO("UPLOAD_HEAP memory will not use ReBar memory because the game has allocated memory from the GPU_UPLOAD_HEAP in the past.\n");
+                }
+            }
             break;
 
         case D3D12_HEAP_TYPE_GPU_UPLOAD:
@@ -1273,11 +1281,19 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     /* Custom heaps have been resolved to regular heap types earlier. */
     assert(allocation->heap_type != D3D12_HEAP_TYPE_CUSTOM);
 
-    if (allocation->heap_type == D3D12_HEAP_TYPE_GPU_UPLOAD
-        && !device->memory_info.has_gpu_upload_heap)
+    if (allocation->heap_type == D3D12_HEAP_TYPE_GPU_UPLOAD)
     {
-        ERR("Trying to allocate memory on GPU_UPLOAD_HEAP which is not supported on current device.\n");
-        return E_INVALIDARG;
+        if (!device->memory_info.has_gpu_upload_heap)
+        {
+            ERR("Trying to allocate memory on GPU_UPLOAD_HEAP which is not supported on current device.\n");
+            return E_INVALIDARG;
+        }
+
+        if (vkd3d_atomic_uint32_exchange_explicit(&device->memory_info.has_used_gpu_upload_heap, 1, vkd3d_memory_order_relaxed) != 1
+            && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET))
+        {
+            INFO("Allocated memory on GPU_UPLOAD_HEAP, disabling automatic UPLOAD to ReBar promotion.\n");
+        }
     }
 
     if (device->device_info.memory_priority_features.memoryPriority &&

@@ -8820,6 +8820,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     info->descriptor_heap_memory_properties =
             vkd3d_memory_info_descriptor_heap_memory_properties(&topology, device);
     vkd3d_memory_info_init_budgets(info, &topology, device);
+    info->has_used_gpu_upload_heap = 0;
 
     if (pthread_mutex_init(&info->budget_lock, NULL) != 0)
         return E_OUTOFMEMORY;

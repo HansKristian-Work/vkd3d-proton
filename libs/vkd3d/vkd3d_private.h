@@ -3928,6 +3928,7 @@ struct vkd3d_memory_info
     VkDeviceSize type_current[VK_MAX_MEMORY_TYPES];
 
     pthread_mutex_t budget_lock;
+    uint32_t has_used_gpu_upload_heap;
 };
 
 HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
