@@ -3317,6 +3317,12 @@ struct d3d12_command_signature
             VkIndirectCommandsLayoutEXT layout_preprocess_ext;
             uint32_t stride;
             struct vkd3d_execute_indirect_info pipeline;
+
+            /* Temporary workaround. First NV beta driver
+             * does not deep copy the token pointers. */
+            VkIndirectCommandsVertexBufferTokenEXT vb_tokens[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+            VkIndirectCommandsPushConstantTokenEXT pc_tokens[D3D12_MAX_ROOT_COST];
+            VkIndirectCommandsIndexBufferTokenEXT ib_token;
         } dgc;
         struct
         {
