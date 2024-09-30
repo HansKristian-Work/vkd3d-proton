@@ -13799,6 +13799,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         if (use_ext_dgc)
         {
             generated_ext.indirectAddress = stream_allocation.va;
+            generated_ext.indirectAddressSize = max_command_count * signature->state_template.dgc.stride;
         }
         else
         {
@@ -13811,6 +13812,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         if (use_ext_dgc)
         {
             generated_ext.indirectAddress = arg_buffer->res.va + arg_buffer_offset;
+            generated_ext.indirectAddressSize = max_command_count * signature->state_template.dgc.stride;
         }
         else
         {
