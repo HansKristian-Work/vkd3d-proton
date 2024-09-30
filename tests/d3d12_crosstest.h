@@ -781,4 +781,15 @@ static inline void enable_d3d12_debug_layer(int argc, char **argv)
     }
 }
 
+static inline bool device_supports_gpu_upload_heap(ID3D12Device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16;
+    HRESULT hr;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS16, &options16, sizeof(options16));
+    if (hr != S_OK)
+        return false;
+
+    return options16.GPUUploadHeapSupported;
+}
+
 #endif  /* __VKD3D_D3D12_CROSSTEST_H */
