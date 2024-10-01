@@ -2347,8 +2347,39 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
         uint32_t num_x = node_input->broadcast_grid[0];
         uint32_t num_y = node_input->broadcast_grid[1];
         uint32_t num_z = node_input->broadcast_grid[2];
+
         uint32_t num_wgs_x = desc->NumRecords;
-        uint32_t x, y, z;
+        uint32_t x, y, z, i, j;
+
+        /* CPU entry nodes are likely to have a very large MaxDispatchGrid since it functions like a vkCmdDispatch(). Resolve it here. */
+        if (node_input->dispatch_grid_is_upper_bound && node_input->dispatch_grid_components != 0)
+        {
+            const uint8_t *records = desc->pRecords;
+            uint32_t max_dispatch[3] = { 1, 1, 1 };
+
+            if (node_input->dispatch_grid_type_bits == 32)
+            {
+                for (i = 0; i < desc->NumRecords; i++)
+                {
+                    const uint32_t *grid = (const uint32_t *)(records + i * desc->RecordStrideInBytes + node_input->dispatch_grid_offset);
+                    for (j = 0; j < node_input->dispatch_grid_components; j++)
+                        max_dispatch[j] = max(max_dispatch[j], grid[j]);
+                }
+            }
+            else
+            {
+                for (i = 0; i < desc->NumRecords; i++)
+                {
+                    const uint16_t *grid = (const uint16_t *)(records + i * desc->RecordStrideInBytes + node_input->dispatch_grid_offset);
+                    for (j = 0; j < node_input->dispatch_grid_components; j++)
+                        max_dispatch[j] = max(max_dispatch[j], grid[j]);
+                }
+            }
+
+            num_x = min(num_x, max_dispatch[0]);
+            num_y = min(num_y, max_dispatch[1]);
+            num_z = min(num_z, max_dispatch[2]);
+        }
 
         // If the SV_DispatchGrid does not contain a component, it's implied to be 1.
         if (node_input->dispatch_grid_components)
