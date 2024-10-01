@@ -18,6 +18,7 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_SHADER
 
+#define DXIL_SPV_ENABLE_EXPERIMENTAL_WORKGRAPHS
 #include "vkd3d_shader_private.h"
 #include "vkd3d_utf8.h"
 #include "vkd3d_string.h"
