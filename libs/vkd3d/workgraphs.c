@@ -1158,7 +1158,7 @@ static D3D12_PROGRAM_IDENTIFIER * STDMETHODCALLTYPE d3d12_state_object_propertie
         if (vkd3d_export_strequal(state_object->programs[i].name, pProgramName))
         {
             ret->OpaqueData[0] = i;
-            ret->OpaqueData[1] = (UINT64)state_object; /* Allows sanity checking. */
+            ret->OpaqueData[1] = (UINT64)(uintptr_t)state_object; /* Allows sanity checking. */
             break;
         }
     }
@@ -2116,7 +2116,7 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
 
-    wg_state = (struct d3d12_wg_state_object *)list->wg_state.ProgramIdentifier.OpaqueData[1];
+    wg_state = (struct d3d12_wg_state_object *)(uintptr_t)list->wg_state.ProgramIdentifier.OpaqueData[1];
     wg_state_program_index = (uint32_t)list->wg_state.ProgramIdentifier.OpaqueData[0];
 
     if (!wg_state)
@@ -3042,7 +3042,7 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
     uint32_t wg_state_program_index;
     uint32_t i;
 
-    wg_state = (struct d3d12_wg_state_object *)list->wg_state.ProgramIdentifier.OpaqueData[1];
+    wg_state = (struct d3d12_wg_state_object *)(uintptr_t)list->wg_state.ProgramIdentifier.OpaqueData[1];
     wg_state_program_index = (uint32_t)list->wg_state.ProgramIdentifier.OpaqueData[0];
 
     if (!wg_state)
