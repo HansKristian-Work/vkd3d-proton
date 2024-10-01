@@ -16888,7 +16888,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetProgram(
     list->wg_state = desc->WorkGraph;
 
     /* We only get program identifier, not the state object? Spicy ... */
-    wg_state = (struct d3d12_wg_state_object *)desc->WorkGraph.ProgramIdentifier.OpaqueData[1];
+    wg_state = (struct d3d12_wg_state_object *)(uintptr_t)desc->WorkGraph.ProgramIdentifier.OpaqueData[1];
     wg_state_program_index = desc->WorkGraph.ProgramIdentifier.OpaqueData[0];
 
     if (wg_state)
