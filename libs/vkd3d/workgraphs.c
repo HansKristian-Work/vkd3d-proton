@@ -2853,7 +2853,7 @@ static bool d3d12_command_list_workgraph_setup_indirect(
 
         input = wg_state->entry_points[i].node_input;
         if (input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
-            coalesce_divider = 1;
+            coalesce_divider = 0;
         else if (input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_COALESCING)
             coalesce_divider = input->coalesce_factor;
         else

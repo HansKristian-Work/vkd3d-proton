@@ -21,9 +21,9 @@ layout(buffer_reference, buffer_reference_align = 16, std430) writeonly buffer I
 	IndirectCommand commands[];
 };
 
-layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer Dividers
+layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer DividersOrAmplification
 {
-	uint data[];
+	int data[];
 };
 
 layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer EntryPoints
@@ -35,7 +35,7 @@ layout(push_constant) uniform Registers
 {
 	GPUInputNumNodes node_input;
 	Indirects indirects;
-	Dividers coalesce_dividers;
+	DividersOrAmplification coalesce_dividers;
 	EntryPoints entry_point_mapping;
 	uint num_entry_points;
 } registers;
@@ -52,16 +52,20 @@ void main()
 			uint count = registers.node_input.num_nodes;
 			uint wg_count;
 
-			uint divider = registers.coalesce_dividers.data[id];
+			int divider = registers.coalesce_dividers.data[id];
 
 			if (divider > 1)
-				wg_count = (count + divider - 1) / divider;
-			else
+				wg_count = (count + uint(divider) - 1) / uint(divider);
+			else if (divider)
 				wg_count = count;
 
+			uint coalesce_mult = divider > 0 ? uint(divider) : 1u;
+			uint amplification = divider < 0 ? uint(-divider) : 1u;
+
 			IndirectCommand cmd;
-			cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, 1, 0);
-			cmd.secondary_dispatch_and_offset = uvec4(wg_count % WG_DIVIDER, 1, 1, cmd.primary_dispatch_and_offset.y * WG_DIVIDER * divider);
+			cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, amplification, 0);
+			cmd.secondary_dispatch_and_offset = uvec4(wg_count % WG_DIVIDER, 1, amplification,
+					cmd.primary_dispatch_and_offset.y * WG_DIVIDER * coalesce_mult);
 			registers.indirects.commands[id] = cmd;
 		}
 		else

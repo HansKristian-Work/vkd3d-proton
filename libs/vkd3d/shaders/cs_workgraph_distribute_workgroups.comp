@@ -24,9 +24,9 @@ layout(buffer_reference, buffer_reference_align = 16, std430) coherent buffer In
 	IndirectCommands indirect_commands[];
 };
 
-layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer Dividers
+layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer DividersOrAmplification
 {
-	uint data[];
+	int data[];
 };
 
 layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer NodeShareMapping
@@ -38,7 +38,7 @@ layout(push_constant, std430) uniform Registers
 {
 	NodeAtomics atomics;
 	IndirectCommandsBuffer commands;
-	Dividers dividers;
+	DividersOrAmplification dividers;
 	NodeShareMapping node_share_mapping;
 	uint num_nodes;
 } registers;
@@ -89,18 +89,19 @@ void main()
 		if (node_index < registers.num_nodes)
 		{
 			uint node_linear_offset = scan + linear_offset;
-			uint coalesce_divider = registers.dividers.data[node_index];
+			int coalesce_divider = registers.dividers.data[node_index];
 
 			// Could make this multiplier-based if we need to.
-			if (coalesce_divider != 0)
-				total_wgs = (total_wgs + coalesce_divider - 1) / coalesce_divider;
+			if (coalesce_divider > 0)
+				total_wgs = (total_wgs + uint(coalesce_divider) - 1) / uint(coalesce_divider);
 
-			uint coalesce_mult = coalesce_divider != 0 ? coalesce_divider : 1u;
+			uint coalesce_mult = coalesce_divider > 0 ? uint(coalesce_divider) : 1u;
+			uint amplification = coalesce_divider < 0 ? uint(-coalesce_divider) : 1;
 
 			IndirectCommands cmd;
-			cmd.primary_execute = uvec3(WG_DIVIDER, total_wgs / WG_DIVIDER, 1);
+			cmd.primary_execute = uvec3(WG_DIVIDER, total_wgs / WG_DIVIDER, amplification);
 			cmd.primary_linear_offset = node_linear_offset;
-			cmd.secondary_execute = uvec3(total_wgs % WG_DIVIDER, 1, 1);
+			cmd.secondary_execute = uvec3(total_wgs % WG_DIVIDER, 1, amplification);
 			cmd.secondary_linear_offset = node_linear_offset + cmd.primary_execute.y * WG_DIVIDER * coalesce_mult;
 			cmd.end_elements = counts.total + node_linear_offset;
 			cmd.linear_offset_atomic = node_linear_offset;
@@ -135,9 +136,12 @@ void main()
 				IndirectCommands other_cmd = registers.commands.indirect_commands[sharing_index];
 				IndirectCommands cmd = registers.commands.indirect_commands[i];
 
-				uint coalesce_divider = registers.dividers.data[i];
+				int coalesce_divider = registers.dividers.data[i];
 				uint coalesce_mult = coalesce_divider != 0 ? coalesce_divider : 1u;
+				uint amplification = coalesce_divider < 0 ? uint(-coalesce_divider) : 1;
 
+				registers.commands.indirect_commands[i].primary_execute.z = amplification;
+				registers.commands.indirect_commands[i].secondary_execute.z = amplification;
 				registers.commands.indirect_commands[i].primary_linear_offset = other_cmd.primary_linear_offset;
 				registers.commands.indirect_commands[i].secondary_linear_offset = other_cmd.primary_linear_offset + cmd.primary_execute.y * WG_DIVIDER * coalesce_mult;
 				registers.commands.indirect_commands[i].end_elements = other_cmd.end_elements;
