@@ -3407,14 +3407,6 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
         return hr;
     }
 
-    if (heap_properties
-        && is_cpu_accessible_heap(heap_properties)
-        && (heap_flags & (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_ALLOW_DISPLAY)))
-    {
-        WARN("D3D12_HEAP_FLAG_SHARED, D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER, D3D12_HEAP_FLAG_ALLOW_DISPLAY are not supported for CPU accessible heaps.\n");
-        return E_INVALIDARG;
-    }
-
     object->refcount = 1;
     object->internal_refcount = 1;
     object->desc = *desc;
