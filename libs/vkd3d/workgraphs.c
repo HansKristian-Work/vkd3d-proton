@@ -754,23 +754,10 @@ static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_
         if (!node_input)
             continue;
 
-        if (node_is_output_target[i] && node_input->is_program_entry)
-        {
-            FIXME("Node %s[%u] was marked as entry point, but it is used as node output.\n",
-                    node_input->node_id, node_input->node_array_index);
-            hr = E_NOTIMPL;
-            goto fail;
-        }
-        else if (!node_is_output_target[i] && !node_input->is_program_entry)
-        {
-            FIXME("Node %s[%u] was not marked as entry point, but it is used as entry point.\n",
-                    node_input->node_id, node_input->node_array_index);
-            hr = E_NOTIMPL;
-            goto fail;
-        }
-
         /* Recurse through the nodes. Start with entry point and fill in any dependencies. */
-        if (node_input->is_program_entry)
+        /* If node is not an output of any node, the default PSO flags dictate that it must be considered
+         * an entry point anyway. */
+        if (node_input->is_program_entry || !node_is_output_target[i])
             if (FAILED(hr = d3d12_wg_state_object_program_add_node_to_level(program, data, i, 0, false)))
                 goto fail;
     }
