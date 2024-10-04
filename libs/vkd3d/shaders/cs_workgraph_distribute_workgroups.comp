@@ -97,6 +97,8 @@ void main()
 
 			uint coalesce_mult = coalesce_divider > 0 ? uint(coalesce_divider) : 1u;
 			uint amplification = coalesce_divider < 0 ? uint(-coalesce_divider) : 1;
+			// Try to balance work we spawn on the GPU.
+			amplification = max(1u, amplification >> findMSB(max(total_wgs, 1u)));
 
 			IndirectCommands cmd;
 			cmd.primary_execute = uvec3(WG_DIVIDER, total_wgs / WG_DIVIDER, amplification);
@@ -139,6 +141,10 @@ void main()
 				int coalesce_divider = registers.dividers.data[i];
 				uint coalesce_mult = coalesce_divider != 0 ? coalesce_divider : 1u;
 				uint amplification = coalesce_divider < 0 ? uint(-coalesce_divider) : 1;
+
+				uint total_wgs = other_cmd.end_elements - other_cmd.primary_linear_offset;
+				// Try to balance work we spawn on the GPU.
+				amplification = max(1u, amplification >> findMSB(max(total_wgs, 1u)));
 
 				registers.commands.indirect_commands[i].primary_execute.z = amplification;
 				registers.commands.indirect_commands[i].secondary_execute.z = amplification;

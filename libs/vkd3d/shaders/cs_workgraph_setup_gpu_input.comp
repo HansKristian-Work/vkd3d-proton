@@ -56,11 +56,14 @@ void main()
 
 			if (divider > 1)
 				wg_count = (count + uint(divider) - 1) / uint(divider);
-			else if (divider)
+			else
 				wg_count = count;
 
 			uint coalesce_mult = divider > 0 ? uint(divider) : 1u;
 			uint amplification = divider < 0 ? uint(-divider) : 1u;
+
+			// Try to balance work we spawn on the GPU.
+			amplification = max(1u, amplification >> findMSB(max(wg_count, 1u)));
 
 			IndirectCommand cmd;
 			cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, amplification, 0);
