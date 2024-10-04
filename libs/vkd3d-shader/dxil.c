@@ -2139,7 +2139,6 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                 new_entry.stage = convert_stage(stage);
                 new_entry.pipeline_variant_index = UINT32_MAX;
                 new_entry.stage_index = UINT32_MAX;
-                ascii_entry = NULL;
 
                 if (stage == DXIL_SPV_STAGE_COMPUTE)
                 {
@@ -2159,6 +2158,8 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                                     vkd3d_shader_dxil_dup_node_output(&new_entry, &node_output_data);
                     }
                 }
+
+                ascii_entry = NULL;
 
                 vkd3d_array_reserve((void**)entry_points, entry_point_size,
                         *entry_point_count + 1, sizeof(new_entry));
