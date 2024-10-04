@@ -73,6 +73,7 @@ struct d3d12_workgraph_level_execution
 struct d3d12_wg_state_object_pipeline
 {
     /* This matters for entry point, otherwise, not. */
+    VkPipeline vk_static_cpu_node_entry_pipeline;
     VkPipeline vk_cpu_node_entry_pipeline;
     VkPipeline vk_gpu_node_entry_pipeline;
     VkPipeline vk_non_entry_pipeline;
@@ -175,6 +176,7 @@ static void d3d12_state_object_free_programs(
         {
             VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_non_entry_pipeline, NULL));
             VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_cpu_node_entry_pipeline, NULL));
+            VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_static_cpu_node_entry_pipeline, NULL));
             VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_gpu_node_entry_pipeline, NULL));
             vkd3d_free((void *)programs[i].pipelines[j].name);
         }
@@ -1612,15 +1614,12 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
         tmp->spec_data_count++;
 
     /* is_program_entry */
-    tmp->spec_data_count++;
     /* is_indirect_bda_stride_program */
-    tmp->spec_data_count++;
+    /* is_static_broadcast_node_spec_id */
+    tmp->spec_data_count += 3;
 
-    if (tmp->spec_data_count)
-    {
-        vkd3d_array_reserve((void **)&tmp->spec_data, &tmp->spec_data_size, tmp->spec_data_count, sizeof(*tmp->spec_data));
-        vkd3d_array_reserve((void **)&tmp->map_entries, &tmp->map_entries_size, tmp->spec_data_count, sizeof(*tmp->map_entries));
-    }
+    vkd3d_array_reserve((void **)&tmp->spec_data, &tmp->spec_data_size, tmp->spec_data_count, sizeof(*tmp->spec_data));
+    vkd3d_array_reserve((void **)&tmp->map_entries, &tmp->map_entries_size, tmp->spec_data_count, sizeof(*tmp->map_entries));
 
     pipeline_info.stage.module = object->modules[entry_point_index].vk_module;
     pipeline_info.layout = object->modules[entry_point_index].vk_pipeline_layout;
@@ -1691,9 +1690,31 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     tmp->map_entries[spec_constant_index + 1].size = sizeof(uint32_t);
     tmp->map_entries[spec_constant_index + 1].constantID = entry->node_input->is_entry_point_spec_id;
 
-    /* CPU node entry */
+    tmp->map_entries[spec_constant_index + 2].offset = sizeof(uint32_t) * (spec_constant_index + 2);
+    tmp->map_entries[spec_constant_index + 2].size = sizeof(uint32_t);
+    tmp->map_entries[spec_constant_index + 2].constantID = entry->node_input->is_static_broadcast_node_spec_id;
+
+    /* CPU node entry, static payload. */
+    if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
+    {
+        tmp->spec_data[spec_constant_index] = 0;
+        tmp->spec_data[spec_constant_index + 1] = 1;
+        tmp->spec_data[spec_constant_index + 2] = 1;
+        vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
+                VK_NULL_HANDLE, 1, &pipeline_info, NULL,
+                &program->pipelines[entry_point_index].vk_static_cpu_node_entry_pipeline));
+
+        if (vr < 0)
+        {
+            ERR("Failed to create pipeline, vr %d\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+    }
+
+    /* CPU node entry, multiple payloads. */
     tmp->spec_data[spec_constant_index] = 0;
     tmp->spec_data[spec_constant_index + 1] = 1;
+    tmp->spec_data[spec_constant_index + 2] = 0;
     vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
             VK_NULL_HANDLE, 1, &pipeline_info, NULL,
             &program->pipelines[entry_point_index].vk_cpu_node_entry_pipeline));
@@ -1727,7 +1748,7 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
         return hresult_from_vk_result(vr);
     }
 
-    assert(spec_constant_index + 2 == tmp->spec_data_count);
+    assert(spec_constant_index + 3 == tmp->spec_data_count);
 
     return S_OK;
 }
@@ -2344,13 +2365,56 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
 
     VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
             VK_PIPELINE_BIND_POINT_COMPUTE,
+            desc->NumRecords == 1 && node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING ?
+            program->pipelines[node_index].vk_static_cpu_node_entry_pipeline :
             program->pipelines[node_index].vk_cpu_node_entry_pipeline));
 
     VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
             vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             0, sizeof(push), &push));
 
-    if (node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
+    if (desc->NumRecords == 1 && node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
+    {
+        /* Common case for entry nodes that just kick off a large amount of work over a grid using a single record.
+         * TODO: Can also unroll (few) multiple records if we run into that case in the wild. */
+        uint32_t num_wgx[3];
+        uint32_t i;
+
+        for (i = 0; i < 3; i++)
+            num_wgx[i] = node_input->broadcast_grid[i];
+
+        if (node_input->dispatch_grid_is_upper_bound && node_input->dispatch_grid_components != 0)
+        {
+            const uint8_t *records = desc->pRecords;
+
+            if (node_input->dispatch_grid_type_bits == 32)
+            {
+                const uint32_t *grid = (const uint32_t *)(records + node_input->dispatch_grid_offset);
+                for (i = 0; i < node_input->dispatch_grid_components; i++)
+                    num_wgx[i] = grid[i];
+            }
+            else
+            {
+                for (i = 0; i < desc->NumRecords; i++)
+                {
+                    const uint16_t *grid = (const uint16_t *)(records + node_input->dispatch_grid_offset);
+                    for (i = 0; i < node_input->dispatch_grid_components; i++)
+                        num_wgx[i] = grid[i];
+                }
+            }
+        }
+
+        if (list->device->vk_info.EXT_debug_utils)
+        {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "CPU entry (static) - %s[%u]", node_input->node_id, node_input->node_array_index);
+            d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
+        }
+
+        /* Primary offset */
+        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgx[0], num_wgx[1], num_wgx[2]));
+    }
+    else if (node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
     {
         uint32_t num_x = node_input->broadcast_grid[0];
         uint32_t num_y = node_input->broadcast_grid[1];
@@ -2407,14 +2471,9 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
         if (list->device->vk_info.EXT_debug_utils)
         {
             char buf[256];
-            snprintf(buf, sizeof(buf), "CPU entry - %s[%u]", node_input->node_id, node_input->node_array_index);
+            snprintf(buf, sizeof(buf), "CPU entry (amplified) - %s[%u]", node_input->node_id, node_input->node_array_index);
             d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
         }
-
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-                sizeof(uint32_t), &push.node_linear_offset_bda));
 
         /* Primary offset */
         if (num_wgs_x >= WG_DIVIDER)
