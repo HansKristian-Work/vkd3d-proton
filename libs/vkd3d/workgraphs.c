@@ -117,6 +117,9 @@ struct d3d12_wg_state_object_program
 
     int32_t *coalesce_dividers_or_amp;
     uint32_t *share_mapping;
+
+    const D3D12_NODE_ID *explicit_entry_points;
+    size_t explicit_entry_point_count;
 };
 
 struct d3d12_wg_state_object_module
@@ -230,7 +233,7 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
             const D3D12_WORK_GRAPH_DESC *wg_desc = obj->pDesc;
             struct d3d12_wg_state_object_program *program;
 
-            if (wg_desc->NumEntrypoints != 0 || wg_desc->NumExplicitlyDefinedNodes != 0)
+            if (wg_desc->NumExplicitlyDefinedNodes != 0)
             {
                 FIXME("Explicitly stated entry points is not supported.\n");
             }
@@ -245,6 +248,13 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
                     data->programs_count + 1, sizeof(*data->programs));
             program = &data->programs[data->programs_count++];
             memset(program, 0, sizeof(*program));
+
+            if (wg_desc->NumEntrypoints != 0)
+            {
+                program->explicit_entry_points = wg_desc->pEntrypoints;
+                program->explicit_entry_point_count = wg_desc->NumEntrypoints;
+            }
+
             program->name = vkd3d_wstrdup(wg_desc->ProgramName);
             break;
         }
@@ -411,6 +421,25 @@ static uint32_t d3d12_work_graph_find_node_by_id(
         if (entries[i].node_input &&
                 entries[i].node_input->node_array_index == node_array_index &&
                 strcmp(entries[i].node_input->node_id, node_id) == 0)
+        {
+            return (uint32_t)i;
+        }
+    }
+
+    return UINT32_MAX;
+}
+
+static uint32_t d3d12_work_graph_find_node_by_id_wchar(
+        const struct vkd3d_shader_library_entry_point *entries,
+        size_t entry_count, LPCWSTR node_id, UINT node_array_index)
+{
+    size_t i;
+
+    for (i = 0; i < entry_count; i++)
+    {
+        if (entries[i].node_input &&
+                entries[i].node_input->node_array_index == node_array_index &&
+                vkd3d_export_strequal_mixed(node_id, entries[i].node_input->node_id))
         {
             return (uint32_t)i;
         }
@@ -661,6 +690,37 @@ static HRESULT d3d12_wg_state_object_rearrange_entry_points(struct d3d12_wg_stat
     return S_OK;
 }
 
+static HRESULT d3d12_wg_state_object_resolve_entry_points_explicit(struct d3d12_wg_state_object *object,
+        struct d3d12_wg_state_object_data *data,
+        struct d3d12_wg_state_object_program *program)
+{
+    UINT node_array_index;
+    uint32_t node_index;
+    LPCWSTR node_name;
+    HRESULT hr;
+    size_t i;
+
+    for (i = 0; i < program->explicit_entry_point_count; i++)
+    {
+        node_name = program->explicit_entry_points[i].Name;
+        node_array_index = program->explicit_entry_points[i].ArrayIndex;
+        node_index = d3d12_work_graph_find_node_by_id_wchar(
+                data->entry_points, data->entry_points_count,
+                node_name, node_array_index);
+
+        if (node_index == UINT32_MAX)
+        {
+            WARN("Couldn't find node index for %s[%u].\n", debugstr_w(node_name), node_array_index);
+            return E_INVALIDARG;
+        }
+
+        if (FAILED(hr = d3d12_wg_state_object_program_add_node_to_level(program, data, node_index, 0, false)))
+            return hr;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_object *object,
         struct d3d12_wg_state_object_data *data,
         struct d3d12_wg_state_object_program *program)
@@ -672,9 +732,6 @@ static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_
     bool *node_is_output_target = NULL;
     HRESULT hr = S_OK;
     size_t i, j, k;
-
-    if (FAILED(hr = d3d12_wg_state_object_rearrange_entry_points(data)))
-        return hr;
 
     node_is_output_target = vkd3d_calloc(data->entry_points_count, sizeof(*node_is_output_target));
     for (i = 0; i < data->entry_points_count; i++)
@@ -2038,11 +2095,24 @@ static HRESULT d3d12_wg_state_object_compile_programs(
     /* Build up a tree of executions. Level 0 are entry points which may receive work.
      * First we run all nodes in level 0, then we figure out how to distribute work, run every node in level 1,
      * etc, etc. */
+
+    if (FAILED(hr = d3d12_wg_state_object_rearrange_entry_points(data)))
+        return hr;
+
     for (i = 0; i < object->programs_count; i++)
     {
         struct d3d12_wg_state_object_program *program = &object->programs[i];
-        if (FAILED(hr = d3d12_wg_state_object_resolve_entry_points(object, data, program)))
-            return hr;
+
+        if (program->explicit_entry_point_count)
+        {
+            if (FAILED(hr = d3d12_wg_state_object_resolve_entry_points_explicit(object, data, program)))
+                return hr;
+        }
+        else
+        {
+            if (FAILED(hr = d3d12_wg_state_object_resolve_entry_points(object, data, program)))
+                return hr;
+        }
     }
 
     /* Convert modules separately, per-program.
