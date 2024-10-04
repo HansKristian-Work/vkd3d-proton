@@ -115,7 +115,7 @@ struct d3d12_wg_state_object_program
     VkDeviceSize share_mapping_scratch_size;
     VkDeviceSize required_scratch_size;
 
-    uint32_t *coalesce_dividers;
+    int32_t *coalesce_dividers_or_amp;
     uint32_t *share_mapping;
 };
 
@@ -181,7 +181,7 @@ static void d3d12_state_object_free_programs(
             vkd3d_free((void *)programs[i].pipelines[j].name);
         }
         vkd3d_free(programs[i].pipelines);
-        vkd3d_free(programs[i].coalesce_dividers);
+        vkd3d_free(programs[i].coalesce_dividers_or_amp);
         vkd3d_free(programs[i].share_mapping);
     }
     vkd3d_free(programs);
@@ -1764,7 +1764,7 @@ static HRESULT d3d12_wg_state_object_compile_program(
     memset(&tmp, 0, sizeof(tmp));
     program->pipelines = vkd3d_calloc(data->entry_points_count, sizeof(*program->pipelines));
     program->num_pipelines = data->entry_points_count;
-    program->coalesce_dividers = vkd3d_calloc(program->num_pipelines, sizeof(uint32_t));
+    program->coalesce_dividers_or_amp = vkd3d_calloc(program->num_pipelines, sizeof(int32_t));
     program->share_mapping = vkd3d_malloc(program->num_pipelines * sizeof(uint32_t));
 
     for (i = 0; i < program->num_pipelines; i++)
@@ -1781,15 +1781,19 @@ static HRESULT d3d12_wg_state_object_compile_program(
         switch (node_input->launch_type)
         {
             case VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING:
-                program->coalesce_dividers[i] = 0;
+            {
+                uint32_t max_amplification = node_input->broadcast_grid[0] * node_input->broadcast_grid[1] * node_input->broadcast_grid[2];
+                max_amplification = min(max_amplification, MAX_AMPLIFICATION_RATE);
+                program->coalesce_dividers_or_amp[i] = -(int)max_amplification;
                 break;
+            }
 
             case VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD:
-                program->coalesce_dividers[i] = THREAD_COALESCE_COUNT;
+                program->coalesce_dividers_or_amp[i] = THREAD_COALESCE_COUNT;
                 break;
 
             case VKD3D_SHADER_NODE_LAUNCH_TYPE_COALESCING:
-                program->coalesce_dividers[i] = node_input->coalesce_factor;
+                program->coalesce_dividers_or_amp[i] = (int)node_input->coalesce_factor;
                 break;
 
             default:
@@ -2190,7 +2194,7 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
                 list->wg_state.BackingMemory.StartAddress - resource->va +
                 wg_state->programs[wg_state_program_index].dividers_scratch_offset,
                 wg_state->programs[wg_state_program_index].num_pipelines * sizeof(uint32_t),
-                wg_state->programs[wg_state_program_index].coalesce_dividers));
+                wg_state->programs[wg_state_program_index].coalesce_dividers_or_amp));
 
         VK_CALL(vkCmdUpdateBuffer(list->cmd.vk_command_buffer, resource->vk_buffer,
                 list->wg_state.BackingMemory.StartAddress - resource->va +
