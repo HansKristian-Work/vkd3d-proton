@@ -31,6 +31,14 @@
  * check dynamically, but that becomes very messy, very quickly. */
 #define THREAD_COALESCE_COUNT 32u
 
+/* This is arbitrary, but we have a trade-off to make.
+ * If amplification count is low, we spawn very few redundant threads,
+ * but occupancy might be too low if number of records is low.
+ * If number of records is very high however, it's probably okay to have a single workgroup
+ * per record looping over the amplification grid, and having too large of an amplifcation
+ * will hurt us. The shader emitting amplification rate can dynamically adjust between 1 and 1024 rate as needed. */
+#define MAX_AMPLIFICATION_RATE 1024u
+
 /* 64 bytes per node, nicely aligns to a cache line. */
 struct d3d12_workgraph_indirect_command
 {
@@ -2349,7 +2357,8 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
         uint32_t num_z = node_input->broadcast_grid[2];
 
         uint32_t num_wgs_x = desc->NumRecords;
-        uint32_t x, y, z, i, j;
+        uint32_t amplification;
+        uint32_t i, j;
 
         /* CPU entry nodes are likely to have a very large MaxDispatchGrid since it functions like a vkCmdDispatch(). Resolve it here. */
         if (node_input->dispatch_grid_is_upper_bound && node_input->dispatch_grid_components != 0)
@@ -2381,7 +2390,7 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
             num_z = min(num_z, max_dispatch[2]);
         }
 
-        // If the SV_DispatchGrid does not contain a component, it's implied to be 1.
+        /* If the SV_DispatchGrid does not contain a component, it's implied to be 1. */
         if (node_input->dispatch_grid_components)
         {
             if (node_input->dispatch_grid_components < 3)
@@ -2390,52 +2399,36 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
                 num_y = 1;
         }
 
-        for (z = 0; z < num_z; z++)
+        /* Try to balance amplification rate. */
+        amplification = min(MAX_AMPLIFICATION_RATE, num_x * num_y * num_z);
+        amplification /= max(desc->NumRecords, 1u);
+        amplification = max(amplification, 1u);
+
+        if (list->device->vk_info.EXT_debug_utils)
         {
-            for (y = 0; y < num_y; y++)
-            {
-                for (x = 0; x < num_x; x++)
-                {
-                    push.node_grid_dispatch[0] = x;
-                    push.node_grid_dispatch[1] = y;
-                    push.node_grid_dispatch[2] = z;
-                    push.node_linear_offset_bda = offset_scratch.va;
-
-                    if (list->device->vk_info.EXT_debug_utils)
-                    {
-                        char buf[256];
-                        snprintf(buf, sizeof(buf), "CPU entry - %s[%u] - (%u, %u, %u)",
-                                node_input->node_id, node_input->node_array_index,
-                                x, y, z);
-                        d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
-                    }
-
-                    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                            offsetof(struct vkd3d_shader_node_input_push_signature, node_grid_dispatch),
-                            3 * sizeof(uint32_t), push.node_grid_dispatch));
-
-                    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-                            sizeof(uint32_t), &push.node_linear_offset_bda));
-
-                    /* Primary offset */
-                    if (num_wgs_x >= WG_DIVIDER)
-                        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, WG_DIVIDER, num_wgs_x / WG_DIVIDER, 1));
-
-                    push.node_linear_offset_bda += sizeof(uint32_t);
-                    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-                            sizeof(uint32_t), &push.node_linear_offset_bda));
-
-                    /* Secondary offset */
-                    if (num_wgs_x % WG_DIVIDER)
-                        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs_x % WG_DIVIDER, 1, 1));
-                }
-            }
+            char buf[256];
+            snprintf(buf, sizeof(buf), "CPU entry - %s[%u]", node_input->node_id, node_input->node_array_index);
+            d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
         }
+
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+                sizeof(uint32_t), &push.node_linear_offset_bda));
+
+        /* Primary offset */
+        if (num_wgs_x >= WG_DIVIDER)
+            VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, WG_DIVIDER, num_wgs_x / WG_DIVIDER, amplification));
+
+        push.node_linear_offset_bda += sizeof(uint32_t);
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+                sizeof(uint32_t), &push.node_linear_offset_bda));
+
+        /* Secondary offset */
+        if (num_wgs_x % WG_DIVIDER)
+            VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs_x % WG_DIVIDER, 1, amplification));
     }
     else
     {
@@ -2624,11 +2617,9 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     VkDeviceAddress primary_linear_offset_bda;
     VkDeviceSize vk_secondary_indirect_offset;
     VkDeviceSize vk_primary_indirect_offset;
-    uint32_t num_x, num_y, num_z;
     VkBuffer vk_indirect_buffer;
     VkPipelineLayout vk_layout;
     unsigned int table_index;
-    uint32_t x, y, z;
 
     memset(&push, 0, sizeof(push));
     vk_layout = state->modules[node_index].vk_pipeline_layout;
@@ -2715,75 +2706,32 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
                 list->wg_state.NodeLocalRootArgumentsTable.StrideInBytes;
     }
 
+    push.node_linear_offset_bda = primary_linear_offset_bda;
     VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
             vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             0, sizeof(push), &push));
 
-    if (node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
+    if (list->device->vk_info.EXT_debug_utils)
     {
-        num_x = node_input->broadcast_grid[0];
-        num_y = node_input->broadcast_grid[1];
-        num_z = node_input->broadcast_grid[2];
-
-        // If the SV_DispatchGrid does not contain a component, it's implied to be 1.
-        if (node_input->dispatch_grid_is_upper_bound)
-        {
-            if (node_input->dispatch_grid_components < 3)
-                num_z = 1;
-            if (node_input->dispatch_grid_components < 2)
-                num_y = 1;
-        }
-    }
-    else
-    {
-        num_x = 1;
-        num_y = 1;
-        num_z = 1;
+        char buf[256];
+        snprintf(buf, sizeof(buf), "Node Dispatch - level %u - node %s[%u]", level, node_input->node_id, node_input->node_array_index);
+        d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
     }
 
-    for (z = 0; z < num_z; z++)
-    {
-        for (y = 0; y < num_y; y++)
-        {
-            for (x = 0; x < num_x; x++)
-            {
-                push.node_grid_dispatch[0] = x;
-                push.node_grid_dispatch[1] = y;
-                push.node_grid_dispatch[2] = z;
-                push.node_linear_offset_bda = primary_linear_offset_bda;
+    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+            sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
 
-                if (list->device->vk_info.EXT_debug_utils)
-                {
-                    char buf[256];
-                    snprintf(buf, sizeof(buf), "Node Dispatch - level %u - node %s[%u] - (%u, %u, %u)",
-                            level, node_input->node_id, node_input->node_array_index,
-                            x, y, z);
-                    d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
-                }
+    VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_primary_indirect_offset));
 
-                VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                        vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                        offsetof(struct vkd3d_shader_node_input_push_signature, node_grid_dispatch),
-                        3 * sizeof(uint32_t), push.node_grid_dispatch));
+    push.node_linear_offset_bda = secondary_linear_offset_bda;
+    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+            sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
 
-                VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                        vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                        offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-                        sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
-
-                VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_primary_indirect_offset));
-
-                push.node_linear_offset_bda = secondary_linear_offset_bda;
-
-                VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                        vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                        offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-                        sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
-
-                VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_secondary_indirect_offset));
-            }
-        }
-    }
+    VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_secondary_indirect_offset));
 }
 
 static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list *list,
@@ -2849,18 +2797,23 @@ static bool d3d12_command_list_workgraph_setup_indirect(
     for (i = 0; i < program->num_pipelines; i++)
     {
         const struct vkd3d_shader_node_input_data *input;
-        unsigned int coalesce_divider;
+        int coalesce_divider_or_amp;
+        uint32_t max_amplification;
 
         input = wg_state->entry_points[i].node_input;
         if (input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
-            coalesce_divider = 0;
+        {
+            max_amplification = input->broadcast_grid[0] * input->broadcast_grid[1] * input->broadcast_grid[2];
+            max_amplification = min(max_amplification, MAX_AMPLIFICATION_RATE);
+            coalesce_divider_or_amp = -(int)max_amplification;
+        }
         else if (input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_COALESCING)
-            coalesce_divider = input->coalesce_factor;
+            coalesce_divider_or_amp = (int)input->coalesce_factor;
         else
-            coalesce_divider = THREAD_COALESCE_COUNT;
+            coalesce_divider_or_amp = THREAD_COALESCE_COUNT;
 
         ((uint32_t *)entry_scratch.host_ptr)[i] = UINT32_MAX;
-        ((uint32_t *)dividers_scratch.host_ptr)[i] = coalesce_divider;
+        ((int32_t *)dividers_scratch.host_ptr)[i] = coalesce_divider_or_amp;
     }
 
     for (i = 0; i < program->levels[0].nodes_count; i++)
