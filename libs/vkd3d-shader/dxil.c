@@ -1870,6 +1870,7 @@ static void vkd3d_shader_dxil_dup_node_input(struct vkd3d_shader_library_entry_p
     input->recursion_factor = node_input->recursion_factor;
     input->coalesce_factor = node_input->coalesce_factor;
     input->is_entry_point_spec_id = node_input->is_entry_point_spec_id;
+    input->is_static_broadcast_node_spec_id = node_input->is_static_broadcast_node_spec_id;
     input->dispatch_grid_is_upper_bound_spec_id = node_input->dispatch_grid_is_upper_bound_spec_id;
     if (node_input->node_share_input_id)
         input->node_share_input_id = vkd3d_strdup(node_input->node_share_input_id);
