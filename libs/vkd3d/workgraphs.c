@@ -233,7 +233,6 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
             if (wg_desc->NumEntrypoints != 0 || wg_desc->NumExplicitlyDefinedNodes != 0)
             {
                 FIXME("Explicitly stated entry points is not supported.\n");
-                return E_NOTIMPL;
             }
 
             if (wg_desc->Flags != D3D12_WORK_GRAPH_FLAG_INCLUDE_ALL_AVAILABLE_NODES)
