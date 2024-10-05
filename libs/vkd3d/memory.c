@@ -1289,8 +1289,9 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             return E_INVALIDARG;
         }
 
-        if (vkd3d_atomic_uint32_exchange_explicit(&device->memory_info.has_used_gpu_upload_heap, 1, vkd3d_memory_order_relaxed) != 1
-            && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET))
+        if (!(info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH) &&
+            vkd3d_atomic_uint32_exchange_explicit(&device->memory_info.has_used_gpu_upload_heap, 1, vkd3d_memory_order_relaxed) != 1 &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET))
         {
             INFO("Allocated memory on GPU_UPLOAD_HEAP, disabling automatic UPLOAD to ReBar promotion.\n");
         }
