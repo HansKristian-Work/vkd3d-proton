@@ -19558,7 +19558,8 @@ static HRESULT d3d12_command_signature_init_patch_commands_buffer(struct d3d12_c
     void *ptr;
 
     memset(&heap_info, 0, sizeof(heap_info));
-    heap_info.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_info.Type = device->memory_info.has_gpu_upload_heap ?
+            D3D12_HEAP_TYPE_GPU_UPLOAD : D3D12_HEAP_TYPE_UPLOAD;
     memset(&buffer_desc, 0, sizeof(buffer_desc));
     buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     buffer_desc.Width = command_count * sizeof(struct vkd3d_patch_command);
