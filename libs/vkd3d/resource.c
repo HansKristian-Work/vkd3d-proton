@@ -8666,32 +8666,8 @@ static bool vkd3d_memory_info_decide_hvv_usage(
     }
     else if (topology->device_local_heap_count <= 1)
     {
-        VkDeviceSize largest_size = device->memory_properties.memoryHeaps[topology->largest_device_local_heap_index].size;
-        VkDeviceSize minimum_rebar_size_gb;
-        VkDeviceSize minimum_rebar_size;
-
-        /* 8 GiB GPUs are in an awkward place where they're just large enough
-         * to take reasonable advantage of ReBAR, but small enough there is serious risk
-         * of VRAM spill.
-         * Allow this to be tweaked for app-opt purposes.
-         * 6 GiB cards are extremely tiny in today's games, so ignore those. */
-        minimum_rebar_size_gb =
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR) ? 7ull : 9ull;
-        minimum_rebar_size = minimum_rebar_size_gb * 1000ull * 1000ull * 1000ull;
-
-        if (largest_size < minimum_rebar_size)
-        {
-            INFO("Topology largest device local heap is too small (%"PRIu64" bytes) for effective ReBAR.\n", largest_size);
-            return false;
-        }
-        else
-        {
-            /* If we only have one device local heap. */
-            INFO("Topology: No more than 1 device local heap, assuming ReBAR-style access.\n");
-            /* If DEVICE_LOCAL_BIT does not actually exist, that is fine,
-             * we'll fallback to VISIBLE | COHERENT when allocating. */
-            return true;
-        }
+        INFO("Topology: No more than 1 device local heap, HVV access is viable.\n");
+        return true;
     }
     else
     {
@@ -8700,7 +8676,8 @@ static bool vkd3d_memory_info_decide_hvv_usage(
     }
 }
 
-static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(bool is_hvv_use_allowed)
+static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
+        const struct vkd3d_memory_topology *topology, const struct d3d12_device *device, bool is_hvv_use_allowed)
 {
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
     {
@@ -8718,6 +8695,27 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(bool
 
     if (is_hvv_use_allowed)
     {
+        if (!vkd3d_memory_topology_is_uma_like(topology))
+        {
+            VkDeviceSize largest_size = device->memory_properties.memoryHeaps[topology->largest_device_local_heap_index].size;
+            VkDeviceSize minimum_rebar_size_gb;
+            VkDeviceSize minimum_rebar_size;
+
+            /* 8 GiB GPUs are in an awkward place where they're just large enough
+             * to take reasonable advantage of ReBAR, but small enough there is serious risk
+             * of VRAM spill.
+             * Allow this to be tweaked for app-opt purposes.
+             * 6 GiB cards are extremely tiny in today's games, so ignore those. */
+            minimum_rebar_size_gb = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR) ? 7ull : 9ull;
+            minimum_rebar_size = minimum_rebar_size_gb * 1000ull * 1000ull * 1000ull;
+
+            if (largest_size < minimum_rebar_size)
+            {
+                INFO("Topology: largest device local heap is too small (%"PRIu64" bytes) for effective ReBAR.\n", largest_size);
+                return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            }
+        }
+
         INFO("Topology: HVV usage is allowed, using DEVICE_LOCAL | HOST_COHERENT for UPLOAD.\n");
         return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -8813,7 +8811,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     vkd3d_memory_info_get_topology(&topology, device);
     is_hvv_use_allowed = vkd3d_memory_info_decide_hvv_usage(&topology, device);
     info->upload_heap_memory_properties =
-            vkd3d_memory_info_upload_hvv_memory_properties(is_hvv_use_allowed);
+            vkd3d_memory_info_upload_hvv_memory_properties(&topology, device, is_hvv_use_allowed);
     info->has_gpu_upload_heap = vkd3d_memory_info_decide_gpu_upload_heap(is_hvv_use_allowed);
     info->descriptor_heap_memory_properties =
             vkd3d_memory_info_descriptor_heap_memory_properties(&topology, device);
