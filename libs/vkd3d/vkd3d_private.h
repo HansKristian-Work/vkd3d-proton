@@ -4731,6 +4731,8 @@ struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_low_latency_sleep(struct vkd3d_queue_timeline_trace *trace,
         uint64_t present_id);
 struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_sparse(struct vkd3d_queue_timeline_trace *trace, uint32_t num_tiles);
+struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_execute(struct vkd3d_queue_timeline_trace *trace,
         ID3D12CommandList * const *command_lists, unsigned int count);
 struct vkd3d_queue_timeline_trace_cookie

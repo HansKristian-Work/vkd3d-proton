@@ -253,6 +253,26 @@ void vkd3d_queue_timeline_trace_complete_low_latency_sleep(struct vkd3d_queue_ti
 }
 
 struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_sparse(struct vkd3d_queue_timeline_trace *trace, uint32_t num_tiles)
+{
+    struct vkd3d_queue_timeline_trace_cookie cookie = {0};
+    struct vkd3d_queue_timeline_trace_state *state;
+    uint64_t submission_count;
+    if (!trace->active)
+        return cookie;
+
+    cookie.index = vkd3d_queue_timeline_trace_allocate_index(trace, &submission_count);
+    if (!cookie.index)
+        return cookie;
+
+    state = &trace->state[cookie.index];
+    state->type = VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_SUBMISSION;
+    state->start_ts = vkd3d_get_current_time_ns();
+    snprintf(state->desc, sizeof(state->desc), "SPARSE #%"PRIu64" (%u tiles)", submission_count, num_tiles);
+    return cookie;
+}
+
+struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_execute(struct vkd3d_queue_timeline_trace *trace,
         ID3D12CommandList * const *command_lists, unsigned int count)
 {
