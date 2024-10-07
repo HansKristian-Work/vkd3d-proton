@@ -18782,8 +18782,9 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         goto cleanup;
     }
 
-    /* NV driver is buggy and test_update_tile_mappings fails (bug 3274618). */
-    can_compact = command_queue->device->device_info.properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA;
+    /* NV driver before r535 is buggy and test_update_tile_mappings fails (bug 3274618). */
+    can_compact = command_queue->device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_NVIDIA_PROPRIETARY ||
+            VKD3D_DRIVER_VERSION_MAJOR_NV(command_queue->device->device_info.properties2.properties.driverVersion) >= 535;
     count = vkd3d_compact_sparse_bind_ranges(src_resource, bind_ranges, bind_infos, count, mode, can_compact);
 
     first_packed_tile = dst_resource->sparse.tile_count;
