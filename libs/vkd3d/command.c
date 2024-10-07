@@ -18748,17 +18748,20 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 {
     struct vkd3d_sparse_memory_bind_range *bind_ranges = NULL;
     VkSemaphoreSubmitInfo serialize_info, signal_info;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     unsigned int first_packed_tile, processed_tiles;
     VkSparseImageOpaqueMemoryBindInfo opaque_info;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkSparseImageMemoryBind *image_binds = NULL;
     VkSparseBufferMemoryBindInfo buffer_info;
     VkSparseMemoryBind *memory_binds = NULL;
+    struct vkd3d_fence_wait_info fence_info;
     VkSparseImageMemoryBindInfo image_info;
     VkBindSparseInfo bind_sparse_info;
     struct vkd3d_queue *queue_sparse;
     struct vkd3d_queue *queue;
     VkSubmitInfo2 submit_info;
+    uint32_t total_tiles = 0;
     VkQueue vk_queue_sparse;
     unsigned int i, j, k;
     VkQueue vk_queue;
@@ -18856,6 +18859,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     for (i = 0, k = 0; i < count; i++)
     {
         struct vkd3d_sparse_memory_bind_range *bind = &bind_ranges[i];
+        total_tiles += bind->tile_count;
 
         while (bind->tile_count)
         {
@@ -18996,8 +19000,17 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 
     command_queue->last_submission_timeline_value = queue->submission_timeline_count;
 
+    memset(&fence_info, 0, sizeof(fence_info));
+    fence_info.vk_semaphore = queue->submission_timeline;
+    fence_info.vk_semaphore_value = queue->submission_timeline_count;
+
     vkd3d_queue_release(queue);
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+
+    cookie = vkd3d_queue_timeline_trace_register_sparse(&command_queue->device->queue_timeline_trace, total_tiles);
+    if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+        if (FAILED(vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &cookie)))
+            ERR("Failed to enqueue timeline semaphore.\n");
 
 cleanup:
     vkd3d_free(memory_binds);
