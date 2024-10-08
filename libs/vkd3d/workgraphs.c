@@ -2597,6 +2597,8 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
 
     VKD3D_BREADCRUMB_AUX32(0);
     VKD3D_BREADCRUMB_AUX32(node_index);
+    VKD3D_BREADCRUMB_TAG(node_input->node_id);
+    VKD3D_BREADCRUMB_AUX32(node_input->node_array_index);
     VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_NODE);
 }
 
@@ -2880,6 +2882,8 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
 
     VKD3D_BREADCRUMB_AUX32(level);
     VKD3D_BREADCRUMB_AUX32(node_index);
+    VKD3D_BREADCRUMB_TAG(node_input->node_id);
+    VKD3D_BREADCRUMB_AUX32(node_input->node_array_index);
     VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_NODE);
 }
 
