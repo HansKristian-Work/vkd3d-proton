@@ -2594,6 +2594,10 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
         if (num_wgs_x % WG_DIVIDER)
             VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs_x % WG_DIVIDER, 1, 1));
     }
+
+    VKD3D_BREADCRUMB_AUX32(0);
+    VKD3D_BREADCRUMB_AUX32(node_index);
+    VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_NODE);
 }
 
 static void d3d12_command_list_workgraph_barrier(struct d3d12_command_list *list,
@@ -2645,6 +2649,9 @@ static void d3d12_command_list_emit_distribute_workgroups(struct d3d12_command_l
         d3d12_command_list_debug_mark_label(list, "Distribute Work Groups", 1.0f, 0.8f, 0.8f, 1.0f);
 
     VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, 1, 1, 1));
+
+    VKD3D_BREADCRUMB_TAG("distribute");
+    VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_META);
 
     d3d12_command_list_workgraph_barrier(list,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
@@ -2723,6 +2730,10 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
         }
 
         VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, resource->vk_buffer, vk_offset));
+
+        VKD3D_BREADCRUMB_TAG("payload-offset");
+        VKD3D_BREADCRUMB_AUX32(level);
+        VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_META);
     }
 
     /* This shader only expands offsets, indirect data is already written. */
@@ -2866,6 +2877,10 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
             sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
 
     VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_secondary_indirect_offset));
+
+    VKD3D_BREADCRUMB_AUX32(level);
+    VKD3D_BREADCRUMB_AUX32(node_index);
+    VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_NODE);
 }
 
 static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list *list,
@@ -2987,6 +3002,9 @@ static bool d3d12_command_list_workgraph_setup_indirect(
         d3d12_command_list_debug_mark_label(list, "Setup Indirect Nodes", 1.0f, 0.8f, 0.8f, 1.0f);
 
     VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs, 1, 1));
+
+    VKD3D_BREADCRUMB_TAG("setup-indirect");
+    VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_META);
 
     memset(&vk_barrier, 0, sizeof(vk_barrier));
     memset(&dep_info, 0, sizeof(dep_info));
