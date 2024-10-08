@@ -515,6 +515,32 @@ static inline HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_stor
 
 HRESULT STDMETHODCALLTYPE d3d12_object_SetName(ID3D12Object *iface, const WCHAR *name);
 
+struct d3d_destruction_callback_entry
+{
+    PFN_DESTRUCTION_CALLBACK callback;
+    void *userdata;
+    UINT callback_id;
+};
+
+struct d3d_destruction_notifier
+{
+    ID3DDestructionNotifier ID3DDestructionNotifier_iface;
+
+    IUnknown *parent;
+
+    pthread_mutex_t mutex;
+
+    struct d3d_destruction_callback_entry *callbacks;
+    size_t callback_size;
+    size_t callback_count;
+
+    UINT next_callback_id;
+};
+
+void d3d_destruction_notifier_init(struct d3d_destruction_notifier *notifier, IUnknown *parent);
+void d3d_destruction_notifier_free(struct d3d_destruction_notifier *notifier);
+void d3d_destruction_notifier_notify(struct d3d_destruction_notifier *notifier);
+
 /* ID3D12Fence */
 struct d3d12_fence_value
 {
