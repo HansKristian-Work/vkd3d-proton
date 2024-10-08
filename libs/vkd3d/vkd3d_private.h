@@ -343,19 +343,6 @@ VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 
-struct vkd3d_gpu_va_allocation
-{
-    D3D12_GPU_VIRTUAL_ADDRESS base;
-    size_t size;
-    void *ptr;
-};
-
-struct vkd3d_gpu_va_slab
-{
-    size_t size;
-    void *ptr;
-};
-
 struct vkd3d_private_store
 {
     pthread_mutex_t mutex;
