@@ -1654,3 +1654,158 @@ HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob)
 
     return S_OK;
 }
+
+
+static struct d3d_destruction_notifier *impl_from_ID3DDestructionNotifier(ID3DDestructionNotifier *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d_destruction_notifier, ID3DDestructionNotifier_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d_destruction_notifier_QueryInterface(ID3DDestructionNotifier *iface, REFIID riid, void **object)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+
+    TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
+
+    return IUnknown_QueryInterface(notifier->parent, riid, object);
+}
+
+static ULONG STDMETHODCALLTYPE d3d_destruction_notifier_AddRef(ID3DDestructionNotifier *iface)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+    ULONG refcount = IUnknown_AddRef(notifier->parent);
+
+    TRACE("%p increasing refcount to %u.\n", notifier, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d_destruction_notifier_Release(ID3DDestructionNotifier *iface)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+    ULONG refcount = IUnknown_Release(notifier->parent);
+
+    TRACE("%p decreasing refcount to %u.\n", notifier, refcount);
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d_destruction_notifier_RegisterDestructionCallback(
+        ID3DDestructionNotifier *iface, PFN_DESTRUCTION_CALLBACK callback, void *data,
+        UINT *callback_id)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+    struct d3d_destruction_callback_entry *entry;
+
+    TRACE("iface %p, callback %p, data %p, callback_id %p.\n", iface, (void*)callback, data, callback_id);
+
+    if (!callback)
+        return DXGI_ERROR_INVALID_CALL;
+
+    pthread_mutex_lock(&notifier->mutex);
+
+    if (!vkd3d_array_reserve((void**)&notifier->callbacks, &notifier->callback_size,
+            notifier->callback_count + 1, sizeof(*notifier->callbacks)))
+    {
+        ERR("Failed to allocate callback array.\n");
+        pthread_mutex_unlock(&notifier->mutex);
+        return E_OUTOFMEMORY;
+    }
+
+    entry = &notifier->callbacks[notifier->callback_count++];
+    entry->callback = callback;
+    entry->userdata = data;
+    entry->callback_id = 0;
+
+    if (callback_id)
+    {
+        entry->callback_id = ++notifier->next_callback_id;
+        *callback_id = entry->callback_id;
+    }
+
+    pthread_mutex_unlock(&notifier->mutex);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d_destruction_notifier_UnregisterDestructionCallback(
+        ID3DDestructionNotifier *iface, UINT callback_id)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+    unsigned int i, entry_index;
+
+    TRACE("iface %p, callback_id %u.\n", iface, callback_id);
+
+    if (!callback_id)
+        return DXGI_ERROR_NOT_FOUND;
+
+    pthread_mutex_lock(&notifier->mutex);
+
+    entry_index = -1u;
+
+    for (i = 0; i < notifier->callback_count; i++)
+    {
+        if (notifier->callbacks[i].callback_id == callback_id)
+        {
+            entry_index = i;
+            break;
+        }
+    }
+
+    if (entry_index == -1u)
+    {
+        pthread_mutex_unlock(&notifier->mutex);
+        return DXGI_ERROR_NOT_FOUND;
+    }
+
+    notifier->callbacks[entry_index] = notifier->callbacks[--notifier->callback_count];
+
+    pthread_mutex_unlock(&notifier->mutex);
+    return S_OK;
+}
+
+static CONST_VTBL struct ID3DDestructionNotifierVtbl d3d_destruction_notifier_vtbl =
+{
+    /* IUnknown methods */
+    d3d_destruction_notifier_QueryInterface,
+    d3d_destruction_notifier_AddRef,
+    d3d_destruction_notifier_Release,
+    /* ID3DDestructionNotifier methods */
+    d3d_destruction_notifier_RegisterDestructionCallback,
+    d3d_destruction_notifier_UnregisterDestructionCallback
+};
+
+void d3d_destruction_notifier_init(struct d3d_destruction_notifier *notifier, IUnknown *parent)
+{
+    memset(notifier, 0, sizeof(*notifier));
+
+    notifier->ID3DDestructionNotifier_iface.lpVtbl = &d3d_destruction_notifier_vtbl;
+    notifier->parent = parent;
+
+    pthread_mutex_init(&notifier->mutex, NULL);
+}
+
+void d3d_destruction_notifier_free(struct d3d_destruction_notifier *notifier)
+{
+    d3d_destruction_notifier_notify(notifier);
+
+    pthread_mutex_destroy(&notifier->mutex);
+}
+
+void d3d_destruction_notifier_notify(struct d3d_destruction_notifier *notifier)
+{
+    size_t i;
+
+    for (i = 0; i < notifier->callback_count; i++)
+    {
+        const struct d3d_destruction_callback_entry *entry = &notifier->callbacks[i];
+
+        entry->callback(entry->userdata);
+    }
+
+    vkd3d_free(notifier->callbacks);
+
+    notifier->callbacks = NULL;
+    notifier->callback_count = 0u;
+    notifier->callback_size = 0u;
+}
+
