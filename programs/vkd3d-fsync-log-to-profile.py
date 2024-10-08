@@ -34,6 +34,9 @@ def print_json_wait(tid, desc, start_ts, end_ts):
 def print_json_signal(tid, desc, ts):
     print('{', '"name": "{}", "ph" : "i", "tid": "{}", "pid": "fsync signal", "ts": {}'.format(desc, tid, ts), '},')
 
+def print_nt_read_file(tid, desc, ts):
+    print('{', '"name": "{}", "ph" : "i", "tid": "{}", "pid": "NtReadFile", "ts": {}'.format(desc, tid, ts), '},')
+
 def strip_hex_prefix(x):
     if x.startswith('0x'):
         return x[2:]
@@ -54,6 +57,7 @@ def parse_proton_log(file, start_time, duration_time):
     find_wake_timeout = re.compile(r'(\d+\.\d+):.+:([0-9A-Fa-f]+):trace:fsync:__fsync_wait_objects Wait timed out.$')
     find_set_event = re.compile(r'(\d+\.\d+):.+:([0-9A-Fa-f]+):trace:fsync:fsync_set_event 0x([0-9A-Fa-f]+)\.$')
     find_release_sem = re.compile(r'(\d+\.\d+):.+:([0-9A-Fa-f]+):trace:fsync:fsync_release_semaphore 0x([0-9A-Fa-f]+),.*$')
+    find_nt_read_file = re.compile(r'(\d+\.\d+):.+:([0-9A-Fa-f]+):trace:file:NtReadFile \((.+)\)$')
     thread_id_to_name = {}
     sleep_states = {}
     signal_cause = {}
@@ -136,6 +140,17 @@ def parse_proton_log(file, start_time, duration_time):
                 print_json_signal(name, 'semaphore ' + handle, time)
             signal_cause[handle] = tid
             continue
+
+        m = find_nt_read_file.search(line)
+        if m:
+            time = int(float(m[1]) * 1e6)
+            tid = m[2]
+            name = thread_id_to_name.get(tid, tid)
+            if 'vkd3d' in name or 'wine_' in name:
+                continue
+            if time_in_bounds(time, start_time, end_time):
+                args = m[3].split(',')
+                print_nt_read_file(name, 'handle {}, {} bytes'.format(args[0], int(args[6], 16)), time)
 
 def main():
     parser = argparse.ArgumentParser(description = 'Script for dumping Proton fsync to trace.')
