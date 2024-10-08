@@ -1889,6 +1889,8 @@ static void d3d12_resource_set_name(struct d3d12_resource *resource, const char 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_QueryInterface(d3d12_resource_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -1904,6 +1906,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_QueryInterface(d3d12_resource_if
     {
         ID3D12Resource2_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&resource->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &resource->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -1943,6 +1952,8 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *ifac
 
     if (!refcount)
     {
+        d3d_destruction_notifier_notify(&resource->destruction_notifier);
+
         d3d12_resource_decref(resource);
         d3d12_device_release(device);
     }
@@ -3230,6 +3241,8 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+    d3d_destruction_notifier_free(&resource->destruction_notifier);
+
     vkd3d_view_map_destroy(&resource->view_map, resource->device);
 
     vkd3d_descriptor_debug_unregister_cookie(device->descriptor_qa_global_info, resource->res.cookie);
@@ -3406,6 +3419,8 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
         vkd3d_free(object);
         return hr;
     }
+
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12Resource_iface);
 
     object->refcount = 1;
     object->internal_refcount = 1;

@@ -1054,6 +1054,7 @@ struct d3d12_resource
     VkImageView vrs_view;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 static inline bool d3d12_resource_is_buffer(const struct d3d12_resource *resource)
