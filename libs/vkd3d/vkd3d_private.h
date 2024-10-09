@@ -599,6 +599,7 @@ struct d3d12_fence
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 static inline struct d3d12_fence *impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
@@ -648,6 +649,7 @@ struct d3d12_shared_fence
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 static inline struct d3d12_shared_fence *shared_impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
