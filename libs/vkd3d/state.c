@@ -28,6 +28,8 @@
 static HRESULT STDMETHODCALLTYPE d3d12_root_signature_QueryInterface(ID3D12RootSignature *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (IsEqualGUID(riid, &IID_ID3D12RootSignature)
@@ -37,6 +39,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_QueryInterface(ID3D12RootS
     {
         ID3D12RootSignature_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&root_signature->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &root_signature->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -96,6 +105,7 @@ void d3d12_root_signature_dec_ref(struct d3d12_root_signature *root_signature)
 
     if (refcount == 0)
     {
+        d3d_destruction_notifier_free(&root_signature->destruction_notifier);
         vkd3d_private_store_destroy(&root_signature->private_store);
         d3d12_root_signature_cleanup(root_signature, device);
         vkd3d_free(root_signature);
@@ -112,6 +122,8 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature 
 
     if (!refcount)
     {
+        d3d_destruction_notifier_notify(&root_signature->destruction_notifier);
+
         d3d12_root_signature_dec_ref(root_signature);
         d3d12_device_release(device);
     }
@@ -1664,6 +1676,8 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
         vkd3d_free(object);
         return hr;
     }
+
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12RootSignature_iface);
 
     TRACE("Created root signature %p.\n", object);
 
