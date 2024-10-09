@@ -4903,6 +4903,7 @@ struct d3d12_device
     LUID adapter_luid;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
     struct d3d12_caps d3d12_caps;
 
     struct vkd3d_memory_transfer_queue memory_transfers;
