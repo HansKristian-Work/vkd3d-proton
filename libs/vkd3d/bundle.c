@@ -271,12 +271,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_bundle_QueryInterface(d3d12_command_list_
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList7)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList8)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList9)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList10)
             || IsEqualGUID(iid, &IID_ID3D12CommandList)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
             || IsEqualGUID(iid, &IID_IUnknown))
     {
-        ID3D12GraphicsCommandList9_AddRef(iface);
+        ID3D12GraphicsCommandList10_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -439,7 +440,7 @@ static void d3d12_bundle_exec_draw_instanced(d3d12_command_list_iface *list, con
 {
     const struct d3d12_draw_instanced_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_DrawInstanced(list, args->vertex_count,
+    ID3D12GraphicsCommandList10_DrawInstanced(list, args->vertex_count,
             args->instance_count, args->first_vertex, args->first_instance);
 }
 
@@ -476,7 +477,7 @@ static void d3d12_bundle_exec_draw_indexed_instanced(d3d12_command_list_iface *l
 {
     const struct d3d12_draw_indexed_instanced_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_DrawIndexedInstanced(list, args->index_count,
+    ID3D12GraphicsCommandList10_DrawIndexedInstanced(list, args->index_count,
             args->instance_count, args->first_index, args->vertex_offset,
             args->first_instance);
 }
@@ -511,7 +512,7 @@ static void d3d12_bundle_exec_dispatch(d3d12_command_list_iface *list, const voi
 {
     const struct d3d12_dispatch_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_Dispatch(list, args->x, args->y, args->z);
+    ID3D12GraphicsCommandList10_Dispatch(list, args->x, args->y, args->z);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_Dispatch(d3d12_command_list_iface *iface,
@@ -579,7 +580,7 @@ static void d3d12_bundle_exec_ia_set_primitive_topology(d3d12_command_list_iface
 {
     const struct d3d12_ia_set_primitive_topology_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_IASetPrimitiveTopology(list, args->topology);
+    ID3D12GraphicsCommandList10_IASetPrimitiveTopology(list, args->topology);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_IASetPrimitiveTopology(d3d12_command_list_iface *iface,
@@ -616,7 +617,7 @@ static void d3d12_bundle_exec_om_set_blend_factor(d3d12_command_list_iface *list
 {
     const struct d3d12_om_set_blend_factor_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_OMSetBlendFactor(list, args->blend_factor);
+    ID3D12GraphicsCommandList10_OMSetBlendFactor(list, args->blend_factor);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_OMSetBlendFactor(d3d12_command_list_iface *iface,
@@ -644,7 +645,7 @@ static void d3d12_bundle_exec_om_set_stencil_ref(d3d12_command_list_iface *list,
 {
     const struct d3d12_om_set_stencil_ref_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_OMSetStencilRef(list, args->stencil_ref);
+    ID3D12GraphicsCommandList10_OMSetStencilRef(list, args->stencil_ref);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_OMSetStencilRef(d3d12_command_list_iface *iface,
@@ -669,7 +670,7 @@ static void d3d12_bundle_exec_set_pipeline_state(d3d12_command_list_iface *list,
 {
     const struct d3d12_set_pipeline_state_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetPipelineState(list, args->pipeline_state);
+    ID3D12GraphicsCommandList10_SetPipelineState(list, args->pipeline_state);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetPipelineState(d3d12_command_list_iface *iface,
@@ -713,7 +714,7 @@ static void d3d12_bundle_exec_set_compute_root_signature(d3d12_command_list_ifac
 {
     const struct d3d12_set_root_signature_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetComputeRootSignature(list, args->root_signature);
+    ID3D12GraphicsCommandList10_SetComputeRootSignature(list, args->root_signature);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetComputeRootSignature(d3d12_command_list_iface *iface,
@@ -732,7 +733,7 @@ static void d3d12_bundle_exec_set_graphics_root_signature(d3d12_command_list_ifa
 {
     const struct d3d12_set_root_signature_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetGraphicsRootSignature(list, args->root_signature);
+    ID3D12GraphicsCommandList10_SetGraphicsRootSignature(list, args->root_signature);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetGraphicsRootSignature(d3d12_command_list_iface *iface,
@@ -758,7 +759,7 @@ static void d3d12_bundle_exec_set_compute_root_descriptor_table(d3d12_command_li
 {
     const struct d3d12_set_root_descriptor_table_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetComputeRootDescriptorTable(list, args->parameter_index, args->base_descriptor);
+    ID3D12GraphicsCommandList10_SetComputeRootDescriptorTable(list, args->parameter_index, args->base_descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetComputeRootDescriptorTable(d3d12_command_list_iface *iface,
@@ -779,7 +780,7 @@ static void d3d12_bundle_exec_set_graphics_root_descriptor_table(d3d12_command_l
 {
     const struct d3d12_set_root_descriptor_table_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetGraphicsRootDescriptorTable(list, args->parameter_index, args->base_descriptor);
+    ID3D12GraphicsCommandList10_SetGraphicsRootDescriptorTable(list, args->parameter_index, args->base_descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetGraphicsRootDescriptorTable(d3d12_command_list_iface *iface,
@@ -808,7 +809,7 @@ static void d3d12_bundle_exec_set_compute_root_32bit_constant(d3d12_command_list
 {
     const struct d3d12_set_root_32bit_constant_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetComputeRoot32BitConstant(list, args->parameter_index, args->data, args->offset);
+    ID3D12GraphicsCommandList10_SetComputeRoot32BitConstant(list, args->parameter_index, args->data, args->offset);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetComputeRoot32BitConstant(d3d12_command_list_iface *iface,
@@ -830,7 +831,7 @@ static void d3d12_bundle_exec_set_graphics_root_32bit_constant(d3d12_command_lis
 {
     const struct d3d12_set_root_32bit_constant_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstant(list, args->parameter_index, args->data, args->offset);
+    ID3D12GraphicsCommandList10_SetGraphicsRoot32BitConstant(list, args->parameter_index, args->data, args->offset);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetGraphicsRoot32BitConstant(d3d12_command_list_iface *iface,
@@ -861,7 +862,7 @@ static void d3d12_bundle_exec_set_compute_root_32bit_constants(d3d12_command_lis
 {
     const struct d3d12_set_root_32bit_constants_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetComputeRoot32BitConstants(list, args->parameter_index,
+    ID3D12GraphicsCommandList10_SetComputeRoot32BitConstants(list, args->parameter_index,
             args->constant_count, args->data, args->offset);
 }
 
@@ -889,7 +890,7 @@ static void d3d12_bundle_exec_set_graphics_root_32bit_constants(d3d12_command_li
 {
     const struct d3d12_set_root_32bit_constants_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstants(list, args->parameter_index,
+    ID3D12GraphicsCommandList10_SetGraphicsRoot32BitConstants(list, args->parameter_index,
             args->constant_count, args->data, args->offset);
 }
 
@@ -924,7 +925,7 @@ static void d3d12_bundle_exec_set_compute_root_cbv(d3d12_command_list_iface *lis
 {
     const struct d3d12_set_root_descriptor_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetComputeRootConstantBufferView(list, args->parameter_index, args->address);
+    ID3D12GraphicsCommandList10_SetComputeRootConstantBufferView(list, args->parameter_index, args->address);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetComputeRootConstantBufferView(
@@ -945,7 +946,7 @@ static void d3d12_bundle_exec_set_graphics_root_cbv(d3d12_command_list_iface *li
 {
     const struct d3d12_set_root_descriptor_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetGraphicsRootConstantBufferView(list, args->parameter_index, args->address);
+    ID3D12GraphicsCommandList10_SetGraphicsRootConstantBufferView(list, args->parameter_index, args->address);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetGraphicsRootConstantBufferView(
@@ -966,7 +967,7 @@ static void d3d12_bundle_exec_set_compute_root_srv(d3d12_command_list_iface *lis
 {
     const struct d3d12_set_root_descriptor_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetComputeRootShaderResourceView(list, args->parameter_index, args->address);
+    ID3D12GraphicsCommandList10_SetComputeRootShaderResourceView(list, args->parameter_index, args->address);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetComputeRootShaderResourceView(
@@ -987,7 +988,7 @@ static void d3d12_bundle_exec_set_graphics_root_srv(d3d12_command_list_iface *li
 {
     const struct d3d12_set_root_descriptor_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetGraphicsRootShaderResourceView(list, args->parameter_index, args->address);
+    ID3D12GraphicsCommandList10_SetGraphicsRootShaderResourceView(list, args->parameter_index, args->address);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetGraphicsRootShaderResourceView(
@@ -1008,7 +1009,7 @@ static void d3d12_bundle_exec_set_compute_root_uav(d3d12_command_list_iface *lis
 {
     const struct d3d12_set_root_descriptor_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetComputeRootUnorderedAccessView(list, args->parameter_index, args->address);
+    ID3D12GraphicsCommandList10_SetComputeRootUnorderedAccessView(list, args->parameter_index, args->address);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetComputeRootUnorderedAccessView(
@@ -1029,7 +1030,7 @@ static void d3d12_bundle_exec_set_graphics_root_uav(d3d12_command_list_iface *li
 {
     const struct d3d12_set_root_descriptor_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetGraphicsRootUnorderedAccessView(list, args->parameter_index, args->address);
+    ID3D12GraphicsCommandList10_SetGraphicsRootUnorderedAccessView(list, args->parameter_index, args->address);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetGraphicsRootUnorderedAccessView(
@@ -1054,14 +1055,14 @@ struct d3d12_ia_set_index_buffer_command
 
 static void d3d12_bundle_exec_ia_set_index_buffer_null(d3d12_command_list_iface *list, const void *args_v)
 {
-    ID3D12GraphicsCommandList9_IASetIndexBuffer(list, NULL);
+    ID3D12GraphicsCommandList10_IASetIndexBuffer(list, NULL);
 }
 
 static void d3d12_bundle_exec_ia_set_index_buffer(d3d12_command_list_iface *list, const void *args_v)
 {
     const struct d3d12_ia_set_index_buffer_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_IASetIndexBuffer(list, &args->view);
+    ID3D12GraphicsCommandList10_IASetIndexBuffer(list, &args->view);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_IASetIndexBuffer(d3d12_command_list_iface *iface,
@@ -1096,7 +1097,7 @@ static void d3d12_bundle_exec_ia_set_vertex_buffers(d3d12_command_list_iface *li
 {
     const struct d3d12_ia_set_vertex_buffers_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_IASetVertexBuffers(list, args->start_slot, args->view_count, args->views);
+    ID3D12GraphicsCommandList10_IASetVertexBuffers(list, args->start_slot, args->view_count, args->views);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_IASetVertexBuffers(d3d12_command_list_iface *iface,
@@ -1211,7 +1212,7 @@ static void d3d12_bundle_exec_set_marker(d3d12_command_list_iface *list, const v
 {
     const struct d3d12_debug_marker_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetMarker(list, args->metadata, args->data, args->data_size);
+    ID3D12GraphicsCommandList10_SetMarker(list, args->metadata, args->data, args->data_size);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetMarker(d3d12_command_list_iface *iface,
@@ -1232,7 +1233,7 @@ static void d3d12_bundle_exec_begin_event(d3d12_command_list_iface *list, const 
 {
     const struct d3d12_debug_marker_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_BeginEvent(list, args->metadata, args->data, args->data_size);
+    ID3D12GraphicsCommandList10_BeginEvent(list, args->metadata, args->data, args->data_size);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_BeginEvent(d3d12_command_list_iface *iface,
@@ -1251,7 +1252,7 @@ static void STDMETHODCALLTYPE d3d12_bundle_BeginEvent(d3d12_command_list_iface *
 
 static void d3d12_bundle_exec_end_event(d3d12_command_list_iface *list, const void *args_v)
 {
-    ID3D12GraphicsCommandList9_EndEvent(list);
+    ID3D12GraphicsCommandList10_EndEvent(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_EndEvent(d3d12_command_list_iface *iface)
@@ -1278,7 +1279,7 @@ static void d3d12_bundle_exec_execute_indirect(d3d12_command_list_iface *list, c
 {
     const struct d3d12_execute_indirect_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_ExecuteIndirect(list, args->signature, args->max_count,
+    ID3D12GraphicsCommandList10_ExecuteIndirect(list, args->signature, args->max_count,
             args->arg_buffer, args->arg_offset, args->count_buffer, args->count_offset);
 }
 
@@ -1340,7 +1341,7 @@ static void d3d12_bundle_exec_om_set_depth_bounds(d3d12_command_list_iface *list
 {
     const struct d3d12_om_set_depth_bounds_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_OMSetDepthBounds(list, args->min, args->max);
+    ID3D12GraphicsCommandList10_OMSetDepthBounds(list, args->min, args->max);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_OMSetDepthBounds(d3d12_command_list_iface *iface,
@@ -1369,7 +1370,7 @@ static void d3d12_bundle_exec_set_sample_positions(d3d12_command_list_iface *lis
     const struct d3d12_set_sample_positions_command *args = args_v;
 
     /* The sample position array is non-const but does not get written to */
-    ID3D12GraphicsCommandList9_SetSamplePositions(list, args->sample_count,
+    ID3D12GraphicsCommandList10_SetSamplePositions(list, args->sample_count,
             args->pixel_count, (D3D12_SAMPLE_POSITION*)args->positions);
 }
 
@@ -1412,7 +1413,7 @@ static void d3d12_bundle_exec_set_view_instance_mask(d3d12_command_list_iface *l
 {
     const struct d3d12_set_view_instance_mask_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetViewInstanceMask(list, args->mask);
+    ID3D12GraphicsCommandList10_SetViewInstanceMask(list, args->mask);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetViewInstanceMask(d3d12_command_list_iface *iface, UINT mask)
@@ -1438,7 +1439,7 @@ static void d3d12_bundle_exec_write_buffer_immediate(d3d12_command_list_iface *l
 {
     const struct d3d12_write_buffer_immediate_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_WriteBufferImmediate(list, args->count, args->parameters, args->modes);
+    ID3D12GraphicsCommandList10_WriteBufferImmediate(list, args->count, args->parameters, args->modes);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_WriteBufferImmediate(d3d12_command_list_iface *iface,
@@ -1534,7 +1535,7 @@ static void d3d12_bundle_exec_set_pipeline_state1(d3d12_command_list_iface *list
 {
     const struct d3d12_set_pipeline_state1_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_SetPipelineState1(list, args->state_object);
+    ID3D12GraphicsCommandList10_SetPipelineState1(list, args->state_object);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_SetPipelineState1(d3d12_command_list_iface *iface,
@@ -1559,7 +1560,7 @@ static void d3d12_bundle_exec_dispatch_rays(d3d12_command_list_iface *list, cons
 {
     const struct d3d12_dispatch_rays_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_DispatchRays(list, &args->desc);
+    ID3D12GraphicsCommandList10_DispatchRays(list, &args->desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_DispatchRays(d3d12_command_list_iface *iface,
@@ -1585,14 +1586,14 @@ static void d3d12_bundle_exec_rs_set_shading_rate(d3d12_command_list_iface *list
 {
     const struct d3d12_rs_set_shading_rate_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_RSSetShadingRate(list, args->base, args->combiners);
+    ID3D12GraphicsCommandList10_RSSetShadingRate(list, args->base, args->combiners);
 }
 
 static void d3d12_bundle_exec_rs_set_shading_rate_base(d3d12_command_list_iface *list, const void *args_v)
 {
     const struct d3d12_rs_set_shading_rate_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_RSSetShadingRate(list, args->base, NULL);
+    ID3D12GraphicsCommandList10_RSSetShadingRate(list, args->base, NULL);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_RSSetShadingRate(d3d12_command_list_iface *iface,
@@ -1622,7 +1623,7 @@ static void d3d12_bundle_exec_rs_set_shading_rate_image(d3d12_command_list_iface
 {
     const struct d3d12_rs_set_shading_rate_image_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_RSSetShadingRateImage(list, args->image);
+    ID3D12GraphicsCommandList10_RSSetShadingRateImage(list, args->image);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_RSSetShadingRateImage(d3d12_command_list_iface *iface,
@@ -1641,7 +1642,7 @@ static void d3d12_bundle_exec_dispatch_mesh(d3d12_command_list_iface *list, cons
 {
     const struct d3d12_dispatch_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_DispatchMesh(list, args->x, args->y, args->z);
+    ID3D12GraphicsCommandList10_DispatchMesh(list, args->x, args->y, args->z);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_DispatchMesh(d3d12_command_list_iface *iface, UINT x, UINT y, UINT z)
@@ -1673,7 +1674,7 @@ static void d3d12_bundle_exec_om_set_front_and_back_stencil_ref(d3d12_command_li
 {
     const struct d3d12_om_set_front_and_back_stencil_ref_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_OMSetFrontAndBackStencilRef(list,
+    ID3D12GraphicsCommandList10_OMSetFrontAndBackStencilRef(list,
             args->stencil_ref_front, args->stencil_ref_back);
 }
 
@@ -1701,7 +1702,7 @@ static void d3d12_bundle_exec_rs_set_depth_bias(d3d12_command_list_iface *list, 
 {
     const struct d3d12_rs_set_depth_bias_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_RSSetDepthBias(list,
+    ID3D12GraphicsCommandList10_RSSetDepthBias(list,
             args->constant_factor, args->clamp, args->slope_factor);
 }
 
@@ -1718,6 +1719,18 @@ static void STDMETHODCALLTYPE d3d12_bundle_RSSetDepthBias(d3d12_command_list_ifa
     args->slope_factor = SlopeScaledDepthBias;
 }
 
+static void STDMETHODCALLTYPE d3d12_bundle_SetProgram(d3d12_command_list_iface *iface, const D3D12_SET_PROGRAM_DESC *desc)
+{
+    /* Workgraphs cannot be used in bundles. */
+    TRACE("iface %p, desc %p\n", iface, desc);
+}
+
+static void STDMETHODCALLTYPE d3d12_bundle_DispatchGraph(d3d12_command_list_iface *iface, const D3D12_DISPATCH_GRAPH_DESC *desc)
+{
+    /* Workgraphs cannot be used in bundles. */
+    TRACE("iface %p, desc %p\n", iface, desc);
+}
+
 struct d3d12_ia_set_index_buffer_strip_cut_value_command
 {
     struct d3d12_bundle_command command;
@@ -1728,7 +1741,7 @@ static void d3d12_bundle_exec_ia_set_index_buffer_strip_cut_value(d3d12_command_
 {
     const struct d3d12_ia_set_index_buffer_strip_cut_value_command *args = args_v;
 
-    ID3D12GraphicsCommandList9_IASetIndexBufferStripCutValue(list, args->strip_cut_value);
+    ID3D12GraphicsCommandList10_IASetIndexBufferStripCutValue(list, args->strip_cut_value);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_IASetIndexBufferStripCutValue(d3d12_command_list_iface *iface, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue)
@@ -1742,7 +1755,7 @@ static void STDMETHODCALLTYPE d3d12_bundle_IASetIndexBufferStripCutValue(d3d12_c
     args->strip_cut_value = IBStripCutValue;
 }
 
-static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_bundle_vtbl =
+static CONST_VTBL struct ID3D12GraphicsCommandList10Vtbl d3d12_bundle_vtbl =
 {
     /* IUnknown methods */
     d3d12_bundle_QueryInterface,
@@ -1842,6 +1855,9 @@ static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_bundle_vtbl =
     /* ID3D12GraphicsCommandList9 methods */
     d3d12_bundle_RSSetDepthBias,
     d3d12_bundle_IASetIndexBufferStripCutValue,
+    /* ID3D12GraphicsCommandList10 methods */
+    d3d12_bundle_SetProgram,
+    d3d12_bundle_DispatchGraph,
 };
 
 HRESULT d3d12_bundle_create(struct d3d12_device *device,

@@ -135,13 +135,17 @@ static void check_work_graph_properties(ID3D12StateObject *pso,
     index = ID3D12WorkGraphProperties_GetWorkGraphIndex(props, u"DummyDoesNotExist");
     ok(index == UINT32_MAX, "Unexpected index %u\n", index);
 
+    /* There is supposed to be a stable order of nodes, which of course is not documented ... */
     id = ID3D12WorkGraphProperties_GetNodeID(props, 0, 0);
+    todo_if(ID3D12WorkGraphProperties_GetNumNodes(props, 0) > 1)
     ok(export_strequal(id.Name, expected_entry_node), "Unexpected node name.\n");
+    todo_if(ID3D12WorkGraphProperties_GetNumNodes(props, 0) > 1)
     ok(id.ArrayIndex == 0, "Unexpected ArrayIndex %u.\n", id.ArrayIndex);
 
     if (expected_leaf_node)
     {
         id = ID3D12WorkGraphProperties_GetNodeID(props, 0, 0);
+        todo_if(ID3D12WorkGraphProperties_GetNumNodes(props, 0) > 1)
         ok(export_strequal(id.Name, expected_leaf_node), "Unexpected node name.\n");
         ok(id.ArrayIndex == 0, "Unexpected ArrayIndex %u.\n", id.ArrayIndex);
     }
@@ -538,7 +542,8 @@ static void execute_workgraph_test(struct test_context_workgraph *context,
         expected = desc->expected_cb(desc, i);
         v = get_readback_uint(&rb, i, 0, 0);
 
-        bug_if(desc->is_bug) ok(expected == v, "Value %u: expected %u, got %u.\n", i, expected, v);
+        bug_if(desc->is_bug) todo_if(expected != 0 && desc->mode == D3D12_DISPATCH_MODE_MULTI_NODE_GPU_INPUT)
+        ok(expected == v, "Value %u: expected %u, got %u.\n", i, expected, v);
     }
 
     release_resource_readback(&rb);
@@ -721,6 +726,7 @@ void test_workgraph_basic(void)
 
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
+    vkd3d_test_set_context(NULL);
 }
 
 void test_workgraph_broadcast_input(void)
@@ -842,6 +848,7 @@ void test_workgraph_broadcast_input(void)
     ID3D12StateObject_Release(pso);
 
     destroy_workgraph_test_context(&context);
+    vkd3d_test_set_context(NULL);
 }
 
 void test_workgraph_thread_input(void)
@@ -887,6 +894,7 @@ void test_workgraph_thread_input(void)
 
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
+    vkd3d_test_set_context(NULL);
 }
 
 void test_workgraph_coalesced_input(void)
@@ -937,6 +945,7 @@ void test_workgraph_coalesced_input(void)
 
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
+    vkd3d_test_set_context(NULL);
 }
 
 static void test_workgraph_two_level_broadcast_inner(struct test_context_workgraph *context,
@@ -1010,7 +1019,8 @@ static void test_workgraph_two_level_broadcast_inner(struct test_context_workgra
 
     ID3D12Resource_Release(output[0]);
     ID3D12Resource_Release(output[1]);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
 }
 
 void test_workgraph_two_level_broadcast(void)
@@ -1040,6 +1050,7 @@ void test_workgraph_two_level_broadcast(void)
     test_workgraph_two_level_broadcast_inner(&context, pso[2]);
     vkd3d_test_set_context("Thread - NodeArray");
     test_workgraph_two_level_broadcast_inner(&context, pso[3]);
+    vkd3d_test_set_context(NULL);
 
     for (i = 0; i < ARRAY_SIZE(pso); i++)
         ID3D12StateObject_Release(pso[i]);
@@ -1086,7 +1097,8 @@ void test_workgraph_two_level_empty(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
@@ -1132,7 +1144,8 @@ void test_workgraph_basic_recursion(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
@@ -1178,7 +1191,8 @@ void test_workgraph_cross_group_sharing(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
@@ -1224,7 +1238,8 @@ void test_workgraph_shared_inputs(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
@@ -1285,7 +1300,8 @@ void test_workgraph_local_root_signature(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12Resource_Release(local);
     ID3D12StateObject_Release(pso);

@@ -1950,10 +1950,6 @@ static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
     list->is_valid = false;
 }
 
-static void d3d12_command_list_debug_mark_begin_region(struct d3d12_command_list *list, const char *tag);
-static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
-        float r, float g, float b, float a);
-
 static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list *list)
 {
     struct d3d12_device *device = list->device;
@@ -2855,15 +2851,7 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
     return S_OK;
 }
 
-struct vkd3d_scratch_allocation
-{
-    VkBuffer buffer;
-    VkDeviceSize offset;
-    VkDeviceAddress va;
-    void *host_ptr;
-};
-
-static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command_allocator *allocator,
+bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command_allocator *allocator,
         enum vkd3d_scratch_pool_kind kind,
         VkDeviceSize size, VkDeviceSize alignment, uint32_t memory_types,
         struct vkd3d_scratch_allocation *allocation)
@@ -2996,7 +2984,7 @@ static void d3d12_command_list_invalidate_rendering_info(struct d3d12_command_li
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_CURRENT;
 }
 
-static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader)
+void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader)
 {
     list->current_pipeline = VK_NULL_HANDLE;
 
@@ -3597,7 +3585,7 @@ static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *reso
     return true;
 }
 
-static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
+void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
         float r, float g, float b, float a)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -3616,7 +3604,7 @@ static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list,
     }
 }
 
-static void d3d12_command_list_debug_mark_begin_region(
+void d3d12_command_list_debug_mark_begin_region(
         struct d3d12_command_list *list, const char *tag)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -3637,7 +3625,7 @@ static void d3d12_command_list_debug_mark_begin_region(
     }
 }
 
-static void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list)
+void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
@@ -4433,10 +4421,6 @@ static size_t get_query_heap_stride(D3D12_QUERY_HEAP_TYPE heap_type)
     return sizeof(uint64_t);
 }
 
-static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
-        struct vkd3d_pipeline_bindings *sibling_push_domain);
-
 static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list *list)
 {
     /* TODO allocate arrays from command allocator in case
@@ -4810,7 +4794,7 @@ static void d3d12_command_list_invalidate_push_constants(struct vkd3d_pipeline_b
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 }
 
-static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
+void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
         struct vkd3d_pipeline_bindings *sibling_push_domain)
 {
@@ -5127,12 +5111,13 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList7)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList8)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList9)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList10)
             || IsEqualGUID(iid, &IID_ID3D12CommandList)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
             || IsEqualGUID(iid, &IID_IUnknown))
     {
-        ID3D12GraphicsCommandList9_AddRef(iface);
+        ID3D12GraphicsCommandList10_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -5667,6 +5652,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
     list->state = NULL;
     list->rt_state = NULL;
+    memset(&list->wg_state, 0, sizeof(list->wg_state));
     list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
 
     memset(list->so_buffers, 0, sizeof(list->so_buffers));
@@ -5678,7 +5664,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->cbv_srv_uav_descriptors_view = NULL;
     list->vrs_image = NULL;
 
-    ID3D12GraphicsCommandList9_SetPipelineState(iface, initial_pipeline_state);
+    ID3D12GraphicsCommandList10_SetPipelineState(iface, initial_pipeline_state);
 }
 
 static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *list)
@@ -6154,7 +6140,7 @@ static void vk_write_descriptor_set_from_scratch_push_ubo(VkWriteDescriptorSet *
 }
 
 /* This is a big stall on some GPUs so need to track this separately. */
-static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_list *list)
+void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDescriptorBufferBindingPushDescriptorBufferHandleEXT buffer_handle;
@@ -6279,14 +6265,8 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
     }
 }
 
-union root_parameter_data
-{
-    uint32_t root_constants[D3D12_MAX_ROOT_COST];
-    VkDeviceAddress root_descriptor_vas[D3D12_MAX_ROOT_COST / 2];
-};
-
 static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
+        struct vkd3d_pipeline_bindings *bindings, union vkd3d_root_parameter_data *dst_data)
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     uint64_t root_descriptor_mask = root_signature->root_descriptor_raw_va_mask;
@@ -6305,7 +6285,7 @@ static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_co
 }
 
 static void d3d12_command_list_fetch_root_parameter_uniform_block_data(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
+        struct vkd3d_pipeline_bindings *bindings, union vkd3d_root_parameter_data *dst_data)
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     uint64_t root_constant_mask = root_signature->root_constant_mask;
@@ -6340,8 +6320,8 @@ static void d3d12_command_list_fetch_root_parameter_uniform_block_data(struct d3
     }
 }
 
-static void d3d12_command_list_fetch_root_parameter_data(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
+void d3d12_command_list_fetch_root_parameter_data(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings, union vkd3d_root_parameter_data *dst_data)
 {
     d3d12_command_list_fetch_root_descriptor_vas(list, bindings, dst_data);
     d3d12_command_list_fetch_root_parameter_uniform_block_data(list, bindings, dst_data);
@@ -6355,8 +6335,8 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2];
     const struct vkd3d_shader_root_parameter *root_parameter;
-    union root_parameter_data *ptr_root_parameter_data;
-    union root_parameter_data root_parameter_data;
+    union vkd3d_root_parameter_data *ptr_root_parameter_data;
+    union vkd3d_root_parameter_data root_parameter_data;
     unsigned int descriptor_write_count = 0;
     struct vkd3d_scratch_allocation alloc;
     VkDescriptorBufferInfo buffer_info;
@@ -16135,7 +16115,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command_list_iface *iface,
         ID3D12StateObject *state_object)
 {
-    struct d3d12_state_object *state = impl_from_ID3D12StateObject(state_object);
+    struct d3d12_rt_state_object *state = rt_impl_from_ID3D12StateObject(state_object);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     TRACE("iface %p, state_object %p\n", iface, state_object);
 
@@ -16841,8 +16821,53 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBufferStripCutValue(d
     }
 }
 
+static void STDMETHODCALLTYPE d3d12_command_list_SetProgram(
+        d3d12_command_list_iface *iface, const D3D12_SET_PROGRAM_DESC *desc)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_wg_state_object *wg_state;
+    uint32_t wg_state_program_index;
+    TRACE("iface %p, desc %p\n", iface, desc);
+
+    if (desc->Type != D3D12_PROGRAM_TYPE_WORK_GRAPH)
+    {
+        FIXME("Unsupported type %u.\n", desc->Type);
+        memset(&list->wg_state, 0, sizeof(list->wg_state));
+        return;
+    }
+
+    list->wg_state = desc->WorkGraph;
+
+    /* We only get program identifier, not the state object? Spicy ... */
+    wg_state = (struct d3d12_wg_state_object *)(uintptr_t)desc->WorkGraph.ProgramIdentifier.OpaqueData[1];
+    wg_state_program_index = desc->WorkGraph.ProgramIdentifier.OpaqueData[0];
+
+    if (wg_state)
+    {
+        if (wg_state_program_index >= wg_state->programs_count)
+        {
+            ERR("program index %u is out of bounds (%u programs).\n",
+                    wg_state_program_index, wg_state->programs_count);
+            memset(&list->wg_state, 0, sizeof(list->wg_state));
+            return;
+        }
+
+        /* It's somewhat ambiguous if we should initialize scratch on SetProgram time or not.
+         * Assume we can. */
+        d3d12_command_list_workgraph_initialize_scratch(list);
+    }
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_DispatchGraph(
+        d3d12_command_list_iface *iface, const D3D12_DISPATCH_GRAPH_DESC *desc)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, desc %p\n", iface, desc);
+    d3d12_command_list_workgraph_dispatch(list, desc);
+}
+
 #define VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(name, set_table_variant) \
-static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_command_list_vtbl_##name = \
+static CONST_VTBL struct ID3D12GraphicsCommandList10Vtbl d3d12_command_list_vtbl_##name = \
 { \
     /* IUnknown methods */ \
     d3d12_command_list_QueryInterface, \
@@ -16942,6 +16967,9 @@ static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_command_list_vtbl_
     /* ID3D12GraphicsCommandList9 methods */ \
     d3d12_command_list_RSSetDepthBias, \
     d3d12_command_list_IASetIndexBufferStripCutValue, \
+    /* ID3D12GraphicsCommandList10 methods */ \
+    d3d12_command_list_SetProgram, \
+    d3d12_command_list_DispatchGraph, \
 }
 
 VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(default, default);
