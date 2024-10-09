@@ -2983,6 +2983,7 @@ struct d3d12_command_list
     struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int breadcrumb_context_index;
@@ -3060,6 +3061,7 @@ struct d3d12_bundle
     struct d3d12_bundle_command *tail;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_bundle_create(struct d3d12_device *device,
