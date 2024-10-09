@@ -4441,7 +4441,7 @@ struct vkd3d_workgraph_indirect_ops
     VkPipeline vk_payload_offset_u32_pipelines[3];
     VkPipeline vk_payload_offset_u16_pipelines[3];
     VkPipeline vk_payload_offset_plain;
-    VkPipeline vk_payload_workgroup_pipeline;
+    VkPipeline vk_payload_workgroup_pipeline[2];
     VkPipeline vk_setup_gpu_input_pipeline;
 };
 
@@ -4523,7 +4523,7 @@ struct vkd3d_workgraph_meta_pipeline_info
 };
 
 void vkd3d_meta_get_workgraph_workgroup_pipeline(struct vkd3d_meta_ops *meta_ops,
-        struct vkd3d_workgraph_meta_pipeline_info *info);
+        struct vkd3d_workgraph_meta_pipeline_info *info, bool broadcast_compacting);
 void vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(struct vkd3d_meta_ops *meta_ops,
         struct vkd3d_workgraph_meta_pipeline_info *info);
 void vkd3d_meta_get_workgraph_payload_offset_pipeline(struct vkd3d_meta_ops *meta_ops,

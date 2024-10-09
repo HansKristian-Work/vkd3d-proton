@@ -1870,7 +1870,9 @@ static HRESULT d3d12_wg_state_object_compile_program(
     }
 
     vkd3d_meta_get_workgraph_workgroup_pipeline(&object->device->meta_ops,
-            &program->workgroup_distributor);
+            &program->workgroup_distributor_normal, false);
+    vkd3d_meta_get_workgraph_workgroup_pipeline(&object->device->meta_ops,
+            &program->workgroup_distributor_broadcast_compacting, true);
     vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(&object->device->meta_ops,
             &program->gpu_input_setup);
 

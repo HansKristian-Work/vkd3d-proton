@@ -9,6 +9,7 @@
 
 layout(local_size_x_id = 0) in;
 layout(constant_id = 1) const uint FUSED_DIVIDER = 0;
+layout(constant_id = 2) const bool COMPACT_BROADCAST_NODES = false;
 
 #include "cs_workgraph_data_structures.h"
 
@@ -48,6 +49,8 @@ layout(push_constant, std430) uniform Registers
 // Here, we could in theory detect OOM, report the failure and nop out the indirects.
 
 const uint WG_DIVIDER = 32 * 1024;
+// Arbitrary tuneable.
+const uint AMPLIFICATION_EXTRA_SHIFT = 2;
 
 void main()
 {
@@ -98,12 +101,20 @@ void main()
 			uint coalesce_mult = coalesce_divider > 0 ? uint(coalesce_divider) : 1u;
 			uint amplification = coalesce_divider < 0 ? uint(-coalesce_divider) : 1;
 			// Try to balance work we spawn on the GPU.
-			amplification = max(1u, amplification >> findMSB(max(total_wgs, 1u)));
+			amplification = max(1u, amplification >> findMSB(max(total_wgs >> AMPLIFICATION_EXTRA_SHIFT, 1u)));
 
 			IndirectCommands cmd;
 			cmd.primary_execute = uvec3(WG_DIVIDER, total_wgs / WG_DIVIDER, amplification);
 			cmd.primary_linear_offset = node_linear_offset;
-			cmd.secondary_execute = uvec3(total_wgs % WG_DIVIDER, 1, amplification);
+
+			// If we only do secondary executions we can compact empty broadcasts easily.
+			// This is relevant for AMD Compute Rasterizer demo for whatever reason. *shrug*
+			uint secondary_executions = COMPACT_BROADCAST_NODES &&
+					coalesce_divider < 0 &&
+					cmd.primary_execute.y == 0 ?
+					0u : total_wgs % WG_DIVIDER;
+
+			cmd.secondary_execute = uvec3(secondary_executions, 1, amplification);
 			cmd.secondary_linear_offset = node_linear_offset + cmd.primary_execute.y * WG_DIVIDER * coalesce_mult;
 			cmd.end_elements = counts.total + node_linear_offset;
 			cmd.linear_offset_atomic = node_linear_offset;
@@ -144,7 +155,7 @@ void main()
 
 				uint total_wgs = other_cmd.end_elements - other_cmd.primary_linear_offset;
 				// Try to balance work we spawn on the GPU.
-				amplification = max(1u, amplification >> findMSB(max(total_wgs, 1u)));
+				amplification = max(1u, amplification >> findMSB(max(total_wgs >> AMPLIFICATION_EXTRA_SHIFT, 1u)));
 
 				registers.commands.indirect_commands[i].primary_execute.z = amplification;
 				registers.commands.indirect_commands[i].secondary_execute.z = amplification;
