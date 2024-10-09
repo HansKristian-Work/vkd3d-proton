@@ -3364,6 +3364,7 @@ struct d3d12_command_signature
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12_root_signature *root_signature,
