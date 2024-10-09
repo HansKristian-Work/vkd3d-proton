@@ -8341,6 +8341,8 @@ static void d3d12_query_heap_set_name(struct d3d12_query_heap *heap, const char 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_QueryInterface(ID3D12QueryHeap *iface,
         REFIID iid, void **out)
 {
+    struct d3d12_query_heap *query_heap = impl_from_ID3D12QueryHeap(iface);
+
     TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
 
     if (!out)
@@ -8354,6 +8356,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_QueryInterface(ID3D12QueryHeap
     {
         ID3D12QueryHeap_AddRef(iface);
         *out = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&query_heap->destruction_notifier.ID3DDestructionNotifier_iface);
+        *out = &query_heap->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -8385,6 +8394,7 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
         struct d3d12_device *device = heap->device;
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        d3d_destruction_notifier_free(&heap->destruction_notifier);
         vkd3d_private_store_destroy(&heap->private_store);
 
         VK_CALL(vkDestroyQueryPool(device->vk_device, heap->vk_query_pool, NULL));
@@ -8575,6 +8585,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     vkd3d_descriptor_debug_register_query_heap_cookie(device->descriptor_qa_global_info,
             object->cookie, desc);
 
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12QueryHeap_iface);
     d3d12_device_add_ref(device);
 
     TRACE("Created query heap %p.\n", object);
