@@ -428,3 +428,5 @@ decl_test(test_sm68_sample_cmp_bias_grad);
 decl_test(test_planar_video_formats);
 decl_test(test_vkd3d_dxvk_cmdbuf_interop);
 decl_test(test_large_texel_buffer_view);
+decl_test(test_destruction_notifier_callback);
+decl_test(test_destruction_notifier_interfaces);
