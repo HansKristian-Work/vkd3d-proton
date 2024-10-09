@@ -855,6 +855,7 @@ static void d3d12_fence_dec_ref(struct d3d12_fence *fence)
 
     if (!refcount_internal)
     {
+        d3d_destruction_notifier_free(&fence->destruction_notifier);
         vkd3d_private_store_destroy(&fence->private_store);
         d3d12_fence_destroy_vk_objects(fence);
 
@@ -1129,6 +1130,8 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_
 static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(d3d12_fence_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -1143,6 +1146,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(d3d12_fence_iface *i
     {
         ID3D12Fence1_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&fence->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &fence->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -1182,6 +1192,8 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(d3d12_fence_iface *iface)
          * and mark "TDR" if that ever happens in real world usage. */
         if (!(fence->d3d12_flags & D3D12_FENCE_FLAG_SHARED))
             d3d12_fence_signal_cpu_timeline_semaphore(fence, UINT64_MAX);
+
+        d3d_destruction_notifier_notify(&fence->destruction_notifier);
 
         d3d12_fence_dec_ref(fence);
         d3d12_device_release(device);
@@ -1441,6 +1453,7 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
         return hr;
     }
 
+    d3d_destruction_notifier_init(&fence->destruction_notifier, (IUnknown*)&fence->ID3D12Fence_iface);
     d3d12_device_add_ref(fence->device = device);
 
     return S_OK;
@@ -1467,6 +1480,8 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
 static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_QueryInterface(d3d12_fence_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -1481,6 +1496,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_QueryInterface(d3d12_fence_i
     {
         ID3D12Fence1_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&fence->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &fence->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -1539,6 +1561,7 @@ static void d3d12_shared_fence_dec_ref(struct d3d12_shared_fence *fence)
         vk_procs = &fence->device->vk_procs;
         VK_CALL(vkDestroySemaphore(fence->device->vk_device, fence->timeline_semaphore, NULL));
 
+        d3d_destruction_notifier_free(&fence->destruction_notifier);
         vkd3d_private_store_destroy(&fence->private_store);
 
         vkd3d_free(fence);
@@ -1555,6 +1578,8 @@ static ULONG STDMETHODCALLTYPE d3d12_shared_fence_Release(d3d12_fence_iface *ifa
     if (!refcount)
     {
         struct d3d12_device *device = fence->device;
+
+        d3d_destruction_notifier_notify(&fence->destruction_notifier);
 
         d3d12_shared_fence_dec_ref(fence);
         d3d12_device_release(device);
@@ -1872,6 +1897,7 @@ HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
         return hr;
     }
 
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12Fence_iface);
     d3d12_device_add_ref(object->device = device);
 
     pthread_mutex_init(&object->mutex, NULL);
