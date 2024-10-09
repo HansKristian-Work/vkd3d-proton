@@ -31,6 +31,8 @@ static inline struct d3d12_state_object *impl_from_ID3D12StateObjectProperties(I
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_QueryInterface(ID3D12StateObject *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -48,9 +50,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_QueryInterface(ID3D12StateOb
 
     if (IsEqualGUID(riid, &IID_ID3D12StateObjectProperties))
     {
-        struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
         ID3D12StateObjectProperties_AddRef(&state_object->ID3D12StateObjectProperties_iface);
         *object = &state_object->ID3D12StateObjectProperties_iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&state_object->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &state_object->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -104,6 +112,7 @@ static void d3d12_state_object_dec_ref(struct d3d12_state_object *state_object)
     if (!refcount)
     {
         struct d3d12_device *device = state_object->device;
+        d3d_destruction_notifier_free(&state_object->destruction_notifier);
         vkd3d_private_store_destroy(&state_object->private_store);
         d3d12_state_object_cleanup(state_object);
         vkd3d_free(state_object);
@@ -2929,6 +2938,7 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
         goto fail;
 
     d3d12_state_object_pipeline_data_cleanup(&data, object->device);
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12StateObject_iface);
     d3d12_device_add_ref(object->device);
     return S_OK;
 
