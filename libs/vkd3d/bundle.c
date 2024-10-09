@@ -269,6 +269,8 @@ void *d3d12_bundle_add_command(struct d3d12_bundle *bundle, pfn_d3d12_bundle_com
 static HRESULT STDMETHODCALLTYPE d3d12_bundle_QueryInterface(d3d12_command_list_iface *iface,
         REFIID iid, void **object)
 {
+    struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
+
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
     if (!object)
@@ -291,6 +293,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_bundle_QueryInterface(d3d12_command_list_
     {
         ID3D12GraphicsCommandList9_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&bundle->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &bundle->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -322,6 +331,8 @@ static ULONG STDMETHODCALLTYPE d3d12_bundle_Release(d3d12_command_list_iface *if
         if (bundle->allocator && bundle->allocator->current_bundle == bundle)
             bundle->allocator->current_bundle = NULL;
 
+        d3d_destruction_notifier_free(&bundle->destruction_notifier);
+        vkd3d_private_store_destroy(&bundle->private_store);
         d3d12_device_release(bundle->device);
         vkd3d_free(bundle);
     }
@@ -1876,6 +1887,7 @@ HRESULT d3d12_bundle_create(struct d3d12_device *device,
         return hr;
     }
 
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12GraphicsCommandList_iface);
     d3d12_device_add_ref(device);
     *bundle = object;
     return S_OK;

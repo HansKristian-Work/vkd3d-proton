@@ -5152,6 +5152,8 @@ extern ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(d3d12_command
 HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
         REFIID iid, void **object)
 {
+    struct d3d12_command_list *command_list = impl_from_ID3D12GraphicsCommandList(iface);
+
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
     if (!object)
@@ -5180,9 +5182,15 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1))
     {
-        struct d3d12_command_list *command_list = impl_from_ID3D12GraphicsCommandList(iface);
         d3d12_command_list_vkd3d_ext_AddRef(&command_list->ID3D12GraphicsCommandListExt_iface);
         *object = &command_list->ID3D12GraphicsCommandListExt_iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&command_list->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &command_list->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -5213,6 +5221,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
     {
         struct d3d12_device *device = list->device;
 
+        d3d_destruction_notifier_free(&list->destruction_notifier);
         vkd3d_private_store_destroy(&list->private_store);
 
         /* When command pool is destroyed, all command buffers are implicitly freed. */
@@ -17089,6 +17098,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     if (FAILED(hr = vkd3d_private_store_init(&list->private_store)))
         return hr;
 
+    d3d_destruction_notifier_init(&list->destruction_notifier, (IUnknown*)&list->ID3D12GraphicsCommandList_iface);
     d3d12_device_add_ref(list->device = device);
     return hr;
 }
