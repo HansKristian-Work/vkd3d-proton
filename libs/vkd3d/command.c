@@ -2369,6 +2369,8 @@ static inline struct d3d12_command_allocator *impl_from_ID3D12CommandAllocator(I
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_QueryInterface(ID3D12CommandAllocator *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -2382,6 +2384,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_QueryInterface(ID3D12Co
     {
         ID3D12CommandAllocator_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&allocator->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &allocator->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -2424,6 +2433,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
         struct d3d12_device *device = allocator->device;
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        d3d_destruction_notifier_free(&allocator->destruction_notifier);
         vkd3d_private_store_destroy(&allocator->private_store);
 
         if (allocator->current_command_list)
@@ -2504,6 +2514,8 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
     if (!refcount)
     {
         struct d3d12_device *device = allocator->device;
+
+        d3d_destruction_notifier_notify(&allocator->destruction_notifier);
         pending = d3d12_command_allocator_dec_ref(allocator);
 
         /* If this does not go to zero, it means that there are still command lists in flight. */
@@ -2844,6 +2856,8 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 
     allocator->current_command_list = NULL;
 
+    d3d_destruction_notifier_init(&allocator->destruction_notifier,
+            (IUnknown*)&allocator->ID3D12CommandAllocator_iface);
     d3d12_device_add_ref(allocator->device = device);
 
     return S_OK;
