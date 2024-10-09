@@ -3278,6 +3278,7 @@ struct d3d12_command_queue
 
     struct vkd3d_fence_worker fence_worker;
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
     struct dxgi_vk_swap_chain_factory vk_swap_chain_factory;
     unsigned int submission_thread_tid;
 };

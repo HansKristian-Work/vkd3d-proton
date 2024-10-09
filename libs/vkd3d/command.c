@@ -17164,6 +17164,8 @@ static inline struct d3d12_command_queue *impl_from_ID3D12CommandQueue(ID3D12Com
 HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -17182,7 +17184,6 @@ HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue 
 
     if (IsEqualGUID(riid, &IID_ID3D12CommandQueueExt))
     {
-        struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
         d3d12_command_queue_vkd3d_ext_AddRef(&command_queue->ID3D12CommandQueueExt_iface);
         *object = &command_queue->ID3D12CommandQueueExt_iface;
         return S_OK;
@@ -17190,9 +17191,15 @@ HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue 
 
     if (IsEqualGUID(riid, &IID_IDXGIVkSwapChainFactory))
     {
-        struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
         IDXGIVkSwapChainFactory_AddRef(&command_queue->vk_swap_chain_factory.IDXGIVkSwapChainFactory_iface);
         *object = &command_queue->vk_swap_chain_factory;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&command_queue->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &command_queue->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -17223,6 +17230,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
     {
         struct d3d12_device *device = command_queue->device;
 
+        d3d_destruction_notifier_free(&command_queue->destruction_notifier);
         vkd3d_private_store_destroy(&command_queue->private_store);
 
         d3d12_command_queue_submit_stop(command_queue);
@@ -19337,6 +19345,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         goto fail_pthread_create;
     }
 
+    d3d_destruction_notifier_init(&queue->destruction_notifier, (IUnknown*)&queue->ID3D12CommandQueue_iface);
     return S_OK;
 
 fail_pthread_create:
