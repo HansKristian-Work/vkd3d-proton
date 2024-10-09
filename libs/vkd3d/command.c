@@ -19476,6 +19476,8 @@ void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_QueryInterface(ID3D12CommandSignature *iface,
         REFIID iid, void **out)
 {
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
+
     TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
 
     if (!out)
@@ -19489,6 +19491,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_QueryInterface(ID3D12Co
     {
         ID3D12CommandSignature_AddRef(iface);
         *out = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&signature->destruction_notifier.ID3DDestructionNotifier_iface);
+        *out = &signature->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -19534,6 +19543,7 @@ static void d3d12_command_signature_cleanup(struct d3d12_command_signature *sign
         }
     }
 
+    d3d_destruction_notifier_free(&signature->destruction_notifier);
     vkd3d_private_store_destroy(&signature->private_store);
     vkd3d_free((void *)signature->desc.pArgumentDescs);
     vkd3d_free(signature);
@@ -20756,6 +20766,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
     }
 
     object->argument_buffer_offset_for_command = argument_buffer_offset;
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12CommandSignature_iface);
     d3d12_device_add_ref(object->device = device);
 
     TRACE("Created command signature %p.\n", object);
