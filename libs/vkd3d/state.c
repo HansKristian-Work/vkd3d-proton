@@ -2067,6 +2067,8 @@ struct vkd3d_compiled_pipeline
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_QueryInterface(ID3D12PipelineState *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (IsEqualGUID(riid, &IID_ID3D12PipelineState)
@@ -2077,6 +2079,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_QueryInterface(ID3D12Pipel
     {
         ID3D12PipelineState_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&state->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &state->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -2295,6 +2304,7 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 
     if (!refcount)
     {
+        d3d_destruction_notifier_free(&state->destruction_notifier);
         vkd3d_private_store_destroy(&state->private_store);
 
         d3d12_pipeline_state_free_spirv_code(state);
@@ -2326,6 +2336,8 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
 
     if (!refcount)
     {
+        d3d_destruction_notifier_notify(&state->destruction_notifier);
+
         d3d12_pipeline_state_dec_ref(state);
         /* When public ref-count hits zero, we have to release the device too. */
         d3d12_device_release(device);
@@ -3005,6 +3017,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         return hr;
     }
 
+    d3d_destruction_notifier_init(&state->destruction_notifier, (IUnknown*)&state->ID3D12PipelineState_iface);
     d3d12_device_add_ref(state->device = device);
 
     return S_OK;
@@ -5228,6 +5241,8 @@ static HRESULT d3d12_pipeline_state_finish_graphics(struct d3d12_pipeline_state 
     list_init(&graphics->compiled_fallback_pipelines);
     if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
         return hr;
+
+    d3d_destruction_notifier_init(&state->destruction_notifier, (IUnknown*)&state->ID3D12PipelineState_iface);
     d3d12_device_add_ref(state->device);
     return S_OK;
 }

@@ -2144,6 +2144,7 @@ struct d3d12_pipeline_state
     bool pso_is_fully_dynamic;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_state *state)
