@@ -26,6 +26,8 @@
 static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *iface,
         REFIID iid, void **object)
 {
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
+
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
     if (!object)
@@ -40,6 +42,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *ifa
     {
         ID3D12Heap1_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&heap->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &heap->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -68,6 +77,8 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 {
     TRACE("Destroying heap %p.\n", heap);
 
+    d3d_destruction_notifier_free(&heap->destruction_notifier);
+
     vkd3d_free_memory(heap->device, &heap->device->memory_allocator, &heap->allocation);
     vkd3d_private_store_destroy(&heap->private_store);
     vkd3d_free(heap);
@@ -90,6 +101,8 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
     if (!refcount)
     {
         struct d3d12_device *device = heap->device;
+
+        d3d_destruction_notifier_notify(&heap->destruction_notifier);
 
         d3d12_heap_decref(heap);
         d3d12_device_release(device);
@@ -351,6 +364,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
             VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_HEAP_ALLOCATION, desc->SizeInBytes);
 
+    d3d_destruction_notifier_init(&heap->destruction_notifier, (IUnknown*)&heap->ID3D12Heap_iface);
     d3d12_device_add_ref(heap->device);
     return S_OK;
 }
