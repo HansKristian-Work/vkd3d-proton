@@ -2322,6 +2322,7 @@ struct d3d12_pipeline_library
     uint32_t stream_archive_cancellation_point;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 enum vkd3d_pipeline_library_flags
