@@ -916,6 +916,7 @@ struct d3d12_heap
 
     struct d3d12_device *device;
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
