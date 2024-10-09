@@ -105,6 +105,8 @@ struct d3d12_wg_state_object_program
     struct vkd3d_workgraph_meta_pipeline_info workgroup_distributor;
     struct vkd3d_workgraph_meta_pipeline_info gpu_input_setup;
 
+    bool compact_broadcast_nodes_with_max_grid;
+
     VkDeviceSize counters_scratch_offset;
     VkDeviceSize counters_scratch_size;
     VkDeviceSize indirect_commands_scratch_offset;
@@ -1615,6 +1617,10 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     VkComputePipelineCreateInfo pipeline_info;
     VkSpecializationInfo spec_info;
     uint32_t spec_constant_index;
+    uint32_t component_count = 0;
+    uint32_t component_bits = 0;
+    bool group_tracking;
+    bool group_compact;
     unsigned int i, j;
     VkResult vr;
 
@@ -1647,10 +1653,21 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     program->pipelines[entry_point_index].name = vkd3d_dup_entry_point(entry->node_input->node_id);
     program->pipelines[entry_point_index].array_index = entry->node_input->node_array_index;
 
+    if (entry->node_input->node_track_rw_input_sharing ||
+            (entry->node_input->dispatch_grid_is_upper_bound && program->compact_broadcast_nodes_with_max_grid))
+    {
+        component_bits = entry->node_input->dispatch_grid_type_bits;
+    }
+
+    if (entry->node_input->dispatch_grid_is_upper_bound)
+        component_count = entry->node_input->dispatch_grid_components;
+
+    group_tracking = entry->node_input->node_track_rw_input_sharing;
+    group_compact = entry->node_input->dispatch_grid_is_upper_bound &&
+            program->compact_broadcast_nodes_with_max_grid;
+
     vkd3d_meta_get_workgraph_payload_offset_pipeline(&object->device->meta_ops,
-            entry->node_input->node_track_rw_input_sharing ?
-                    entry->node_input->dispatch_grid_type_bits / 8 : 0,
-            entry->node_input->dispatch_grid_is_upper_bound ? entry->node_input->dispatch_grid_components : 1,
+            component_bits, component_count, group_tracking, group_compact,
             &program->pipelines[entry_point_index].payload_offset_expander);
 
     /* Set up spec constants for node outputs, etc. This will
@@ -1870,7 +1887,7 @@ static HRESULT d3d12_wg_state_object_compile_program(
     }
 
     vkd3d_meta_get_workgraph_workgroup_pipeline(&object->device->meta_ops,
-            &program->workgroup_distributor);
+            &program->workgroup_distributor, program->compact_broadcast_nodes_with_max_grid);
     vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(&object->device->meta_ops,
             &program->gpu_input_setup);
 

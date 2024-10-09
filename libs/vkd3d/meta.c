@@ -2082,52 +2082,28 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
         map_entries[i].constantID = i;
     }
 
-    spec_info.mapEntryCount = 2;
+    spec_info.mapEntryCount = ARRAY_SIZE(map_entries);
     spec_info.pMapEntries = map_entries;
     spec_info.pData = spec_data;
-    spec_info.dataSize = 2 * sizeof(uint32_t);
+    spec_info.dataSize = ARRAY_SIZE(map_entries) * sizeof(uint32_t);
     spec_data[0] = device->device_info.vulkan_1_1_properties.subgroupSize;
     spec_data[1] = device->device_info.vulkan_1_1_properties.subgroupSize;
+    spec_data[2] = 0;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_workgroups),
             cs_workgraph_distribute_workgroups, workgraph_ops->vk_workgroup_layout,
-            &spec_info, true, &workgraph_ops->vk_payload_workgroup_pipeline)))
+            &spec_info, true, &workgraph_ops->vk_payload_workgroup_pipeline[0])))
+        return hresult_from_vk_result(vr);
+
+    spec_data[2] = 1;
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_workgroups),
+            cs_workgraph_distribute_workgroups, workgraph_ops->vk_workgroup_layout,
+            &spec_info, true, &workgraph_ops->vk_payload_workgroup_pipeline[1])))
         return hresult_from_vk_result(vr);
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_setup_gpu_input),
             cs_workgraph_setup_gpu_input, workgraph_ops->vk_setup_gpu_input_layout,
-            &spec_info, true, &workgraph_ops->vk_setup_gpu_input_pipeline)))
-        return hresult_from_vk_result(vr);
-
-    spec_info.mapEntryCount = 3;
-    spec_info.pMapEntries = map_entries;
-    spec_info.pData = spec_data;
-    spec_info.dataSize = 3 * sizeof(uint32_t);
-
-    spec_data[0] = device->device_info.vulkan_1_1_properties.subgroupSize;
-
-    for (i = 0; i < ARRAY_SIZE(workgraph_ops->vk_payload_offset_u32_pipelines); i++)
-    {
-        spec_data[1] = i + 1;
-
-        spec_data[2] = 0;
-        if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_payload_offsets),
-                cs_workgraph_distribute_payload_offsets, workgraph_ops->vk_payload_offset_layout,
-                &spec_info, true, &workgraph_ops->vk_payload_offset_u16_pipelines[i])))
-            return hresult_from_vk_result(vr);
-
-        spec_data[2] = 1;
-        if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_payload_offsets),
-                cs_workgraph_distribute_payload_offsets, workgraph_ops->vk_payload_offset_layout,
-                &spec_info, true, &workgraph_ops->vk_payload_offset_u32_pipelines[i])))
-            return hresult_from_vk_result(vr);
-    }
-
-    spec_data[1] = 0;
-    spec_data[2] = 0;
-    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_payload_offsets),
-            cs_workgraph_distribute_payload_offsets, workgraph_ops->vk_payload_offset_layout,
-            &spec_info, true, &workgraph_ops->vk_payload_offset_plain)))
+            NULL, true, &workgraph_ops->vk_setup_gpu_input_pipeline)))
         return hresult_from_vk_result(vr);
 
     return S_OK;
@@ -2181,20 +2157,20 @@ static void vkd3d_workgraph_ops_cleanup(struct vkd3d_workgraph_indirect_ops *wor
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, workgraph_ops->vk_workgroup_layout, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, workgraph_ops->vk_setup_gpu_input_layout, NULL));
 
-    for (i = 0; i < ARRAY_SIZE(workgraph_ops->vk_payload_offset_u32_pipelines); i++)
-        VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_u32_pipelines[i], NULL));
-    for (i = 0; i < ARRAY_SIZE(workgraph_ops->vk_payload_offset_u16_pipelines); i++)
-        VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_u16_pipelines[i], NULL));
-    VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_plain, NULL));
-    VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_workgroup_pipeline, NULL));
+    for (i = 0; i < ARRAY_SIZE(workgraph_ops->vk_payload_workgroup_pipeline); i++)
+        VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_workgroup_pipeline[i], NULL));
     VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_setup_gpu_input_pipeline, NULL));
+
+    for (i = 0; i < workgraph_ops->payload_pipelines_count; i++)
+        VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->payload_pipelines[i].vk_pipeline, NULL));
+    vkd3d_free(workgraph_ops->payload_pipelines);
 }
 
 void vkd3d_meta_get_workgraph_workgroup_pipeline(struct vkd3d_meta_ops *meta_ops,
-        struct vkd3d_workgraph_meta_pipeline_info *info)
+        struct vkd3d_workgraph_meta_pipeline_info *info, bool broadcast_compacting)
 {
     info->vk_pipeline_layout = meta_ops->workgraph.vk_workgroup_layout;
-    info->vk_pipeline = meta_ops->workgraph.vk_payload_workgroup_pipeline;
+    info->vk_pipeline = meta_ops->workgraph.vk_payload_workgroup_pipeline[broadcast_compacting];
 }
 
 void vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(struct vkd3d_meta_ops *meta_ops,
@@ -2205,16 +2181,79 @@ void vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(struct vkd3d_meta_ops *me
 }
 
 void vkd3d_meta_get_workgraph_payload_offset_pipeline(struct vkd3d_meta_ops *meta_ops,
-        uint32_t component_size, uint32_t component_count,
+        uint32_t component_bits, uint32_t component_count, bool group_tracking, bool group_compact,
         struct vkd3d_workgraph_meta_pipeline_info *info)
 {
+    struct vkd3d_workgraph_indirect_pipeline *pipeline;
+    VkSpecializationMapEntry map_entries[5];
+    VkSpecializationInfo spec_info;
+    uint32_t spec_data[5];
+    unsigned int i;
+    VkResult vr;
+
     info->vk_pipeline_layout = meta_ops->workgraph.vk_payload_offset_layout;
-    if (component_size == sizeof(uint32_t))
-        info->vk_pipeline = meta_ops->workgraph.vk_payload_offset_u32_pipelines[component_count - 1];
-    else if (component_size == sizeof(uint16_t))
-        info->vk_pipeline = meta_ops->workgraph.vk_payload_offset_u16_pipelines[component_count - 1];
-    else
-        info->vk_pipeline = meta_ops->workgraph.vk_payload_offset_plain;
+    info->vk_pipeline = VK_NULL_HANDLE;
+
+    pthread_mutex_lock(&meta_ops->workgraph.lock);
+
+    for (i = 0; i < meta_ops->workgraph.payload_pipelines_count; i++)
+    {
+        pipeline = &meta_ops->workgraph.payload_pipelines[i];
+        if (pipeline->component_count == component_count &&
+                pipeline->component_bits == component_bits &&
+                pipeline->group_tracking == group_tracking &&
+                pipeline->group_compact == group_compact)
+        {
+            info->vk_pipeline = pipeline->vk_pipeline;
+            break;
+        }
+    }
+
+    if (i == meta_ops->workgraph.payload_pipelines_count)
+    {
+        vkd3d_array_reserve((void **)&meta_ops->workgraph.payload_pipelines,
+                &meta_ops->workgraph.payload_pipelines_size,
+                meta_ops->workgraph.payload_pipelines_count + 1,
+                sizeof(*meta_ops->workgraph.payload_pipelines));
+
+        pipeline = &meta_ops->workgraph.payload_pipelines[meta_ops->workgraph.payload_pipelines_count];
+
+        for (i = 0; i < ARRAY_SIZE(map_entries); i++)
+        {
+            map_entries[i].offset = sizeof(uint32_t) * i;
+            map_entries[i].size = sizeof(uint32_t);
+            map_entries[i].constantID = i;
+        }
+
+        spec_info.mapEntryCount = ARRAY_SIZE(map_entries);
+        spec_info.pMapEntries = map_entries;
+        spec_info.pData = spec_data;
+        spec_info.dataSize = ARRAY_SIZE(map_entries) * sizeof(uint32_t);
+        spec_data[0] = meta_ops->device->device_info.vulkan_1_1_properties.subgroupSize;
+        spec_data[1] = component_count;
+        spec_data[2] = component_bits == 32 ? 1 : 0;
+        spec_data[3] = group_tracking ? 1 : 0;
+        spec_data[4] = group_compact ? 1 : 0;
+
+        if ((vr = vkd3d_meta_create_compute_pipeline(meta_ops->device, sizeof(cs_workgraph_distribute_payload_offsets),
+                cs_workgraph_distribute_payload_offsets, meta_ops->workgraph.vk_payload_offset_layout,
+                &spec_info, true, &pipeline->vk_pipeline)))
+        {
+            ERR("Failed to compile meta pipeline, vr %d.\n", vr);
+            goto out;
+        }
+
+        info->vk_pipeline = pipeline->vk_pipeline;
+        pipeline->component_count = component_count;
+        pipeline->component_bits = component_bits;
+        pipeline->group_tracking = group_tracking;
+        pipeline->group_compact = group_compact;
+
+        meta_ops->workgraph.payload_pipelines_count++;
+    }
+
+out:
+    pthread_mutex_unlock(&meta_ops->workgraph.lock);
 }
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)

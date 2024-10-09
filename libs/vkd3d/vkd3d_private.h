@@ -4464,16 +4464,28 @@ struct vkd3d_workgraph_setup_gpu_input_args
     uint32_t num_entry_points;
 };
 
+struct vkd3d_workgraph_indirect_pipeline
+{
+    uint32_t component_count;
+    uint32_t component_bits;
+    bool group_tracking;
+    bool group_compact;
+    VkPipeline vk_pipeline;
+};
+
 struct vkd3d_workgraph_indirect_ops
 {
     VkPipelineLayout vk_setup_gpu_input_layout;
     VkPipelineLayout vk_workgroup_layout;
     VkPipelineLayout vk_payload_offset_layout;
-    VkPipeline vk_payload_offset_u32_pipelines[3];
-    VkPipeline vk_payload_offset_u16_pipelines[3];
-    VkPipeline vk_payload_offset_plain;
-    VkPipeline vk_payload_workgroup_pipeline;
+    VkPipeline vk_payload_workgroup_pipeline[2];
     VkPipeline vk_setup_gpu_input_pipeline;
+
+    struct vkd3d_workgraph_indirect_pipeline *payload_pipelines;
+    size_t payload_pipelines_size;
+    size_t payload_pipelines_count;
+
+    pthread_mutex_t lock;
 };
 
 struct vkd3d_meta_ops
@@ -4554,11 +4566,12 @@ struct vkd3d_workgraph_meta_pipeline_info
 };
 
 void vkd3d_meta_get_workgraph_workgroup_pipeline(struct vkd3d_meta_ops *meta_ops,
-        struct vkd3d_workgraph_meta_pipeline_info *info);
+        struct vkd3d_workgraph_meta_pipeline_info *info, bool broadcast_compacting);
 void vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(struct vkd3d_meta_ops *meta_ops,
         struct vkd3d_workgraph_meta_pipeline_info *info);
 void vkd3d_meta_get_workgraph_payload_offset_pipeline(struct vkd3d_meta_ops *meta_ops,
-        uint32_t component_size, uint32_t component_count,
+        uint32_t component_bits, uint32_t component_count,
+        bool group_tracking, bool group_compact,
         struct vkd3d_workgraph_meta_pipeline_info *info);
 
 static inline uint32_t vkd3d_meta_get_workgraph_setup_gpu_input_workgroup_size(void)
