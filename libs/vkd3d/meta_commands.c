@@ -239,6 +239,7 @@ bool vkd3d_enumerate_meta_command_parameters(struct d3d12_device *device, REFGUI
 
 static void d3d12_meta_command_destroy(struct d3d12_meta_command *meta_command)
 {
+    d3d_destruction_notifier_free(&meta_command->destruction_notifier);
     vkd3d_private_store_destroy(&meta_command->private_store);
 
     vkd3d_free(meta_command);
@@ -247,6 +248,8 @@ static void d3d12_meta_command_destroy(struct d3d12_meta_command *meta_command)
 static HRESULT STDMETHODCALLTYPE d3d12_meta_command_QueryInterface(d3d12_meta_command_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_meta_command *meta_command = impl_from_ID3D12MetaCommand(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -260,6 +263,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_meta_command_QueryInterface(d3d12_meta_co
     {
         ID3D12MetaCommand_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&meta_command->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &meta_command->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -563,6 +573,8 @@ HRESULT d3d12_meta_command_create(struct d3d12_device *device, REFGUID guid,
         vkd3d_free(object);
         return hr;
     }
+
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12MetaCommand_iface);
 
     d3d12_device_add_ref(device);
 
