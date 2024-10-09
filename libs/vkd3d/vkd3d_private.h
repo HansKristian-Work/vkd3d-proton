@@ -5427,6 +5427,7 @@ struct d3d12_meta_command
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 struct d3d12_meta_command *impl_from_ID3D12MetaCommand(ID3D12MetaCommand *iface);
