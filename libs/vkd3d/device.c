@@ -510,7 +510,6 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX,
-    VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -610,8 +609,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION | VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC, 0 },
     /* World of Warcraft retail. Broken MSAA code where it renders to multi-sampled target with single sampled PSO. */
     { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA, 0 },
-    /* Pioneers of Pagonia (2155180). Does not expose MSAA without sample position tier 2. */
-    { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", 0, 0, VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS },
     /* The Last of Us Part I (1888930). Submits hundreds of command buffers per frame. */
     { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     /* Skull and Bones (2853730). Seems to require unsupported dcomp when reflex is enabled for some reason *shrug */
@@ -8485,11 +8482,6 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
                 INFO("Limiting reported DXR tier to 1.0.\n");
                 device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_1_0;
             }
-            break;
-
-        case VKD3D_APPLICATION_FEATURE_PROGRAMMABLE_SAMPLE_POSITIONS:
-            /* For games that don't use SetSamplePositions, but do use ResolveSubresourceRegion */
-            device->d3d12_caps.options2.ProgrammableSamplePositionsTier = D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_2;
             break;
 
         case VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX:
