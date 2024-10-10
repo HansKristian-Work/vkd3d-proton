@@ -855,6 +855,7 @@ static void d3d12_fence_dec_ref(struct d3d12_fence *fence)
 
     if (!refcount_internal)
     {
+        d3d_destruction_notifier_free(&fence->destruction_notifier);
         vkd3d_private_store_destroy(&fence->private_store);
         d3d12_fence_destroy_vk_objects(fence);
 
@@ -1129,6 +1130,8 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_
 static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(d3d12_fence_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -1143,6 +1146,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(d3d12_fence_iface *i
     {
         ID3D12Fence1_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&fence->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &fence->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -1182,6 +1192,8 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(d3d12_fence_iface *iface)
          * and mark "TDR" if that ever happens in real world usage. */
         if (!(fence->d3d12_flags & D3D12_FENCE_FLAG_SHARED))
             d3d12_fence_signal_cpu_timeline_semaphore(fence, UINT64_MAX);
+
+        d3d_destruction_notifier_notify(&fence->destruction_notifier);
 
         d3d12_fence_dec_ref(fence);
         d3d12_device_release(device);
@@ -1441,6 +1453,7 @@ static HRESULT d3d12_fence_init(struct d3d12_fence *fence, struct d3d12_device *
         return hr;
     }
 
+    d3d_destruction_notifier_init(&fence->destruction_notifier, (IUnknown*)&fence->ID3D12Fence_iface);
     d3d12_device_add_ref(fence->device = device);
 
     return S_OK;
@@ -1467,6 +1480,8 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
 static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_QueryInterface(d3d12_fence_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -1481,6 +1496,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_QueryInterface(d3d12_fence_i
     {
         ID3D12Fence1_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&fence->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &fence->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -1539,6 +1561,7 @@ static void d3d12_shared_fence_dec_ref(struct d3d12_shared_fence *fence)
         vk_procs = &fence->device->vk_procs;
         VK_CALL(vkDestroySemaphore(fence->device->vk_device, fence->timeline_semaphore, NULL));
 
+        d3d_destruction_notifier_free(&fence->destruction_notifier);
         vkd3d_private_store_destroy(&fence->private_store);
 
         vkd3d_free(fence);
@@ -1555,6 +1578,8 @@ static ULONG STDMETHODCALLTYPE d3d12_shared_fence_Release(d3d12_fence_iface *ifa
     if (!refcount)
     {
         struct d3d12_device *device = fence->device;
+
+        d3d_destruction_notifier_notify(&fence->destruction_notifier);
 
         d3d12_shared_fence_dec_ref(fence);
         d3d12_device_release(device);
@@ -1872,6 +1897,7 @@ HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
         return hr;
     }
 
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12Fence_iface);
     d3d12_device_add_ref(object->device = device);
 
     pthread_mutex_init(&object->mutex, NULL);
@@ -2343,6 +2369,8 @@ static inline struct d3d12_command_allocator *impl_from_ID3D12CommandAllocator(I
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_QueryInterface(ID3D12CommandAllocator *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -2356,6 +2384,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_QueryInterface(ID3D12Co
     {
         ID3D12CommandAllocator_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&allocator->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &allocator->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -2398,6 +2433,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
         struct d3d12_device *device = allocator->device;
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+        d3d_destruction_notifier_free(&allocator->destruction_notifier);
         vkd3d_private_store_destroy(&allocator->private_store);
 
         if (allocator->current_command_list)
@@ -2478,6 +2514,8 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
     if (!refcount)
     {
         struct d3d12_device *device = allocator->device;
+
+        d3d_destruction_notifier_notify(&allocator->destruction_notifier);
         pending = d3d12_command_allocator_dec_ref(allocator);
 
         /* If this does not go to zero, it means that there are still command lists in flight. */
@@ -2818,6 +2856,8 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 
     allocator->current_command_list = NULL;
 
+    d3d_destruction_notifier_init(&allocator->destruction_notifier,
+            (IUnknown*)&allocator->ID3D12CommandAllocator_iface);
     d3d12_device_add_ref(allocator->device = device);
 
     return S_OK;
@@ -5112,6 +5152,8 @@ extern ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(d3d12_command
 HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
         REFIID iid, void **object)
 {
+    struct d3d12_command_list *command_list = impl_from_ID3D12GraphicsCommandList(iface);
+
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
     if (!object)
@@ -5140,9 +5182,15 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1))
     {
-        struct d3d12_command_list *command_list = impl_from_ID3D12GraphicsCommandList(iface);
         d3d12_command_list_vkd3d_ext_AddRef(&command_list->ID3D12GraphicsCommandListExt_iface);
         *object = &command_list->ID3D12GraphicsCommandListExt_iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&command_list->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &command_list->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -5173,6 +5221,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
     {
         struct d3d12_device *device = list->device;
 
+        d3d_destruction_notifier_free(&list->destruction_notifier);
         vkd3d_private_store_destroy(&list->private_store);
 
         /* When command pool is destroyed, all command buffers are implicitly freed. */
@@ -17049,6 +17098,7 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     if (FAILED(hr = vkd3d_private_store_init(&list->private_store)))
         return hr;
 
+    d3d_destruction_notifier_init(&list->destruction_notifier, (IUnknown*)&list->ID3D12GraphicsCommandList_iface);
     d3d12_device_add_ref(list->device = device);
     return hr;
 }
@@ -17114,6 +17164,8 @@ static inline struct d3d12_command_queue *impl_from_ID3D12CommandQueue(ID3D12Com
 HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -17132,7 +17184,6 @@ HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue 
 
     if (IsEqualGUID(riid, &IID_ID3D12CommandQueueExt))
     {
-        struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
         d3d12_command_queue_vkd3d_ext_AddRef(&command_queue->ID3D12CommandQueueExt_iface);
         *object = &command_queue->ID3D12CommandQueueExt_iface;
         return S_OK;
@@ -17140,9 +17191,15 @@ HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue 
 
     if (IsEqualGUID(riid, &IID_IDXGIVkSwapChainFactory))
     {
-        struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
         IDXGIVkSwapChainFactory_AddRef(&command_queue->vk_swap_chain_factory.IDXGIVkSwapChainFactory_iface);
         *object = &command_queue->vk_swap_chain_factory;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&command_queue->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &command_queue->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -17173,6 +17230,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
     {
         struct d3d12_device *device = command_queue->device;
 
+        d3d_destruction_notifier_free(&command_queue->destruction_notifier);
         vkd3d_private_store_destroy(&command_queue->private_store);
 
         d3d12_command_queue_submit_stop(command_queue);
@@ -19287,6 +19345,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         goto fail_pthread_create;
     }
 
+    d3d_destruction_notifier_init(&queue->destruction_notifier, (IUnknown*)&queue->ID3D12CommandQueue_iface);
     return S_OK;
 
 fail_pthread_create:
@@ -19417,6 +19476,8 @@ void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_QueryInterface(ID3D12CommandSignature *iface,
         REFIID iid, void **out)
 {
+    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
+
     TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
 
     if (!out)
@@ -19430,6 +19491,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_QueryInterface(ID3D12Co
     {
         ID3D12CommandSignature_AddRef(iface);
         *out = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&signature->destruction_notifier.ID3DDestructionNotifier_iface);
+        *out = &signature->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -19475,6 +19543,7 @@ static void d3d12_command_signature_cleanup(struct d3d12_command_signature *sign
         }
     }
 
+    d3d_destruction_notifier_free(&signature->destruction_notifier);
     vkd3d_private_store_destroy(&signature->private_store);
     vkd3d_free((void *)signature->desc.pArgumentDescs);
     vkd3d_free(signature);
@@ -20697,6 +20766,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
     }
 
     object->argument_buffer_offset_for_command = argument_buffer_offset;
+    d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12CommandSignature_iface);
     d3d12_device_add_ref(object->device = device);
 
     TRACE("Created command signature %p.\n", object);

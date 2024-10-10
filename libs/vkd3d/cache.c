@@ -1450,6 +1450,7 @@ static void d3d12_pipeline_library_cleanup(struct d3d12_pipeline_library *pipeli
     d3d12_pipeline_library_cleanup_map(&pipeline_library->driver_cache_map);
     d3d12_pipeline_library_cleanup_map(&pipeline_library->spirv_cache_map);
 
+    d3d_destruction_notifier_free(&pipeline_library->destruction_notifier);
     vkd3d_private_store_destroy(&pipeline_library->private_store);
     rwlock_destroy(&pipeline_library->mutex);
     rwlock_destroy(&pipeline_library->internal_hashmap_mutex);
@@ -1458,6 +1459,8 @@ static void d3d12_pipeline_library_cleanup(struct d3d12_pipeline_library *pipeli
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pipeline_library_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -1471,6 +1474,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pip
     {
         ID3D12PipelineLibrary1_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&pipeline_library->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &pipeline_library->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -1511,6 +1521,8 @@ ULONG d3d12_pipeline_library_dec_public_ref(struct d3d12_pipeline_library *pipel
     TRACE("%p decreasing refcount to %u.\n", pipeline_library, refcount);
     if (!refcount)
     {
+        d3d_destruction_notifier_notify(&pipeline_library->destruction_notifier);
+
         d3d12_pipeline_library_dec_ref(pipeline_library);
         d3d12_device_release(device);
     }
@@ -2518,6 +2530,7 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
     if (FAILED(hr = vkd3d_private_store_init(&pipeline_library->private_store)))
         goto cleanup_mutex;
 
+    d3d_destruction_notifier_init(&pipeline_library->destruction_notifier, (IUnknown*)&pipeline_library->ID3D12PipelineLibrary_iface);
     d3d12_device_add_ref(pipeline_library->device = device);
     return hr;
 

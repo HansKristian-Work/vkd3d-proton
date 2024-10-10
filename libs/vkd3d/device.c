@@ -3525,6 +3525,8 @@ extern ULONG STDMETHODCALLTYPE d3d12_low_latency_device_AddRef(ID3DLowLatencyDev
 HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -3554,7 +3556,6 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
     if (IsEqualGUID(riid, &IID_ID3D12DeviceExt)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt1))
     {
-        struct d3d12_device *device = impl_from_ID3D12Device(iface);
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
         return S_OK;
@@ -3563,7 +3564,6 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
     if (IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice)
             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice1))
     {
-        struct d3d12_device *device = impl_from_ID3D12Device(iface);
         d3d12_dxvk_interop_device_AddRef(&device->ID3D12DXVKInteropDevice_iface);
         *object = &device->ID3D12DXVKInteropDevice_iface;
         return S_OK;
@@ -3571,9 +3571,15 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
 
     if (IsEqualGUID(riid, &IID_ID3DLowLatencyDevice))
     {
-        struct d3d12_device *device = impl_from_ID3D12Device(iface);
         d3d12_low_latency_device_AddRef(&device->ID3DLowLatencyDevice_iface);
         *object = &device->ID3DLowLatencyDevice_iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&device->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &device->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -3660,6 +3666,8 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     size_t i, j;
+
+    d3d_destruction_notifier_free(&device->destruction_notifier);
 
     for (i = 0; i < VKD3D_SCRATCH_POOL_KIND_COUNT; i++)
         for (j = 0; j < device->scratch_pools[i].scratch_buffer_count; j++)
@@ -9023,6 +9031,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         vkd3d_renderdoc_begin_capture(device->vkd3d_instance->vk_instance);
 #endif
 
+    d3d_destruction_notifier_init(&device->destruction_notifier, (IUnknown*)&device->ID3D12Device_iface);
     return S_OK;
 
 out_cleanup_descriptor_qa_global_info:

@@ -343,19 +343,6 @@ VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 
-struct vkd3d_gpu_va_allocation
-{
-    D3D12_GPU_VIRTUAL_ADDRESS base;
-    size_t size;
-    void *ptr;
-};
-
-struct vkd3d_gpu_va_slab
-{
-    size_t size;
-    void *ptr;
-};
-
 struct vkd3d_private_store
 {
     pthread_mutex_t mutex;
@@ -528,6 +515,33 @@ static inline HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_stor
 
 HRESULT STDMETHODCALLTYPE d3d12_object_SetName(ID3D12Object *iface, const WCHAR *name);
 
+struct d3d_destruction_callback_entry
+{
+    PFN_DESTRUCTION_CALLBACK callback;
+    void *userdata;
+    UINT callback_id;
+};
+
+struct d3d_destruction_notifier
+{
+    ID3DDestructionNotifier ID3DDestructionNotifier_iface;
+
+    IUnknown *parent;
+
+    pthread_mutex_t mutex;
+
+    struct d3d_destruction_callback_entry *callbacks;
+    size_t callback_size;
+    size_t callback_count;
+
+    UINT next_callback_id;
+};
+
+void d3d_destruction_notifier_init(struct d3d_destruction_notifier *notifier, IUnknown *parent);
+void d3d_destruction_notifier_free(struct d3d_destruction_notifier *notifier);
+void d3d_destruction_notifier_notify
+(struct d3d_destruction_notifier *notifier);
+
 /* ID3D12Fence */
 struct d3d12_fence_value
 {
@@ -586,6 +600,7 @@ struct d3d12_fence
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 static inline struct d3d12_fence *impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
@@ -635,6 +650,7 @@ struct d3d12_shared_fence
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 static inline struct d3d12_shared_fence *shared_impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
@@ -901,6 +917,7 @@ struct d3d12_heap
 
     struct d3d12_device *device;
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
@@ -1041,6 +1058,7 @@ struct d3d12_resource
     VkImageView vrs_view;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 static inline bool d3d12_resource_is_buffer(const struct d3d12_resource *resource)
@@ -1469,6 +1487,7 @@ struct d3d12_descriptor_heap
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 
     /* Here we pack metadata data structures for CBV_SRV_UAV and SAMPLER.
      * For RTV/DSV heaps, we just encode rtv_desc structs inline. */
@@ -1645,6 +1664,7 @@ struct d3d12_query_heap
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
@@ -1800,6 +1820,7 @@ struct d3d12_root_signature
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *bytecode,
@@ -2124,6 +2145,7 @@ struct d3d12_pipeline_state
     bool pso_is_fully_dynamic;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_state *state)
@@ -2301,6 +2323,7 @@ struct d3d12_pipeline_library
     uint32_t stream_archive_cancellation_point;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 enum vkd3d_pipeline_library_flags
@@ -2458,6 +2481,7 @@ struct d3d12_command_allocator
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int *breadcrumb_context_indices;
@@ -2960,6 +2984,7 @@ struct d3d12_command_list
     struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int breadcrumb_context_index;
@@ -3010,6 +3035,7 @@ struct d3d12_bundle_allocator
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_bundle_allocator_create(struct d3d12_device *device,
@@ -3036,6 +3062,7 @@ struct d3d12_bundle
     struct d3d12_bundle_command *tail;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_bundle_create(struct d3d12_device *device,
@@ -3252,6 +3279,7 @@ struct d3d12_command_queue
 
     struct vkd3d_fence_worker fence_worker;
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
     struct dxgi_vk_swap_chain_factory vk_swap_chain_factory;
     unsigned int submission_thread_tid;
 };
@@ -3337,6 +3365,7 @@ struct d3d12_command_signature
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12_root_signature *root_signature,
@@ -4875,6 +4904,7 @@ struct d3d12_device
     LUID adapter_luid;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
     struct d3d12_caps d3d12_caps;
 
     struct vkd3d_memory_transfer_queue memory_transfers;
@@ -5344,6 +5374,7 @@ struct d3d12_state_object
 #endif
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
@@ -5413,6 +5444,7 @@ struct d3d12_meta_command
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+    struct d3d_destruction_notifier destruction_notifier;
 };
 
 struct d3d12_meta_command *impl_from_ID3D12MetaCommand(ID3D12MetaCommand *iface);
