@@ -1888,6 +1888,9 @@ static HRESULT d3d12_wg_state_object_compile_program(
             {
                 uint32_t max_amplification = node_input->broadcast_grid[0] * node_input->broadcast_grid[1] * node_input->broadcast_grid[2];
                 max_amplification = min(max_amplification, MAX_AMPLIFICATION_RATE);
+                /* Mark high bit to make sure we're not compacting. */
+                if (!node_input->dispatch_grid_is_upper_bound)
+                    max_amplification |= 1u << 30;
                 program->coalesce_dividers_or_amp[i] = -(int)max_amplification;
                 break;
             }

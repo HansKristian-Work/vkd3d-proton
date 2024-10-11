@@ -72,7 +72,7 @@ void main()
 	for (uint i = gl_WorkGroupID.x; i < total_fused_groups; i += gl_NumWorkGroups.x)
 	{
 		uint node_offset = registers.node_index * registers.packed_offset_counts_stride;
-		uint packed_offset_index = i * gl_SubgroupSize + gl_SubgroupInvocationID;
+		uint packed_offset_index = i * gl_WorkGroupSize.x + gl_SubgroupID * gl_SubgroupSize + gl_SubgroupInvocationID;
 
 		uint payload_offset = 0;
 		uint count = 0;
@@ -200,13 +200,13 @@ void main()
 							{
 								uint u32_grid_offset = (unrolled_offset + registers.grid_offset_or_count) >> 2u;
 								for (int i = 0; i < GROUP_COMPONENTS; i++)
-								grid_count *= registers.payload.data[u32_grid_offset + i];
+									grid_count *= registers.payload.data[u32_grid_offset + i];
 							}
 							else
 							{
 								uint u16_grid_offset = (unrolled_offset + registers.grid_offset_or_count) >> 1u;
 								for (int i = 0; i < GROUP_COMPONENTS; i++)
-								grid_count *= uint(Payload16(registers.payload).data[u16_grid_offset + i]);
+									grid_count *= uint(Payload16(registers.payload).data[u16_grid_offset + i]);
 							}
 						}
 						else

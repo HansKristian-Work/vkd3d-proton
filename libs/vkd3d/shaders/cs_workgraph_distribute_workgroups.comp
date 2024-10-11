@@ -100,6 +100,10 @@ void main()
 
 			uint coalesce_mult = coalesce_divider > 0 ? uint(coalesce_divider) : 1u;
 			uint amplification = coalesce_divider < 0 ? uint(-coalesce_divider) : 1;
+
+			bool dynamic_amplification = amplification <= 0xffffu;
+			amplification &= 0xffffu;
+
 			// Try to balance work we spawn on the GPU.
 			amplification = max(1u, amplification >> findMSB(max(total_wgs >> AMPLIFICATION_EXTRA_SHIFT, 1u)));
 
@@ -110,9 +114,8 @@ void main()
 			// If we only do secondary executions we can compact empty broadcasts easily.
 			// This is relevant for AMD Compute Rasterizer demo for whatever reason. *shrug*
 			uint secondary_executions = COMPACT_BROADCAST_NODES &&
-					coalesce_divider < 0 &&
-					cmd.primary_execute.y == 0 ?
-					0u : total_wgs % WG_DIVIDER;
+				dynamic_amplification && coalesce_divider < 0 &&
+				cmd.primary_execute.y == 0 ? 0u : total_wgs % WG_DIVIDER;
 
 			cmd.secondary_execute = uvec3(secondary_executions, 1, amplification);
 			cmd.secondary_linear_offset = node_linear_offset + cmd.primary_execute.y * WG_DIVIDER * coalesce_mult;
@@ -152,6 +155,8 @@ void main()
 				int coalesce_divider = registers.dividers.data[i];
 				uint coalesce_mult = coalesce_divider != 0 ? coalesce_divider : 1u;
 				uint amplification = coalesce_divider < 0 ? uint(-coalesce_divider) : 1;
+
+				amplification &= 0xffffu;
 
 				uint total_wgs = other_cmd.end_elements - other_cmd.primary_linear_offset;
 				// Try to balance work we spawn on the GPU.
