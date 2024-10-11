@@ -1657,10 +1657,8 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
             (entry->node_input->dispatch_grid_is_upper_bound && program->compact_broadcast_nodes_with_max_grid))
     {
         component_bits = entry->node_input->dispatch_grid_type_bits;
-    }
-
-    if (entry->node_input->dispatch_grid_is_upper_bound)
         component_count = entry->node_input->dispatch_grid_components;
+    }
 
     group_tracking = entry->node_input->node_track_rw_input_sharing;
     group_compact = entry->node_input->dispatch_grid_is_upper_bound &&
@@ -1825,6 +1823,40 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     return S_OK;
 }
 
+static bool d3d12_wg_state_object_program_can_compact_broadcast_nodes(
+        struct d3d12_wg_state_object *object,
+        struct d3d12_wg_state_object_data *data,
+        struct d3d12_wg_state_object_program *program)
+{
+    struct vkd3d_shader_node_input_data *node_input;
+    bool can_compact = false;
+    uint32_t node_index;
+    uint32_t level, i;
+
+    for (level = 0; level < program->num_levels; level++)
+    {
+        /* If we have sparse nodes which share inputs from a MaxBroadcastGrid node, we cannot compact,
+         * since we have to know the dispatch counts early. */
+        for (i = 0; i < program->levels[level].shared_nodes_count; i++)
+        {
+            node_index = program->levels[level].shared_nodes[i].node_payload_index;
+            node_input = data->entry_points[node_index].node_input;
+            if (node_input && node_input->dispatch_grid_is_upper_bound)
+                return false;
+        }
+
+        for (i = 0; i < program->levels[level].nodes_count; i++)
+        {
+            node_index = program->levels[level].nodes[i];
+            node_input = data->entry_points[node_index].node_input;
+            if (node_input && node_input->dispatch_grid_is_upper_bound)
+                can_compact = true;
+        }
+    }
+
+    return can_compact;
+}
+
 static HRESULT d3d12_wg_state_object_compile_program(
         struct d3d12_wg_state_object *object,
         struct d3d12_wg_state_object_data *data,
@@ -1903,6 +1935,9 @@ static HRESULT d3d12_wg_state_object_compile_program(
             align(program->dividers_scratch_offset + program->dividers_scratch_size, 64);
     program->share_mapping_scratch_size = data->entry_points_count * sizeof(uint32_t);
     program->required_scratch_size = program->share_mapping_scratch_offset + program->share_mapping_scratch_size;
+
+    program->compact_broadcast_nodes_with_max_grid =
+            d3d12_wg_state_object_program_can_compact_broadcast_nodes(object, data, program);
 
     for (level = 0; level < program->num_levels; level++)
     {
