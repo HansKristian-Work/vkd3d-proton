@@ -1633,19 +1633,16 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
         SPEC_COUNT
     };
 
+    /* Already compiled PSO. */
+    if (program->pipelines[entry_point_index].vk_non_entry_pipeline != VK_NULL_HANDLE)
+        return S_OK;
+
     memset(&pipeline_info, 0, sizeof(pipeline_info));
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipeline_info.stage.pSpecializationInfo = &spec_info;
     pipeline_info.stage.pName = "main";
     pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    if (program->pipelines[entry_point_index].vk_cpu_node_entry_pipeline != VK_NULL_HANDLE ||
-            program->pipelines[entry_point_index].vk_gpu_node_entry_pipeline != VK_NULL_HANDLE ||
-            program->pipelines[entry_point_index].vk_non_entry_pipeline != VK_NULL_HANDLE)
-    {
-        return S_OK;
-    }
 
     entry = &data->entry_points[entry_point_index];
 
@@ -1833,7 +1830,8 @@ static bool d3d12_wg_state_object_program_can_compact_broadcast_nodes(
     uint32_t node_index;
     uint32_t level, i;
 
-    for (level = 0; level < program->num_levels; level++)
+    /* Entry points are irrelevant. */
+    for (level = 1; level < program->num_levels; level++)
     {
         /* If we have sparse nodes which share inputs from a MaxBroadcastGrid node, we cannot compact,
          * since we have to know the dispatch counts early. */
@@ -1918,6 +1916,9 @@ static HRESULT d3d12_wg_state_object_compile_program(
             program->share_mapping[i] = node_index;
     }
 
+    program->compact_broadcast_nodes_with_max_grid =
+            d3d12_wg_state_object_program_can_compact_broadcast_nodes(object, data, program);
+
     vkd3d_meta_get_workgraph_workgroup_pipeline(&object->device->meta_ops,
             &program->workgroup_distributor, program->compact_broadcast_nodes_with_max_grid);
     vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(&object->device->meta_ops,
@@ -1935,9 +1936,6 @@ static HRESULT d3d12_wg_state_object_compile_program(
             align(program->dividers_scratch_offset + program->dividers_scratch_size, 64);
     program->share_mapping_scratch_size = data->entry_points_count * sizeof(uint32_t);
     program->required_scratch_size = program->share_mapping_scratch_offset + program->share_mapping_scratch_size;
-
-    program->compact_broadcast_nodes_with_max_grid =
-            d3d12_wg_state_object_program_can_compact_broadcast_nodes(object, data, program);
 
     for (level = 0; level < program->num_levels; level++)
     {
@@ -2790,8 +2788,18 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
         VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_META);
     }
 
-    /* This shader only expands offsets, indirect data is already written. */
-    d3d12_command_list_workgraph_barrier(list, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+    if (program->compact_broadcast_nodes_with_max_grid)
+    {
+        d3d12_command_list_workgraph_barrier(list,
+                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+    }
+    else
+    {
+        /* This shader only expands offsets, indirect data is already written. */
+        d3d12_command_list_workgraph_barrier(list,
+                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+    }
 }
 
 struct vkd3d_workgraph_gpu_input_indirect

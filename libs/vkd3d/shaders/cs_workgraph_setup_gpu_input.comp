@@ -40,6 +40,9 @@ layout(push_constant) uniform Registers
 	uint num_entry_points;
 } registers;
 
+// Arbitrary tuneable.
+const uint AMPLIFICATION_EXTRA_SHIFT = 2;
+
 void main()
 {
 	uint id = gl_GlobalInvocationID.x;
@@ -63,7 +66,7 @@ void main()
 			uint amplification = divider < 0 ? uint(-divider) : 1u;
 
 			// Try to balance work we spawn on the GPU.
-			amplification = max(1u, amplification >> findMSB(max(wg_count, 1u)));
+			amplification = max(1u, amplification >> findMSB(max(wg_count >> AMPLIFICATION_EXTRA_SHIFT, 1u)));
 
 			IndirectCommand cmd;
 			cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, amplification, 0);

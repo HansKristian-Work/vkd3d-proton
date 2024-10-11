@@ -133,11 +133,12 @@ void main()
 					uint packed_index = base_index + gl_SubgroupInvocationID;
 					uint unrolled_offset = wave_payload_offset + registers.payload_stride * packed_index;
 					bool is_active_payload = false;
-					uint grid_count = 1u;
+					uint grid_count = 0u;
 
 					if (packed_index < wave_count)
 					{
 						// We only take this path for broadcast nodes with MaxGrid size.
+						grid_count = 1u;
 
 						if (registers.grid_offset_or_count >= 0)
 						{
