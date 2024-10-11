@@ -1965,6 +1965,7 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
     size_t name_offset;
     size_t blob_offset;
     uint64_t pso_size;
+    void *output_data;
 
     /* Stream archives are not serialized as a monolithic blob. */
     if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE)
@@ -1973,6 +1974,42 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
     required_size = d3d12_pipeline_library_get_serialized_size(pipeline_library);
     if (data_size < required_size)
         return E_INVALIDARG;
+
+    output_data = NULL;
+
+    if (pipeline_library->input_blob_length)
+    {
+        /* Check if we need a workaround.
+         * FF XVI unserializes a pipeline library with pointer A, but then re-serializes it back to pointer A.
+         * We read straight from pointer A when unserializing since the pointer has to remain alive.
+         * https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device1-createpipelinelibrary
+         * > The pointer provided as input to this method must remain valid for the lifetime of the object returned.
+         * > For efficiency reasons, the data is not copied.
+         * However, this game seems to rely on re-serialized data to remain bit-exact in same order,
+         * which our implementation does not guarantee, and we end up generating a corrupt name table.
+         * If there is memory overlap, serialize to a temp buffer instead.
+         * */
+        uintptr_t overlap_lo, overlap_hi;
+        uintptr_t output_lo, output_hi;
+        uintptr_t input_lo, input_hi;
+
+        input_lo = (uintptr_t)pipeline_library->input_blob;
+        input_hi = input_lo + pipeline_library->input_blob_length - 1;
+
+        output_lo = (uintptr_t)data;
+        output_hi = output_lo + data_size - 1;
+
+        overlap_lo = max(input_lo, output_lo);
+        overlap_hi = min(input_hi, output_hi);
+
+        if (overlap_lo <= overlap_hi)
+        {
+            WARN("Invalid API usage. Application attempts to serialize to memory owned by this pipeline library. Falling back.\n");
+            output_data = data;
+            data = vkd3d_malloc(required_size);
+            header = data;
+        }
+    }
 
     header->version = VKD3D_PIPELINE_LIBRARY_VERSION_TOC;
     header->vendor_id = device_properties->vendorID;
@@ -2030,6 +2067,12 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
             header->pipeline_count, pso_size,
             header->spirv_count, spirv_size,
             header->driver_cache_count, driver_cache_size);
+    }
+
+    if (output_data)
+    {
+        memcpy(output_data, data, required_size);
+        vkd3d_free(data);
     }
 
     return S_OK;
@@ -2341,6 +2384,10 @@ static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline
     uint32_t i;
     HRESULT hr;
 
+    /* For reference later when we serialize. Need a workaround. */
+    pipeline_library->input_blob = blob;
+    pipeline_library->input_blob_length = blob_length;
+
     /* Same logic as for pipeline blobs, indicate that the app needs
      * to rebuild the pipeline library in case vkd3d itself or the
      * underlying device/driver changed */
@@ -2554,6 +2601,8 @@ HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *b
 
     if (FAILED(hr = d3d12_pipeline_library_init(object, device, blob, blob_length, flags)))
     {
+        if (hr == E_OUTOFMEMORY)
+            ERR("d3d12_pipeline_library_init failed with E_OUTOFMEMORY. This is likely a symptom of corrupt blob.\n");
         vkd3d_free(object);
         return hr;
     }
