@@ -2323,6 +2323,9 @@ struct d3d12_pipeline_library
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
+
+    const void *input_blob;
+    size_t input_blob_length;
 };
 
 enum vkd3d_pipeline_library_flags
