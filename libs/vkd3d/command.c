@@ -13992,6 +13992,16 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
                 break;
             }
 
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT:
+            {
+                uint32_t zero = 0;
+                d3d12_command_list_set_root_constants(list,
+                        bindings, arg->IncrementingConstant.RootParameterIndex,
+                        arg->IncrementingConstant.DestOffsetIn32BitValues,
+                        1, &zero);
+                break;
+            }
+
             default:
                 break;
         }
@@ -20351,6 +20361,7 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
         switch (argument_desc->Type)
         {
             case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT:
                 root_parameter_index = argument_desc->Constant.RootParameterIndex;
                 root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
 
@@ -20361,7 +20372,6 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
                     goto end;
                 }
 
-                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
                 assert(pc_token_count < ARRAY_SIZE(signature->state_template.dgc.pc_tokens));
                 pc_token = &signature->state_template.dgc.pc_tokens[pc_token_count++];
                 token.data.pPushConstant = pc_token;
@@ -20370,14 +20380,28 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
                 pc_token->updateRange.size = argument_desc->Constant.Num32BitValuesToSet;
                 pc_token->updateRange.offset *= sizeof(uint32_t);
                 pc_token->updateRange.size *= sizeof(uint32_t);
-                required_alignment = sizeof(uint32_t);
 
-                stream_stride = align(stream_stride, required_alignment);
-                token.offset = stream_stride;
-                stream_stride += pc_token->updateRange.size;
-                dst_word_offset = token.offset / sizeof(uint32_t);
+                if (argument_desc->Type == D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT)
+                {
+                    token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
 
-                generic_u32_copy_count = argument_desc->Constant.Num32BitValuesToSet;
+                    required_alignment = sizeof(uint32_t);
+                    stream_stride = align(stream_stride, required_alignment);
+                    token.offset = stream_stride;
+                    stream_stride += pc_token->updateRange.size;
+                    dst_word_offset = token.offset / sizeof(uint32_t);
+
+                    generic_u32_copy_count = argument_desc->Constant.Num32BitValuesToSet;
+                }
+                else
+                {
+                    token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_SEQUENCE_INDEX_EXT;
+                    token.offset = 0; /* ignored */
+                    pc_token->updateRange.size = sizeof(uint32_t);
+
+                    generic_u32_copy_count = 0;
+                }
+
                 generic_u32_copy_types = NULL;
                 break;
 
@@ -20544,13 +20568,19 @@ static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_
     stream_stride = max(stream_stride, desc->ByteStride);
     stream_stride = align(stream_stride, required_stride_alignment);
 
-    if (FAILED(hr = d3d12_command_signature_init_patch_commands_buffer(signature, device, patch_commands, patch_commands_count)))
-        goto end;
+    if (patch_commands_count)
+        if (FAILED(hr = d3d12_command_signature_init_patch_commands_buffer(signature, device, patch_commands, patch_commands_count)))
+            goto end;
+
     if (FAILED(hr = d3d12_command_signature_init_indirect_commands_layout_ext(signature, root_signature, device, tokens, token_count, stream_stride)))
         goto end;
-    if (FAILED(hr = vkd3d_meta_get_execute_indirect_pipeline(&device->meta_ops, patch_commands_count,
-            &signature->state_template.dgc.pipeline)))
-        goto end;
+
+    if (patch_commands_count)
+    {
+        if (FAILED(hr = vkd3d_meta_get_execute_indirect_pipeline(&device->meta_ops, patch_commands_count,
+                &signature->state_template.dgc.pipeline)))
+            goto end;
+    }
 
 end:
     vkd3d_free(tokens);
@@ -20621,6 +20651,11 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
                 requires_root_signature = true;
                 requires_state_template = true;
                 signature_size += argument_desc->Constant.Num32BitValuesToSet * sizeof(uint32_t);
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT:
+                requires_root_signature = true;
+                requires_state_template = true;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
