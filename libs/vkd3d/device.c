@@ -8189,8 +8189,8 @@ static void d3d12_device_caps_init_feature_options21(struct d3d12_device *device
     D3D12_FEATURE_DATA_D3D12_OPTIONS21 *options21 = &device->d3d12_caps.options21;
 
     options21->WorkGraphsTier = D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED;
-    /* Tier 1_1 requires emulating DrawID */
-    options21->ExecuteIndirectTier = D3D12_EXECUTE_INDIRECT_TIER_1_0;
+    options21->ExecuteIndirectTier = device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands ?
+            D3D12_EXECUTE_INDIRECT_TIER_1_1 : D3D12_EXECUTE_INDIRECT_TIER_1_0;
     options21->SampleCmpGradientAndBiasSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_8 &&
             device->d3d12_caps.options14.AdvancedTextureOpsSupported;
     options21->ExtendedCommandInfoSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_8;
