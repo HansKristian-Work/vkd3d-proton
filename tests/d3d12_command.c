@@ -2951,6 +2951,243 @@ void test_execute_indirect_state(void)
     destroy_test_context(&context);
 }
 
+void test_execute_indirect_state_tier_11(void)
+{
+    enum { DRAW = 0, DRAW_INDEXED, DISPATCH, MESH, COUNT };
+
+    ID3D12CommandSignature *command_signature[COUNT] = { NULL };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS21 options21;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12PipelineState *psos[COUNT] = { NULL };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7;
+    D3D12_INDIRECT_ARGUMENT_DESC arguments[2];
+    struct test_context_desc context_desc;
+    D3D12_COMMAND_SIGNATURE_DESC cs_desc;
+    ID3D12Resource *indirect_args[COUNT];
+    D3D12_ROOT_PARAMETER root_param[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    ID3D12Resource *ibo;
+    unsigned int i, j;
+    HRESULT hr;
+
+#include "shaders/command/headers/execute_indirect_tier11_draw.h"
+#include "shaders/command/headers/execute_indirect_tier11_dispatch.h"
+#include "shaders/command/headers/execute_indirect_tier11_mesh.h"
+
+    static const D3D12_DRAW_ARGUMENTS draw_arguments[] = {
+        { 14 * 3, 2 },
+        { 19 * 3, 1 },
+        { 15 * 3, 0 },
+        { 251 * 3, 2 },
+    };
+
+    static const D3D12_DRAW_INDEXED_ARGUMENTS indexed_arguments[] = {
+        { 100 * 3, 2 },
+        { 4 * 3, 1 },
+        { 4 * 3, 0 },
+        { 251 * 3, 2 },
+    };
+
+    static const D3D12_DISPATCH_ARGUMENTS dispatch_arguments[] = {
+        { 8, 5, 2 },
+        { 1, 3, 10 },
+        { 8, 5, 0 },
+        { 4, 6, 20 },
+    };
+
+    uint32_t expected_counts[COUNT][ARRAY_SIZE(dispatch_arguments)];
+
+    static const union d3d12_shader_bytecode_subobject ms_subobject = { { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS,
+        { execute_indirect_tier11_mesh_code_dxil, sizeof(execute_indirect_tier11_mesh_code_dxil) } } };
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    } };
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject ms;
+    } ms_only_pipeline_desc = {
+        root_signature_subobject, ms_subobject,
+    };
+
+    static const struct
+    {
+        const void *args;
+        size_t size;
+    } indirect_buffers[] = {
+        { draw_arguments, sizeof(draw_arguments) },
+        { indexed_arguments, sizeof(indexed_arguments) },
+        { dispatch_arguments, sizeof(dispatch_arguments) },
+        { dispatch_arguments, sizeof(dispatch_arguments) },
+    };
+
+    for (i = 0; i < ARRAY_SIZE(draw_arguments); i++)
+        expected_counts[DRAW][i] = draw_arguments[i].VertexCountPerInstance * draw_arguments[i].InstanceCount;
+    for (i = 0; i < ARRAY_SIZE(indexed_arguments); i++)
+        expected_counts[DRAW_INDEXED][i] = indexed_arguments[i].IndexCountPerInstance * indexed_arguments[i].InstanceCount;
+    for (i = 0; i < ARRAY_SIZE(dispatch_arguments); i++)
+    {
+        expected_counts[DISPATCH][i] = dispatch_arguments[i].ThreadGroupCountX * dispatch_arguments[i].ThreadGroupCountY * dispatch_arguments[i].ThreadGroupCountZ;
+        expected_counts[MESH][i] = expected_counts[DISPATCH][i];
+    }
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_render_target = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS21, &options21, sizeof(options21))) ||
+        options21.ExecuteIndirectTier < D3D12_EXECUTE_INDIRECT_TIER_1_1)
+    {
+        skip("ExecuteIndirect tier 1.1 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7))) ||
+        options7.MeshShaderTier < D3D12_MESH_SHADER_TIER_1)
+    {
+        options7.MeshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+    }
+
+    output = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    {
+        uint32_t ibo_data[1024];
+        for (i = 0; i < ARRAY_SIZE(ibo_data); i++)
+            ibo_data[i] = i;
+        ibo = create_upload_buffer(context.device, sizeof(ibo_data), ibo_data);
+    }
+
+    for (i = 0; i < COUNT; i++)
+        indirect_args[i] = create_upload_buffer(context.device, indirect_buffers[i].size, indirect_buffers[i].args);
+
+    memset(&cs_desc, 0, sizeof(cs_desc));
+    cs_desc.NumArgumentDescs = ARRAY_SIZE(arguments);
+    cs_desc.pArgumentDescs = arguments;
+
+    arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT;
+    arguments[0].Constant.DestOffsetIn32BitValues = 0;
+    arguments[0].Constant.Num32BitValuesToSet = 1;
+    arguments[0].Constant.RootParameterIndex = 0;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(root_param);
+    rs_desc.pParameters = root_param;
+
+    memset(root_param, 0, sizeof(root_param));
+    root_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_param[0].Constants.Num32BitValues = 1;
+
+    root_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+    cs_desc.ByteStride = sizeof(D3D12_DRAW_ARGUMENTS);
+    hr = ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature,
+        &IID_ID3D12CommandSignature, (void **)&command_signature[DRAW]);
+    ok(SUCCEEDED(hr), "Failed to create command signature, hr %x.\n", hr);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN, &execute_indirect_tier11_draw_dxbc, NULL, NULL);
+    pso_desc.PS.BytecodeLength = 0;
+    pso_desc.PS.pShaderBytecode = NULL;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&psos[DRAW]);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+    cs_desc.ByteStride = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+    hr = ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature,
+        &IID_ID3D12CommandSignature, (void **)&command_signature[DRAW_INDEXED]);
+    ok(SUCCEEDED(hr), "Failed to create command signature, hr %x.\n", hr);
+    psos[DRAW_INDEXED] = psos[DRAW];
+    ID3D12PipelineState_AddRef(psos[DRAW_INDEXED]);
+
+    arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    cs_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+    hr = ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature,
+        &IID_ID3D12CommandSignature, (void **)&command_signature[DISPATCH]);
+    ok(SUCCEEDED(hr), "Failed to create command signature, hr %x.\n", hr);
+    psos[DISPATCH] = create_compute_pipeline_state(context.device, context.root_signature, execute_indirect_tier11_dispatch_dxbc);
+
+    if (options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1)
+    {
+        ID3D12Device2 *device2;
+
+        ms_only_pipeline_desc.root_signature.root_signature = context.root_signature;
+        ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void **)&device2);
+        arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
+        cs_desc.ByteStride = sizeof(D3D12_DISPATCH_MESH_ARGUMENTS);
+        hr = ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature,
+            &IID_ID3D12CommandSignature, (void **)&command_signature[MESH]);
+        ok(SUCCEEDED(hr), "Failed to create command signature, hr %x.\n", hr);
+        hr = create_pipeline_state_from_stream(device2, &ms_only_pipeline_desc, &psos[MESH]);
+        ok(SUCCEEDED(hr), "Failed to create mesh PSO, hr #%x.\n", hr);
+        ID3D12Device2_Release(device2);
+    }
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    for (i = 0; i < COUNT; i++)
+    {
+        D3D12_INDEX_BUFFER_VIEW ibv;
+        ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output) + i * 1024);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output) + i * 1024);
+
+        ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ibo);
+        ibv.Format = DXGI_FORMAT_R32_UINT;
+        ibv.SizeInBytes = 1024 * sizeof(uint32_t);
+        ID3D12GraphicsCommandList_IASetIndexBuffer(context.list, &ibv);
+
+        if (psos[i])
+        {
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, psos[i]);
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, command_signature[i], ARRAY_SIZE(draw_arguments), indirect_args[i], 0, NULL, 0);
+        }
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < COUNT; i++)
+    {
+        for (j = 0; j < ARRAY_SIZE(draw_arguments); j++)
+        {
+            uint32_t expected = expected_counts[i][j];
+            uint32_t v;
+
+            v = get_readback_uint(&rb, 256 * i + j, 0, 0);
+            ok(expected == v, "PSO %u, ID %u: Expected %u, got %u.\n", i, j, expected, v);
+        }
+    }
+
+    for (i = 0; i < COUNT; i++)
+    {
+        ID3D12Resource_Release(indirect_args[i]);
+        if (command_signature[i])
+            ID3D12CommandSignature_Release(command_signature[i]);
+        if (psos[i])
+            ID3D12PipelineState_Release(psos[i]);
+    }
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(ibo);
+    release_resource_readback(&rb);
+    destroy_test_context(&context);
+}
+
 void test_execute_indirect_state_vbo_offsets(void)
 {
     D3D12_INDIRECT_ARGUMENT_DESC indirect_args[2];
