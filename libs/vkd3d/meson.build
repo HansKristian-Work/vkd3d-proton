@@ -53,6 +53,10 @@ vkd3d_shaders =[
   'shaders/cs_resolve_color_float.comp',
   'shaders/cs_resolve_color_uint.comp',
   'shaders/cs_resolve_color_sint.comp',
+
+  'shaders/cs_workgraph_distribute_workgroups.comp',
+  'shaders/cs_workgraph_distribute_payload_offsets.comp',
+  'shaders/cs_workgraph_setup_gpu_input.comp',
 ]
 
 vkd3d_src = [
@@ -74,10 +78,12 @@ vkd3d_src = [
   'va_map.c',
   'vkd3d_main.c',
   'raytracing_pipeline.c',
+  'state_object_common.c',
   'acceleration_structure.c',
   'swapchain.c',
   'queue_timeline.c',
-  'address_binding_tracker.c'
+  'address_binding_tracker.c',
+  'workgraphs.c'
 ]
 
 if enable_renderdoc
