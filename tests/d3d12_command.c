@@ -3207,6 +3207,7 @@ void test_execute_indirect_state_vbo_offsets(void)
     D3D12_INDEX_BUFFER_VIEW ibv;
     D3D12_VIEWPORT vp;
     D3D12_RECT sci;
+    HRESULT hr;
 
     static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
     {
@@ -3271,7 +3272,10 @@ void test_execute_indirect_state_vbo_offsets(void)
     indirect_args[0].Constant.Num32BitValuesToSet = 4;
     indirect_args[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
 
-    ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature, &IID_ID3D12CommandSignature, (void **)&command_sig);
+    hr = ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature, &IID_ID3D12CommandSignature, (void **)&command_sig);
+    ok(SUCCEEDED(hr), "Failed to create command signature.\n");
+    if (FAILED(hr))
+        command_sig = NULL;
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
@@ -3289,7 +3293,9 @@ void test_execute_indirect_state_vbo_offsets(void)
     vbv.StrideInBytes = sizeof(uint32_t);
     ID3D12GraphicsCommandList_IASetIndexBuffer(context.list, &ibv);
     ID3D12GraphicsCommandList_IASetVertexBuffers(context.list, 0, 1, &vbv);
-    ID3D12GraphicsCommandList_ExecuteIndirect(context.list, command_sig, 1, indirect_buffer, 0, NULL, 0);
+
+    if (command_sig)
+        ID3D12GraphicsCommandList_ExecuteIndirect(context.list, command_sig, 1, indirect_buffer, 0, NULL, 0);
 
     transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
@@ -3308,7 +3314,8 @@ void test_execute_indirect_state_vbo_offsets(void)
     ID3D12Resource_Release(indirect_buffer);
     ID3D12Resource_Release(instance_buffer);
     ID3D12Resource_Release(index_buffer);
-    ID3D12CommandSignature_Release(command_sig);
+    if (command_sig)
+        ID3D12CommandSignature_Release(command_sig);
     release_resource_readback(&rb);
     destroy_test_context(&context);
 }
