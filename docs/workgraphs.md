@@ -1269,3 +1269,75 @@ NVIDIA performance is also quite underwhelming here.
 
 It's clear that native D3D12 drivers don't even try to optimize ExecuteIndirect at all :)
 Still, the ExecuteIndirect pattern of this demo makes EI look as bad as possible.
+
+### NVIDIA work graph example
+
+[This demo](https://github.com/NVIDIAGameWorks/donut_examples/blob/main/examples/work_graphs/)
+is another spin on the classic tile-deferred renderer.
+It's a little more realistic since the binner and classifier is emitting to Wave32 broadcast nodes,
+where each node is specialized in working on a specific material type. It's not using MaxDispatchGrid either,
+which should make scheduling very simple to deal with.
+
+#### RTX 4070 (native)
+
+GPU performance is extremely similar between workgraphs and plain compute. However, this is slightly concerning,
+since the compute shading path is [quite inefficient](https://github.com/NVIDIAGameWorks/donut_examples/blob/main/examples/work_graphs/deferred_shading.hlsl).
+It evaluates the materials in a big switch block, where the workgraph path can execute straight forward code.
+I would expect workgraphs to win here. Normally, games emit 1 indirect compute dispatch per classified tile after all.
+
+![donut](workgraphs/donut-nv-win-wg.PNG)
+![donut](workgraphs/donut-nv-win-compute.PNG)
+
+NSight captures look quite similar.
+
+![donut](workgraphs/donut-nv-win-wg-nsight.PNG)
+![donut](workgraphs/donut-nv-win-compute-nsight.PNG)
+
+#### RX 7600 (native, 24.9.1)
+
+The plain compute path is still significantly faster.
+
+![donut](workgraphs/donut-rx7600-wg.PNG)
+![donut](workgraphs/donut-rx7600-compute.PNG)
+
+The GPU is kept occupied with workgraphs far better than the other demos, but it's still not enough.
+This scenario should be the optimal case if anything, but the GPU still cannot be filled with work :(
+
+![donut](workgraphs/donut-rx7600-wg-rgp.PNG)
+![donut](workgraphs/donut-rx7600-compute-rgp.PNG)
+
+#### RX 7600 (vkd3d-proton / RADV)
+
+This is the only case I found where the workgraph path actually helps. As expected :D.
+
+Compute path is basically 1:1 with native D3D12 driver as we can normally assume on AMD cards,
+but workgraph path runs ~5.1 ms instead of ~6.8 ms on native.
+
+![donut](workgraphs/donut-radv-wg.png)
+![donut](workgraphs/donut-radv-compute.png)
+
+The profile also looks quite favorable.
+As we expected, the tighter per-material shaders pays off here and the deferred shading portion shaves away a decent
+amount of work.
+
+![donut](workgraphs/donut-radv-rgp-wg.png)
+![donut](workgraphs/donut-radv-compute-rgp.png)
+
+The overhead to distribute work is just 20 us. A fart in the wind compared to actual useful execution.
+
+![donut](workgraphs/donut-radv-wg-distribute.png)
+
+#### RTX 4070 (vkd3d-proton / NV 560.35.03)
+
+These results are very unimpressive. Workgraph path takes about 5.5 ms where on native it was 3.15 ms ...
+Even the plain compute path runs really poorly, with 3.9 ms instead of 3.15 ms.
+It's well known that NV's driver does quite poorly with vkd3d-proton in general, but these numbers are surprisingly bad.
+Hopefully this extremely narrow test case can help fix some long-standing issues
+that we have no way of fixing ourselves due to the nature of proprietary drivers.
+
+`VKD3D_CONFIG=force_raw_va_cbv` must be used to make this demo work on NVIDIA,
+so that might explain some loss, but not to this extent.
+It's the same shader code that runs on RADV and NV driver here.
+
+![donut](workgraphs/donut-nv-wg.png)
+![donut](workgraphs/donut-nv-compute.png)
