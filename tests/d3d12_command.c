@@ -3057,6 +3057,7 @@ void test_execute_indirect_state_tier_11(void)
         options7.MeshShaderTier < D3D12_MESH_SHADER_TIER_1)
     {
         options7.MeshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+        skip("Mesh shader not supported, skipping mesh indirect test.\n");
     }
 
     output = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
@@ -3164,6 +3165,9 @@ void test_execute_indirect_state_tier_11(void)
 
     for (i = 0; i < COUNT; i++)
     {
+        if (!psos[i])
+            continue;
+
         for (j = 0; j < ARRAY_SIZE(draw_arguments); j++)
         {
             uint32_t expected = expected_counts[i][j];
