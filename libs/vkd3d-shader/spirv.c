@@ -2424,6 +2424,12 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     compiler->shader_version = *shader_version;
     compiler->quirks = vkd3d_shader_compile_arguments_select_quirks(compile_args, shader_hash);
+
+    /* Easier to normalize the quirk here than refactor all the checks. */
+    if ((compiler->quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS) &&
+            shader_interface->stage == VK_SHADER_STAGE_VERTEX_BIT)
+        compiler->quirks |= VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH;
+
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     compiler->descriptor_qa_shader_hash = shader_hash;
 #endif
