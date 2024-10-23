@@ -939,7 +939,11 @@ void test_mesh_shader_execute_indirect_state(void)
     indirect_argument_desc[2].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
 
     hr = ID3D12Device2_CreateCommandSignature(device2, &command_signature_desc, root_signature, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr) || hr == E_NOTIMPL, "Failed to create command signature, hr %#x.\n", hr);
+    if (FAILED(hr))
+        command_signature = NULL;
+    if (hr == E_NOTIMPL)
+        skip("DGC is likely not implemented. Skipping test.\n");
 
     pipeline_desc.root_signature.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE;
     pipeline_desc.root_signature.root_signature = root_signature;
@@ -967,24 +971,29 @@ void test_mesh_shader_execute_indirect_state(void)
         indirect_buffer = create_upload_buffer(context.device, sizeof(test_data), test_data);
     }
 
-    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    if (command_signature)
     {
-        ID3D12GraphicsCommandList6_SetGraphicsRootSignature(command_list6, root_signature);
-        ID3D12GraphicsCommandList6_SetPipelineState(command_list6, pipeline_state);
-        set_viewport(&viewport, 0, 0, 1, 1, 0, 1);
-        set_rect(&scissor, 0, 0, 1, 1);
-        ID3D12GraphicsCommandList6_RSSetViewports(command_list6, 1, &viewport);
-        ID3D12GraphicsCommandList6_RSSetScissorRects(command_list6, 1, &scissor);
-        ID3D12GraphicsCommandList6_ExecuteIndirect(command_list6, command_signature,
-            tests[i].indirect_count ? 64 : tests[i].data.indirect_count,
-            indirect_buffer, sizeof(struct test_data) * i,
-            tests[i].indirect_count ? indirect_buffer : NULL,
-            tests[i].indirect_count ? (sizeof(struct test_data) * i + offsetof(struct test_data, indirect_count)) : 0);
+        for (i = 0; i < ARRAY_SIZE(tests); i++)
+        {
+            ID3D12GraphicsCommandList6_SetGraphicsRootSignature(command_list6, root_signature);
+            ID3D12GraphicsCommandList6_SetPipelineState(command_list6, pipeline_state);
+            set_viewport(&viewport, 0, 0, 1, 1, 0, 1);
+            set_rect(&scissor, 0, 0, 1, 1);
+            ID3D12GraphicsCommandList6_RSSetViewports(command_list6, 1, &viewport);
+            ID3D12GraphicsCommandList6_RSSetScissorRects(command_list6, 1, &scissor);
+
+            ID3D12GraphicsCommandList6_ExecuteIndirect(command_list6, command_signature,
+                tests[i].indirect_count ? 64 : tests[i].data.indirect_count,
+                indirect_buffer, sizeof(struct test_data) * i,
+                tests[i].indirect_count ? indirect_buffer : NULL,
+                tests[i].indirect_count ? (sizeof(struct test_data) * i + offsetof(struct test_data, indirect_count)) : 0);
+        }
     }
 
     transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
 
+    if (command_signature)
     {
         uint32_t expected[128] = { 0 };
         for (i = 0; i < ARRAY_SIZE(tests); i++)
@@ -999,7 +1008,8 @@ void test_mesh_shader_execute_indirect_state(void)
 
     ID3D12Resource_Release(output);
     ID3D12PipelineState_Release(pipeline_state);
-    ID3D12CommandSignature_Release(command_signature);
+    if (command_signature)
+        ID3D12CommandSignature_Release(command_signature);
     ID3D12Resource_Release(indirect_buffer);
     ID3D12RootSignature_Release(root_signature);
     ID3D12GraphicsCommandList6_Release(command_list6);
@@ -1374,7 +1384,11 @@ void test_amplification_shader_execute_indirect_state(void)
     indirect_argument_desc[2].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
 
     hr = ID3D12Device2_CreateCommandSignature(device2, &command_signature_desc, root_signature, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr) || hr == E_NOTIMPL, "Failed to create command signature, hr %#x.\n", hr);
+    if (FAILED(hr))
+        command_signature = NULL;
+    if (hr == E_NOTIMPL)
+        skip("DGC is likely not implemented. Skipping test.\n");
 
     pipeline_desc.root_signature.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE;
     pipeline_desc.root_signature.root_signature = root_signature;
@@ -1399,47 +1413,53 @@ void test_amplification_shader_execute_indirect_state(void)
         indirect_buffer = create_upload_buffer(context.device, sizeof(test_data), test_data);
     }
 
-    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    if (command_signature)
     {
-        ID3D12GraphicsCommandList6_SetGraphicsRootSignature(command_list6, root_signature);
-        ID3D12GraphicsCommandList6_SetPipelineState(command_list6, pipeline_state);
-        set_viewport(&viewport, 0, 0, 1, 1, 0, 1);
-        set_rect(&scissor, 0, 0, 1, 1);
-        ID3D12GraphicsCommandList6_RSSetViewports(command_list6, 1, &viewport);
-        ID3D12GraphicsCommandList6_RSSetScissorRects(command_list6, 1, &scissor);
-        ID3D12GraphicsCommandList6_ExecuteIndirect(command_list6, command_signature,
-            tests[i].indirect_count ? 64 : tests[i].data.indirect_count,
-            indirect_buffer, sizeof(tests[i].data) * i,
-            tests[i].indirect_count ? indirect_buffer : NULL,
-            tests[i].indirect_count ? (sizeof(tests[i].data) * i + offsetof(struct test_data, indirect_count)) : 0);
+        for (i = 0; i < ARRAY_SIZE(tests); i++)
+        {
+            ID3D12GraphicsCommandList6_SetGraphicsRootSignature(command_list6, root_signature);
+            ID3D12GraphicsCommandList6_SetPipelineState(command_list6, pipeline_state);
+            set_viewport(&viewport, 0, 0, 1, 1, 0, 1);
+            set_rect(&scissor, 0, 0, 1, 1);
+            ID3D12GraphicsCommandList6_RSSetViewports(command_list6, 1, &viewport);
+            ID3D12GraphicsCommandList6_RSSetScissorRects(command_list6, 1, &scissor);
+            ID3D12GraphicsCommandList6_ExecuteIndirect(command_list6, command_signature,
+                tests[i].indirect_count ? 64 : tests[i].data.indirect_count,
+                indirect_buffer, sizeof(tests[i].data) * i,
+                tests[i].indirect_count ? indirect_buffer : NULL,
+                tests[i].indirect_count ? (sizeof(tests[i].data) * i + offsetof(struct test_data, indirect_count)) : 0);
+        }
     }
 
     transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
 
-    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    if (command_signature)
     {
-        uint32_t num_tasks, num_groups_per_task, expected;
-        expected = 0;
+        for (i = 0; i < ARRAY_SIZE(tests); i++)
+        {
+            uint32_t num_tasks, num_groups_per_task, expected;
+            expected = 0;
 
-        for (j = 0; j < tests[i].data.indirect_count; j++)
-        {
-            num_tasks = tests[i + j].data.tasks[0] * tests[i + j].data.tasks[1] * tests[i + j].data.tasks[2];
-            num_groups_per_task = tests[i + j].data.mesh_groups[0] * tests[i + j].data.mesh_groups[1] * tests[i + j].data.mesh_groups[2];
-            expected += num_tasks; /* every task increments counter */
-            expected += num_tasks * num_groups_per_task; /* every mesh group increments counter. */
-            expected += num_tasks * num_groups_per_task * tests[i + j].data.prims; /* Every primitive increments counter. */
-        }
+            for (j = 0; j < tests[i].data.indirect_count; j++)
+            {
+                num_tasks = tests[i + j].data.tasks[0] * tests[i + j].data.tasks[1] * tests[i + j].data.tasks[2];
+                num_groups_per_task = tests[i + j].data.mesh_groups[0] * tests[i + j].data.mesh_groups[1] * tests[i + j].data.mesh_groups[2];
+                expected += num_tasks; /* every task increments counter */
+                expected += num_tasks * num_groups_per_task; /* every mesh group increments counter. */
+                expected += num_tasks * num_groups_per_task * tests[i + j].data.prims; /* Every primitive increments counter. */
+            }
 
-        if (tests[i].data.indirect_count)
-        {
-            ok(get_readback_uint(&rb, tests[i].uav_offset / sizeof(uint32_t), 0, 0) == expected,
-                    "Test %u: expected %u, got %u.\n", i, expected, get_readback_uint(&rb, tests[i].uav_offset / sizeof(uint32_t), 0, 0));
-        }
-        else
-        {
-            ok(get_readback_uint(&rb, i, 0, 0) == expected, "Test %u: expected %u, got %u.\n",
-                    i, expected, get_readback_uint(&rb, i, 0, 0));
+            if (tests[i].data.indirect_count)
+            {
+                ok(get_readback_uint(&rb, tests[i].uav_offset / sizeof(uint32_t), 0, 0) == expected,
+                        "Test %u: expected %u, got %u.\n", i, expected, get_readback_uint(&rb, tests[i].uav_offset / sizeof(uint32_t), 0, 0));
+            }
+            else
+            {
+                ok(get_readback_uint(&rb, i, 0, 0) == expected, "Test %u: expected %u, got %u.\n",
+                        i, expected, get_readback_uint(&rb, i, 0, 0));
+            }
         }
     }
 
@@ -1447,7 +1467,8 @@ void test_amplification_shader_execute_indirect_state(void)
 
     ID3D12Resource_Release(output);
     ID3D12PipelineState_Release(pipeline_state);
-    ID3D12CommandSignature_Release(command_signature);
+    if (command_signature)
+        ID3D12CommandSignature_Release(command_signature);
     ID3D12Resource_Release(indirect_buffer);
     ID3D12RootSignature_Release(root_signature);
     ID3D12GraphicsCommandList6_Release(command_list6);
