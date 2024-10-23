@@ -740,6 +740,11 @@ static const struct vkd3d_shader_quirk_info ffxvi_quirks = {
     ffxvi_hashes, ARRAY_SIZE(ffxvi_hashes),
 };
 
+/* Some shaders use precise, some don't, leading to invariance issues. */
+static const struct vkd3d_shader_quirk_info hunt_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -766,6 +771,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "ACMirage_plus.exe", &ac_mirage_quirks },
     /* FF XVI. */
     { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", &ffxvi_quirks },
+    /* Hunt: Showdown 1896 (594650) */
+    { VKD3D_STRING_COMPARE_EXACT, "HuntGame.exe", &hunt_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */

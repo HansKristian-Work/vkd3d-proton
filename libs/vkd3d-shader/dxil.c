@@ -796,10 +796,16 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     }
 
     {
+        bool force_nocontract =
+                (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ||
+                ((quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS) &&
+                shader_interface_info->stage == VK_SHADER_STAGE_VERTEX_BIT);
+
         const struct dxil_spv_option_precise_control helper =
                 { { DXIL_SPV_OPTION_PRECISE_CONTROL },
-                        (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
+                        force_nocontract ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
                         DXIL_SPV_FALSE };
+
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             WARN("dxil-spirv does not support PRECISE_CONTROL.\n");

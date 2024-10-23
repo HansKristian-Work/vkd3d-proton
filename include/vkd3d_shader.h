@@ -449,7 +449,11 @@ enum vkd3d_shader_quirk
     VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER = (1 << 18),
 
     /* VK_PIPELINE_CREATE_DISABLE_OPTIMIZATIONS. For driver workarounds where optimizations break stuff. */
-    VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS = (1 << 19)
+    VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS = (1 << 19),
+
+    /* Forces NoContract on every expression that can take it (only applies to VS).
+     * Useful as a global quirk when games are shipping broken code. */
+    VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS = (1 << 20)
 };
 
 struct vkd3d_shader_quirk_hash
