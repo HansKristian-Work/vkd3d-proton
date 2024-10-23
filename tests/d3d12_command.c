@@ -3277,9 +3277,11 @@ void test_execute_indirect_state_vbo_offsets(void)
     indirect_args[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
 
     hr = ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature, &IID_ID3D12CommandSignature, (void **)&command_sig);
-    ok(SUCCEEDED(hr), "Failed to create command signature.\n");
+    ok(SUCCEEDED(hr) || hr == E_NOTIMPL, "Failed to create command signature.\n");
     if (FAILED(hr))
         command_sig = NULL;
+    if (hr == E_NOTIMPL)
+        skip("Failed to create command signature, DGC is likely not supported.\n");
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
@@ -3303,6 +3305,8 @@ void test_execute_indirect_state_vbo_offsets(void)
 
     transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+
+    if (command_sig)
     {
         float r, g, b, a;
         r = get_readback_float(&rb, 0, 0);
