@@ -112,6 +112,7 @@ struct vkd3d_test_state_context
     LONG todo_count;
     LONG todo_success_count;
     LONG bug_count;
+    LONG bug_fixed_count;
 
     unsigned int debug_level;
 
@@ -180,13 +181,18 @@ vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list arg
 
     if (is_bug && vkd3d_test_state.bug_enabled)
     {
-        InterlockedIncrement(&vkd3d_test_state.bug_count);
         if (is_todo)
             result = !result;
         if (result)
+        {
+            InterlockedIncrement(&vkd3d_test_state.bug_fixed_count);
             printf("%s:%d%s: Fixed bug: ", vkd3d_test_name, line, vkd3d_test_state.context);
+        }
         else
+        {
+            InterlockedIncrement(&vkd3d_test_state.bug_count);
             printf("%s:%d%s: Bug: ", vkd3d_test_name, line, vkd3d_test_state.context);
+        }
         vprintf(fmt, args);
         fflush(stdout);
     }
@@ -314,18 +320,20 @@ int main(int argc, char **argv)
 
     vkd3d_test_main(argc, argv);
 
-    printf("%s: %lu tests executed (%lu failures, %lu successful todo, %lu skipped, %lu todo, %lu bugs).\n",
+    printf("%s: %lu tests executed (%lu failures, %lu successful todo, %lu skipped, %lu todo, %lu bugs, %lu fixed bugs).\n",
             vkd3d_test_name,
             (unsigned long)(vkd3d_test_state.success_count
             + vkd3d_test_state.failure_count
             + vkd3d_test_state.todo_count
             + vkd3d_test_state.todo_success_count
-            + vkd3d_test_state.bug_count),
+            + vkd3d_test_state.bug_count
+            + vkd3d_test_state.bug_fixed_count),
             (unsigned long)vkd3d_test_state.failure_count,
             (unsigned long)vkd3d_test_state.todo_success_count,
             (unsigned long)vkd3d_test_state.skip_count,
             (unsigned long)vkd3d_test_state.todo_count,
-            (unsigned long)vkd3d_test_state.bug_count);
+            (unsigned long)vkd3d_test_state.bug_count,
+            (unsigned long)vkd3d_test_state.bug_fixed_count);
 
     fflush(stdout);
     return vkd3d_test_state.failure_count != 0;
