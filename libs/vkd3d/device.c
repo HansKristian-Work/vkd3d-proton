@@ -4112,7 +4112,7 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     }
 
     /* Do not support tiled resources for planar formats, matches D3D12. */
-    if (!format->is_emulated && !(format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT))
+    if (!format->is_emulated && is_power_of_two(format->vk_aspect_mask))
     {
         if ((image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT) &&
                 device->device_info.features2.features.sparseResidencyImage2D)
