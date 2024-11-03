@@ -7273,7 +7273,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_i
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     static const struct vkd3d_format vkd3d_format_unknown
-            = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0, 1};
+            = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, VK_IMAGE_ASPECT_COLOR_BIT, 1};
 
     unsigned int i, sub_resource_idx, row_count, row_size, row_pitch;
     unsigned int num_subresources_per_plane, plane_idx;
