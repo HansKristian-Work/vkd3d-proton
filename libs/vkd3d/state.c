@@ -4651,14 +4651,12 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     {
         if (!(format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT))
         {
-            WARN("Ignoring depthTestEnable due to lack of depth aspect.\n");
             graphics->ds_desc.depthTestEnable = VK_FALSE;
             graphics->ds_desc.depthBoundsTestEnable = VK_FALSE;
         }
 
         if (!(format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
         {
-            WARN("Ignoring stencilTestEnable due to lack of stencil aspect.\n");
             graphics->ds_desc.stencilTestEnable = VK_FALSE;
         }
     }
