@@ -49,7 +49,7 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
         hi_hash = strtoull(end_ptr, &end_ptr, 16);
 
         /* If we didn't fully consume a hex number here, back up. */
-        if (*end_ptr != '\0' && *end_ptr != ' ')
+        if (*end_ptr != '\0' && *end_ptr != '\n' && *end_ptr != ' ')
         {
             end_ptr = old_end_ptr;
             hi_hash = 0;
@@ -80,7 +80,7 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
             {
                 if (*end_ptr == '\0')
                 {
-                    (*ranges)[new_count].flags = VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH;
+                    (*ranges)[new_count].flags = VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
                     end_ptr = "post-compute (default)";
                 }
                 else if (strcmp(end_ptr, "pre-compute") == 0)
