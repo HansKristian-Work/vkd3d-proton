@@ -47,6 +47,7 @@ The [Vulkan beta drivers](https://developer.nvidia.com/vulkan-driver) generally 
 driver fixes that we identify while getting games to work.
 The latest drivers (stable, beta or Vulkan beta tracks) are always preferred.
 If you're having problems, always try the latest drivers.
+At minimum, 535 series drivers are needed, which fixes a bunch of bugs.
 
 ### Intel
 
