@@ -974,7 +974,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"breadcrumbs_trace", VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE},
     {"requires_compute_indirect_templates", VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES},
     {"skip_driver_workarounds", VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS},
-    {"curb_memory_pso_cache", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE},
     {"enable_experimental_features", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES},
     {"reject_padded_small_resource_alignment", VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT},
     {"disable_simultaneous_uav_compression", VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION},
@@ -1532,27 +1531,6 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
             WARN("Disabling VK_EXT_swapchain_maintenance1 on NV due to driver bugs.\n");
             device->device_info.swapchain_maintenance1_features.swapchainMaintenance1 = VK_FALSE;
             device->vk_info.EXT_swapchain_maintenance1 = false;
-        }
-
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE)
-        {
-            /* RADV's internal memory cache implementation (pipelineCache == VK_NULL_HANDLE)
-             * is currently bugged and will bloat indefinitely.
-             * Can be removed when RADV is fixed. */
-            if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
-                    info->properties2.properties.driverVersion < VK_MAKE_VERSION(23, 2, 0))
-            {
-                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE)
-                {
-                    INFO("Enabling CURB_MEMORY_PSO_CACHE workaround on RADV < 23.2.\n");
-                    info->workarounds.force_dummy_pipeline_cache = true;
-                }
-                else if (d3d12_device_is_steam_deck(device))
-                {
-                    WARN("Forcing CURB_MEMORY_PSO_CACHE workaround on Steam Deck.\n");
-                    info->workarounds.force_dummy_pipeline_cache = true;
-                }
-            }
         }
     }
 }
