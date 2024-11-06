@@ -507,7 +507,6 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
 enum vkd3d_application_feature_override
 {
     VKD3D_APPLICATION_FEATURE_OVERRIDE_NONE = 0,
-    VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE,
     VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX,
@@ -561,22 +560,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION | VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0 },
     /* Cyberpunk 2077 (1091500). */
     { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION, 0 },
-    /* Resident Evil: Village (1196590).
-     * Game relies on mesh + sampler feedback to be exposed to use DXR.
-     * Likely used as a proxy for Turing+ to avoid potential software fallbacks on Pascal. */
-    { VKD3D_STRING_COMPARE_EXACT, "re8.exe",
-            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    /* Resident Evil 2 remake (883710). Same as RE: Village. */
-    { VKD3D_STRING_COMPARE_EXACT, "re2.exe",
-            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    { VKD3D_STRING_COMPARE_EXACT, "re3.exe",
-            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    { VKD3D_STRING_COMPARE_EXACT, "re4.exe",
-            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    { VKD3D_STRING_COMPARE_EXACT, "re4demo.exe",
-            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    { VKD3D_STRING_COMPARE_EXACT, "re7.exe",
-            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
     { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", 0, 0, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
     /* Hellblade: Senua's Sacrifice (414340). Enables RT by default if supported which is ... jarring and particularly jarring on Deck. */
@@ -8446,16 +8429,6 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
      * be exposed. */
     switch (vkd3d_application_feature_override)
     {
-        case VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE:
-            if (device->d3d12_caps.options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0)
-            {
-                device->d3d12_caps.options7.MeshShaderTier = D3D12_MESH_SHADER_TIER_1;
-                device->d3d12_caps.options7.SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_1_0;
-                INFO("DXR enabled. Application also requires Mesh/Sampler feedback to be exposed (but unused). "
-                     "Enabling these features automatically.\n");
-            }
-            break;
-
         case VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK:
             /* For games which automatically enable RT even on Deck, leading to very poor performance by default. */
             if (d3d12_device_is_steam_deck(device) && !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DXR))
