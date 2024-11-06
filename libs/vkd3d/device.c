@@ -8004,7 +8004,6 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
 
     /* FP16 and FP64 must preserve denorms. Only FP32 can change, so we can accept both 32_BIT_INDEPENDENCY_ONLY and ALL. */
     options4->Native16BitShaderOpsSupported = device->device_info.vulkan_1_2_features.shaderFloat16 &&
-            device->device_info.features2.features.shaderInt16 &&
             device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
             device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16 &&
             device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE &&
@@ -8320,10 +8319,15 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
     /* We need to support modern cbuffer layout in SM 6.0, which is equivalent to array of scalars with
      * tight packing. Either scalar block layout or the more relaxed UBO standard layout feature exposes this. */
 
+    /* Require Int16 support as well. Technically, this isn't required unless SM 6.2 native 16-bit is exposed,
+     * but in practice we need to translate min16int to proper 16-bit integers, since otherwise breakage occurs.
+     * This is non-controversial since everyone supports 16-bit ints. */
+
     if (physical_device_info->vulkan_1_1_properties.subgroupSize >= 4 &&
         (physical_device_info->vulkan_1_1_properties.subgroupSupportedOperations & required) == required &&
         (physical_device_info->vulkan_1_1_properties.subgroupSupportedStages & required_stages) == required_stages &&
-        (physical_device_info->vulkan_1_2_features.scalarBlockLayout || physical_device_info->vulkan_1_2_features.uniformBufferStandardLayout))
+        (physical_device_info->vulkan_1_2_features.scalarBlockLayout || physical_device_info->vulkan_1_2_features.uniformBufferStandardLayout) &&
+        physical_device_info->features2.features.shaderInt16)
     {
         /* From testing on native Polaris drivers, AMD expose SM 6.5, even if lots of features are not supported.
          * This is a good hint that shader model versions are not tied to features which have caps bits.

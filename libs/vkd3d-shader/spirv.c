@@ -11999,8 +11999,8 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                 case SpvCapabilityStorageUniform16:
                 case SpvCapabilityStorageUniformBufferBlock16:
                 case SpvCapabilityStorageInputOutput16:
-                case SpvCapabilityInt16:
                 case SpvCapabilityFloat16:
+                    /* Int16 is hard requirement, and should not affect this check. */
                     meta |= VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS;
                     break;
 
