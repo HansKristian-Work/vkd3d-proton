@@ -954,6 +954,8 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_GENERAL_LAYOUT         = (1u << 7),
 };
 
+#define VKD3D_INVALID_TILE_INDEX (~0u)
+
 struct d3d12_sparse_image_region
 {
     VkImageSubresource subresource;
