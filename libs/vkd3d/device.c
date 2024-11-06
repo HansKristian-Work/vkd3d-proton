@@ -565,18 +565,18 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * Game relies on mesh + sampler feedback to be exposed to use DXR.
      * Likely used as a proxy for Turing+ to avoid potential software fallbacks on Pascal. */
     { VKD3D_STRING_COMPARE_EXACT, "re8.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     /* Resident Evil 2 remake (883710). Same as RE: Village. */
     { VKD3D_STRING_COMPARE_EXACT, "re2.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re3.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re4.exe",
             0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re4demo.exe",
             0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
     { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", 0, 0, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
     /* Hellblade: Senua's Sacrifice (414340). Enables RT by default if supported which is ... jarring and particularly jarring on Deck. */
@@ -8687,11 +8687,8 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] = compute_derivative_ext;
     }
 
-    if (device->d3d12_caps.options4.Native16BitShaderOpsSupported &&
-            (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV ||
-                    (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16)))
+    if (device->d3d12_caps.options4.Native16BitShaderOpsSupported)
     {
-        /* Native FP16 is buggy on NV for now. */
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT;
     }
