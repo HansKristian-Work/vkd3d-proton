@@ -3,6 +3,12 @@
 # arg variable init
 output_dir=
 run_stress=
+
+# Avoids a race condition in test_object_interface
+# since a PSO might be held alive a little too long in the disk thread.
+# It's very flaky and best to just avoid it.
+export VKD3D_SHADER_CACHE_PATH=0
+
 args=()
 # by default run one job per cpu thread
 nr_cpus=$(grep -w processor /proc/cpuinfo|wc -l)
