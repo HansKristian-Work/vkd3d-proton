@@ -526,8 +526,7 @@
                 "VK_EXT_image_view_min_lod": 1,
                 "VK_EXT_image_sliced_view_of_3d": 1,
                 "VK_EXT_memory_priority": 1,
-                "VK_NV_device_generated_commands": 1,
-                "VK_NV_device_generated_commands_compute": 1,
+                "VK_EXT_device_generated_commands": 1,
                 "VK_KHR_maintenance5": 1,
                 "VK_KHR_maintenance6": 1,
                 "VK_EXT_depth_bias_control": 1
@@ -548,7 +547,7 @@
                 "VkPhysicalDeviceMemoryPriorityFeaturesEXT": {
                     "memoryPriority": true
                 },
-                "VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV": {
+                "VkPhysicalDeviceDeviceGeneratedCommandsFeaturesEXT": {
                     "deviceGeneratedCommands": true
                 },
                 "VkPhysicalDeviceFeatures": {
@@ -557,9 +556,6 @@
                 "VkPhysicalDeviceVulkan12Features": {
                     "shaderFloat16": true,
                     "shaderSubgroupExtendedTypes": true
-                },
-                "VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV": {
-                    "deviceGeneratedCompute": true
                 },
                 "VkPhysicalDeviceMaintenance5FeaturesKHR": {
                     "maintenance5": true
