@@ -97,6 +97,7 @@
                     "shaderStorageImageArrayDynamicIndexing": true,
                     "shaderClipDistance": true,
                     "shaderCullDistance": true,
+                    "shaderInt16": true,
                     "shaderStorageImageWriteWithoutFormat": true
                 }
             },
@@ -551,7 +552,6 @@
                     "deviceGeneratedCommands": true
                 },
                 "VkPhysicalDeviceFeatures": {
-                    "shaderInt16": true,
                     "shaderFloat64": true
                 },
                 "VkPhysicalDeviceVulkan12Features": {
