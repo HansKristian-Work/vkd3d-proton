@@ -5402,14 +5402,6 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
      * Ideally there would be a flag to disable in-memory caching (but retain on-disk cache),
      * but that's extremely specific, so do what we gotta do. */
 
-    /* Mesa's internal cache can bloat indefinitely, so workaround it as needed for now.
-     * TODO: Find a better solution. */
-    if (!object->vk_pso_cache && device->device_info.workarounds.force_dummy_pipeline_cache)
-    {
-        if (vkd3d_create_pipeline_cache(device, 0, NULL, &object->vk_pso_cache) != VK_SUCCESS)
-            object->vk_pso_cache = VK_NULL_HANDLE;
-    }
-
     if (SUCCEEDED(hr))
     {
         switch (bind_point)
@@ -5493,13 +5485,6 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
          * so we should serialize this to internal disk cache.
          * Pushes work to disk$ thread. */
         vkd3d_pipeline_library_store_pipeline_to_disk_cache(&device->disk_cache, object);
-    }
-
-    if (device->device_info.workarounds.force_dummy_pipeline_cache)
-    {
-        /* Throw the pipeline cache away immediately. Tricks drivers into not retaining the PSO in memory cache. */
-        VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
-        object->vk_pso_cache = VK_NULL_HANDLE;
     }
 
     TRACE("Created pipeline state %p.\n", object);

@@ -4557,11 +4557,6 @@ struct vkd3d_physical_device_info
     uint32_t time_domains;  /* vkd3d_time_domain_flag */
 
     bool additional_shading_rates_supported; /* d3d12 additional fragment shading rates cap */
-
-    struct
-    {
-        bool force_dummy_pipeline_cache;
-    } workarounds;
 };
 
 struct d3d12_caps
