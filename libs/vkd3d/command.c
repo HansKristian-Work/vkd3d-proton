@@ -17319,11 +17319,16 @@ static unsigned int vkd3d_get_tile_index_from_region(const struct d3d12_sparse_i
         const D3D12_TILED_RESOURCE_COORDINATE *coord, const D3D12_TILE_REGION_SIZE *size,
         unsigned int tile_index_in_region)
 {
+    unsigned int tile_index;
+
+    if (coord->Subresource >= sparse->tiling_count)
+        return VKD3D_INVALID_TILE_INDEX;
+
     if (!size->UseBox)
     {
         /* Tiles are already ordered by subresource and coordinates correctly,
          * so we can just add the tile index to the region's base index */
-        return vkd3d_get_tile_index_from_coordinate(sparse, coord) + tile_index_in_region;
+        tile_index = vkd3d_get_tile_index_from_coordinate(sparse, coord) + tile_index_in_region;
     }
     else
     {
@@ -17331,8 +17336,11 @@ static unsigned int vkd3d_get_tile_index_from_region(const struct d3d12_sparse_i
         box_coord.X += (tile_index_in_region % size->Width);
         box_coord.Y += (tile_index_in_region / size->Width) % size->Height;
         box_coord.Z += (tile_index_in_region / (size->Width * size->Height));
-        return vkd3d_get_tile_index_from_coordinate(sparse, &box_coord);
+
+        tile_index = vkd3d_get_tile_index_from_coordinate(sparse, &box_coord);
     }
+
+    return tile_index < sparse->tile_count ? tile_index : VKD3D_INVALID_TILE_INDEX;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12CommandQueue *iface,
@@ -17354,6 +17362,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
     D3D12_TILE_RANGE_FLAGS range_flag;
     UINT range_size, range_offset;
     size_t bind_infos_size = 0;
+    VkDeviceSize heap_offset;
 
     TRACE("iface %p, resource %p, region_count %u, region_coords %p, "
             "region_sizes %p, heap %p, range_count %u, range_flags %p, heap_range_offsets %p, "
@@ -17436,34 +17445,49 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
         {
             unsigned int tile_index = vkd3d_get_tile_index_from_region(sparse, &region_coord, &region_size, region_tile);
 
-            if (!(bind = bound_tiles[tile_index]))
+            if (tile_index != VKD3D_INVALID_TILE_INDEX)
             {
-                if (!vkd3d_array_reserve((void **)&sub.bind_sparse.bind_infos, &bind_infos_size,
-                        sub.bind_sparse.bind_count + 1, sizeof(*sub.bind_sparse.bind_infos)))
+                if (!(bind = bound_tiles[tile_index]))
                 {
-                    ERR("Failed to allocate bind info array.\n");
-                    goto fail;
+                    if (!vkd3d_array_reserve((void **)&sub.bind_sparse.bind_infos, &bind_infos_size,
+                            sub.bind_sparse.bind_count + 1, sizeof(*sub.bind_sparse.bind_infos)))
+                    {
+                        ERR("Failed to allocate bind info array.\n");
+                        goto fail;
+                    }
+
+                    bind = &sub.bind_sparse.bind_infos[sub.bind_sparse.bind_count++];
+                    bound_tiles[tile_index] = bind;
                 }
 
-                bind = &sub.bind_sparse.bind_infos[sub.bind_sparse.bind_count++];
-                bound_tiles[tile_index] = bind;
-            }
+                bind->dst_tile = tile_index;
+                bind->src_tile = 0;
 
-            bind->dst_tile = tile_index;
-            bind->src_tile = 0;
+                if (range_flag == D3D12_TILE_RANGE_FLAG_NULL)
+                {
+                    bind->vk_memory = VK_NULL_HANDLE;
+                    bind->vk_offset = 0;
+                }
+                else
+                {
+                    heap_offset = range_flag == D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE
+                            ? VKD3D_TILE_SIZE * range_offset
+                            : VKD3D_TILE_SIZE * (range_offset + range_tile);
 
-            if (range_flag == D3D12_TILE_RANGE_FLAG_NULL)
-            {
-                bind->vk_memory = VK_NULL_HANDLE;
-                bind->vk_offset = 0;
+                    if (heap_offset + VKD3D_TILE_SIZE > memory_heap->desc.SizeInBytes)
+                    {
+                        ERR("Heap offset %"PRIu64" out of bounds, heap size is %"PRIu64".\n", heap_offset, memory_heap->desc.SizeInBytes);
+                        goto fail;
+                    }
+
+                    bind->vk_memory = memory_heap->allocation.device_allocation.vk_memory;
+                    bind->vk_offset = memory_heap->allocation.offset + heap_offset;
+                }
             }
             else
             {
-                bind->vk_memory = memory_heap->allocation.device_allocation.vk_memory;
-                bind->vk_offset = memory_heap->allocation.offset + VKD3D_TILE_SIZE * range_offset;
-
-                if (range_flag != D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE)
-                    bind->vk_offset += VKD3D_TILE_SIZE * range_tile;
+                WARN("Tile coordinates out of bounds, subresource %u @ (%u,%u,%u), tile %u.\n",
+                        region_coord.Subresource, region_coord.X, region_coord.Y, region_coord.Z, region_tile);
             }
         }
 
@@ -17526,9 +17550,21 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
         bind->src_tile = vkd3d_get_tile_index_from_region(&src_res->sparse, src_region_start_coordinate, region_size, i);
         bind->vk_memory = VK_NULL_HANDLE;
         bind->vk_offset = 0;
+
+        if (bind->dst_tile == VKD3D_INVALID_TILE_INDEX || bind->src_tile == VKD3D_INVALID_TILE_INDEX)
+        {
+            WARN("Tile coordinates out of bounds, src subresource %u @ (%u,%u,%u), dst subresource %u @ (%u,%u,%u), tile %u.\n",
+                    src_region_start_coordinate->Subresource, src_region_start_coordinate->X, src_region_start_coordinate->Y, src_region_start_coordinate->Z,
+                    dst_region_start_coordinate->Subresource, dst_region_start_coordinate->X, src_region_start_coordinate->Y, dst_region_start_coordinate->Z, i);
+            goto fail;
+        }
     }
 
     d3d12_command_queue_add_submission(command_queue, &sub);
+    return;
+
+fail:
+    vkd3d_free(sub.bind_sparse.bind_infos);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
