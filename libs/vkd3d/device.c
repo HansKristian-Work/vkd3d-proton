@@ -1511,41 +1511,14 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
     {
         if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
-                device->vk_info.NV_device_generated_commands_compute)
+                device->vk_info.NV_device_generated_commands_compute &&
+                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_DGCC))
         {
-            bool broken_version_linux, broken_version_windows;
-            /* A lot of drivers were broken until 535.43.19 (Linux) and 537.96 (Windows). */
-            /* The 545-drivers, 545.23.06 and 545.29.02 so far, are also broken on Linux. */
-
-            broken_version_linux =
-                    VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) == 545 ||
-                    (info->properties2.properties.driverVersion >= VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 0) &&
-                        info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 19));
-
-            broken_version_windows =
-                    info->properties2.properties.driverVersion >= VKD3D_DRIVER_VERSION_MAKE_NV(537, 0, 0) &&
-                    info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(537, 96, 0);
-
-            if (broken_version_linux || broken_version_windows || (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_DGCC))
-            {
-                device->vk_info.NV_device_generated_commands_compute = false;
-                device->vk_info.EXT_device_generated_commands = false;
-                device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute = VK_FALSE;
-                device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands = VK_FALSE;
-                WARN("Disabling DGCC due to bug in driver version or config flag.\n");
-            }
-        }
-
-        /* NV 525.x drivers and 530.x are affected by this bug. Not all users are affected,
-         * but there is no known workaround for this. */
-        if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
-                VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) < 535)
-        {
-            WARN("Disabling VK_KHR_present_wait on NV drivers due to spurious failure to create swapchains.\n");
-            device->vk_info.KHR_present_wait = false;
-            device->vk_info.KHR_present_id = false;
-            device->device_info.present_wait_features.presentWait = false;
-            device->device_info.present_id_features.presentId = false;
+            device->vk_info.NV_device_generated_commands_compute = false;
+            device->vk_info.EXT_device_generated_commands = false;
+            device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute = VK_FALSE;
+            device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands = VK_FALSE;
+            WARN("Disabling DGCC due to config flag.\n");
         }
 
         /* Two known bugs in the wild:
