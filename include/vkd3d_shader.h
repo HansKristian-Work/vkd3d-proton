@@ -453,7 +453,11 @@ enum vkd3d_shader_quirk
 
     /* Forces NoContract on every expression that can take it (only applies to VS).
      * Useful as a global quirk when games are shipping broken code. */
-    VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS = (1 << 20)
+    VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS = (1 << 20),
+
+    /* Works around cases where app is relying on coherency between threads in a workgroup,
+     * but forgets to use Device memory barriers properly. */
+    VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY = (1 << 21)
 };
 
 struct vkd3d_shader_quirk_hash
