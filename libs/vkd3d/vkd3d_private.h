@@ -993,6 +993,7 @@ struct d3d12_sparse_info
     D3D12_TILE_SHAPE tile_shape;
     D3D12_PACKED_MIP_INFO packed_mips;
     D3D12_SUBRESOURCE_TILING *tilings;
+    uint64_t init_timeline_value;
     struct vkd3d_device_memory_allocation vk_metadata_memory;
 };
 
