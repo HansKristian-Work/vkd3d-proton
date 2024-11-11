@@ -278,12 +278,10 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     VkSemaphoreSubmitInfo signal_semaphore_infos[2];
     VkImageSubresourceLayers vk_subresource_layers;
     VkCopyBufferToImageInfo2 buffer_to_image_copy;
-    struct vkd3d_queue_family_info *queue_family;
     VkCommandBufferSubmitInfo cmd_buffer_info;
     VkCommandBufferBeginInfo begin_info;
     VkImageMemoryBarrier2 image_barrier;
     VkImageSubresource vk_subresource;
-    uint32_t queue_mask, queue_index;
     VkBufferImageCopy2 copy_region;
     VkCommandBuffer vk_cmd_buffer;
     VkDeviceSize buffer_offset;
@@ -442,21 +440,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     }
 
     /* Stall future submissions on other queues until the clear has finished */
-    queue_mask = queue->device->unique_queue_mask;
-
-    while (queue_mask)
-    {
-        queue_index = vkd3d_bitmask_iter32(&queue_mask);
-        queue_family = queue->device->queue_families[queue_index];
-
-        for (i = 0; i < queue_family->queue_count; i++)
-        {
-            vkd3d_queue_add_wait(queue_family->queues[i],
-                    NULL,
-                    queue->vk_semaphore,
-                    queue->next_signal_value, 0);
-        }
-    }
+    vkd3d_add_wait_to_all_queues(queue->device, queue->vk_semaphore, queue->next_signal_value);
 
     /* Keep next_signal always one ahead of the last signaled value */
     queue->next_signal_value += 1;

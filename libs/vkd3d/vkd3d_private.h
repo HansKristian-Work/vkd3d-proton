@@ -294,6 +294,8 @@ struct vkd3d_fence_worker
 #define VKD3D_VA_NEXT_COUNT (1ull << VKD3D_VA_NEXT_BITS)
 #define VKD3D_VA_NEXT_MASK (VKD3D_VA_NEXT_COUNT - 1)
 
+void vkd3d_add_wait_to_all_queues(struct d3d12_device *device,
+        VkSemaphore vk_semaphore, uint64_t value);
 HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         const struct vkd3d_fence_wait_info *fence_info,
         const struct vkd3d_queue_timeline_trace_cookie *timeline_cookie);
