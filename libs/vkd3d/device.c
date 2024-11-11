@@ -2991,17 +2991,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     VK_CALL(vkGetPhysicalDeviceProperties(device->vk_physical_device, &device_properties));
     device->api_version = min(device_properties.apiVersion, VKD3D_MAX_API_VERSION);
 
-    TRACE("Using queue family %u for direct command queues.\n",
-            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_GRAPHICS]);
-    TRACE("Using queue family %u for compute command queues.\n",
-            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_COMPUTE]);
-    TRACE("Using queue family %u for copy command queues.\n",
-            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER]);
-    TRACE("Using queue family %u for sparse binding.\n",
-            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]);
-    TRACE("Using queue family %u for optical flow.\n",
-            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_OPTICAL_FLOW]);
-
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
     if (create_info->optional_device_extension_count)
@@ -3045,6 +3034,17 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         vkd3d_free(extensions);
         return hr;
     }
+
+    TRACE("Using queue family %u for direct command queues.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_GRAPHICS]);
+    TRACE("Using queue family %u for compute command queues.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_COMPUTE]);
+    TRACE("Using queue family %u for copy command queues.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER]);
+    TRACE("Using queue family %u for sparse binding.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]);
+    TRACE("Using queue family %u for optical flow.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_OPTICAL_FLOW]);
 
     /* Create device */
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
