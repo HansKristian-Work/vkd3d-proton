@@ -465,6 +465,27 @@ static void vkd3d_queue_flush_waiters(struct vkd3d_queue *vkd3d_queue,
     vkd3d_queue_release(vkd3d_queue);
 }
 
+void vkd3d_add_wait_to_all_queues(struct d3d12_device *device, VkSemaphore vk_semaphore, uint64_t value)
+{
+    struct vkd3d_queue_family_info *queue_family;
+    uint32_t queue_mask, queue_index;
+    unsigned int i;
+
+    queue_mask = device->unique_queue_mask;
+
+    while (queue_mask)
+    {
+        queue_index = vkd3d_bitmask_iter32(&queue_mask);
+        queue_family = device->queue_families[queue_index];
+
+        for (i = 0; i < queue_family->queue_count; i++)
+        {
+            vkd3d_queue_add_wait(queue_family->queues[i],
+                    NULL, vk_semaphore, value, 0);
+        }
+    }
+}
+
 static HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint64_t initial_value, bool shared, VkSemaphore *vk_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
