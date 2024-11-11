@@ -2972,123 +2972,199 @@ static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC1 *d
     return S_OK;
 }
 
-static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resource,
+static HRESULT d3d12_resource_init_page_table(struct d3d12_resource *resource,
         struct d3d12_device *device, struct d3d12_sparse_info *sparse)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSparseImageMemoryRequirements *sparse_requirements = NULL;
-    VkSparseImageOpaqueMemoryBindInfo opaque_bind;
+    unsigned int mip_tail_layer_count, standard_mip_count;
+    VkSparseImageOpaqueMemoryBindInfo opaque_bind_info;
+    unsigned int opaque_bind_count, image_bind_count;
+    VkSparseBufferMemoryBindInfo buffer_bind_info;
     VkTimelineSemaphoreSubmitInfo timeline_info;
+    VkSparseImageMemoryBindInfo image_bind_info;
+    VkImageSubresourceLayers subresource_layers;
+    VkSparseImageMemoryBind *image_binds = NULL;
     VkMemoryRequirements memory_requirements;
-    VkSparseMemoryBind *memory_binds = NULL;
+    VkSparseMemoryBind *opaque_binds = NULL;
     struct vkd3d_queue *vkd3d_queue = NULL;
     uint32_t sparse_requirement_count;
     VkQueue vk_queue = VK_NULL_HANDLE;
-    unsigned int i, j, k, bind_count;
+    VkSparseMemoryBind buffer_bind;
     VkBindSparseInfo bind_info;
     VkDeviceSize metadata_size;
+    unsigned int i, j, k;
     HRESULT hr = S_OK;
     VkResult vr;
-
-    if (d3d12_resource_is_buffer(resource))
-        return S_OK;
 
     /* If a fallback resource, ignore. */
     if (!(resource->flags & VKD3D_RESOURCE_RESERVED))
         return S_OK;
 
-    /* We expect the metadata aspect for image resources to be uncommon on most
-     * drivers, so most of the time we'll just return early. The implementation
-     * is therefore aimed at simplicity, and not very well tested in practice. */
-    VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
-        resource->res.vk_image, &sparse_requirement_count, NULL));
+    memset(&bind_info, 0, sizeof(bind_info));
+    bind_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
 
-    if (!(sparse_requirements = vkd3d_malloc(sparse_requirement_count * sizeof(*sparse_requirements))))
+    if (d3d12_resource_is_buffer(resource))
     {
-        ERR("Failed to allocate sparse memory requirement array.\n");
-        hr = E_OUTOFMEMORY;
-        goto cleanup;
+        memset(&buffer_bind, 0, sizeof(buffer_bind));
+        buffer_bind.size = align64(resource->desc.Width, VKD3D_TILE_SIZE);
+
+        memset(&buffer_bind_info, 0, sizeof(buffer_bind_info));
+        buffer_bind_info.buffer = resource->res.vk_buffer;
+        buffer_bind_info.bindCount = 1;
+        buffer_bind_info.pBinds = &buffer_bind;
+
+        bind_info.bufferBindCount = 1;
+        bind_info.pBufferBinds = &buffer_bind_info;
     }
-
-    VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
-        resource->res.vk_image, &sparse_requirement_count, sparse_requirements));
-
-    /* Find out how much memory and how many bind infos we need */
-    metadata_size = 0;
-    bind_count = 0;
-
-    for (i = 0; i < sparse_requirement_count; i++)
+    else
     {
-        const VkSparseImageMemoryRequirements *req = &sparse_requirements[i];
+        VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
+            resource->res.vk_image, &sparse_requirement_count, NULL));
 
-        if (req->formatProperties.aspectMask & VK_IMAGE_ASPECT_METADATA_BIT)
+        if (!(sparse_requirements = vkd3d_malloc(sparse_requirement_count * sizeof(*sparse_requirements))))
         {
-            uint32_t layer_count = 1;
-
-            if (!(req->formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT))
-                layer_count = d3d12_resource_desc_get_layer_count(&resource->desc);
-
-            metadata_size *= layer_count * req->imageMipTailSize;
-            bind_count += layer_count;
+            ERR("Failed to allocate sparse memory requirement array.\n");
+            hr = E_OUTOFMEMORY;
+            goto cleanup;
         }
-    }
 
-    if (!metadata_size)
-        goto cleanup;
+        VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
+            resource->res.vk_image, &sparse_requirement_count, sparse_requirements));
 
-    /* Allocate memory for metadata mip tail */
-    TRACE("Allocating sparse metadata for resource %p.\n", resource);
+        /* Find out how much memory and how many bind infos we need */
+        metadata_size = 0;
+        opaque_bind_count = 0;
+        image_bind_count = 0;
 
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->res.vk_image, &memory_requirements));
-
-    if ((vr = vkd3d_allocate_device_memory(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            memory_requirements.memoryTypeBits, NULL, true, &sparse->vk_metadata_memory)))
-    {
-        ERR("Failed to allocate device memory for sparse metadata, vr %d.\n", vr);
-        hr = hresult_from_vk_result(vr);
-        goto cleanup;
-    }
-
-    /* Fill in opaque memory bind info */
-    if (!(memory_binds = vkd3d_malloc(bind_count * sizeof(*memory_binds))))
-    {
-        ERR("Failed to allocate sparse memory bind info array.\n");
-        hr = E_OUTOFMEMORY;
-        goto cleanup;
-    }
-
-    metadata_size = 0;
-
-    for (i = 0, j = 0; i < sparse_requirement_count; i++)
-    {
-        const VkSparseImageMemoryRequirements *req = &sparse_requirements[i];
-
-        if (req->formatProperties.aspectMask & VK_IMAGE_ASPECT_METADATA_BIT)
+        for (i = 0; i < sparse_requirement_count; i++)
         {
-            uint32_t layer_count = 1;
+            const VkSparseImageMemoryRequirements *req = &sparse_requirements[i];
 
-            if (!(req->formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT))
-                layer_count = d3d12_resource_desc_get_layer_count(&resource->desc);
+            mip_tail_layer_count = (req->formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT)
+                    ? 1u : d3d12_resource_desc_get_layer_count(&resource->desc);
 
-            for (k = 0; k < layer_count; k++)
+            if (req->imageMipTailSize)
+                opaque_bind_count += mip_tail_layer_count;
+
+            if (req->formatProperties.aspectMask & VK_IMAGE_ASPECT_METADATA_BIT)
             {
-                VkSparseMemoryBind *bind = &memory_binds[j++];
-                bind->resourceOffset = req->imageMipTailOffset + req->imageMipTailStride * k;
-                bind->size = req->imageMipTailSize;
-                bind->memory = sparse->vk_metadata_memory.vk_memory;
-                bind->memoryOffset = metadata_size;
-                bind->flags = VK_SPARSE_MEMORY_BIND_METADATA_BIT;
+                metadata_size += mip_tail_layer_count * req->imageMipTailSize;
+            }
+            else
+            {
+                standard_mip_count = req->imageMipTailSize
+                        ? min(resource->desc.MipLevels, req->imageMipTailFirstLod)
+                        : resource->desc.MipLevels;
 
-                metadata_size += req->imageMipTailSize;
+                image_bind_count += d3d12_resource_desc_get_layer_count(&resource->desc) * standard_mip_count;
             }
         }
-    }
 
-    /* Bind metadata memory to the image */
-    memset(&opaque_bind, 0, sizeof(opaque_bind));
-    opaque_bind.image = resource->res.vk_image;
-    opaque_bind.bindCount = bind_count;
-    opaque_bind.pBinds = memory_binds;
+        if ((opaque_bind_count && !(opaque_binds = vkd3d_calloc(opaque_bind_count, sizeof(*opaque_binds)))) ||
+                (image_bind_count && !(image_binds = vkd3d_calloc(image_bind_count, sizeof(*image_binds)))))
+        {
+            ERR("Failed to allocate sparse memory bind info arrays.\n");
+            hr = E_OUTOFMEMORY;
+            goto cleanup;
+        }
+
+        if (metadata_size)
+        {
+            /* Allocate memory for metadata mip tail */
+            TRACE("Allocating sparse metadata for resource %p.\n", resource);
+
+            VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->res.vk_image, &memory_requirements));
+
+            if ((vr = vkd3d_allocate_device_memory(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                    memory_requirements.memoryTypeBits, NULL, true, &sparse->vk_metadata_memory)))
+            {
+                ERR("Failed to allocate device memory for sparse metadata, vr %d.\n", vr);
+                hr = hresult_from_vk_result(vr);
+                goto cleanup;
+            }
+        }
+
+        /* Fill in opaque memory bind info */
+        opaque_bind_count = 0;
+        image_bind_count = 0;
+        metadata_size = 0;
+
+        for (i = 0; i < sparse_requirement_count; i++)
+        {
+            const VkSparseImageMemoryRequirements *req = &sparse_requirements[i];
+
+            mip_tail_layer_count = (req->formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT)
+                    ? 1u : d3d12_resource_desc_get_layer_count(&resource->desc);
+
+            if (req->formatProperties.aspectMask & VK_IMAGE_ASPECT_METADATA_BIT)
+            {
+                for (j = 0; j < mip_tail_layer_count; j++)
+                {
+                    VkSparseMemoryBind *bind = &opaque_binds[opaque_bind_count++];
+                    bind->resourceOffset = req->imageMipTailOffset + req->imageMipTailStride * j;
+                    bind->size = req->imageMipTailSize;
+                    bind->memory = sparse->vk_metadata_memory.vk_memory;
+                    bind->memoryOffset = metadata_size;
+                    bind->flags = VK_SPARSE_MEMORY_BIND_METADATA_BIT;
+
+                    metadata_size += req->imageMipTailSize;
+                }
+            }
+            else
+            {
+                if (req->imageMipTailSize)
+                {
+                    for (j = 0; j < mip_tail_layer_count; j++)
+                    {
+                        VkSparseMemoryBind *bind = &opaque_binds[opaque_bind_count++];
+                        bind->resourceOffset = req->imageMipTailOffset + req->imageMipTailStride * j;
+                        bind->size = req->imageMipTailSize;
+                    }
+                }
+
+                standard_mip_count = req->imageMipTailSize
+                        ? min(resource->desc.MipLevels, req->imageMipTailFirstLod)
+                        : resource->desc.MipLevels;
+
+                for (j = 0; j < d3d12_resource_desc_get_layer_count(&resource->desc); j++)
+                {
+                    for (k = 0; k < standard_mip_count; k++)
+                    {
+                        VkSparseImageMemoryBind *bind = &image_binds[image_bind_count++];
+                        bind->subresource.aspectMask = req->formatProperties.aspectMask;
+                        bind->subresource.arrayLayer = j;
+                        bind->subresource.mipLevel = k;
+
+                        subresource_layers = vk_subresource_layers_from_subresource(&bind->subresource);
+                        bind->extent = d3d12_resource_desc_get_vk_subresource_extent(&resource->desc, resource->format, &subresource_layers);
+                    }
+                }
+            }
+        }
+
+        if (image_bind_count)
+        {
+            memset(&image_bind_info, 0, sizeof(image_bind_info));
+            image_bind_info.image = resource->res.vk_image;
+            image_bind_info.bindCount = image_bind_count;
+            image_bind_info.pBinds = image_binds;
+
+            bind_info.imageBindCount = 1;
+            bind_info.pImageBinds = &image_bind_info;
+        }
+
+        if (opaque_bind_count)
+        {
+            memset(&opaque_bind_info, 0, sizeof(opaque_bind_info));
+            opaque_bind_info.image = resource->res.vk_image;
+            opaque_bind_info.bindCount = opaque_bind_count;
+            opaque_bind_info.pBinds = opaque_binds;
+
+            bind_info.imageOpaqueBindCount = 1;
+            bind_info.pImageOpaqueBinds = &opaque_bind_info;
+        }
+    }
 
     vkd3d_queue = device->internal_sparse_queue;
 
@@ -3108,11 +3184,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     timeline_info.signalSemaphoreValueCount = 1;
     timeline_info.pSignalSemaphoreValues = &sparse->init_timeline_value;
 
-    memset(&bind_info, 0, sizeof(bind_info));
-    bind_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
     bind_info.pNext = &timeline_info;
-    bind_info.imageOpaqueBindCount = 1;
-    bind_info.pImageOpaqueBinds = &opaque_bind;
     bind_info.waitSemaphoreCount = 1;
     bind_info.pWaitSemaphores = &device->sparse_init_timeline;
     bind_info.signalSemaphoreCount = 1;
@@ -3125,7 +3197,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
 
     if (vr < 0)
     {
-        ERR("Failed to bind sparse metadata to image, vr %d.\n", vr);
+        ERR("Failed to initialize sparse resource, vr %d.\n", vr);
         hr = hresult_from_vk_result(vr);
         goto cleanup;
     }
@@ -3139,7 +3211,8 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
 
 cleanup:
     vkd3d_free(sparse_requirements);
-    vkd3d_free(memory_binds);
+    vkd3d_free(opaque_binds);
+    vkd3d_free(image_binds);
     return hr;
 }
 
@@ -3240,7 +3313,7 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
         sparse->tiles[i].vk_offset = 0;
     }
 
-    if (FAILED(hr = d3d12_resource_bind_sparse_metadata(resource, device, sparse)))
+    if (FAILED(hr = d3d12_resource_init_page_table(resource, device, sparse)))
         return hr;
 
     return S_OK;
