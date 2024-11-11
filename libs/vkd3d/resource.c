@@ -2978,6 +2978,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSparseImageMemoryRequirements *sparse_requirements = NULL;
     VkSparseImageOpaqueMemoryBindInfo opaque_bind;
+    VkTimelineSemaphoreSubmitInfo timeline_info;
     VkMemoryRequirements memory_requirements;
     VkSparseMemoryBind *memory_binds = NULL;
     struct vkd3d_queue *vkd3d_queue = NULL;
@@ -3084,22 +3085,10 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     }
 
     /* Bind metadata memory to the image */
+    memset(&opaque_bind, 0, sizeof(opaque_bind));
     opaque_bind.image = resource->res.vk_image;
     opaque_bind.bindCount = bind_count;
     opaque_bind.pBinds = memory_binds;
-
-    bind_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
-    bind_info.pNext = NULL;
-    bind_info.waitSemaphoreCount = 0;
-    bind_info.pWaitSemaphores = NULL;
-    bind_info.bufferBindCount = 0;
-    bind_info.pBufferBinds = NULL;
-    bind_info.imageOpaqueBindCount = 1;
-    bind_info.pImageOpaqueBinds = &opaque_bind;
-    bind_info.imageBindCount = 0;
-    bind_info.pImageBinds = NULL;
-    bind_info.signalSemaphoreCount = 0;
-    bind_info.pSignalSemaphores = NULL;
 
     vkd3d_queue = device->internal_sparse_queue;
 
@@ -3109,26 +3098,46 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
         goto cleanup;
     }
 
-    if ((vr = VK_CALL(vkQueueBindSparse(vk_queue, 1, &bind_info, VK_NULL_HANDLE))) < 0)
+    /* This timeline will only get signaled on the internal sparse queue */
+    sparse->init_timeline_value = device->sparse_init_timeline_value + 1u;
+
+    memset(&timeline_info, 0, sizeof(timeline_info));
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timeline_info.waitSemaphoreValueCount = 1;
+    timeline_info.pWaitSemaphoreValues = &device->sparse_init_timeline_value;
+    timeline_info.signalSemaphoreValueCount = 1;
+    timeline_info.pSignalSemaphoreValues = &sparse->init_timeline_value;
+
+    memset(&bind_info, 0, sizeof(bind_info));
+    bind_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
+    bind_info.pNext = &timeline_info;
+    bind_info.imageOpaqueBindCount = 1;
+    bind_info.pImageOpaqueBinds = &opaque_bind;
+    bind_info.waitSemaphoreCount = 1;
+    bind_info.pWaitSemaphores = &device->sparse_init_timeline;
+    bind_info.signalSemaphoreCount = 1;
+    bind_info.pSignalSemaphores = &device->sparse_init_timeline;
+
+    vr = VK_CALL(vkQueueBindSparse(vk_queue, 1, &bind_info, VK_NULL_HANDLE));
+
+    device->sparse_init_timeline_value = sparse->init_timeline_value;
+    vkd3d_queue_release(vkd3d_queue);
+
+    if (vr < 0)
     {
         ERR("Failed to bind sparse metadata to image, vr %d.\n", vr);
         hr = hresult_from_vk_result(vr);
         goto cleanup;
     }
 
-    /* The application is free to use or destroy the resource
-     * immediately after creation, so we need to wait for the
-     * sparse binding operation to finish on the GPU. */
-    if ((vr = VK_CALL(vkQueueWaitIdle(vk_queue))))
-    {
-        ERR("Failed to wait for sparse binding to complete.\n");
-        hr = hresult_from_vk_result(vr);
-    }
+
+    /* The application is free to use or destroy the resource immediately
+     * after creation. Stall subsequent queue submissions until the resource
+     * is initialized. */
+    vkd3d_add_wait_to_all_queues(device, device->sparse_init_timeline,
+            resource->sparse.init_timeline_value);
 
 cleanup:
-    if (vkd3d_queue && vk_queue)
-        vkd3d_queue_release(vkd3d_queue);
-
     vkd3d_free(sparse_requirements);
     vkd3d_free(memory_binds);
     return hr;
@@ -3237,9 +3246,31 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
     return S_OK;
 }
 
+static void d3d12_resource_wait_for_sparse_init(struct d3d12_resource *resource)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &resource->device->vk_procs;
+    VkSemaphoreWaitInfo semaphore_wait;
+    VkResult vr;
+
+    if (!(resource->sparse.init_timeline_value))
+        return;
+
+    memset(&semaphore_wait, 0, sizeof(semaphore_wait));
+    semaphore_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    semaphore_wait.semaphoreCount = 1;
+    semaphore_wait.pSemaphores = &resource->device->sparse_init_timeline;
+    semaphore_wait.pValues = &resource->sparse.init_timeline_value;
+
+    if ((vr = VK_CALL(vkWaitSemaphores(resource->device->vk_device, &semaphore_wait, UINT64_MAX))))
+        ERR("Failed to wait for timeline semaphore, vr %d.\n", vr);
+}
+
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    if (resource->flags & VKD3D_RESOURCE_RESERVED)
+        d3d12_resource_wait_for_sparse_init(resource);
 
     d3d_destruction_notifier_free(&resource->destruction_notifier);
 
