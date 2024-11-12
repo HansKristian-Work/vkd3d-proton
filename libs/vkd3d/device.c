@@ -599,10 +599,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     /* Skull and Bones (2853730). Seems to require unsupported dcomp when reflex is enabled for some reason *shrug */
     { VKD3D_STRING_COMPARE_EXACT, "skullandbones.exe", 0, 0, VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX },
-    /* Monster Hunter Wilds beta
-     * Game renders to a UAV | RTV image, but discards it, and then samples from it. Leading to black screen with FSR3 enabled.
-     * Native D3D12 AMD driver tends to disable compression for UAV in general. */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "MonsterHunterWilds", VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
