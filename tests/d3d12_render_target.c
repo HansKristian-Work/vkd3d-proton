@@ -1578,12 +1578,8 @@ void test_renderpass_rendering(void)
 
     transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    /* For some reason the resolved image (sometimes) seems to get partially
-     * discarded on RADV */
-    bug_if(is_radv_device(context.device))
     check_sub_resource_uint(rt, 0, context.queue, context.list, 0x00000000, 0);
     reset_command_list(context.list, context.allocator);
-    bug_if(is_radv_device(context.device))
     check_sub_resource_uint(rt, 1, context.queue, context.list, 0x0000ff00, 0);
     reset_command_list(context.list, context.allocator);
     check_sub_resource_uint(rt, 2, context.queue, context.list, 0x00800000, 1);
