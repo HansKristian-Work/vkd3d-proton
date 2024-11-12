@@ -9045,7 +9045,7 @@ static void d3d12_get_resolve_barrier_for_dst_resource(struct d3d12_resource *re
     else
     {
         barrier->srcStageMask = outside_stages;
-        barrier->srcAccessMask = VK_ACCESS_2_NONE;
+        barrier->srcAccessMask = outside_access;
         barrier->dstStageMask = resolve_stages;
         barrier->dstAccessMask = resolve_access;
         barrier->oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : outside_layout;
@@ -9110,7 +9110,7 @@ static void d3d12_get_resolve_barrier_for_src_resource(struct d3d12_resource *re
     else
     {
         barrier->srcStageMask = outside_stages;
-        barrier->srcAccessMask = VK_ACCESS_2_NONE;
+        barrier->srcAccessMask = outside_access;
         barrier->dstStageMask = resolve_stages;
         barrier->dstAccessMask = resolve_access;
         barrier->oldLayout = outside_layout;
