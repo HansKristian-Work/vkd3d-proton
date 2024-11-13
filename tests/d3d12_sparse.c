@@ -2346,3 +2346,223 @@ void test_sparse_depth_stencil_rendering(void)
 
     destroy_test_context(&context);
 }
+
+void test_sparse_default_mapping(void)
+{
+#define TILE_SIZE 65536
+    ID3D12Resource *tiled_buffer, *tiled_image, *feedback_buffer;
+    D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DESCRIPTOR_RANGE rs_descriptors[2];
+    struct test_context_desc context_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_args[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    ID3D12RootSignature *rs;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/sparse/headers/sparse_init_access.h"
+
+    static const struct
+    {
+        uint32_t buf_fb;
+        uint32_t img_fb;
+    }
+    expected_results[] =
+    {
+        { 0xffffffffu, 0x0033ffffu },
+        { 0xffffffffu, 0x00010001u },
+        { 0xffffffffu, 0x00010001u },
+        { 0xffffffffu, 0x00010001u },
+        { 0xffffffffu, 0x00010001u },
+        { 0xffffffffu, 0x00000001u },
+        { 0xffffffffu, 0x00000000u },
+        { 0xffffffffu, 0x00000000u },
+    };
+
+    struct
+    {
+        uint32_t image_tile_w;
+        uint32_t image_tile_h;
+        uint32_t image_w;
+        uint32_t image_h;
+        uint32_t image_mips;
+        uint32_t buffer_stride;
+    }
+    shader_args =
+    {
+        256, 256, 1024, 1024, 11, TILE_SIZE / 16
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_render_target = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) ||
+        options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_2)
+    {
+        skip("Tiled resources TIER_2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_amd_windows_device(context.device))
+    {
+        /* AMD segfaults when compiling the compute shader */
+        skip("Skipping test to avoid crash inside AMD driver.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = 64u;
+    resource_desc.Height = 1u;
+    resource_desc.DepthOrArraySize = 1u;
+    resource_desc.MipLevels = 1u;
+    resource_desc.SampleDesc.Count = 1u;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            NULL, &IID_ID3D12Resource, (void**)&feedback_buffer);
+    ok(hr == S_OK, "Failed to create feedback buffer, hr %#x.\n", hr);
+
+    resource_desc.Width = 256u * TILE_SIZE;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+            NULL, &IID_ID3D12Resource, (void**)&tiled_buffer);
+    ok(hr == S_OK, "Failed to create tiled buffer, hr %#x.\n", hr);
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Format = DXGI_FORMAT_R8_UNORM;
+    resource_desc.Width = 1024u;
+    resource_desc.Height = 1024u;
+    resource_desc.DepthOrArraySize = 1u;
+    resource_desc.MipLevels = 11u;
+    resource_desc.SampleDesc.Count = 1u;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+            NULL, &IID_ID3D12Resource, (void**)&tiled_image);
+    ok(hr == S_OK, "Failed to create tiled image, hr %#x.\n", hr);
+
+    memset(rs_descriptors, 0, sizeof(rs_descriptors));
+    rs_descriptors[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    rs_descriptors[0].NumDescriptors = 1u;
+
+    rs_descriptors[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_descriptors[1].NumDescriptors = 2u;
+    rs_descriptors[1].OffsetInDescriptorsFromTableStart = 1u;
+
+    memset(rs_args, 0, sizeof(rs_args));
+    rs_args[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_args[0].Constants.Num32BitValues = sizeof(shader_args) / sizeof(uint32_t);
+    rs_args[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    rs_args[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_args[1].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_descriptors);
+    rs_args[1].DescriptorTable.pDescriptorRanges = rs_descriptors;
+    rs_args[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_args);
+    rs_desc.pParameters = rs_args;
+
+    hr = create_root_signature(context.device, &rs_desc, &rs);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    memset(&pso_desc, 0, sizeof(pso_desc));
+    pso_desc.pRootSignature = rs;
+    pso_desc.CS = sparse_init_access_dxil;
+
+    hr = ID3D12Device_CreateComputePipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
+
+    memset(&descriptor_heap_desc, 0, sizeof(descriptor_heap_desc));
+    descriptor_heap_desc.NumDescriptors = 3;
+    descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &descriptor_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&descriptor_heap);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.NumElements = ARRAY_SIZE(expected_results);
+    uav_desc.Buffer.StructureByteStride = sizeof(expected_results[0]);
+
+    ID3D12Device_CreateUnorderedAccessView(context.device, feedback_buffer,
+            NULL, &uav_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 0));
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srv_desc.Buffer.NumElements = 256 * TILE_SIZE / 16;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+    ID3D12Device_CreateShaderResourceView(context.device, tiled_buffer,
+            &srv_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 1));
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Format = DXGI_FORMAT_R8_UNORM;
+    srv_desc.Texture2D.MipLevels = 11;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+    ID3D12Device_CreateShaderResourceView(context.device, tiled_image,
+            &srv_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 2));
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &descriptor_heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, rs);
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 1, get_gpu_descriptor_handle(&context, descriptor_heap, 0));
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+    transition_resource_state(context.list, feedback_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(feedback_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(expected_results); i++)
+    {
+        uint32_t buf = get_readback_uint(&rb, 2u * i, 0u, 0u);
+        uint32_t img = get_readback_uint(&rb, 2u * i + 1u, 0u, 0u);
+
+        ok(buf == expected_results[i].buf_fb, "Got %#x, expected %#x for tiled buffer at %u.\n",
+                buf, expected_results[i].buf_fb, i);
+        ok(img == expected_results[i].img_fb, "Got %#x, expected %#x for tiled texture at %u.\n",
+                img, expected_results[i].img_fb, i);
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+
+    ID3D12PipelineState_Release(pso);
+    ID3D12RootSignature_Release(rs);
+
+    ID3D12Resource_Release(feedback_buffer);
+    ID3D12Resource_Release(tiled_buffer);
+    ID3D12Resource_Release(tiled_image);
+
+    destroy_test_context(&context);
+#undef TILE_SIZE
+}
