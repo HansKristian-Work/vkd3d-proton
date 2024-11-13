@@ -2735,11 +2735,28 @@ static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
             continue;
 
         /* Don't destroy the same queue family twice */
-        for (j = i; j < VKD3D_QUEUE_FAMILY_COUNT; j++)
+        for (j = i + 1; j < VKD3D_QUEUE_FAMILY_COUNT; j++)
         {
             if (device->queue_families[j] == queue_family)
                 device->queue_families[j] = NULL;
         }
+
+        for (j = 0; j < queue_family->queue_count; j++)
+        {
+            if (queue_family->queues[j])
+                vkd3d_queue_drain(queue_family->queues[j], device);
+        }
+
+        if (queue_family->out_of_band_queue)
+            vkd3d_queue_drain(queue_family->out_of_band_queue, device);
+    }
+
+    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
+    {
+        struct vkd3d_queue_family_info *queue_family = device->queue_families[i];
+
+        if (!queue_family)
+            continue;
 
         for (j = 0; j < queue_family->queue_count; j++)
         {
@@ -2752,6 +2769,8 @@ static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
 
         vkd3d_free(queue_family->queues);
         vkd3d_free(queue_family);
+
+        device->queue_families[i] = NULL;
     }
 }
 

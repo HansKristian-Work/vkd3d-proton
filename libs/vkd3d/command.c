@@ -241,12 +241,17 @@ static void vkd3d_queue_flush_waiters(struct vkd3d_queue *vkd3d_queue,
         struct d3d12_command_queue *command_queue,
         const struct vkd3d_vk_device_procs *vk_procs);
 
-void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device)
+void vkd3d_queue_drain(struct vkd3d_queue *queue, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     /* Also waits for queue idle when we don't pass in a worker. */
     vkd3d_queue_flush_waiters(queue, NULL, vk_procs);
+}
+
+void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     VK_CALL(vkDestroyCommandPool(device->vk_device, queue->barrier_pool, NULL));
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->serializing_binary_semaphore, NULL));
