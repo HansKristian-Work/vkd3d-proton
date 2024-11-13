@@ -3118,6 +3118,7 @@ VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue);
 HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, uint32_t queue_index,
         const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue);
 void vkd3d_set_queue_out_of_band(struct d3d12_device *device, struct vkd3d_queue *queue, VkOutOfBandQueueTypeNV type);
+void vkd3d_queue_drain(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_release(struct vkd3d_queue *queue);
 void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter,
