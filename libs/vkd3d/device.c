@@ -8663,11 +8663,35 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
                     VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE;
         }
 
+        if (device->device_info.vulkan_1_2_properties.shaderDenormFlushToZeroFloat32)
+        {
+            device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                    VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP32_DENORM_FLUSH;
+        }
+
         if (device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat64)
         {
             device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                     VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE;
         }
+    }
+
+    if (device->device_info.vulkan_1_2_properties.shaderSignedZeroInfNanPreserveFloat16)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_INF_NAN_PRESERVE;
+    }
+
+    if (device->device_info.vulkan_1_2_properties.shaderSignedZeroInfNanPreserveFloat32)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP32_INF_NAN_PRESERVE;
+    }
+
+    if (device->device_info.vulkan_1_2_properties.shaderSignedZeroInfNanPreserveFloat64)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_INF_NAN_PRESERVE;
     }
 
     if (device->vk_info.NV_shader_subgroup_partitioned &&

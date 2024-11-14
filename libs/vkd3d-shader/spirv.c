@@ -1883,6 +1883,8 @@ static const struct vkd3d_spirv_capability_extension_mapping vkd3d_spirv_capabil
     {SpvCapabilityFragmentShaderPixelInterlockEXT,        VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK},
     {SpvCapabilityFragmentShaderSampleInterlockEXT,       VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK},
     {SpvCapabilityDenormPreserve,                         VKD3D_SPV_KHR_FLOAT_CONTROLS},
+    {SpvCapabilityDenormFlushToZero,                      VKD3D_SPV_KHR_FLOAT_CONTROLS},
+    {SpvCapabilitySignedZeroInfNanPreserve,               VKD3D_SPV_KHR_FLOAT_CONTROLS},
     {SpvCapabilityRawAccessChainsNV,                      VKD3D_SPV_NV_RAW_ACCESS_CHAINS},
 };
 
@@ -6135,6 +6137,10 @@ static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int flags = instruction->flags;
+    const uint32_t literal_32 = 32u;
+    const uint32_t literal_64 = 64u;
+    bool has_fp64 = false;
+    unsigned int i;
 
     if (flags & VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL)
     {
@@ -6146,20 +6152,43 @@ static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler
     {
         vkd3d_spirv_enable_capability(builder, SpvCapabilityFloat64);
         flags &= ~(VKD3DSGF_ENABLE_DOUBLE_PRECISION_FLOAT_OPS | VKD3DSGF_ENABLE_11_1_DOUBLE_EXTENSIONS);
+        has_fp64 = true;
+    }
 
-        if (compiler->compile_args)
+    if (compiler->compile_args)
+    {
+        for (i = 0; i < compiler->compile_args->target_extension_count; i++)
         {
-            uint32_t literal = 64;
-            unsigned int i;
-
-            for (i = 0; i < compiler->compile_args->target_extension_count; i++)
+            switch (compiler->compile_args->target_extensions[i])
             {
-                if (compiler->compile_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
-                {
-                    vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDenormPreserve, &literal, 1);
-                    vkd3d_spirv_enable_capability(builder, SpvCapabilityDenormPreserve);
+                case VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP32_DENORM_FLUSH:
+                    vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDenormFlushToZero, &literal_32, 1);
+                    vkd3d_spirv_enable_capability(builder, SpvCapabilityDenormFlushToZero);
                     break;
-                }
+
+                case VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP32_INF_NAN_PRESERVE:
+                    vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeSignedZeroInfNanPreserve, &literal_32, 1);
+                    vkd3d_spirv_enable_capability(builder, SpvCapabilitySignedZeroInfNanPreserve);
+                    break;
+
+                case VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE:
+                    if (has_fp64)
+                    {
+                        vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDenormPreserve, &literal_64, 1);
+                        vkd3d_spirv_enable_capability(builder, SpvCapabilityDenormPreserve);
+                    }
+                    break;
+
+                case VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_INF_NAN_PRESERVE:
+                    if (has_fp64)
+                    {
+                        vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeSignedZeroInfNanPreserve, &literal_64, 1);
+                        vkd3d_spirv_enable_capability(builder, SpvCapabilitySignedZeroInfNanPreserve);
+                    }
+                    break;
+
+                default:
+                    break;
             }
         }
     }
