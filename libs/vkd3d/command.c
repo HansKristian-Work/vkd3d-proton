@@ -17359,15 +17359,17 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
     unsigned int region_tile = 0, region_idx = 0, range_tile = 0, range_idx = 0;
     struct d3d12_resource *res = impl_from_ID3D12Resource(resource);
     struct d3d12_heap *memory_heap = impl_from_ID3D12Heap(heap);
-    struct vkd3d_sparse_memory_bind *bind, **bound_tiles;
     struct d3d12_sparse_info *sparse = &res->sparse;
     D3D12_TILED_RESOURCE_COORDINATE region_coord;
     struct d3d12_command_queue_submission sub;
+    struct vkd3d_sparse_memory_bind *bind;
     D3D12_TILE_REGION_SIZE region_size;
     D3D12_TILE_RANGE_FLAGS range_flag;
     UINT range_size, range_offset;
     size_t bind_infos_size = 0;
     VkDeviceSize heap_offset;
+    uint32_t *bound_tiles;
+    unsigned int i;
 
     TRACE("iface %p, resource %p, region_count %u, region_coords %p, "
             "region_sizes %p, heap %p, range_count %u, range_flags %p, heap_range_offsets %p, "
@@ -17423,6 +17425,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
         return;
     }
 
+    for (i = 0; i < sparse->tile_count; i++)
+        bound_tiles[i] = VKD3D_INVALID_TILE_INDEX;
+
     while (region_idx < region_count && range_idx < range_count)
     {
         if (range_tile == 0)
@@ -17452,7 +17457,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
 
             if (tile_index != VKD3D_INVALID_TILE_INDEX)
             {
-                if (!(bind = bound_tiles[tile_index]))
+                if (bound_tiles[tile_index] == VKD3D_INVALID_TILE_INDEX)
                 {
                     if (!vkd3d_array_reserve((void **)&sub.bind_sparse.bind_infos, &bind_infos_size,
                             sub.bind_sparse.bind_count + 1, sizeof(*sub.bind_sparse.bind_infos)))
@@ -17461,8 +17466,13 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
                         goto fail;
                     }
 
+                    bound_tiles[tile_index] = sub.bind_sparse.bind_count;
                     bind = &sub.bind_sparse.bind_infos[sub.bind_sparse.bind_count++];
-                    bound_tiles[tile_index] = bind;
+                }
+                else
+                {
+                    /* App binds the same tile multiple times, use last binding. */
+                    bind = &sub.bind_sparse.bind_infos[bound_tiles[tile_index]];
                 }
 
                 bind->dst_tile = tile_index;
