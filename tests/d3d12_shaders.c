@@ -2573,7 +2573,7 @@ void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
     };
     static struct named_shader ps_dmodifier = {"dmodifier", ps_dmodifier_code, sizeof(ps_dmodifier_code)};
-    static const struct
+    const struct
     {
         const struct named_shader *ps;
         struct
