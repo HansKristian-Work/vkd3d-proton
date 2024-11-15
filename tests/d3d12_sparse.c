@@ -622,6 +622,55 @@ void test_update_tile_mappings(void)
 
     release_resource_readback(&rb);
 
+    /* Test mapping a single tile twice in one call */
+    set_region_offset(&region_offsets[0], 0, 0, 0, 0);
+    set_region_offset(&region_offsets[1], 15, 0, 0, 0);
+
+    set_region_size(&region_sizes[0], 64, false, 0, 0, 0);
+    set_region_size(&region_sizes[1], 3, false, 0, 0, 0);
+
+    tile_flags[0] = D3D12_TILE_RANGE_FLAG_NULL;
+    tile_flags[1] = D3D12_TILE_RANGE_FLAG_NONE;
+
+    tile_offsets[0] = 0;
+    tile_offsets[1] = 8;
+
+    tile_counts[0] = 64;
+    tile_counts[1] = 4;
+
+    ID3D12CommandQueue_UpdateTileMappings(context.queue, resource,
+        2, region_offsets, region_sizes, heap, 2, tile_flags, tile_offsets, tile_counts,
+        D3D12_TILE_MAPPING_FLAG_NONE);
+
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, check_buffer_pipeline);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, get_gpu_descriptor_handle(&context, gpu_heap, 0));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, readback_va);
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(buffer_region_tiles); i++)
+    {
+        uint32_t expected = 0u;
+
+        if (i >= region_offsets[1].X && i < region_offsets[1].X + region_sizes[1].NumTiles)
+            expected = tile_offsets[1] + i + 1 - region_offsets[1].X;
+
+        set_box(&box, i, 0, 0, i + 1, 1, 1);
+
+        /* WARP binds everything to NULL */
+        bug_if(use_warp_device)
+        check_readback_data_uint(&rb, &box, expected, 0);
+    }
+
+    release_resource_readback(&rb);
+
     ID3D12Resource_Release(resource);
     ID3D12Heap_Release(heap);
 
