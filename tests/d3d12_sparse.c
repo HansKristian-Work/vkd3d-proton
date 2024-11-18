@@ -22,6 +22,8 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+#define TILE_SIZE 65536
+
 static uint32_t compute_tile_count(uint32_t resource_size, uint32_t mip, uint32_t tile_size)
 {
     uint32_t mip_size = max(resource_size >> mip, 1u);
@@ -337,7 +339,7 @@ void test_update_tile_mappings_remap_stress(void)
     D3D12_HEAP_DESC heap_desc;
     ID3D12Resource *resource;
     unsigned int i, j, iter;
-    ID3D12Heap *heap;
+    ID3D12Heap *heap = NULL;
     HRESULT hr;
 
 #include "shaders/sparse/headers/update_tile_mappings.h"
@@ -364,14 +366,12 @@ void test_update_tile_mappings_remap_stress(void)
 
     heap_desc.Properties = heap_props;
     heap_desc.Alignment = 0;
-    heap_desc.SizeInBytes = 64 * 64 * 1024;
+    heap_desc.SizeInBytes = 64 * TILE_SIZE;
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
-    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     resource_desc.Alignment = 0;
-    resource_desc.Width = 64 * 64 * 1024;
+    resource_desc.Width = 64 * TILE_SIZE;
     resource_desc.Height = 1;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
@@ -380,29 +380,6 @@ void test_update_tile_mappings_remap_stress(void)
     resource_desc.SampleDesc.Quality = 0;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     resource_desc.Flags = 0;
-
-    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0, &resource_desc,
-            D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
-
-    {
-        ID3D12Resource *upload;
-        uint32_t *upload_data;
-
-        upload_data = malloc(resource_desc.Width);
-        for (i = 0; i < resource_desc.Width / 4; i++)
-            upload_data[i] = i + 1;
-        upload = create_upload_buffer(context.device, 64 * 64 * 1024, upload_data);
-        ID3D12GraphicsCommandList_CopyResource(context.list, resource, upload);
-        ID3D12GraphicsCommandList_Close(context.list);
-        exec_command_list(context.queue, context.list);
-        wait_queue_idle(context.device, context.queue);
-        reset_command_list(context.list, context.allocator);
-        ID3D12Resource_Release(upload);
-        free(upload_data);
-    }
-
-    ID3D12Resource_Release(resource);
 
     hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&resource);
@@ -422,14 +399,17 @@ void test_update_tile_mappings_remap_stress(void)
     context.pipeline_state = create_compute_pipeline_state(
             context.device, context.root_signature, update_tile_mappings_dxbc);
 
-    /* Bump iteration count later. */
-    for (iter = 0; iter < 1; iter++)
+    for (iter = 0; iter < 100; iter++)
     {
         D3D12_TILE_REGION_SIZE resource_tile_region_size;
         D3D12_TILED_RESOURCE_COORDINATE resource_coord;
         D3D12_TILE_RANGE_FLAGS heap_range_flags;
+        ID3D12Resource *placed_resource;
+        ID3D12Resource *upload;
         UINT heap_tile_offset;
+        uint32_t *upload_data;
         UINT heap_tile_count;
+        ID3D12Heap *new_heap;
 
         const struct mappings
         {
@@ -447,6 +427,28 @@ void test_update_tile_mappings_remap_stress(void)
             { 1 + (iter & 3), 0, 7, D3D12_TILE_RANGE_FLAG_NULL },
         };
 
+        hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&new_heap);
+        ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+        hr = ID3D12Device_CreatePlacedResource(context.device, new_heap, 0, &resource_desc,
+                D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&placed_resource);
+        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+        /* Destroy the old heap while it has mappings to the heap, then rebind those pages. Should not explode. */
+        if (heap)
+            ID3D12Heap_Release(heap);
+        heap = new_heap;
+
+        upload_data = malloc(resource_desc.Width);
+        for (i = 0; i < resource_desc.Width / 4; i++)
+            upload_data[i] = i + 1;
+        upload = create_upload_buffer(context.device, resource_desc.Width, upload_data);
+        ID3D12GraphicsCommandList_CopyResource(context.list, placed_resource, upload);
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+        free(upload_data);
+
         for (i = 0; i < ARRAY_SIZE(mappings); i++)
         {
             memset(&resource_coord, 0, sizeof(resource_coord));
@@ -463,10 +465,12 @@ void test_update_tile_mappings_remap_stress(void)
                     &heap_range_flags, &heap_tile_offset, &heap_tile_count, D3D12_TILE_MAPPING_FLAG_NONE);
         }
 
+#define OFFSET_INTO_PAGE 50000
+
         ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
         ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
         ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0,
-                ID3D12Resource_GetGPUVirtualAddress(resource) + 50000);
+                ID3D12Resource_GetGPUVirtualAddress(resource) + OFFSET_INTO_PAGE);
         ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1,
                 ID3D12Resource_GetGPUVirtualAddress(output_resource));
         ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
@@ -484,16 +488,17 @@ void test_update_tile_mappings_remap_stress(void)
                     if (mappings[j].flags == D3D12_TILE_RANGE_FLAG_NULL)
                         expected = 0;
                     else if (mappings[j].flags == D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE)
-                        expected = mappings[j].heap_tile * 16 * 1024 + 12501;
+                        expected = mappings[j].heap_tile * TILE_SIZE / 4 + OFFSET_INTO_PAGE / 4 + 1;
                     else
-                        expected = (mappings[j].heap_tile + (i - mappings[j].resource_tile)) * 16 * 1024 + 12501;
+                        expected = (mappings[j].heap_tile + (i - mappings[j].resource_tile)) * TILE_SIZE / 4 + OFFSET_INTO_PAGE / 4 + 1;
                 }
-
             }
             ok(expected == get_readback_uint(&rb, i, 0, 0),
                     "Iter %u: value %u: Expected %u, got %u.\n", iter, i, expected, get_readback_uint(&rb, i, 0, 0));
         }
         release_resource_readback(&rb);
+        ID3D12Resource_Release(placed_resource);
+        ID3D12Resource_Release(upload);
     }
 
     ID3D12Resource_Release(resource);
@@ -1187,7 +1192,6 @@ void test_update_tile_mappings(void)
 
 void test_copy_tiles(void)
 {
-#define TILE_SIZE 65536
     ID3D12Resource *tiled_resource, *dst_buffer, *src_buffer;
     D3D12_TILED_RESOURCE_COORDINATE region_offset;
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
@@ -2038,7 +2042,6 @@ static void test_texture_feedback_instructions(bool use_dxil)
     ID3D12Resource_Release(residency_rt);
     ID3D12RootSignature_Release(root_signature);
     destroy_test_context(&context);
-    #undef TILE_SIZE
 }
 
 void test_texture_feedback_instructions_sm51(void)
