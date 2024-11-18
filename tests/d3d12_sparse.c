@@ -323,6 +323,185 @@ static void set_region_size(D3D12_TILE_REGION_SIZE *region, uint32_t num_tiles, 
     region->Depth = d;
 }
 
+void test_update_tile_mappings_remap_stress(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[2];
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12Resource *output_resource;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *resource;
+    unsigned int i, j, iter;
+    ID3D12Heap *heap;
+    HRESULT hr;
+
+#include "shaders/sparse/headers/update_tile_mappings.h"
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+
+    if (!options.TiledResourcesTier)
+    {
+        skip("Tiled resources not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    heap_desc.Properties = heap_props;
+    heap_desc.Alignment = 0;
+    heap_desc.SizeInBytes = 64 * 64 * 1024;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 64 * 64 * 1024;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = 0;
+
+    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0, &resource_desc,
+            D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    {
+        ID3D12Resource *upload;
+        uint32_t *upload_data;
+
+        upload_data = malloc(resource_desc.Width);
+        for (i = 0; i < resource_desc.Width / 4; i++)
+            upload_data[i] = i + 1;
+        upload = create_upload_buffer(context.device, 64 * 64 * 1024, upload_data);
+        ID3D12GraphicsCommandList_CopyResource(context.list, resource, upload);
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        wait_queue_idle(context.device, context.queue);
+        reset_command_list(context.list, context.allocator);
+        ID3D12Resource_Release(upload);
+        free(upload_data);
+    }
+
+    ID3D12Resource_Release(resource);
+
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create reserved buffer, hr %#x.\n", hr);
+
+    output_resource = create_default_buffer(context.device, 64 * sizeof(uint32_t),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_compute_pipeline_state(
+            context.device, context.root_signature, update_tile_mappings_dxbc);
+
+    /* Bump iteration count later. */
+    for (iter = 0; iter < 1; iter++)
+    {
+        D3D12_TILE_REGION_SIZE resource_tile_region_size;
+        D3D12_TILED_RESOURCE_COORDINATE resource_coord;
+        D3D12_TILE_RANGE_FLAGS heap_range_flags;
+        UINT heap_tile_offset;
+        UINT heap_tile_count;
+
+        const struct mappings
+        {
+            UINT resource_tile;
+            UINT heap_tile;
+            UINT count;
+            D3D12_TILE_RANGE_FLAGS flags;
+        } mappings[] = {
+            { 0, 0, 64, D3D12_TILE_RANGE_FLAG_NULL },
+            { 4 + (iter & 31), 8 + (iter & 1), 3, D3D12_TILE_RANGE_FLAG_NONE },
+            { 1 + (iter & 14), 2 + (iter & 4), 40, D3D12_TILE_RANGE_FLAG_NONE },
+            { 13 + (iter & 9), 0, 9, D3D12_TILE_RANGE_FLAG_NULL },
+            { 13 + (iter & 7), 19 + (iter & 4), 8, D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE },
+            { 30 + (iter & 5), 0, 7, D3D12_TILE_RANGE_FLAG_NULL },
+            { 1 + (iter & 3), 0, 7, D3D12_TILE_RANGE_FLAG_NULL },
+        };
+
+        for (i = 0; i < ARRAY_SIZE(mappings); i++)
+        {
+            memset(&resource_coord, 0, sizeof(resource_coord));
+            memset(&resource_tile_region_size, 0, sizeof(resource_tile_region_size));
+            resource_coord.X = mappings[i].resource_tile;
+            resource_tile_region_size.NumTiles = mappings[i].count;
+            resource_tile_region_size.UseBox = FALSE;
+            heap_range_flags = mappings[i].flags;
+            heap_tile_offset = mappings[i].heap_tile;
+            heap_tile_count = mappings[i].count;
+
+            ID3D12CommandQueue_UpdateTileMappings(context.queue, resource,
+                    1, &resource_coord, &resource_tile_region_size, heap, 1,
+                    &heap_range_flags, &heap_tile_offset, &heap_tile_count, D3D12_TILE_MAPPING_FLAG_NONE);
+        }
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(resource) + 50000);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1,
+                ID3D12Resource_GetGPUVirtualAddress(output_resource));
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+        transition_resource_state(context.list, output_resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output_resource, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+        for (i = 0; i < 64; i++)
+        {
+            uint32_t expected = 0;
+            for (j = 0; j < ARRAY_SIZE(mappings); j++)
+            {
+                if (i >= mappings[j].resource_tile && i < mappings[j].resource_tile + mappings[j].count)
+                {
+                    if (mappings[j].flags == D3D12_TILE_RANGE_FLAG_NULL)
+                        expected = 0;
+                    else if (mappings[j].flags == D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE)
+                        expected = mappings[j].heap_tile * 16 * 1024 + 12501;
+                    else
+                        expected = (mappings[j].heap_tile + (i - mappings[j].resource_tile)) * 16 * 1024 + 12501;
+                }
+
+            }
+            ok(expected == get_readback_uint(&rb, i, 0, 0),
+                    "Iter %u: value %u: Expected %u, got %u.\n", iter, i, expected, get_readback_uint(&rb, i, 0, 0));
+        }
+        release_resource_readback(&rb);
+    }
+
+    ID3D12Resource_Release(resource);
+    ID3D12Resource_Release(output_resource);
+    ID3D12Heap_Release(heap);
+    destroy_test_context(&context);
+}
+
 void test_update_tile_mappings(void)
 {
     D3D12_TILED_RESOURCE_COORDINATE region_offsets[8];
