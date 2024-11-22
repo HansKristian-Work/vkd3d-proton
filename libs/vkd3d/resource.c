@@ -146,6 +146,20 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
     return hresult_from_vk_result(vr);
 }
 
+static inline VkDeviceSize adjust_sparse_buffer_size(VkDeviceSize size)
+{
+    /* If we attempt to bind sparse buffer with non-64k pages, we crash drivers.
+     * Specs seems a bit unclear how non-aligned VkBuffer sizes are supposed to work,
+     * so be safe. Pad out sparse buffers to their natural page size. */
+    size = align64(size, VKD3D_TILE_SIZE);
+
+    /* To avoid a situation where a tiny sparse buffer needs to use fallback VA lookups.
+     * Just allocate a bit more VA space to avoid this scenario. */
+    size = max(VKD3D_VA_BLOCK_SIZE, size);
+
+    return size;
+}
+
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, const char *tag, VkBuffer *vk_buffer)
@@ -179,11 +193,7 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         buffer_info.flags |= VK_BUFFER_CREATE_SPARSE_BINDING_BIT |
                 VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT |
                 VK_BUFFER_CREATE_SPARSE_ALIASED_BIT;
-
-        /* If we attempt to bind sparse buffer with non-64k pages, we crash drivers.
-         * Specs seems a bit unclear how non-aligned VkBuffer sizes are supposed to work,
-         * so be safe. Pad out sparse buffers to their natural page size. */
-        buffer_info.size = align64(buffer_info.size, VKD3D_TILE_SIZE);
+        buffer_info.size = adjust_sparse_buffer_size(buffer_info.size);
     }
 
     buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
@@ -4133,7 +4143,7 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
 
     if (d3d12_resource_is_buffer(object))
     {
-        object->res.size = object->desc.Width;
+        object->res.size = adjust_sparse_buffer_size(object->desc.Width);
         object->res.va = vkd3d_get_buffer_device_address(device, object->res.vk_buffer);
 
         if (!object->res.va)
