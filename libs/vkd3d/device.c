@@ -2902,8 +2902,21 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
     info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = vkd3d_find_queue(count, queue_properties,
             VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, VK_QUEUE_COMPUTE_BIT);
 
+    /* Try to find a dedicated sparse queue family. We may use the sparse queue for initialization purposes,
+     * and adding that kind of sync will be quite problematic since we get unintentional stalls, especially in graphics queue. */
     info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
-            VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
+            VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_SPARSE_BINDING_BIT,
+            VK_QUEUE_SPARSE_BINDING_BIT);
+
+    /* Try to find a queue family that isn't graphics. */
+    if (info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] == VK_QUEUE_FAMILY_IGNORED)
+        info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
+                VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
+
+    /* Last resort, pick any queue family that supports sparse. */
+    if (info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] == VK_QUEUE_FAMILY_IGNORED)
+        info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
+                VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
 
     if (device->vk_info.NV_optical_flow)
         info->family_index[VKD3D_QUEUE_FAMILY_OPTICAL_FLOW] = vkd3d_find_queue(count, queue_properties,
