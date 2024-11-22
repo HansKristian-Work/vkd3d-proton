@@ -19340,13 +19340,16 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         case VKD3D_SUBMISSION_WAIT:
             VKD3D_REGION_BEGIN(queue_wait);
             if (is_shared_ID3D12Fence1(submission.wait.fence))
+            {
+                d3d12_command_queue_flush_waiters(queue);
                 d3d12_command_queue_wait_shared(queue, shared_impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
+            }
             else
+            {
                 d3d12_command_queue_wait(queue, impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
+            }
+
             d3d12_fence_iface_dec_ref(submission.wait.fence);
-            /* Flush eagerly. For unknown reasons, we observe some issues when trying to fuse this flush
-             * with normal SUBMISSION_EXECUTE. */
-            d3d12_command_queue_flush_waiters(queue);
             VKD3D_REGION_END(queue_wait);
             break;
 
