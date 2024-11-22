@@ -18021,6 +18021,7 @@ static void d3d12_command_queue_add_wait(struct d3d12_command_queue *command_que
         struct d3d12_fence *fence, const struct d3d12_fence_value *fence_value)
 {
     struct vkd3d_fence_virtual_wait *fence_wait;
+    VkSemaphoreSubmitInfo semaphore_wait;
 
     if (!vkd3d_array_reserve((void**)&command_queue->wait_fences, &command_queue->wait_fences_size,
             command_queue->wait_fence_count + 1, sizeof(*command_queue->wait_fences)))
@@ -18039,8 +18040,13 @@ static void d3d12_command_queue_add_wait(struct d3d12_command_queue *command_que
 
     d3d12_fence_inc_ref(fence);
 
-    vkd3d_queue_add_wait_locked(command_queue->vkd3d_queue,
-            fence_value->vk_semaphore, fence_value->vk_semaphore_value);
+    memset(&semaphore_wait, 0, sizeof(semaphore_wait));
+    semaphore_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    semaphore_wait.semaphore = fence_value->vk_semaphore;
+    semaphore_wait.value = fence_value->vk_semaphore_value;
+    semaphore_wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    d3d12_command_queue_add_wait_semaphores(command_queue, 1, &semaphore_wait);
 }
 
 static void d3d12_command_queue_gather_wait_semaphores_locked(struct d3d12_command_queue *command_queue, VkSubmitInfo2 *submit_info)
@@ -18172,11 +18178,12 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
     }
     else
     {
+        pthread_mutex_unlock(&queue->mutex);
+
         /* Defer the wait to next submit.
          * This is also important, since we have to hold on to a private reference on the fence
          * until we have observed the wait to actually complete. */
         d3d12_command_queue_add_wait(command_queue, fence, &fence_value);
-        pthread_mutex_unlock(&queue->mutex);
     }
 }
 
