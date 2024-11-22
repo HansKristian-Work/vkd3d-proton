@@ -3298,6 +3298,10 @@ struct d3d12_command_queue
     struct vkd3d_fence_virtual_wait *wait_fences;
     size_t wait_fences_size;
     size_t wait_fence_count;
+
+    VkSemaphoreSubmitInfo *wait_semaphores;
+    size_t wait_semaphores_size;
+    size_t wait_semaphore_count;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
