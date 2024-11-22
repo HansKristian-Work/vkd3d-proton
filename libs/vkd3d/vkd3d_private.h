@@ -3110,13 +3110,7 @@ struct vkd3d_queue
 
     VkSemaphoreSubmitInfo *wait_semaphores;
     size_t wait_semaphores_size;
-    uint64_t *wait_values_virtual;
-    size_t wait_values_virtual_size;
-    d3d12_fence_iface **wait_fences;
-    size_t wait_fences_size;
     uint32_t wait_count;
-
-    bool need_virtual_wait_values;
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue);
@@ -3126,8 +3120,7 @@ void vkd3d_set_queue_out_of_band(struct d3d12_device *device, struct vkd3d_queue
 void vkd3d_queue_drain(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_release(struct vkd3d_queue *queue);
-void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter,
-        VkSemaphore semaphore, uint64_t value, uint64_t virtual_value);
+void vkd3d_queue_add_wait(struct vkd3d_queue *queue, VkSemaphore semaphore, uint64_t value);
 
 enum vkd3d_submission_type
 {
@@ -3255,6 +3248,14 @@ ULONG dxgi_vk_swap_chain_decref(struct dxgi_vk_swap_chain *chain);
 
 HRESULT dxgi_vk_swap_chain_factory_init(struct d3d12_command_queue *queue, struct dxgi_vk_swap_chain_factory *chain);
 
+struct vkd3d_fence_virtual_wait
+{
+    struct d3d12_fence *fence;
+    uint64_t virtual_value;
+    VkSemaphore vk_semaphore;
+    uint64_t vk_semaphore_value;
+};
+
 /* ID3D12CommandQueueExt */
 typedef ID3D12CommandQueueExt d3d12_command_queue_vkd3d_ext_iface;
 
@@ -3293,6 +3294,10 @@ struct d3d12_command_queue
     struct d3d_destruction_notifier destruction_notifier;
     struct dxgi_vk_swap_chain_factory vk_swap_chain_factory;
     unsigned int submission_thread_tid;
+
+    struct vkd3d_fence_virtual_wait *wait_fences;
+    size_t wait_fences_size;
+    size_t wait_fence_count;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
