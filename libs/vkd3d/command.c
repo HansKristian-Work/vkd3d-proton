@@ -97,8 +97,6 @@ static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSema
     return hresult_from_vk_result(vr);
 }
 
-static HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint64_t initial_value, bool shared, VkSemaphore *vk_semaphore);
-
 static bool vkd3d_driver_implicitly_syncs_host_readback(VkDriverId driver_id)
 {
     return driver_id == VK_DRIVER_ID_MESA_RADV ||
@@ -486,7 +484,7 @@ void vkd3d_add_wait_to_all_queues(struct d3d12_device *device, VkSemaphore vk_se
     }
 }
 
-static HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint64_t initial_value, bool shared, VkSemaphore *vk_semaphore)
+HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint64_t initial_value, bool shared, VkSemaphore *vk_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkPhysicalDeviceExternalSemaphoreInfo external_semaphore_info;

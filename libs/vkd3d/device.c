@@ -3705,6 +3705,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
     d3d12_device_destroy_vkd3d_queues(device);
+    VK_CALL(vkDestroySemaphore(device->vk_device, device->sparse_init_timeline, NULL));
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
     vkd3d_memory_transfer_queue_cleanup(&device->memory_transfers);
     vkd3d_global_descriptor_buffer_cleanup(&device->global_descriptor_buffer, device);
@@ -8900,6 +8901,14 @@ static void vkd3d_scratch_pool_init(struct d3d12_device *device)
             VKD3D_SCRATCH_BUFFER_COUNT_INDIRECT_PREPROCESS;
 }
 
+static HRESULT d3d12_device_create_sparse_init_timeline(struct d3d12_device *device)
+{
+    if (device->queue_family_indices[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] == VK_QUEUE_FAMILY_IGNORED)
+        return S_OK;
+
+    return vkd3d_create_timeline_semaphore(device, 0, false, &device->sparse_init_timeline);
+}
+
 static void d3d12_device_reserve_internal_sparse_queue(struct d3d12_device *device)
 {
     /* This cannot fail. We're not allocating memory here. */
@@ -9000,8 +9009,11 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_sampler_state_init(&device->sampler_state, device)))
         goto out_cleanup_view_map;
 
-    if (FAILED(hr = vkd3d_meta_ops_init(&device->meta_ops, device)))
+    if (FAILED(hr = d3d12_device_create_sparse_init_timeline(device)))
         goto out_cleanup_sampler_state;
+
+    if (FAILED(hr = vkd3d_meta_ops_init(&device->meta_ops, device)))
+        goto out_cleanup_sparse_timeline;
 
     if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
         goto out_cleanup_meta_ops;
@@ -9081,6 +9093,9 @@ out_cleanup_debug_ring:
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_meta_ops:
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
+out_cleanup_sparse_timeline:
+    vk_procs = &device->vk_procs;
+    VK_CALL(vkDestroySemaphore(device->vk_device, device->sparse_init_timeline, NULL));
 out_cleanup_sampler_state:
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
 out_cleanup_view_map:
