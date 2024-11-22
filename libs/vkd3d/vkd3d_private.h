@@ -296,6 +296,8 @@ struct vkd3d_fence_worker
 
 void vkd3d_add_wait_to_all_queues(struct d3d12_device *device,
         VkSemaphore vk_semaphore, uint64_t value);
+HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device,
+        uint64_t initial_value, bool shared, VkSemaphore *vk_semaphore);
 HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         const struct vkd3d_fence_wait_info *fence_info,
         const struct vkd3d_queue_timeline_trace_cookie *timeline_cookie);
@@ -4910,6 +4912,8 @@ struct d3d12_device
     struct vkd3d_memory_allocator memory_allocator;
 
     struct vkd3d_queue *internal_sparse_queue;
+    VkSemaphore sparse_init_timeline;
+    uint64_t sparse_init_timeline_value;
 
     struct d3d12_device_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
 
