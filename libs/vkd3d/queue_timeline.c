@@ -28,7 +28,7 @@
 HRESULT vkd3d_queue_timeline_trace_init(struct vkd3d_queue_timeline_trace *trace, struct d3d12_device *device)
 {
     char env[VKD3D_PATH_MAX];
-    unsigned int i, j;
+    unsigned int i;
 
     if (!vkd3d_get_env_var("VKD3D_QUEUE_PROFILE", env, sizeof(env)))
         return S_OK;
@@ -66,11 +66,6 @@ HRESULT vkd3d_queue_timeline_trace_init(struct vkd3d_queue_timeline_trace *trace
                 "{ \"name\": \"dummy\", \"ph\": \"i\", \"tid\": \"0x%04x\", \"pid\": 0, \"ts\": 0.0 },\n",
                 vkd3d_get_current_thread_id());
     }
-
-    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
-        if (device->queue_families[i])
-            for (j = 0; j < device->queue_families[i]->queue_count; j++)
-                device->queue_families[i]->queues[j]->need_virtual_wait_values = true;
 
     trace->active = true;
     return S_OK;
