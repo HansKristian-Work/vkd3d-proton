@@ -4907,6 +4907,8 @@ struct d3d12_device
     struct vkd3d_memory_transfer_queue memory_transfers;
     struct vkd3d_memory_allocator memory_allocator;
 
+    struct vkd3d_queue *internal_sparse_queue;
+
     struct d3d12_device_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
 
     struct vkd3d_query_pool query_pools[VKD3D_VIRTUAL_QUERY_POOL_COUNT];

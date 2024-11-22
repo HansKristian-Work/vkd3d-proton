@@ -3672,6 +3672,9 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 
     d3d_destruction_notifier_free(&device->destruction_notifier);
 
+    if (device->internal_sparse_queue)
+        d3d12_device_unmap_vkd3d_queue(device->internal_sparse_queue, NULL);
+
     for (i = 0; i < VKD3D_SCRATCH_POOL_KIND_COUNT; i++)
         for (j = 0; j < device->scratch_pools[i].scratch_buffer_count; j++)
             d3d12_device_destroy_scratch_buffer(device, &device->scratch_pools[i].scratch_buffers[j]);
@@ -8897,6 +8900,16 @@ static void vkd3d_scratch_pool_init(struct d3d12_device *device)
             VKD3D_SCRATCH_BUFFER_COUNT_INDIRECT_PREPROCESS;
 }
 
+static void d3d12_device_reserve_internal_sparse_queue(struct d3d12_device *device)
+{
+    /* This cannot fail. We're not allocating memory here. */
+    if (device->queue_family_indices[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] != VK_QUEUE_FAMILY_IGNORED)
+    {
+        device->internal_sparse_queue = d3d12_device_allocate_vkd3d_queue(
+                device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING], NULL);
+    }
+}
+
 static HRESULT d3d12_device_init(struct d3d12_device *device,
         struct vkd3d_instance *instance, const struct vkd3d_device_create_info *create_info)
 {
@@ -9049,6 +9062,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         vkd3d_renderdoc_begin_capture(device->vkd3d_instance->vk_instance);
 #endif
 
+    d3d12_device_reserve_internal_sparse_queue(device);
     d3d_destruction_notifier_init(&device->destruction_notifier, (IUnknown*)&device->ID3D12Device_iface);
     return S_OK;
 

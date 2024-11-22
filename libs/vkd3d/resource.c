@@ -3101,7 +3101,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     bind_info.signalSemaphoreCount = 0;
     bind_info.pSignalSemaphores = NULL;
 
-    vkd3d_queue = device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]->queues[0];
+    vkd3d_queue = device->internal_sparse_queue;
 
     if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
     {

@@ -19048,7 +19048,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     queue = command_queue->vkd3d_queue;
 
     if (!(queue->vk_queue_flags & VK_QUEUE_SPARSE_BINDING_BIT))
-        queue_sparse = command_queue->device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]->queues[0];
+        queue_sparse = command_queue->device->internal_sparse_queue;
     else
         queue_sparse = queue;
 
