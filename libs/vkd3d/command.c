@@ -18805,12 +18805,10 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
          * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives more easily. */
         if (!command_queue->vkd3d_queue->barrier_command_buffer && is_last)
         {
+            memset(&binary_semaphore_info, 0, sizeof(binary_semaphore_info));
             binary_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-            binary_semaphore_info.pNext = NULL;
-            binary_semaphore_info.value = 0;
             binary_semaphore_info.semaphore = command_queue->vkd3d_queue->serializing_binary_semaphore;
             binary_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            binary_semaphore_info.deviceIndex = 0;
 
             submit = &submit_desc[num_submits++];
             submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
@@ -18850,10 +18848,16 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
                 dxgi_vk_swap_chain_decref(low_latency_swapchain);
         }
 
+        if (is_first)
+            d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_desc[0]);
+
         if (split_submissions)
             vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue, num_submits, submit_desc);
         else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
             ERR("Failed to submit queue(s), vr %d.\n", vr);
+
+        if (is_first)
+            d3d12_command_queue_finalize_waits(command_queue, vr);
 
         VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
@@ -19329,9 +19333,6 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         memmove(queue->submissions, queue->submissions + 1, queue->submissions_count * sizeof(submission));
         pthread_mutex_unlock(&queue->queue_lock);
 
-        if (submission.type != VKD3D_SUBMISSION_WAIT)
-            d3d12_command_queue_flush_waiters(queue);
-
         switch (submission.type)
         {
         case VKD3D_SUBMISSION_STOP:
@@ -19354,6 +19355,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_SIGNAL:
+            d3d12_command_queue_flush_waiters(queue);
+
             VKD3D_REGION_BEGIN(queue_signal);
             d3d12_command_queue_signal_inline(queue, submission.signal.fence, submission.signal.value);
             d3d12_fence_iface_dec_ref(submission.signal.fence);
@@ -19411,6 +19414,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_BIND_SPARSE:
+            d3d12_command_queue_flush_waiters(queue);
+
             d3d12_command_queue_bind_sparse(queue, submission.bind_sparse.mode,
                     submission.bind_sparse.dst_resource, submission.bind_sparse.src_resource,
                     submission.bind_sparse.bind_count, submission.bind_sparse.bind_infos);
@@ -19418,15 +19423,17 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_DRAIN:
-        {
+            d3d12_command_queue_flush_waiters(queue);
+
             pthread_mutex_lock(&queue->queue_lock);
             queue->queue_drain_count++;
             pthread_cond_signal(&queue->queue_cond);
             pthread_mutex_unlock(&queue->queue_lock);
             break;
-        }
 
         case VKD3D_SUBMISSION_CALLBACK:
+            d3d12_command_queue_flush_waiters(queue);
+
             submission.callback.callback(submission.callback.userdata);
             break;
 
