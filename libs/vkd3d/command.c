@@ -18054,7 +18054,6 @@ static void d3d12_command_queue_eliminate_completed_waits(struct d3d12_command_q
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     uint64_t semaphore_value;
     unsigned int i, j;
-
     for (i = 0, j = 0; i < command_queue->wait_semaphore_count; i++)
     {
         /* If value is 0, we might be dealing with a binary semaphore */
@@ -18076,19 +18075,22 @@ static void d3d12_command_queue_eliminate_completed_waits(struct d3d12_command_q
     command_queue->wait_semaphore_count = j;
 }
 
-static void d3d12_command_queue_gather_wait_semaphores_locked(struct d3d12_command_queue *command_queue, VkSubmitInfo2 *submit_info)
+static void d3d12_command_queue_gather_wait_semaphores_locked(struct d3d12_command_queue *command_queue, VkSubmitInfo2 *submit_info, uint32_t wait_flags)
 {
     d3d12_command_queue_add_wait_semaphores(command_queue,
             submit_info->waitSemaphoreInfoCount,
             submit_info->pWaitSemaphoreInfos);
 
-    /* Add global waits from the physical queue as well. This is safe as long
-     * as the caller submits pending waits inside the same locked scope. */
-    d3d12_command_queue_add_wait_semaphores(command_queue,
-            command_queue->vkd3d_queue->wait_count,
-            command_queue->vkd3d_queue->wait_semaphores);
+    if (wait_flags & VKD3D_WAIT_SEMAPHORES_EXTERNAL)
+    {
+        /* Add global waits from the physical queue as well. This is safe as long
+         * as the caller submits pending waits inside the same locked scope. */
+        d3d12_command_queue_add_wait_semaphores(command_queue,
+                command_queue->vkd3d_queue->wait_count,
+                command_queue->vkd3d_queue->wait_semaphores);
 
-    command_queue->vkd3d_queue->wait_count = 0u;
+        command_queue->vkd3d_queue->wait_count = 0u;
+    }
 
     d3d12_command_queue_eliminate_completed_waits(command_queue);
 
@@ -18106,7 +18108,7 @@ static void d3d12_command_queue_finalize_waits(struct d3d12_command_queue *comma
     d3d12_command_queue_reset_fence_waits(command_queue);
 }
 
-static void d3d12_command_queue_flush_waiters(struct d3d12_command_queue *command_queue)
+static void d3d12_command_queue_flush_waiters(struct d3d12_command_queue *command_queue, uint32_t wait_flags)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     VkSemaphoreSubmitInfo signal_semaphore;
@@ -18123,7 +18125,7 @@ static void d3d12_command_queue_flush_waiters(struct d3d12_command_queue *comman
     memset(&submit_info, 0, sizeof(submit_info));
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
 
-    d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_info);
+    d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_info, wait_flags);
 
     if (submit_info.waitSemaphoreInfoCount)
     {
@@ -18875,7 +18877,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         }
 
         if (is_first)
-            d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_desc[0]);
+            d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_desc[0], VKD3D_WAIT_SEMAPHORES_EXTERNAL);
 
         if (split_submissions)
             vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue, num_submits, submit_desc);
@@ -19361,7 +19363,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             VKD3D_REGION_BEGIN(queue_wait);
             if (is_shared_ID3D12Fence1(submission.wait.fence))
             {
-                d3d12_command_queue_flush_waiters(queue);
+                d3d12_command_queue_flush_waiters(queue, 0u);
                 d3d12_command_queue_wait_shared(queue, shared_impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
             }
             else
@@ -19374,7 +19376,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_SIGNAL:
-            d3d12_command_queue_flush_waiters(queue);
+            d3d12_command_queue_flush_waiters(queue, 0u);
 
             VKD3D_REGION_BEGIN(queue_signal);
             d3d12_command_queue_signal_inline(queue, submission.signal.fence, submission.signal.value);
@@ -19433,7 +19435,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_BIND_SPARSE:
-            d3d12_command_queue_flush_waiters(queue);
+            d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL);
 
             d3d12_command_queue_bind_sparse(queue, submission.bind_sparse.mode,
                     submission.bind_sparse.dst_resource, submission.bind_sparse.src_resource,
@@ -19442,7 +19444,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_DRAIN:
-            d3d12_command_queue_flush_waiters(queue);
+            /* Full flush needed to synchronize interop */
+            d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL);
 
             pthread_mutex_lock(&queue->queue_lock);
             queue->queue_drain_count++;
@@ -19451,7 +19454,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_CALLBACK:
-            d3d12_command_queue_flush_waiters(queue);
+            d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL);
 
             submission.callback.callback(submission.callback.userdata);
             break;
@@ -19463,7 +19466,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
     }
 
 cleanup:
-    d3d12_command_queue_flush_waiters(queue);
+    d3d12_command_queue_flush_waiters(queue, 0u);
     d3d12_command_queue_transition_pool_deinit(&pool, queue->device);
     return NULL;
 }
