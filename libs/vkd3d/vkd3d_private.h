@@ -3248,6 +3248,11 @@ ULONG dxgi_vk_swap_chain_decref(struct dxgi_vk_swap_chain *chain);
 
 HRESULT dxgi_vk_swap_chain_factory_init(struct d3d12_command_queue *queue, struct dxgi_vk_swap_chain_factory *chain);
 
+enum vkd3d_wait_semaphore_flags
+{
+    VKD3D_WAIT_SEMAPHORES_EXTERNAL        = (1u << 0),
+};
+
 struct vkd3d_fence_virtual_wait
 {
     struct d3d12_fence *fence;
