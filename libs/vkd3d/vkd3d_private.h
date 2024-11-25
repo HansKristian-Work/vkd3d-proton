@@ -3094,7 +3094,6 @@ struct vkd3d_queue
 
     VkCommandPool barrier_pool;
     VkCommandBuffer barrier_command_buffer;
-    VkSemaphore serializing_binary_semaphore;
     VkSemaphore submission_timeline;
     uint64_t submission_timeline_count;
 
@@ -3307,6 +3306,8 @@ struct d3d12_command_queue
     VkSemaphoreSubmitInfo *wait_semaphores;
     size_t wait_semaphores_size;
     size_t wait_semaphore_count;
+
+    VkSemaphore serializing_semaphore;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,

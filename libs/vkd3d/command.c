@@ -202,16 +202,12 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
         VK_CALL(vkEndCommandBuffer(object->barrier_command_buffer));
     }
 
-    if (FAILED(hr = vkd3d_create_binary_semaphore(device, &object->serializing_binary_semaphore)))
-        goto fail_free_command_pool;
     if (FAILED(hr = vkd3d_create_timeline_semaphore(device, 0, false, &object->submission_timeline)))
-        goto fail_free_binary_semaphore;
+        goto fail_free_command_pool;
 
     *queue = object;
     return hr;
 
-fail_free_binary_semaphore:
-    VK_CALL(vkDestroySemaphore(device->vk_device, object->serializing_binary_semaphore, NULL));
 fail_free_command_pool:
     VK_CALL(vkDestroyCommandPool(device->vk_device, object->barrier_pool, NULL));
 fail_destroy_mutex:
@@ -283,7 +279,6 @@ void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device)
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     VK_CALL(vkDestroyCommandPool(device->vk_device, queue->barrier_pool, NULL));
-    VK_CALL(vkDestroySemaphore(device->vk_device, queue->serializing_binary_semaphore, NULL));
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->submission_timeline, NULL));
 
     pthread_mutex_destroy(&queue->mutex);
@@ -17944,6 +17939,13 @@ static bool d3d12_command_queue_needs_cpu_waits_locked(struct d3d12_command_queu
     return false;
 }
 
+static void d3d12_command_queue_destroy_serializing_semaphore(struct d3d12_command_queue *command_queue)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
+
+    VK_CALL(vkDestroySemaphore(command_queue->device->vk_device, command_queue->serializing_semaphore, NULL));
+}
+
 static void d3d12_command_queue_reset_fence_waits(struct d3d12_command_queue *command_queue)
 {
     size_t i;
@@ -18146,6 +18148,24 @@ static void d3d12_command_queue_flush_waiters(struct d3d12_command_queue *comman
     vkd3d_queue_release(command_queue->vkd3d_queue);
 
     d3d12_command_queue_finalize_waits(command_queue, vr);
+}
+
+static void d3d12_command_queue_wait_idle(struct d3d12_command_queue *command_queue)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
+    VkSemaphoreWaitInfo semaphore_wait;
+    VkResult vr;
+
+    d3d12_command_queue_flush_waiters(command_queue, 0u);
+
+    memset(&semaphore_wait, 0, sizeof(semaphore_wait));
+    semaphore_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    semaphore_wait.semaphoreCount = 1u;
+    semaphore_wait.pSemaphores = &command_queue->vkd3d_queue->submission_timeline;
+    semaphore_wait.pValues = &command_queue->last_submission_timeline_value;
+
+    if ((vr = VK_CALL(vkWaitSemaphores(command_queue->device->vk_device, &semaphore_wait, UINT64_MAX))))
+        ERR("Failed to wait for virtual queue idle, vr %d.\n", vr);
 }
 
 static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
@@ -18817,8 +18837,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
         submit->commandBufferInfoCount = cmd_count;
         submit->pCommandBufferInfos = &cmd[cmd_index];
-        submit->signalSemaphoreInfoCount = 1;
-        submit->pSignalSemaphoreInfos = &signal_semaphore_info;
 
         if (transition_cmd->commandBuffer && is_first)
         {
@@ -18831,11 +18849,11 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
          * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives more easily. */
-        if (!command_queue->vkd3d_queue->barrier_command_buffer && is_last)
+        if (command_queue->serializing_semaphore && is_last)
         {
             memset(&binary_semaphore_info, 0, sizeof(binary_semaphore_info));
             binary_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-            binary_semaphore_info.semaphore = command_queue->vkd3d_queue->serializing_binary_semaphore;
+            binary_semaphore_info.semaphore = command_queue->serializing_semaphore;
             binary_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
             submit = &submit_desc[num_submits++];
@@ -18848,6 +18866,9 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
             submit->waitSemaphoreInfoCount = 1;
             submit->pWaitSemaphoreInfos = &binary_semaphore_info;
         }
+
+        submit->signalSemaphoreInfoCount = 1;
+        submit->pSignalSemaphoreInfos = &signal_semaphore_info;
 
         if (command_queue->device->vk_info.NV_low_latency2)
         {
@@ -19466,14 +19487,16 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
     }
 
 cleanup:
-    d3d12_command_queue_flush_waiters(queue, 0u);
+    d3d12_command_queue_wait_idle(queue);
     d3d12_command_queue_transition_pool_deinit(&pool, queue->device);
+    d3d12_command_queue_destroy_serializing_semaphore(queue);
     return NULL;
 }
 
 static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         struct d3d12_device *device, const D3D12_COMMAND_QUEUE_DESC *desc, struct vkd3d_queue_family_info *family_info)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     HRESULT hr;
     int rc;
 
@@ -19511,6 +19534,12 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (desc->Flags)
         FIXME("Ignoring flags %#x.\n", desc->Flags);
 
+    if (!queue->vkd3d_queue->barrier_command_buffer)
+    {
+        if (FAILED(hr = vkd3d_create_binary_semaphore(device, &queue->serializing_semaphore)))
+            goto fail_create_semaphore;
+    }
+
     if (FAILED(hr = vkd3d_private_store_init(&queue->private_store)))
         goto fail_private_store;
 
@@ -19539,6 +19568,8 @@ fail_swapchain_factory:
     vkd3d_private_store_destroy(&queue->private_store);
 fail_private_store:
     pthread_cond_destroy(&queue->queue_cond);
+fail_create_semaphore:
+    VK_CALL(vkDestroySemaphore(device->vk_device, queue->serializing_semaphore, NULL));
 fail_pthread_cond:
     pthread_mutex_destroy(&queue->queue_lock);
 fail:
