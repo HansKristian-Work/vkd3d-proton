@@ -3250,6 +3250,7 @@ HRESULT dxgi_vk_swap_chain_factory_init(struct d3d12_command_queue *queue, struc
 enum vkd3d_wait_semaphore_flags
 {
     VKD3D_WAIT_SEMAPHORES_EXTERNAL        = (1u << 0),
+    VKD3D_WAIT_SEMAPHORES_SERIALIZING     = (1u << 1),
 };
 
 struct vkd3d_fence_virtual_wait
@@ -3308,6 +3309,7 @@ struct d3d12_command_queue
     size_t wait_semaphore_count;
 
     VkSemaphore serializing_semaphore;
+    bool serializing_semaphore_signaled;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,

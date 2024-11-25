@@ -18079,6 +18079,8 @@ static void d3d12_command_queue_eliminate_completed_waits(struct d3d12_command_q
 
 static void d3d12_command_queue_gather_wait_semaphores_locked(struct d3d12_command_queue *command_queue, VkSubmitInfo2 *submit_info, uint32_t wait_flags)
 {
+    struct VkSemaphoreSubmitInfo serializing_semaphore;
+
     d3d12_command_queue_add_wait_semaphores(command_queue,
             submit_info->waitSemaphoreInfoCount,
             submit_info->pWaitSemaphoreInfos);
@@ -18092,6 +18094,16 @@ static void d3d12_command_queue_gather_wait_semaphores_locked(struct d3d12_comma
                 command_queue->vkd3d_queue->wait_semaphores);
 
         command_queue->vkd3d_queue->wait_count = 0u;
+    }
+
+    if ((wait_flags & VKD3D_WAIT_SEMAPHORES_SERIALIZING) && command_queue->serializing_semaphore_signaled)
+    {
+        memset(&serializing_semaphore, 0, sizeof(serializing_semaphore));
+        serializing_semaphore.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        serializing_semaphore.semaphore = command_queue->serializing_semaphore;
+        serializing_semaphore.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+        d3d12_command_queue_add_wait_semaphores(command_queue, 1, &serializing_semaphore);
     }
 
     d3d12_command_queue_eliminate_completed_waits(command_queue);
@@ -18143,6 +18155,9 @@ static void d3d12_command_queue_flush_waiters(struct d3d12_command_queue *comman
 
         if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE))))
             ERR("Failed to submit semaphore waits, vr %d.\n", vr);
+
+        if (vr == VK_SUCCESS && (wait_flags & VKD3D_WAIT_SEMAPHORES_SERIALIZING))
+            command_queue->serializing_semaphore_signaled = false;
     }
 
     vkd3d_queue_release(command_queue->vkd3d_queue);
@@ -18156,7 +18171,7 @@ static void d3d12_command_queue_wait_idle(struct d3d12_command_queue *command_qu
     VkSemaphoreWaitInfo semaphore_wait;
     VkResult vr;
 
-    d3d12_command_queue_flush_waiters(command_queue, 0u);
+    d3d12_command_queue_flush_waiters(command_queue, VKD3D_WAIT_SEMAPHORES_SERIALIZING);
 
     memset(&semaphore_wait, 0, sizeof(semaphore_wait));
     semaphore_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
@@ -18724,12 +18739,12 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
     VkLatencySubmissionPresentIdNV latency_submit_present_info;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
-    VkSemaphoreSubmitInfo signal_semaphore_info;
-    VkSemaphoreSubmitInfo binary_semaphore_info;
+    VkSemaphoreSubmitInfo signal_semaphore_infos[2];
+    VkSemaphoreSubmitInfo *binary_semaphore_info;
     bool stagger_submissions, is_first, is_last;
     uint32_t cmd_index, cmd_count, total_cost;
     struct vkd3d_fence_wait_info fence_info;
-    VkSubmitInfo2 submit_desc[4], *submit;
+    VkSubmitInfo2 submit_desc[2], *submit;
     uint64_t consumed_present_id;
     uint32_t num_submits;
     VkQueue vk_queue;
@@ -18799,11 +18814,11 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     {
         is_first = cmd_index == 0;
 
-        memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
-        signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        signal_semaphore_info.semaphore = vkd3d_queue->submission_timeline;
-        signal_semaphore_info.value = ++vkd3d_queue->submission_timeline_count;
-        signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        memset(signal_semaphore_infos, 0, sizeof(signal_semaphore_infos));
+        signal_semaphore_infos[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        signal_semaphore_infos[0].semaphore = vkd3d_queue->submission_timeline;
+        signal_semaphore_infos[0].value = ++vkd3d_queue->submission_timeline_count;
+        signal_semaphore_infos[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
         if (stagger_submissions)
         {
@@ -18837,6 +18852,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
         submit->commandBufferInfoCount = cmd_count;
         submit->pCommandBufferInfos = &cmd[cmd_index];
+        submit->signalSemaphoreInfoCount = 1;
+        submit->pSignalSemaphoreInfos = signal_semaphore_infos;
 
         if (transition_cmd->commandBuffer && is_first)
         {
@@ -18846,29 +18863,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         cmd_index += cmd_count;
         is_last = cmd_index == count;
-
-        /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
-         * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives more easily. */
-        if (command_queue->serializing_semaphore && is_last)
-        {
-            memset(&binary_semaphore_info, 0, sizeof(binary_semaphore_info));
-            binary_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-            binary_semaphore_info.semaphore = command_queue->serializing_semaphore;
-            binary_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-
-            submit = &submit_desc[num_submits++];
-            submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-            submit->signalSemaphoreInfoCount = 1;
-            submit->pSignalSemaphoreInfos = &binary_semaphore_info;
-
-            submit = &submit_desc[num_submits++];
-            submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-            submit->waitSemaphoreInfoCount = 1;
-            submit->pWaitSemaphoreInfos = &binary_semaphore_info;
-        }
-
-        submit->signalSemaphoreInfoCount = 1;
-        submit->pSignalSemaphoreInfos = &signal_semaphore_info;
 
         if (command_queue->device->vk_info.NV_low_latency2)
         {
@@ -18898,7 +18892,21 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         }
 
         if (is_first)
-            d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_desc[0], VKD3D_WAIT_SEMAPHORES_EXTERNAL);
+        {
+            d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_desc[0],
+                  VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
+        }
+
+        /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
+         * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives
+         * more easily. Must happen after setting up waits to track the binary semaphore state correctly. */
+        if (command_queue->serializing_semaphore && is_last)
+        {
+            binary_semaphore_info = &signal_semaphore_infos[submit->signalSemaphoreInfoCount++];
+            binary_semaphore_info->sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            binary_semaphore_info->semaphore = command_queue->serializing_semaphore;
+            binary_semaphore_info->stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        }
 
         if (split_submissions)
             vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue, num_submits, submit_desc);
@@ -18912,6 +18920,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         if (vr != VK_SUCCESS)
             break;
+
+        command_queue->serializing_semaphore_signaled = command_queue->serializing_semaphore && is_last;
 
         memset(submit_desc, 0, sizeof(submit_desc));
         num_submits = 0;
@@ -18933,7 +18943,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         }
 
         /* Update timeline value *after* waiting for staggered submissions */
-        command_queue->last_submission_timeline_value = signal_semaphore_info.value;
+        command_queue->last_submission_timeline_value = signal_semaphore_infos[0].value;
     }
 
 #ifdef VKD3D_ENABLE_RENDERDOC
@@ -18954,7 +18964,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     {
         memset(&fence_info, 0, sizeof(fence_info));
         fence_info.vk_semaphore = vkd3d_queue->submission_timeline;
-        fence_info.vk_semaphore_value = signal_semaphore_info.value;
+        fence_info.vk_semaphore_value = signal_semaphore_infos[0].value;
         fence_info.command_allocators = command_allocators;
         fence_info.num_command_allocators = num_command_allocators;
 
@@ -19466,7 +19476,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
         case VKD3D_SUBMISSION_DRAIN:
             /* Full flush needed to synchronize interop */
-            d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL);
+            d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
 
             pthread_mutex_lock(&queue->queue_lock);
             queue->queue_drain_count++;
@@ -19475,7 +19485,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_CALLBACK:
-            d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL);
+            d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
 
             submission.callback.callback(submission.callback.userdata);
             break;
