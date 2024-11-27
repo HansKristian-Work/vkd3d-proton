@@ -3955,10 +3955,10 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 
         heap_offset = align(heap->allocation.offset + heap_offset, memory_requirements.alignment) - heap->allocation.offset;
 
-        if (heap_offset + memory_requirements.size > heap->allocation.resource.size)
+        if (heap_offset + memory_requirements.size > heap->desc.SizeInBytes)
         {
             ERR("Heap too small for the texture (heap=%"PRIu64", res=%"PRIu64".\n",
-                heap->allocation.resource.size, heap_offset + memory_requirements.size);
+                heap->desc.SizeInBytes, heap_offset + memory_requirements.size);
             hr = E_INVALIDARG;
             goto fail;
         }
@@ -3989,10 +3989,10 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     }
     else
     {
-        if (heap_offset + desc->Width > heap->allocation.resource.size)
+        if (heap_offset + desc->Width > heap->desc.SizeInBytes)
         {
             ERR("Heap too small for the buffer (heap=%"PRIu64", res=%"PRIu64".\n",
-                heap->allocation.resource.size, heap_offset + desc->Width);
+                heap->desc.SizeInBytes, heap_offset + desc->Width);
             hr = E_INVALIDARG;
             goto fail;
         }
