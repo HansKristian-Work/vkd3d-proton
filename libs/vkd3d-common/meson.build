@@ -6,6 +6,7 @@ vkd3d_common_src = [
   'string.c',
   'file_utils.c',
   'platform.c',
+  'guid.c',
 ]
 
 vkd3d_common_lib = static_library('vkd3d_common', vkd3d_common_src, vkd3d_header_files,

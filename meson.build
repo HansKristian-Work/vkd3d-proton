@@ -18,6 +18,7 @@ enable_profiling         = get_option('enable_profiling')
 enable_renderdoc         = get_option('enable_renderdoc')
 enable_descriptor_qa     = get_option('enable_descriptor_qa')
 enable_trace             = get_option('enable_trace')
+enable_dxilconv          = get_option('enable_dxilconv')
 
 if enable_trace == 'auto'
   enable_trace = vkd3d_debug
@@ -51,6 +52,10 @@ endif
 enable_breadcrumbs = enable_trace
 if enable_breadcrumbs
   add_project_arguments('-DVKD3D_ENABLE_BREADCRUMBS', language : 'c')
+endif
+
+if enable_dxilconv and vkd3d_platform == 'windows'
+  add_project_arguments('-DVKD3D_ENABLE_DXILCONV', language : 'c')
 endif
 
 vkd3d_external_includes = [ './khronos/Vulkan-Headers/include', './khronos/SPIRV-Headers/include' ]
