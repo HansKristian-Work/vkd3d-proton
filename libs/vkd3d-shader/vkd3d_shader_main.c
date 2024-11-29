@@ -934,7 +934,12 @@ uint64_t vkd3d_shader_get_revision(void)
      * Might get nuked later ...
      * It's not immediately useful for invalidating pipeline caches, since that would mostly be covered
      * by vkd3d-proton Git hash. */
+#ifdef VKD3D_ENABLE_DXILCONV
+    dxilconv_init_once();
+    return vkd3d_dxilconv_instance_proc ? 2 : 1;
+#else
     return 1;
+#endif
 }
 
 struct vkd3d_shader_stage_io_entry *vkd3d_shader_stage_io_map_append(struct vkd3d_shader_stage_io_map *map,
