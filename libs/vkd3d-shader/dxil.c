@@ -577,8 +577,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
 
+    hash = spirv->meta.hash == 0 ? vkd3d_shader_hash(dxbc) : spirv->meta.hash;
     memset(&spirv->meta, 0, sizeof(spirv->meta));
-    hash = vkd3d_shader_hash(dxbc);
     spirv->meta.hash = hash;
 
     /* Cannot replace mesh shaders until we have reflected the IO layout. */

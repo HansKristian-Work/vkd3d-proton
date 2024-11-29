@@ -434,6 +434,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
             {
                 converted.code = dxil;
                 converted.size = dxil_size;
+                spirv->meta.hash = vkd3d_shader_hash(dxbc);
                 ret = vkd3d_shader_compile_dxil(&converted, spirv, spirv_debug, shader_interface_info, compile_args);
                 CoTaskMemFree(dxil);
             }
@@ -448,6 +449,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     /* DXIL is handled externally through dxil-spirv. */
     if (is_dxil)
     {
+        spirv->meta.hash = 0;
         return vkd3d_shader_compile_dxil(dxbc, spirv, spirv_debug, shader_interface_info, compile_args);
     }
 
