@@ -9098,7 +9098,7 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
          * We will not add even more code paths to deal with that.
          * Non-mutable + descriptor buffer is only relevant on AMD Windows driver for the time being,
          * and eventually we will make mutable a hard requirement, so don't bother checking that case. */
-        VkDeviceSize required_resource_descriptors = 1000000 + 1; /* One magic SSBO for internal VA buffer. */
+        VkDeviceSize required_resource_descriptors = VKD3D_MIN_VIEW_DESCRIPTOR_COUNT + 1; /* One magic SSBO for internal VA buffer. */
         uint32_t flags = VKD3D_BINDLESS_MUTABLE_TYPE;
         VkDeviceSize mutable_desc_size;
 
