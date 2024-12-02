@@ -63,6 +63,9 @@
 #define VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES 6u
 #define VKD3D_MAX_DESCRIPTOR_SIZE 256u /* Maximum allowed value in VK_EXT_descriptor_buffer. */
 
+#define VKD3D_MIN_VIEW_DESCRIPTOR_COUNT (1000000u)
+#define VKD3D_MIN_SAMPLER_DESCRIPTOR_COUNT (2048u)
+
 #define VKD3D_TILE_SIZE 65536
 
 typedef ID3D12Fence1 d3d12_fence_iface;
@@ -4996,6 +4999,8 @@ VkPipeline d3d12_device_get_or_create_vertex_input_pipeline(struct d3d12_device 
         const struct vkd3d_vertex_input_pipeline_desc *desc);
 VkPipeline d3d12_device_get_or_create_fragment_output_pipeline(struct d3d12_device *device,
         const struct vkd3d_fragment_output_pipeline_desc *desc);
+
+uint32_t d3d12_device_get_max_descriptor_heap_size(struct d3d12_device *device, D3D12_DESCRIPTOR_HEAP_TYPE heap_type);
 
 static inline struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface)
 {

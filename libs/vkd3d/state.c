@@ -6073,22 +6073,15 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     return vk_pipeline;
 }
 
-static uint32_t d3d12_max_descriptor_count_from_heap_type(D3D12_DESCRIPTOR_HEAP_TYPE heap_type)
+static uint32_t d3d12_max_descriptor_count_from_heap_type(struct d3d12_device *device, D3D12_DESCRIPTOR_HEAP_TYPE heap_type)
 {
-    switch (heap_type)
-    {
-        case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-            if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
-                return 1000000 + VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
-            return 1000000;
+    uint32_t count = d3d12_device_get_max_descriptor_heap_size(device, heap_type);
 
-        case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
-            return 2048;
+    if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+            vkd3d_descriptor_debug_active_descriptor_qa_checks())
+        count += VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
 
-        default:
-            ERR("Invalid descriptor heap type %d.\n", heap_type);
-            return 0;
-    }
+    return count;
 }
 
 static uint32_t d3d12_max_host_descriptor_count_from_heap_type(struct d3d12_device *device, D3D12_DESCRIPTOR_HEAP_TYPE heap_type)
@@ -6338,7 +6331,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     vk_binding = &vk_binding_info[set_info->binding_index];
     vk_binding->binding = set_info->binding_index;
     vk_binding->descriptorType = set_info->vk_descriptor_type;
-    vk_binding->descriptorCount = d3d12_max_descriptor_count_from_heap_type(set_info->heap_type);
+    vk_binding->descriptorCount = d3d12_max_descriptor_count_from_heap_type(device, set_info->heap_type);
     vk_binding->stageFlags = VK_SHADER_STAGE_ALL;
     vk_binding->pImmutableSamplers = NULL;
 
@@ -6622,7 +6615,7 @@ static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, ui
 
     binding.binding = 0;
     binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_EXT;
-    binding.descriptorCount = d3d12_max_descriptor_count_from_heap_type(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    binding.descriptorCount = d3d12_max_descriptor_count_from_heap_type(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     binding.pImmutableSamplers = NULL;
     binding.stageFlags = VK_SHADER_STAGE_ALL;
 
@@ -6665,7 +6658,7 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
 
     if (!d3d12_device_uses_descriptor_buffers(device))
     {
-        if (device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindUniformBuffers < 1000000 ||
+        if (device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindUniformBuffers < VKD3D_MIN_VIEW_DESCRIPTOR_COUNT ||
                 !device_info->vulkan_1_2_features.descriptorBindingUniformBufferUpdateAfterBind ||
                 !device_info->vulkan_1_2_features.shaderUniformBufferArrayNonUniformIndexing)
             flags |= VKD3D_BINDLESS_CBV_AS_SSBO;
@@ -6889,9 +6882,9 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
     if (!d3d12_device_uses_descriptor_buffers(device))
     {
         /* UBO is optional. We can fall back to SSBO if required. */
-        if (device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindSampledImages < 1000000 ||
-                device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageImages < 1000000 ||
-                device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers < 1000000)
+        if (device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindSampledImages < VKD3D_MIN_VIEW_DESCRIPTOR_COUNT ||
+                device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageImages < VKD3D_MIN_VIEW_DESCRIPTOR_COUNT ||
+                device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers < VKD3D_MIN_VIEW_DESCRIPTOR_COUNT)
         {
             ERR("Insufficient descriptor indexing support.\n");
             goto fail;

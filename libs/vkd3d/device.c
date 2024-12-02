@@ -7864,6 +7864,25 @@ static D3D12_SAMPLER_FEEDBACK_TIER d3d12_device_determine_sampler_feedback_tier(
     return D3D12_SAMPLER_FEEDBACK_TIER_0_9;
 }
 
+uint32_t d3d12_device_get_max_descriptor_heap_size(struct d3d12_device *device, D3D12_DESCRIPTOR_HEAP_TYPE heap_type)
+{
+    /* For now, hard-code descriptor counts to the minimum numbers required by D3D12.
+     * We could support more based on device capabilities, but that would change
+     * pipeline layouts. */
+    switch (heap_type)
+    {
+        case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+            return VKD3D_MIN_VIEW_DESCRIPTOR_COUNT;
+
+        case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
+            return VKD3D_MIN_SAMPLER_DESCRIPTOR_COUNT;
+
+        default:
+            WARN("Unhandled descriptor heap type %u.\n", heap_type);
+            return 0u;
+    }
+}
+
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -8164,9 +8183,9 @@ static void d3d12_device_caps_init_feature_options19(struct d3d12_device *device
     /* Report legacy D3D12 limits for now. Increasing descriptor count limits
      * would require changing changing descriptor set layouts, and more samplers
      * need additional considerations w.r.t. Vulkan device limits. */
-    options19->MaxSamplerDescriptorHeapSize = 2048;
-    options19->MaxSamplerDescriptorHeapSizeWithStaticSamplers = 2048;
-    options19->MaxViewDescriptorHeapSize = 1000000;
+    options19->MaxSamplerDescriptorHeapSize = d3d12_device_get_max_descriptor_heap_size(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+    options19->MaxSamplerDescriptorHeapSizeWithStaticSamplers = options19->MaxSamplerDescriptorHeapSize;
+    options19->MaxViewDescriptorHeapSize = d3d12_device_get_max_descriptor_heap_size(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
 
 static void d3d12_device_caps_init_feature_options20(struct d3d12_device *device)
