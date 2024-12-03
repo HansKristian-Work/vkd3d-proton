@@ -8258,18 +8258,35 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if ((desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
-            && (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_RTV || desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_DSV))
+    if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
     {
-        WARN("RTV/DSV descriptor heaps cannot be shader visible.\n");
-        return E_INVALIDARG;
-    }
+        if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_RTV || desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
+        {
+            WARN("RTV/DSV descriptor heaps cannot be shader visible.\n");
+            return E_INVALIDARG;
+        }
 
-    max_descriptor_count = (UINT32_MAX - sizeof(*object)) / descriptor_size;
-    if (desc->NumDescriptors > max_descriptor_count)
+        /* Match current agility SDK behaviour, older D3D12 runtimes would
+         * either pass here, remove the device or return E_OUTOFMEMORY. */
+        max_descriptor_count = d3d12_device_get_max_descriptor_heap_size(device, desc->Type);
+
+        if (desc->NumDescriptors > max_descriptor_count)
+        {
+            WARN("Unsupported descriptor count %u for heap type %u (max %zu).\n", desc->NumDescriptors, desc->Type, max_descriptor_count);
+            return E_INVALIDARG;
+        }
+    }
+    else
     {
-        WARN("Invalid descriptor count %u (max %zu).\n", desc->NumDescriptors, max_descriptor_count);
-        return E_OUTOFMEMORY;
+        /* CPU descriptor heaps are supposed to support any size, but our
+         * implementation has a hard limit of ~4 GiB. */
+        max_descriptor_count = (UINT32_MAX - sizeof(*object)) / descriptor_size;
+
+        if (desc->NumDescriptors > max_descriptor_count)
+        {
+            WARN("Unsupported descriptor count %u for heap type %u (max %zu).\n", desc->NumDescriptors, desc->Type, max_descriptor_count);
+            return E_OUTOFMEMORY;
+        }
     }
 
     if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV || desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
