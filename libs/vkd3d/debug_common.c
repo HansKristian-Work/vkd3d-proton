@@ -112,6 +112,8 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
                     (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_DISALLOW;
                 else if (strcmp(end_ptr, "full") == 0)
                     (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_FULL_QA;
+                else if (strcmp(end_ptr, "flush-nan") == 0)
+                    (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_FLUSH_NAN;
                 else
                     end_ptr = "N/A";
 
