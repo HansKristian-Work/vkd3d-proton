@@ -3523,7 +3523,8 @@ enum vkd3d_shader_hash_range_qa_flags
 {
     VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW = 1 << 0,
     VKD3D_SHADER_HASH_RANGE_QA_FLAG_DISALLOW = 1 << 1,
-    VKD3D_SHADER_HASH_RANGE_QA_FLAG_FULL_QA = 1 << 2
+    VKD3D_SHADER_HASH_RANGE_QA_FLAG_FULL_QA = 1 << 2,
+    VKD3D_SHADER_HASH_RANGE_QA_FLAG_FLUSH_NAN = 1 << 3
 };
 
 struct vkd3d_shader_hash_range
