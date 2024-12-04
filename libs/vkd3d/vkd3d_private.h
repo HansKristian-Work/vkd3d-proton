@@ -4981,6 +4981,11 @@ struct d3d12_device
 
     struct vkd3d_device_swapchain_info swapchain_info;
     struct vkd3d_device_frame_markers frame_markers;
+
+    struct
+    {
+        bool amdgpu_broken_clearvram;
+    } workarounds;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
