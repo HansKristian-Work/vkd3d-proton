@@ -1841,6 +1841,9 @@ bool vkd3d_allocate_image_memory_prefers_dedicated(struct d3d12_device *device,
 static bool vkd3d_memory_info_allow_suballocate(struct d3d12_device *device,
         const struct vkd3d_allocate_memory_info *info)
 {
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_SUBALLOCATION)
+        return false;
+
     /* pNext implies dedicated allocation or similar. Host pointer implies external memory import. */
     if (info->pNext || info->host_ptr)
         return false;
@@ -1910,6 +1913,19 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
         tmp_info.flags &= ~VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
         tmp_info.explicit_global_buffer_usage = 0;
         info = &tmp_info;
+    }
+
+    /* To avoid a potential collapse in CPU performance, force larger allocations
+     * when using NO_SUBALLOCATION. */
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_SUBALLOCATION) &&
+            !info->host_ptr &&
+            (info->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER) &&
+            info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE)
+    {
+        if (&tmp_info != info)
+            tmp_info = *info;
+        info = &tmp_info;
+        tmp_info.memory_requirements.size = max(VKD3D_VA_BLOCK_SIZE, tmp_info.memory_requirements.size);
     }
 
     if (suballocate)
