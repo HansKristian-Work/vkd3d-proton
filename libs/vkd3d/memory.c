@@ -1801,9 +1801,12 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
     return hr;
 }
 
-static inline bool vkd3d_driver_implicitly_clears(VkDriverId driver_id)
+static inline bool vkd3d_driver_implicitly_clears(struct d3d12_device *device)
 {
-    switch (driver_id)
+    if (device->workarounds.amdgpu_broken_clearvram)
+        return false;
+
+    switch (device->device_info.vulkan_1_2_properties.driverID)
     {
         /* Known to pass test_stress_suballocation which hits this path. */
         case VK_DRIVER_ID_MESA_RADV:
@@ -1832,8 +1835,7 @@ bool vkd3d_allocate_image_memory_prefers_dedicated(struct d3d12_device *device,
     /* If we don't need to sub-allocate, and we don't need to clear any buffers
      * there is no need to allocate a GLOBAL_BUFFER. */
     return requirements->size >= VKD3D_VA_BLOCK_SIZE &&
-            (vkd3d_driver_implicitly_clears(device->device_info.vulkan_1_2_properties.driverID) ||
-                    (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED));
+            (vkd3d_driver_implicitly_clears(device) || (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED));
 }
 
 static bool vkd3d_memory_info_allow_suballocate(struct d3d12_device *device,
@@ -1891,9 +1893,7 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
      * This is relying on implementation details.
      * RADV definitely does this, and it seems like NV also does it.
      * TODO: an extension for this would be nice. */
-    implementation_implicitly_clears =
-            vkd3d_driver_implicitly_clears(device->device_info.vulkan_1_2_properties.driverID) &&
-            !suballocate;
+    implementation_implicitly_clears = vkd3d_driver_implicitly_clears(device) && !suballocate;
 
     needs_clear = !implementation_implicitly_clears &&
             !(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) &&
