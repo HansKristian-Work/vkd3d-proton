@@ -21,10 +21,26 @@
 #include <assert.h>
 #include <stdio.h>
 
+static bool vkd3d_parse_linux_release(const char *release, uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    if (sscanf(release, "%u.%u.%u", major, minor, patch) == 3)
+    {
+        return true;
+    }
+    else if (sscanf(release, "%u.%u", major, minor) == 2)
+    {
+        *patch = 0;
+        return true;
+    }
+    else
+        return false;
+}
+
 #if defined(__linux__)
 
 # include <dlfcn.h>
 # include <errno.h>
+# include <sys/utsname.h>
 
 vkd3d_module_t vkd3d_dlopen(const char *name)
 {
@@ -78,6 +94,17 @@ bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
     return true;
 }
 
+bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    struct utsname ver;
+    if (uname(&ver) < 0)
+        return false;
+    if (strcmp(ver.sysname, "Linux") != 0)
+        return false;
+
+    return vkd3d_parse_linux_release(ver.release, major, minor, patch);
+}
+
 #elif defined(_WIN32)
 
 # include <windows.h>
@@ -126,6 +153,30 @@ bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
     return true;
 }
 
+bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    void (*get_version)(const char **, const char **);
+    const char *release = NULL;
+    const char *kernel = NULL;
+    HMODULE ntdll;
+
+    ntdll = GetModuleHandleA("ntdll.dll");
+    if (!ntdll)
+        return false;
+
+    get_version = (void *)GetProcAddress(ntdll, "wine_get_host_version");
+    if (!get_version)
+        return false;
+
+    if (get_version)
+        get_version(&kernel, &release);
+
+    if (kernel && strcmp(kernel, "Linux") == 0 && release)
+        return vkd3d_parse_linux_release(release, major, minor, patch);
+    else
+        return false;
+}
+
 #else
 
 vkd3d_module_t vkd3d_dlopen(const char *name)
@@ -152,6 +203,14 @@ const char *vkd3d_dlerror(void)
 bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
 {
     *program_name = '\0';
+    return false;
+}
+
+bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    *major = 0;
+    *minor = 0;
+    *patch = 0;
     return false;
 }
 

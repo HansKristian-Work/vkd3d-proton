@@ -41,4 +41,6 @@ bool vkd3d_get_env_var(const char *name, char *value, size_t value_size);
 
 bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]);
 
+bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *patch);
+
 #endif
