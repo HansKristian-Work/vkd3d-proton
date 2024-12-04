@@ -1470,7 +1470,8 @@ static bool d3d12_device_is_steam_deck(const struct d3d12_device *device)
 {
     return device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
             device->device_info.properties2.properties.vendorID == 0x1002 &&
-            device->device_info.properties2.properties.deviceID == 0x163f;
+            (device->device_info.properties2.properties.deviceID == 0x163f ||
+             device->device_info.properties2.properties.deviceID == 0x1435);
 }
 
 static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info,
