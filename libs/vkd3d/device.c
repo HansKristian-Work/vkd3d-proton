@@ -2997,6 +2997,32 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
     return S_OK;
 }
 
+static void d3d12_device_init_workarounds(struct d3d12_device *device)
+{
+    uint32_t major, minor, patch;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS)
+        return;
+
+    if (device->device_info.properties2.properties.vendorID != 0x1002)
+        return;
+
+    if (vkd3d_get_linux_kernel_version(&major, &minor, &patch))
+    {
+        /* 6.10 amdgpu kernel changes the clear vram code to do background clears instead
+         * of on-demand clearing. This seems to have bugs, and we have been able to observe
+         * non-zeroed VRAM coming from the affected kernels.
+         * This workaround needs to be in place until we have confirmed a fix in upstream kernel. */
+        INFO("Detected Linux kernel version %u.%u.%u\n", major, minor, patch);
+
+        if (major > 6 || (major == 6 && minor >= 10))
+        {
+            INFO("AMDGPU broken kernel detected. Enabling manual memory clearing path.\n");
+            device->workarounds.amdgpu_broken_clearvram = true;
+        }
+    }
+}
+
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info)
 {
@@ -3134,6 +3160,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     device->vk_info.extension_count = device_info.enabledExtensionCount;
     device->vk_info.extension_names = extensions;
+
+    d3d12_device_init_workarounds(device);
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
