@@ -982,6 +982,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"instruction_qa_checks", VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS},
     {"transfer_queue", VKD3D_CONFIG_FLAG_TRANSFER_QUEUE},
     {"no_gpu_upload_heap", VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP},
+    {"one_time_submit", VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT},
 };
 
 static void vkd3d_config_flags_init_once(void)

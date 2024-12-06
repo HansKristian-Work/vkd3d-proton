@@ -1906,7 +1906,8 @@ static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = 0;
+    begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
     if ((vr = VK_CALL(vkBeginCommandBuffer(list->cmd.vk_command_buffer, &begin_info))) < 0)
@@ -2018,7 +2019,8 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = 0;
+    begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
     if ((vr = VK_CALL(vkBeginCommandBuffer(iteration->vk_command_buffer, &begin_info))) < 0)
     {
@@ -2112,7 +2114,8 @@ static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = 0;
+    begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
     if ((vr = VK_CALL(vkBeginCommandBuffer(list->cmd.iterations[0].vk_init_commands, &begin_info))) < 0)
@@ -2162,7 +2165,8 @@ static HRESULT d3d12_command_allocator_allocate_init_post_indirect_command_buffe
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = 0;
+    begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+            VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
     if ((vr = VK_CALL(vkBeginCommandBuffer(iteration->vk_init_commands, &begin_info))) < 0)
