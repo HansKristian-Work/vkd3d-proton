@@ -547,7 +547,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
         TRACE("Signaling fence %p to virtual value %"PRIu64".\n", local_fence,
                 fence->fence_info.virtual_value);
 
-        if (FAILED(hr = d3d12_fence_signal(local_fence, worker, fence->fence_info.update_count)))
+        if (vr == VK_SUCCESS && FAILED(hr = d3d12_fence_signal(local_fence, worker, fence->fence_info.update_count)))
             ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
     }
 
