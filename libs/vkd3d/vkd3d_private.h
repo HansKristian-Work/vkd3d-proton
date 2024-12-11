@@ -5649,6 +5649,44 @@ static inline VkExtent3D d3d12_resource_desc_get_vk_subresource_extent(const D3D
     return extent;
 }
 
+static inline VkExtent3D vkd3d_compute_block_count(VkExtent3D extent, const struct vkd3d_format *format)
+{
+    if (max(format->block_width, format->block_height) == 1u)
+        return extent;
+
+    extent.width += format->block_width - 1u;
+    extent.width /= format->block_width;
+
+    extent.height += format->block_height - 1u;
+    extent.height /= format->block_height;
+
+    return extent;
+}
+
+static inline VkOffset3D vkd3d_compute_block_offset(VkOffset3D offset, const struct vkd3d_format *format)
+{
+    if (max(format->block_width, format->block_height) == 1u)
+        return offset;
+
+    offset.x /= format->block_width;
+    offset.y /= format->block_height;
+    return offset;
+}
+
+static inline VkExtent3D vkd3d_compute_texel_count_from_blocks(VkExtent3D extent, const struct vkd3d_format *format)
+{
+    extent.width *= format->block_width;
+    extent.height *= format->block_height;
+    return extent;
+}
+
+static inline VkOffset3D vkd3d_compute_texel_offset_from_blocks(VkOffset3D offset, const struct vkd3d_format *format)
+{
+    offset.x *= format->block_width;
+    offset.y *= format->block_height;
+    return offset;
+}
+
 static inline VkExtent3D d3d12_resource_desc_get_subresource_extent(const struct D3D12_RESOURCE_DESC1 *desc,
         const struct vkd3d_format *format, unsigned int subresource_idx)
 {

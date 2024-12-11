@@ -7587,59 +7587,91 @@ static bool vk_image_copy_from_d3d12(VkImageCopy2 *image_copy,
         const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
         const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
-    VkExtent3D srcExtent, dstExtent;
+    VkExtent3D dst_extent, src_extent, src_blocks, src_raw_extent;
+    VkOffset3D dst_offset, src_offset;
 
+    memset(image_copy, 0, sizeof(*image_copy));
+    image_copy->sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2;
     image_copy->srcSubresource = vk_image_subresource_layers_from_d3d12(
             src_format, src_sub_resource_idx, src_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(src_desc));
-    image_copy->sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2;
-    image_copy->pNext = NULL;
     image_copy->dstSubresource = vk_image_subresource_layers_from_d3d12(
             dst_format, dst_sub_resource_idx, dst_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(dst_desc));
 
-    srcExtent = d3d12_resource_desc_get_vk_subresource_extent(src_desc, src_format, &image_copy->srcSubresource);
-    dstExtent = d3d12_resource_desc_get_vk_subresource_extent(dst_desc, dst_format, &image_copy->dstSubresource);
+    /* Perform all math on units of compressed blocks in order to ensure correct
+     * behaviour when copying between compressed and non-compressed image formats */
+    dst_offset.x = dst_x;
+    dst_offset.y = dst_y;
+    dst_offset.z = dst_z;
 
-    image_copy->dstOffset.x = min(dst_x, dstExtent.width);
-    image_copy->dstOffset.y = min(dst_y, dstExtent.height);
-    image_copy->dstOffset.z = min(dst_z, dstExtent.depth);
+    dst_offset = vkd3d_compute_block_offset(dst_offset, dst_format);
 
-    dstExtent.width -= image_copy->dstOffset.x;
-    dstExtent.height -= image_copy->dstOffset.y;
-    dstExtent.depth -= image_copy->dstOffset.z;
+    src_raw_extent = d3d12_resource_desc_get_vk_subresource_extent(
+            src_desc, src_format, &image_copy->srcSubresource);
+
+    src_extent = vkd3d_compute_block_count(src_raw_extent, src_format);
+    dst_extent = vkd3d_compute_block_count(d3d12_resource_desc_get_vk_subresource_extent(
+              dst_desc, dst_format, &image_copy->dstSubresource), dst_format);
+
+    dst_extent.width -= dst_offset.x;
+    dst_extent.height -= dst_offset.y;
+    dst_extent.depth -= dst_offset.z;
 
     if (src_box)
     {
-        image_copy->srcOffset.x = min(src_box->left, srcExtent.width);
-        image_copy->srcOffset.y = min(src_box->top, srcExtent.height);
-        image_copy->srcOffset.z = min(src_box->front, srcExtent.depth);
+        src_blocks.width = max(src_box->right, src_box->left) - src_box->left;
+        src_blocks.height = max(src_box->bottom, src_box->top) - src_box->top;
+        src_blocks.depth = max(src_box->back, src_box->front) - src_box->front;
 
-        srcExtent.width -= image_copy->srcOffset.x;
-        srcExtent.height -= image_copy->srcOffset.y;
-        srcExtent.depth -= image_copy->srcOffset.z;
+        src_blocks = vkd3d_compute_block_count(src_blocks, src_format);
 
-        srcExtent.width = min(src_box->right - src_box->left, srcExtent.width);
-        srcExtent.height = min(src_box->bottom - src_box->top, srcExtent.height);
-        srcExtent.depth = min(src_box->back - src_box->front, srcExtent.depth);
+        src_offset.x = src_box->left;
+        src_offset.y = src_box->top;
+        src_offset.z = src_box->front;
+
+        src_offset = vkd3d_compute_block_offset(src_offset, src_format);
+
+        src_offset.x = min(src_offset.x, (int32_t)src_extent.width);
+        src_offset.y = min(src_offset.y, (int32_t)src_extent.height);
+        src_offset.z = min(src_offset.z, (int32_t)src_extent.depth);
+
+        src_extent.width -= src_offset.x;
+        src_extent.height -= src_offset.y;
+        src_extent.depth -= src_offset.z;
+
+        src_extent.width = min(src_blocks.width, src_extent.width);
+        src_extent.height = min(src_blocks.height, src_extent.height);
+        src_extent.depth = min(src_blocks.depth, src_extent.depth);
     }
     else
     {
-        image_copy->srcOffset.x = 0;
-        image_copy->srcOffset.y = 0;
-        image_copy->srcOffset.z = 0;
+        src_offset.x = 0;
+        src_offset.y = 0;
+        src_offset.z = 0;
     }
 
-    image_copy->extent.width = min(srcExtent.width, dstExtent.width);
-    image_copy->extent.height = min(srcExtent.height, dstExtent.height);
-    image_copy->extent.depth = min(srcExtent.depth, dstExtent.depth);
+    src_extent.width = min(src_extent.width, dst_extent.width);
+    src_extent.height = min(src_extent.height, dst_extent.height);
+    src_extent.depth = min(src_extent.depth, dst_extent.depth);
 
     /* Valid usage (06668, 06669, 06670) states that degenerate copy is not allowed.
      * Can happen if the clipped copy rect is out of bounds.
      * This is not allowed in D3D12 either, but e.g. Witcher 3 next-gen update can hit invalid scenarios. */
-    return image_copy->extent.width > 0 &&
-            image_copy->extent.height > 0 &&
-            image_copy->extent.depth > 0;
+    if (!min(min(src_extent.width, src_extent.height), src_extent.depth))
+        return false;
+
+    image_copy->srcOffset = vkd3d_compute_texel_offset_from_blocks(src_offset, src_format);
+    image_copy->dstOffset = vkd3d_compute_texel_offset_from_blocks(dst_offset, dst_format);
+
+    /* Ensure that source offset + extent are within bounds of the source mip */
+    src_raw_extent.width -= image_copy->srcOffset.x;
+    src_raw_extent.height -= image_copy->srcOffset.y;
+
+    image_copy->extent = vkd3d_compute_texel_count_from_blocks(src_extent, src_format);
+    image_copy->extent.width = min(image_copy->extent.width, src_raw_extent.width);
+    image_copy->extent.height = min(image_copy->extent.height, src_raw_extent.height);
+    return true;
 }
 
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
