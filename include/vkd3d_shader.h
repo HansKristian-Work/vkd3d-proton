@@ -462,7 +462,11 @@ enum vkd3d_shader_quirk
 
     /* Works around cases where app is relying on coherency between threads in a workgroup,
      * but forgets to use Device memory barriers properly. */
-    VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY = (1 << 21)
+    VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY = (1 << 21),
+
+    /* Extremely specific workaround for cubemap importance sampling pass.
+     * The lowest res mips may contain garbage. */
+    VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS = (1 << 22)
 };
 
 struct vkd3d_shader_quirk_hash
