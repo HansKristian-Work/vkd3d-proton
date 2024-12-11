@@ -739,6 +739,17 @@ static const struct vkd3d_shader_quirk_info veilguard_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY,
 };
 
+static const struct vkd3d_shader_quirk_hash tfd_hashes[] = {
+    /* ReflectionCaptureFilteredImportanceSamplingCS is somewhat broken as it assumes
+     * that the lowest res mips are valid, but they are never written to by ReflectionCaptureGenerateMipmapCS.
+     * It stops at 8x8 (the workgroup size). The workaround just clamps the explicit LOD to whatever mips is 8x8. */
+    { 0x74b8eaf23e3d166c, VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS },
+};
+
+static const struct vkd3d_shader_quirk_info tfd_quirks = {
+    tfd_hashes, ARRAY_SIZE(tfd_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -769,6 +780,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "HuntGame.exe", &hunt_quirks },
     /* Dragon Age: The Veilguard (1845910) */
     { VKD3D_STRING_COMPARE_EXACT, "Dragon Age The Veilguard.exe", &veilguard_quirks },
+    /* The First Descendant (2074920) */
+    { VKD3D_STRING_COMPARE_EXACT, "M1-Win64-Shipping.exe", &tfd_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
