@@ -640,6 +640,317 @@ void test_copy_texture_buffer(void)
     destroy_test_context(&context);
 }
 
+void test_copy_texture_bc_rgba(void)
+{
+    D3D12_TEXTURE_COPY_LOCATION bc_region, rgba_region;
+    ID3D12Resource *bc_texture, *rgba_texture;
+    D3D12_SUBRESOURCE_DATA subresource_data;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    unsigned int i;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    static const struct uvec4 bc_data[] =
+    {
+        { 0x161aff04, 0x00000000, 0xffff1144, 0x00000000 },
+        { 0xee8fbcf8, 0xffffffff, 0x934e39e6, 0xffffffff },
+        { 0xee8fecf8, 0xffffffff, 0x934f39e4, 0xffffffff },
+        { 0x0000ffff, 0x00000000, 0xffffffff, 0x00000000 },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    resource_desc.Width = 2;
+    resource_desc.Height = 2;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&rgba_texture);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    resource_desc.Format = DXGI_FORMAT_BC3_UNORM;
+    resource_desc.Width = 8;
+    resource_desc.Height = 8;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&bc_texture);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    /* CopyResource from RGBA32 to BC3 */
+    subresource_data.pData = bc_data;
+    subresource_data.RowPitch = sizeof(bc_data) / 2;
+    subresource_data.SlicePitch = sizeof(bc_data);
+
+    upload_texture_data(rgba_texture, &subresource_data, 1, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rgba_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    ID3D12GraphicsCommandList_CopyResource(context.list, bc_texture, rgba_texture);
+
+    transition_resource_state(context.list, bc_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(bc_texture, 0, &rb, context.queue, context.list);
+
+    for (i = 0; i < 4; i++)
+    {
+        const struct uvec4* got = get_readback_uvec4(&rb, i & 1, i >> 1);
+        const struct uvec4* expected = &bc_data[i];
+
+        ok(!memcmp(got, expected, sizeof(*got)), "Got (%#x, %#x, %#x, %x) at %i, expected (%#x, %#x, %#x, %#x).\n",
+                got->x, got->y, got->z, got->w, i, expected->x, expected->y, expected->z, expected->w);
+    }
+
+    ID3D12Resource_Release(rgba_texture);
+
+    release_resource_readback(&rb);
+    reset_command_list(context.list, context.allocator);
+
+    /* CopyResource from BC3 to RGBA32 */
+    resource_desc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    resource_desc.Width = 2;
+    resource_desc.Height = 2;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&rgba_texture);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_CopyResource(context.list, rgba_texture, bc_texture);
+
+    transition_resource_state(context.list, rgba_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(rgba_texture, 0, &rb, context.queue, context.list);
+
+    for (i = 0; i < 4; i++)
+    {
+        const struct uvec4* got = get_readback_uvec4(&rb, i & 1, i >> 1);
+        const struct uvec4* expected = &bc_data[i];
+
+        ok(!memcmp(got, expected, sizeof(*got)), "Got (%#x, %#x, %#x, %x) at %i, expected (%#x, %#x, %#x, %#x).\n",
+                got->x, got->y, got->z, got->w, i, expected->x, expected->y, expected->z, expected->w);
+    }
+
+    release_resource_readback(&rb);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rgba_texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    upload_texture_data(rgba_texture, &subresource_data, 1, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    /* CopyTextureRegion from RGBA32 to BC3 */
+    memset(&bc_region, 0, sizeof(bc_region));
+    bc_region.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    bc_region.pResource = bc_texture;
+    bc_region.SubresourceIndex = 0;
+
+    memset(&rgba_region, 0, sizeof(rgba_region));
+    rgba_region.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    rgba_region.pResource = rgba_texture;
+    rgba_region.SubresourceIndex = 0;
+
+    transition_resource_state(context.list, rgba_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, bc_texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    for (i = 0; i < 4; i++)
+    {
+        box.left = (i & 1) ^ 1;
+        box.top = (i >> 1);
+        box.front = 0;
+        box.right = box.left + 1;
+        box.bottom = box.top + 1;
+        box.back = 1;
+
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list,
+                &bc_region, 4 * (i & 1), 4 * (i >> 1), 0,
+                &rgba_region, &box);
+    }
+
+    transition_resource_state(context.list, bc_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(bc_texture, 0, &rb, context.queue, context.list);
+
+    for (i = 0; i < 4; i++)
+    {
+        const struct uvec4* got = get_readback_uvec4(&rb, i & 1, i >> 1);
+        const struct uvec4* expected = &bc_data[i ^ 1];
+
+        ok(!memcmp(got, expected, sizeof(*got)), "Got (%#x, %#x, %#x, %x) at %i, expected (%#x, %#x, %#x, %#x).\n",
+                got->x, got->y, got->z, got->w, i, expected->x, expected->y, expected->z, expected->w);
+    }
+
+    release_resource_readback(&rb);
+    reset_command_list(context.list, context.allocator);
+
+    /* CopyTextureRegion from BC3 to RGBA32 */
+    transition_resource_state(context.list, rgba_texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    for (i = 0; i < 4; i++)
+    {
+        box.left = 4 * (i & 1);
+        box.top = 4 * ((i >> 1) ^ 1);
+        box.front = 0;
+        box.right = box.left + 4;
+        box.bottom = box.top + 4;
+        box.back = 1;
+
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list,
+                &rgba_region, (i & 1), (i >> 1), 0,
+                &bc_region, &box);
+    }
+
+    transition_resource_state(context.list, rgba_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(rgba_texture, 0, &rb, context.queue, context.list);
+
+    for (i = 0; i < 4; i++)
+    {
+        const struct uvec4* got = get_readback_uvec4(&rb, i & 1, i >> 1);
+        const struct uvec4* expected = &bc_data[i ^ 3];
+
+        ok(!memcmp(got, expected, sizeof(*got)), "Got (%#x, %#x, %#x, %x) at %i, expected (%#x, %#x, %#x, %#x).\n",
+                got->x, got->y, got->z, got->w, i, expected->x, expected->y, expected->z, expected->w);
+    }
+
+    release_resource_readback(&rb);
+    reset_command_list(context.list, context.allocator);
+
+    ID3D12Resource_Release(rgba_texture);
+    ID3D12Resource_Release(bc_texture);
+
+    /* CopyTextureRegion to small mip */
+    resource_desc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    resource_desc.Width = 3;
+    resource_desc.Height = 1;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&rgba_texture);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    resource_desc.Format = DXGI_FORMAT_BC3_UNORM;
+    resource_desc.Width = 4;
+    resource_desc.Height = 4;
+    resource_desc.MipLevels = 3;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&bc_texture);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    upload_texture_data(rgba_texture, &subresource_data, 1, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rgba_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    memset(&rgba_region, 0, sizeof(rgba_region));
+    rgba_region.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    rgba_region.pResource = rgba_texture;
+    rgba_region.SubresourceIndex = 0;
+
+    for (i = 0; i < 3; i++)
+    {
+        memset(&bc_region, 0, sizeof(bc_region));
+        bc_region.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        bc_region.pResource = bc_texture;
+        bc_region.SubresourceIndex = i;
+
+        box.left = i;
+        box.top = 0;
+        box.front = 0;
+        box.right = i + 1;
+        box.bottom = 1;
+        box.back = 1;
+
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list,
+                &bc_region, 0, 0, 0, &rgba_region, &box);
+    }
+
+    transition_resource_state(context.list, bc_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < 3; i++)
+    {
+        const struct uvec4 *got, *expected;
+
+        get_texture_readback_with_command_list(bc_texture, i, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        got = get_readback_uvec4(&rb, 0, 0);
+        expected = &bc_data[i];
+
+        ok(!memcmp(got, expected, sizeof(*got)), "Got (%#x, %#x, %#x, %x) at %i, expected (%#x, %#x, %#x, %#x).\n",
+                got->x, got->y, got->z, got->w, i, expected->x, expected->y, expected->z, expected->w);
+
+        release_resource_readback(&rb);
+    }
+
+    /* CopyTextureRegion from small mip */
+    ID3D12Resource_Release(rgba_texture);
+
+    resource_desc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    resource_desc.Width = 3;
+    resource_desc.Height = 1;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&rgba_texture);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    memset(&rgba_region, 0, sizeof(rgba_region));
+    rgba_region.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    rgba_region.pResource = rgba_texture;
+    rgba_region.SubresourceIndex = 0;
+
+    for (i = 0; i < 3; i++)
+    {
+        memset(&bc_region, 0, sizeof(bc_region));
+        bc_region.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        bc_region.pResource = bc_texture;
+        bc_region.SubresourceIndex = i;
+
+        /* The D3D12 runtime errors out if we pass the actual mip size */
+        box.left = 0;
+        box.top = 0;
+        box.front = 0;
+        box.right = 4;
+        box.bottom = 4;
+        box.back = 1;
+
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list,
+                &rgba_region, i, 0, 0, &bc_region, &box);
+    }
+
+    transition_resource_state(context.list, rgba_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(rgba_texture, 0, &rb, context.queue, context.list);
+
+    for (i = 0; i < 3; i++)
+    {
+        const struct uvec4* got = get_readback_uvec4(&rb, i, 0);
+        const struct uvec4* expected = &bc_data[i];
+
+        ok(!memcmp(got, expected, sizeof(*got)), "Got (%#x, %#x, %#x, %x) at %i, expected (%#x, %#x, %#x, %#x).\n",
+                got->x, got->y, got->z, got->w, i, expected->x, expected->y, expected->z, expected->w);
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(rgba_texture);
+    ID3D12Resource_Release(bc_texture);
+
+    destroy_test_context(&context);
+}
+
 void test_copy_buffer_to_depth_stencil(void)
 {
     ID3D12Resource *src_buffer_stencil = NULL;
