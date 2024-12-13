@@ -1,5 +1,71 @@
 # Change Log
 
+## 2.14
+
+Rolls up the usual collection of new features, performance improvements, bug fixes and the copious amount of game workarounds,
+just in time for the holidays.
+
+### Features
+
+- Implement DXGI frame statistics (exposed by DXVK DXGI).
+- Implement a global frame rate limiter (see `VKD3D_FRAME_RATE` or `DXVK_FRAME_RATE`).
+  Also improves behavior of presentation with swap interval > 1 since we use frame limiter instead
+  of duplicated presents now. Also allows support for full-screen frame rate targets in DXGI which normally would imply a mode change.
+- Implement support for planar video formats such as NV12.
+- Implement D24 depth bias correctly now on AMD when `VK_EXT_depth_bias_control` is supported.
+- Expose a new command interop interface that allows e.g. dxvk-nvapi to implement DLSS3 frame generation.
+- Use VK_KHR_compute_shader_derivatives when available.
+- Use VK_EXT_device_generated_commands when available. Expose execute indirect tier 1.1.
+- Implement GPU upload heap from latest AgilitySDKs. Allows explicit control over ReBAR instead of heuristic based hacks in games that use the new API.
+- Implement ID3DDestructionNotifier. Fixes some particular games that expect this to be supported.
+
+### Performance
+
+- Reduce some VRAM bloat on RDNA2 and 3 GPUs when `VK_MESA_image_alignment_control` is exposed.
+- Improve CPU overhead for games that query swapchain format support over and over.
+- Remove old heuristic that preferred 2 frames of latency depending on BufferCount used.
+  The default on DXGI is 3, and using 2 caused some performance issues in various games with GPU starvation,
+  especially on Deck. `VKD3D_SWAPCHAIN_LATENCY_FRAMES` is still available as an override to force a tighter default.
+- Rewrite queue submission logic to deal better with difficult submission patterns such as FSR3 3.1 Frame Generation.
+  On implementations with only one graphics queue, vkd3d-proton will now attempt to do basic software scheduling of GPU work.
+  This may regress GPU performance in some other cases and `VKD3D_CONFIG=no_staggered_submit` is a way to disable this code path.
+  One particularly big improvement is FF XVI on RADV with FSR 3 frame-gen, with almost doubled performance in some cases.
+  We are still awaiting a proper kernel-level fix for this problem to be fully resolved.
+- Rewrite queue submission logic to use fewer "dummy" wait/signal submissions.
+  Works around pathological CPU overhead in amdgpu taking 20ms+ to submit work in some cases.
+- Rewrite queue submission logic for sparse updates to be more efficient.
+
+### Fixes and workarounds
+
+- Rework various multi-sampling queries to be more spec correct.
+- Workaround bugged MSAA behavior in World of Warcraft.
+- Workaround buggy/questionable use of ID3D12PipelineLibrary in FF XVI.
+- Always use native 16-bit integers for min16int. Fixes some real-world bugs where shaders expect min16int is always implemented as 16-bit.
+- Workaround game bug leading to GPU hang in Dragon Age: Veilguard on RADV.
+- Always emit proper floating-point environment modes in DXBC shaders. Fixes glitched eyes in Dragon Age: Veilguard on NV.
+- Fix potential use-after-free bug for some sparse resource update cases.
+- Correctly validate when application attempts to allocate a too large descriptor heap.
+  Fixes Stalker 2 entering into undefined behavior.
+- A lot of misc fixes in dxil-spirv as usual.
+- Workaround broken amdgpu zerovram behavior on 6.10+ kernels. Fixes random extreme glitchiness in Helldivers 2 on AMD.
+- Workaround NV issue which lead to GPU hang when loading a save file in Star Wars: Outlaws.
+- Fix copying between BC <-> RGBA images in some cases.
+- Add workaround for a game bug in The First Descendant which lead to broken cubemap reflections in some cases.
+- Workaround Skull & Bones crashing on startup on NV GPUs by disabling Reflex support.
+- Workaround Hunt: Showdown missing precise qualifiers on vertex shaders, leading to glitched rendering.
+- Workaround poor CPU performance in Red Dead Redemption.
+
+### Misc / Debug
+
+- Add support for instruction_qa_checks. For deep debug, allows us to be notified when NaNs and Infs are generated in shaders.
+  For internal QA use.
+- Add fine-grained control of QA behavior on a per-shader basis. For narrowing down issues.
+- Remove a bunch of old and obsolete workarounds for NV drivers. New cutoff is 535 series.
+- Bump exposed SDKVersion to 614 to match latest stable AgilitySDK.
+- Add an optional code path to support DXBC via the official dxilconv library.
+  This code is not enabled in release builds,
+  and is currently only intended as a path to take advantage of QA instrumentation for DXBC shaders.
+
 ## 2.13
 
 ### Features
