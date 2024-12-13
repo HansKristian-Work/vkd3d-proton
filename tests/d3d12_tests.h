@@ -252,6 +252,7 @@ decl_test(test_stencil_export_dxil);
 decl_test(test_raytracing);
 decl_test(test_get_resource_tiling);
 decl_test(test_update_tile_mappings);
+decl_test(test_update_tile_mappings_remap_stress);
 decl_test(test_sampler_border_color);
 decl_test(test_copy_tiles);
 decl_test(test_buffer_feedback_instructions_sm51);
