@@ -2808,7 +2808,10 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     device->unique_queue_mask = 0;
     device->queue_family_count = 0;
     memset(device->queue_families, 0, sizeof(device->queue_families));
-    memset(device->queue_family_indices, 0, sizeof(device->queue_family_indices));
+    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
+    {
+        device->queue_family_indices[i] = VK_QUEUE_FAMILY_IGNORED;
+    }
 
     for (i = 0, k = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
     {
