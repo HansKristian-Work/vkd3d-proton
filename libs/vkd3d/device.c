@@ -8971,7 +8971,7 @@ static void vkd3d_scratch_pool_init(struct d3d12_device *device)
 
 static HRESULT d3d12_device_create_sparse_init_timeline(struct d3d12_device *device)
 {
-    if (device->queue_family_indices[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] == VK_QUEUE_FAMILY_IGNORED)
+    if (!device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING])
         return S_OK;
 
     return vkd3d_create_timeline_semaphore(device, 0, false, &device->sparse_init_timeline);
@@ -8980,7 +8980,7 @@ static HRESULT d3d12_device_create_sparse_init_timeline(struct d3d12_device *dev
 static void d3d12_device_reserve_internal_sparse_queue(struct d3d12_device *device)
 {
     /* This cannot fail. We're not allocating memory here. */
-    if (device->queue_family_indices[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] != VK_QUEUE_FAMILY_IGNORED)
+    if (device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING])
     {
         device->internal_sparse_queue = d3d12_device_allocate_vkd3d_queue(
                 device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING], NULL);
