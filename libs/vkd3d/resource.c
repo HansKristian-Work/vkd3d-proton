@@ -113,11 +113,11 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
         buffer_info.usage = vk_usage_flags;
     }
 
-    if (device->queue_family_count > 1)
+    if (device->concurrent_queue_family_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        buffer_info.queueFamilyIndexCount = device->queue_family_count;
-        buffer_info.pQueueFamilyIndices = device->queue_family_indices;
+        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_count;
+        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices;
     }
     else
     {
@@ -247,11 +247,11 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if (device->queue_family_count > 1)
+    if (device->concurrent_queue_family_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        buffer_info.queueFamilyIndexCount = device->queue_family_count;
-        buffer_info.pQueueFamilyIndices = device->queue_family_indices;
+        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_count;
+        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices;
     }
     else
     {
@@ -866,8 +866,8 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         /* For multi-queue, we have to use CONCURRENT since D3D does
          * not give us enough information to do ownership transfers. */
         image_info->sharingMode = VK_SHARING_MODE_CONCURRENT;
-        image_info->queueFamilyIndexCount = device->queue_family_count;
-        image_info->pQueueFamilyIndices = device->queue_family_indices;
+        image_info->queueFamilyIndexCount = device->concurrent_queue_family_count;
+        image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices;
     }
     else
     {
