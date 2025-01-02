@@ -2872,7 +2872,9 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         info->timestamp_bits = queue_info->vk_properties[i].timestampValidBits;
 
         device->queue_families[i] = info;
-        device->concurrent_queue_family_indices[device->concurrent_queue_family_count++] = info->vk_family_index;
+
+        if (i != VKD3D_QUEUE_FAMILY_SPARSE_BINDING)
+            device->concurrent_queue_family_indices[device->concurrent_queue_family_count++] = info->vk_family_index;
 
         if (info->queue_count && i != VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE)
             device->unique_queue_mask |= 1u << i;

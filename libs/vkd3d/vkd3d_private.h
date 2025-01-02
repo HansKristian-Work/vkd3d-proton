@@ -4622,10 +4622,12 @@ enum vkd3d_queue_family
     VKD3D_QUEUE_FAMILY_GRAPHICS,
     VKD3D_QUEUE_FAMILY_COMPUTE,
     VKD3D_QUEUE_FAMILY_TRANSFER,
-    VKD3D_QUEUE_FAMILY_SPARSE_BINDING,
     VKD3D_QUEUE_FAMILY_OPTICAL_FLOW,
     /* Keep internal queues at the end */
     VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE,
+    /* Keep sparse after all other queues since it does not append concurrent sharing list.
+     * It's considered an internal queue type since we only use it as a fallback or for init binds. */
+    VKD3D_QUEUE_FAMILY_SPARSE_BINDING,
 
     VKD3D_QUEUE_FAMILY_COUNT
 };
