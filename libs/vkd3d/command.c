@@ -18929,6 +18929,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         if (is_first)
         {
+            vkd3d_queue_timeline_trace_begin_execute_overhead(&command_queue->device->queue_timeline_trace, timeline_cookie);
             d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_desc[0],
                   VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
         }
@@ -18981,6 +18982,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         /* Update timeline value *after* waiting for staggered submissions */
         command_queue->last_submission_timeline_value = signal_semaphore_infos[0].value;
     }
+
+    vkd3d_queue_timeline_trace_end_execute_overhead(&command_queue->device->queue_timeline_trace, timeline_cookie);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (debug_capture)
