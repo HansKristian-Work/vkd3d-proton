@@ -4732,7 +4732,9 @@ struct vkd3d_queue_timeline_trace_state
     uint64_t start_submit_ts;
     uint64_t record_end_ts;
     uint64_t record_cookie;
-    char desc[128 - 5 * sizeof(uint64_t)];
+    uint32_t overhead_start_offset;
+    uint32_t overhead_end_offset;
+    char desc[128 - 6 * sizeof(uint64_t)];
 };
 
 struct vkd3d_queue_timeline_trace
@@ -4810,6 +4812,10 @@ void vkd3d_queue_timeline_trace_complete_low_latency_sleep(struct vkd3d_queue_ti
 void vkd3d_queue_timeline_trace_close_command_list(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 void vkd3d_queue_timeline_trace_begin_execute(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_begin_execute_overhead(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_end_execute_overhead(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 
 struct vkd3d_address_binding_report_buffer_info
