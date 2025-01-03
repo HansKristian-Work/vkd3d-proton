@@ -4705,6 +4705,9 @@ enum vkd3d_queue_timeline_trace_state_type
     /* Waiting for present wait to complete. */
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_WAIT,
 
+    /* Generic region markers. */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_GENERIC_REGION,
+
     /* Time spent blocking in ::Present() in user thread. */
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_BLOCK,
 
@@ -4796,6 +4799,9 @@ vkd3d_queue_timeline_trace_register_command_list(struct vkd3d_queue_timeline_tra
 
 void vkd3d_queue_timeline_trace_register_instantaneous(struct vkd3d_queue_timeline_trace *trace,
         enum vkd3d_queue_timeline_trace_state_type type, uint64_t value);
+
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_generic_region(struct vkd3d_queue_timeline_trace *trace, const char *tag);
 
 void vkd3d_queue_timeline_trace_complete_event_signal(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_fence_worker *worker,

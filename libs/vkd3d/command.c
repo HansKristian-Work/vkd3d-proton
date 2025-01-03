@@ -18223,6 +18223,7 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         struct d3d12_fence *fence, UINT64 value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     struct d3d12_fence_value fence_value;
     VkSemaphoreWaitInfo wait_info;
     struct vkd3d_queue *queue;
@@ -18240,7 +18241,9 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
      * but we don't have virtualized queues in Vulkan, so we need to handle the case
      * where multiple queues alias over the same physical queue, so effectively, we need to manage out-of-order submits
      * ourselves. */
+    cookie = vkd3d_queue_timeline_trace_register_generic_region(&fence->device->queue_timeline_trace, "WAIT BEFORE SIGNAL");
     d3d12_fence_block_until_pending_value_reaches_locked(fence, value);
+    vkd3d_queue_timeline_trace_complete_execute(&fence->device->queue_timeline_trace, &command_queue->fence_worker, cookie);
 
     /* If a host signal unblocked us, or we know that the fence has reached a specific value, there is no need
      * to queue up a wait. */
@@ -18272,8 +18275,10 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         wait_info.pSemaphores = &fence_value.vk_semaphore;
         wait_info.pValues = &fence_value.vk_semaphore_value;
 
+        cookie = vkd3d_queue_timeline_trace_register_generic_region(&fence->device->queue_timeline_trace, "CPU WAIT");
         if ((vr = VK_CALL(vkWaitSemaphores(command_queue->device->vk_device, &wait_info, UINT64_MAX))))
             ERR("Failed to wait for timeline semaphore, vr %d.\n", vr);
+        vkd3d_queue_timeline_trace_complete_execute(&fence->device->queue_timeline_trace, &command_queue->fence_worker, cookie);
     }
     else
     {
@@ -19397,6 +19402,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 {
     struct d3d12_command_queue_submission submission;
     struct d3d12_command_queue_transition_pool pool;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     struct d3d12_command_queue *queue = userdata;
     VkSemaphoreSubmitInfo transition_semaphore;
     VkCommandBufferSubmitInfo transition_cmd;
@@ -19427,17 +19433,20 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         switch (submission.type)
         {
         case VKD3D_SUBMISSION_STOP:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "STOP");
             goto cleanup;
 
         case VKD3D_SUBMISSION_WAIT:
             VKD3D_REGION_BEGIN(queue_wait);
             if (is_shared_ID3D12Fence1(submission.wait.fence))
             {
+                cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "WAIT (shared)");
                 d3d12_command_queue_flush_waiters(queue, 0u);
                 d3d12_command_queue_wait_shared(queue, shared_impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
             }
             else
             {
+                cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "WAIT (normal)");
                 d3d12_command_queue_wait(queue, impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
             }
 
@@ -19446,6 +19455,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_SIGNAL:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "SIGNAL");
             d3d12_command_queue_flush_waiters(queue, 0u);
 
             VKD3D_REGION_BEGIN(queue_signal);
@@ -19456,6 +19466,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
         case VKD3D_SUBMISSION_EXECUTE:
             VKD3D_REGION_BEGIN(queue_execute);
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "EXECUTE");
 
             memset(&transition_cmd, 0, sizeof(transition_cmd));
             transition_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -19505,6 +19516,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_BIND_SPARSE:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "SPARSE");
             d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL);
 
             d3d12_command_queue_bind_sparse(queue, submission.bind_sparse.mode,
@@ -19514,6 +19526,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_DRAIN:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "DRAIN");
             /* Full flush needed to synchronize interop */
             d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
 
@@ -19524,6 +19537,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_CALLBACK:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "CALLBACK");
             d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
 
             submission.callback.callback(submission.callback.userdata);
@@ -19533,6 +19547,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             ERR("Unrecognized submission type %u.\n", submission.type);
             break;
         }
+
+        vkd3d_queue_timeline_trace_complete_execute(&queue->device->queue_timeline_trace, &queue->fence_worker, cookie);
     }
 
 cleanup:
