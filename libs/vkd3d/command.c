@@ -2633,23 +2633,82 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
         struct d3d12_command_queue *command_queue)
 {
+    unsigned int num_available_physical_queues = 0;
+    struct vkd3d_queue *last_vacant_queue = NULL;
     struct vkd3d_queue *queue;
-    unsigned int i;
+    bool allow_vacant_queue;
+    bool is_higher_prio;
+    unsigned int i, j;
+    int prio;
+
+    prio = command_queue ? command_queue->desc.Priority : D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    is_higher_prio = prio >= D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
 
     for (i = 0; i < queue_family->queue_count; i++)
         pthread_mutex_lock(&queue_family->queues[i]->mutex);
 
-    /* Select the queue that has the lowest number of virtual queues mapped
-     * to it, in order to avoid situations where we map multiple queues to
-     * the same vkd3d queue while others are unused */
-    queue = queue_family->queues[0];
-
-    for (i = 1; i < queue_family->queue_count; i++)
+    for (i = 0; i < queue_family->queue_count; i++)
     {
-        if (queue_family->queues[i]->virtual_queue_count < queue->virtual_queue_count)
-            queue = queue_family->queues[i];
+        queue = queue_family->queues[i];
+        if (queue->virtual_queue_count == 0)
+        {
+            num_available_physical_queues++;
+            last_vacant_queue = queue;
+        }
     }
 
+    if (num_available_physical_queues != 1)
+        last_vacant_queue = NULL;
+
+    allow_vacant_queue = !last_vacant_queue || is_higher_prio;
+
+    /* Select the queue that has the lowest number of virtual queues mapped
+     * to it, in order to avoid situations where we map multiple queues to
+     * the same vkd3d queue while others are unused.
+     * To avoid staggered submit as much as possible, we should always leave one queue for any higher-prio work. */
+    queue = NULL;
+
+    if (num_available_physical_queues == 0 || is_higher_prio)
+    {
+        /* There is nothing left, switch the heuristic such that we match logical queue prios if possible,
+         * to avoid creating stagger submit scenarios if we can avoid it.
+         * Also take this path so that all high-prio work can share one queue. We don't want high prio queues
+         * to monopolize all physical queues if we can help it. */
+
+        for (i = 0; i < queue_family->queue_count; i++)
+        {
+            struct vkd3d_queue *candidate = queue_family->queues[i];
+
+            /* Don't try to alias with internal queues if possible. */
+            bool same_prio_level = candidate->command_queue_count != 0;
+
+            for (j = 0; j < candidate->command_queue_count && same_prio_level; j++)
+                same_prio_level = candidate->command_queues[j]->desc.Priority == prio;
+
+            if (!same_prio_level)
+                continue;
+
+            if (!queue || candidate->virtual_queue_count < queue->virtual_queue_count)
+                queue = candidate;
+        }
+    }
+
+    if (!queue)
+    {
+        for (i = 0; i < queue_family->queue_count; i++)
+        {
+            struct vkd3d_queue *candidate = queue_family->queues[i];
+            if (candidate->virtual_queue_count == 0 && !allow_vacant_queue)
+                continue;
+            if (!queue || candidate->virtual_queue_count < queue->virtual_queue_count)
+                queue = candidate;
+        }
+    }
+
+    if (!queue)
+        queue = last_vacant_queue;
+
+    assert(queue);
     queue->virtual_queue_count++;
 
     if (command_queue)
