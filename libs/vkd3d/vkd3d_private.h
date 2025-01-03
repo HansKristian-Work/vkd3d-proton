@@ -4705,6 +4705,9 @@ enum vkd3d_queue_timeline_trace_state_type
     /* Waiting for present wait to complete. */
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_WAIT,
 
+    /* Generic region markers. */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_GENERIC_REGION,
+
     /* Time spent blocking in ::Present() in user thread. */
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_BLOCK,
 
@@ -4732,7 +4735,9 @@ struct vkd3d_queue_timeline_trace_state
     uint64_t start_submit_ts;
     uint64_t record_end_ts;
     uint64_t record_cookie;
-    char desc[128 - 5 * sizeof(uint64_t)];
+    uint32_t overhead_start_offset;
+    uint32_t overhead_end_offset;
+    char desc[128 - 6 * sizeof(uint64_t)];
 };
 
 struct vkd3d_queue_timeline_trace
@@ -4795,6 +4800,9 @@ vkd3d_queue_timeline_trace_register_command_list(struct vkd3d_queue_timeline_tra
 void vkd3d_queue_timeline_trace_register_instantaneous(struct vkd3d_queue_timeline_trace *trace,
         enum vkd3d_queue_timeline_trace_state_type type, uint64_t value);
 
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_generic_region(struct vkd3d_queue_timeline_trace *trace, const char *tag);
+
 void vkd3d_queue_timeline_trace_complete_event_signal(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_fence_worker *worker,
         struct vkd3d_queue_timeline_trace_cookie cookie);
@@ -4810,6 +4818,10 @@ void vkd3d_queue_timeline_trace_complete_low_latency_sleep(struct vkd3d_queue_ti
 void vkd3d_queue_timeline_trace_close_command_list(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 void vkd3d_queue_timeline_trace_begin_execute(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_begin_execute_overhead(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_end_execute_overhead(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 
 struct vkd3d_address_binding_report_buffer_info

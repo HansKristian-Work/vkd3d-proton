@@ -589,14 +589,15 @@ static void *vkd3d_fence_worker_main(void *arg)
 
     snprintf(worker->timeline.tid, sizeof(worker->timeline.tid),
 #ifdef _WIN32
-            "family %u, %s, tid 0x%04x, prio %d",
+            "family %u, %s, tid 0x%04x, prio %d, %p",
 #else
-            "family %u, %s, tid %u, prio %d",
+            "family %u, %s, tid %u, prio %d, %p",
 #endif
             worker->queue->vkd3d_queue->vk_family_index,
             type_str,
             vkd3d_get_current_thread_id(),
-            worker->queue->desc.Priority);
+            worker->queue->desc.Priority,
+            (void *)worker->queue->vkd3d_queue->vk_queue);
 
     cur_fence_count = 0;
     cur_fences_size = 0;
@@ -2633,23 +2634,82 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
         struct d3d12_command_queue *command_queue)
 {
+    unsigned int num_available_physical_queues = 0;
+    struct vkd3d_queue *last_vacant_queue = NULL;
     struct vkd3d_queue *queue;
-    unsigned int i;
+    bool allow_vacant_queue;
+    bool is_higher_prio;
+    unsigned int i, j;
+    int prio;
+
+    prio = command_queue ? command_queue->desc.Priority : D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    is_higher_prio = prio >= D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
 
     for (i = 0; i < queue_family->queue_count; i++)
         pthread_mutex_lock(&queue_family->queues[i]->mutex);
 
-    /* Select the queue that has the lowest number of virtual queues mapped
-     * to it, in order to avoid situations where we map multiple queues to
-     * the same vkd3d queue while others are unused */
-    queue = queue_family->queues[0];
-
-    for (i = 1; i < queue_family->queue_count; i++)
+    for (i = 0; i < queue_family->queue_count; i++)
     {
-        if (queue_family->queues[i]->virtual_queue_count < queue->virtual_queue_count)
-            queue = queue_family->queues[i];
+        queue = queue_family->queues[i];
+        if (queue->virtual_queue_count == 0)
+        {
+            num_available_physical_queues++;
+            last_vacant_queue = queue;
+        }
     }
 
+    if (num_available_physical_queues != 1)
+        last_vacant_queue = NULL;
+
+    allow_vacant_queue = !last_vacant_queue || is_higher_prio;
+
+    /* Select the queue that has the lowest number of virtual queues mapped
+     * to it, in order to avoid situations where we map multiple queues to
+     * the same vkd3d queue while others are unused.
+     * To avoid staggered submit as much as possible, we should always leave one queue for any higher-prio work. */
+    queue = NULL;
+
+    if (num_available_physical_queues == 0 || is_higher_prio)
+    {
+        /* There is nothing left, switch the heuristic such that we match logical queue prios if possible,
+         * to avoid creating stagger submit scenarios if we can avoid it.
+         * Also take this path so that all high-prio work can share one queue. We don't want high prio queues
+         * to monopolize all physical queues if we can help it. */
+
+        for (i = 0; i < queue_family->queue_count; i++)
+        {
+            struct vkd3d_queue *candidate = queue_family->queues[i];
+
+            /* Don't try to alias with internal queues if possible. */
+            bool same_prio_level = candidate->command_queue_count != 0;
+
+            for (j = 0; j < candidate->command_queue_count && same_prio_level; j++)
+                same_prio_level = candidate->command_queues[j]->desc.Priority == prio;
+
+            if (!same_prio_level)
+                continue;
+
+            if (!queue || candidate->virtual_queue_count < queue->virtual_queue_count)
+                queue = candidate;
+        }
+    }
+
+    if (!queue)
+    {
+        for (i = 0; i < queue_family->queue_count; i++)
+        {
+            struct vkd3d_queue *candidate = queue_family->queues[i];
+            if (candidate->virtual_queue_count == 0 && !allow_vacant_queue)
+                continue;
+            if (!queue || candidate->virtual_queue_count < queue->virtual_queue_count)
+                queue = candidate;
+        }
+    }
+
+    if (!queue)
+        queue = last_vacant_queue;
+
+    assert(queue);
     queue->virtual_queue_count++;
 
     if (command_queue)
@@ -18223,6 +18283,7 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         struct d3d12_fence *fence, UINT64 value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     struct d3d12_fence_value fence_value;
     VkSemaphoreWaitInfo wait_info;
     struct vkd3d_queue *queue;
@@ -18240,7 +18301,9 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
      * but we don't have virtualized queues in Vulkan, so we need to handle the case
      * where multiple queues alias over the same physical queue, so effectively, we need to manage out-of-order submits
      * ourselves. */
+    cookie = vkd3d_queue_timeline_trace_register_generic_region(&fence->device->queue_timeline_trace, "WAIT BEFORE SIGNAL");
     d3d12_fence_block_until_pending_value_reaches_locked(fence, value);
+    vkd3d_queue_timeline_trace_complete_execute(&fence->device->queue_timeline_trace, &command_queue->fence_worker, cookie);
 
     /* If a host signal unblocked us, or we know that the fence has reached a specific value, there is no need
      * to queue up a wait. */
@@ -18272,8 +18335,10 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         wait_info.pSemaphores = &fence_value.vk_semaphore;
         wait_info.pValues = &fence_value.vk_semaphore_value;
 
+        cookie = vkd3d_queue_timeline_trace_register_generic_region(&fence->device->queue_timeline_trace, "CPU WAIT");
         if ((vr = VK_CALL(vkWaitSemaphores(command_queue->device->vk_device, &wait_info, UINT64_MAX))))
             ERR("Failed to wait for timeline semaphore, vr %d.\n", vr);
+        vkd3d_queue_timeline_trace_complete_execute(&fence->device->queue_timeline_trace, &command_queue->fence_worker, cookie);
     }
     else
     {
@@ -18929,6 +18994,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         if (is_first)
         {
+            vkd3d_queue_timeline_trace_begin_execute_overhead(&command_queue->device->queue_timeline_trace, timeline_cookie);
             d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_desc[0],
                   VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
         }
@@ -18981,6 +19047,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         /* Update timeline value *after* waiting for staggered submissions */
         command_queue->last_submission_timeline_value = signal_semaphore_infos[0].value;
     }
+
+    vkd3d_queue_timeline_trace_end_execute_overhead(&command_queue->device->queue_timeline_trace, timeline_cookie);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (debug_capture)
@@ -19394,6 +19462,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 {
     struct d3d12_command_queue_submission submission;
     struct d3d12_command_queue_transition_pool pool;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     struct d3d12_command_queue *queue = userdata;
     VkSemaphoreSubmitInfo transition_semaphore;
     VkCommandBufferSubmitInfo transition_cmd;
@@ -19424,17 +19493,20 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         switch (submission.type)
         {
         case VKD3D_SUBMISSION_STOP:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "STOP");
             goto cleanup;
 
         case VKD3D_SUBMISSION_WAIT:
             VKD3D_REGION_BEGIN(queue_wait);
             if (is_shared_ID3D12Fence1(submission.wait.fence))
             {
+                cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "WAIT (shared)");
                 d3d12_command_queue_flush_waiters(queue, 0u);
                 d3d12_command_queue_wait_shared(queue, shared_impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
             }
             else
             {
+                cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "WAIT (normal)");
                 d3d12_command_queue_wait(queue, impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
             }
 
@@ -19443,6 +19515,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_SIGNAL:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "SIGNAL");
             d3d12_command_queue_flush_waiters(queue, 0u);
 
             VKD3D_REGION_BEGIN(queue_signal);
@@ -19453,6 +19526,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
         case VKD3D_SUBMISSION_EXECUTE:
             VKD3D_REGION_BEGIN(queue_execute);
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "EXECUTE");
 
             memset(&transition_cmd, 0, sizeof(transition_cmd));
             transition_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -19502,6 +19576,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_BIND_SPARSE:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "SPARSE");
             d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL);
 
             d3d12_command_queue_bind_sparse(queue, submission.bind_sparse.mode,
@@ -19511,6 +19586,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_DRAIN:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "DRAIN");
             /* Full flush needed to synchronize interop */
             d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
 
@@ -19521,6 +19597,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_CALLBACK:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "CALLBACK");
             d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
 
             submission.callback.callback(submission.callback.userdata);
@@ -19530,6 +19607,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             ERR("Unrecognized submission type %u.\n", submission.type);
             break;
         }
+
+        vkd3d_queue_timeline_trace_complete_execute(&queue->device->queue_timeline_trace, &queue->fence_worker, cookie);
     }
 
 cleanup:

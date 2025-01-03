@@ -439,6 +439,13 @@ vkd3d_queue_timeline_trace_register_present_wait(struct vkd3d_queue_timeline_tra
 }
 
 struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_generic_region(struct vkd3d_queue_timeline_trace *trace, const char *tag)
+{
+    return vkd3d_queue_timeline_trace_register_generic_op(trace, VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_GENERIC_REGION, tag);
+}
+
+
+struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_present_block(struct vkd3d_queue_timeline_trace *trace, uint64_t present_id)
 {
     char str[128];
@@ -543,8 +550,8 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
         struct vkd3d_fence_worker *worker,
         struct vkd3d_queue_timeline_trace_cookie cookie)
 {
+    double end_ts, start_submit_ts, start_ts, overhead_start_ts, overhead_end_ts;
     const struct vkd3d_queue_timeline_trace_state *state;
-    double end_ts, start_submit_ts, start_ts;
     unsigned int pid;
     const char *tid;
     double *ts_lock;
@@ -556,6 +563,8 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
     start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
     start_submit_ts = (double)(state->start_submit_ts - trace->base_ts) * 1e-3;
     end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
+    overhead_start_ts = start_ts + 1e-3 * state->overhead_start_offset;
+    overhead_end_ts = start_ts + 1e-3 * state->overhead_end_offset;
 
     if (worker)
     {
@@ -563,6 +572,9 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
             vkd3d_queue_timeline_trace_flush_instantaneous(trace, worker);
 
         tid = worker->timeline.tid;
+        if (state->type == VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_GENERIC_REGION)
+            tid = "regions";
+
         pid = worker->queue->submission_thread_tid;
 
         if (state->type == VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_SUBMISSION)
@@ -576,13 +588,16 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
                 start_submit_ts = start_ts;
         }
 
-        ts_lock = &worker->timeline.lock_end_gpu_ts;
+        if (state->type != VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_GENERIC_REGION)
+        {
+            ts_lock = &worker->timeline.lock_end_gpu_ts;
 
-        if (start_submit_ts < *ts_lock)
-            start_submit_ts = *ts_lock;
-        if (end_ts < start_submit_ts)
-            end_ts = start_submit_ts;
-        *ts_lock = end_ts;
+            if (start_submit_ts < *ts_lock)
+                start_submit_ts = *ts_lock;
+            if (end_ts < start_submit_ts)
+                end_ts = start_submit_ts;
+            *ts_lock = end_ts;
+        }
 
         fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"%s\", \"pid\": \"0x%04x\", \"ts\": %f, \"dur\": %f },\n",
                 state->desc, tid, pid, start_submit_ts, end_ts - start_submit_ts);
@@ -593,6 +608,9 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
             fprintf(trace->file,
                     "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"submit\", \"pid\": \"0x%04x\", \"ts\": %f, \"dur\": %f },\n",
                     state->desc, pid, start_ts, start_submit_ts - start_ts);
+            fprintf(trace->file,
+                    "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"overhead\", \"pid\": \"0x%04x\", \"ts\": %f, \"dur\": %f },\n",
+                    state->desc, pid, overhead_start_ts, overhead_end_ts - overhead_start_ts);
         }
     }
 
@@ -608,4 +626,26 @@ void vkd3d_queue_timeline_trace_begin_execute(struct vkd3d_queue_timeline_trace 
 
     state = &trace->state[cookie.index];
     state->start_submit_ts = vkd3d_get_current_time_ns();
+}
+
+void vkd3d_queue_timeline_trace_begin_execute_overhead(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie)
+{
+    struct vkd3d_queue_timeline_trace_state *state;
+    if (!trace->active || cookie.index == 0)
+        return;
+
+    state = &trace->state[cookie.index];
+    state->overhead_start_offset = vkd3d_get_current_time_ns() - state->start_ts;
+}
+
+void vkd3d_queue_timeline_trace_end_execute_overhead(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie)
+{
+    struct vkd3d_queue_timeline_trace_state *state;
+    if (!trace->active || cookie.index == 0)
+        return;
+
+    state = &trace->state[cookie.index];
+    state->overhead_end_offset = vkd3d_get_current_time_ns() - state->start_ts;
 }
