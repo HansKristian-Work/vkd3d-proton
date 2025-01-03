@@ -2929,6 +2929,13 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
     info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS] = vkd3d_find_queue(count, queue_properties,
             VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
 
+    if (info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS] == VK_QUEUE_FAMILY_IGNORED)
+    {
+        ERR("Could not find a suitable queue family for a direct command queue.\n");
+        vkd3d_free(queue_properties);
+        return E_FAIL;
+    }
+
     info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = vkd3d_find_queue(count, queue_properties,
             VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, VK_QUEUE_COMPUTE_BIT);
 
@@ -2938,10 +2945,23 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
             VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_SPARSE_BINDING_BIT,
             VK_QUEUE_SPARSE_BINDING_BIT);
 
-    /* Try to find a queue family that isn't graphics. */
     if (info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] == VK_QUEUE_FAMILY_IGNORED)
-        info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
-                VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
+    {
+        if (queue_properties[info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS]].queueCount >=
+                VKD3D_MAX_QUEUE_COUNT_PER_FAMILY)
+        {
+            /* If the graphics queue has a lot of queues available, just use that. Async compute/copy may be more strained. */
+            info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
+                    VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_SPARSE_BINDING_BIT,
+                    VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_SPARSE_BINDING_BIT);
+        }
+        else
+        {
+            /* Try to find a queue family that isn't graphics. */
+            info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
+                    VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
+        }
+    }
 
     /* Last resort, pick any queue family that supports sparse. */
     if (info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] == VK_QUEUE_FAMILY_IGNORED)
@@ -3010,12 +3030,6 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
     }
 
     vkd3d_free(queue_properties);
-
-    if (info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS] == VK_QUEUE_FAMILY_IGNORED)
-    {
-        ERR("Could not find a suitable queue family for a direct command queue.\n");
-        return E_FAIL;
-    }
 
     return S_OK;
 }
