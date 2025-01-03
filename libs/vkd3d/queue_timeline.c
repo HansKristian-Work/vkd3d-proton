@@ -439,6 +439,13 @@ vkd3d_queue_timeline_trace_register_present_wait(struct vkd3d_queue_timeline_tra
 }
 
 struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_generic_region(struct vkd3d_queue_timeline_trace *trace, const char *tag)
+{
+    return vkd3d_queue_timeline_trace_register_generic_op(trace, VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_GENERIC_REGION, tag);
+}
+
+
+struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_present_block(struct vkd3d_queue_timeline_trace *trace, uint64_t present_id)
 {
     char str[128];
@@ -565,6 +572,9 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
             vkd3d_queue_timeline_trace_flush_instantaneous(trace, worker);
 
         tid = worker->timeline.tid;
+        if (state->type == VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_GENERIC_REGION)
+            tid = "regions";
+
         pid = worker->queue->submission_thread_tid;
 
         if (state->type == VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_SUBMISSION)
@@ -578,13 +588,16 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
                 start_submit_ts = start_ts;
         }
 
-        ts_lock = &worker->timeline.lock_end_gpu_ts;
+        if (state->type != VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_GENERIC_REGION)
+        {
+            ts_lock = &worker->timeline.lock_end_gpu_ts;
 
-        if (start_submit_ts < *ts_lock)
-            start_submit_ts = *ts_lock;
-        if (end_ts < start_submit_ts)
-            end_ts = start_submit_ts;
-        *ts_lock = end_ts;
+            if (start_submit_ts < *ts_lock)
+                start_submit_ts = *ts_lock;
+            if (end_ts < start_submit_ts)
+                end_ts = start_submit_ts;
+            *ts_lock = end_ts;
+        }
 
         fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"%s\", \"pid\": \"0x%04x\", \"ts\": %f, \"dur\": %f },\n",
                 state->desc, tid, pid, start_submit_ts, end_ts - start_submit_ts);
