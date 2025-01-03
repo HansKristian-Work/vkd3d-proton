@@ -589,14 +589,15 @@ static void *vkd3d_fence_worker_main(void *arg)
 
     snprintf(worker->timeline.tid, sizeof(worker->timeline.tid),
 #ifdef _WIN32
-            "family %u, %s, tid 0x%04x, prio %d",
+            "family %u, %s, tid 0x%04x, prio %d, %p",
 #else
-            "family %u, %s, tid %u, prio %d",
+            "family %u, %s, tid %u, prio %d, %p",
 #endif
             worker->queue->vkd3d_queue->vk_family_index,
             type_str,
             vkd3d_get_current_thread_id(),
-            worker->queue->desc.Priority);
+            worker->queue->desc.Priority,
+            (void *)worker->queue->vkd3d_queue->vk_queue);
 
     cur_fence_count = 0;
     cur_fences_size = 0;
