@@ -804,29 +804,42 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     const VkPhysicalDeviceMemoryProperties *memory_props = &device->memory_properties;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_memory_info *memory_info = &device->memory_info;
+    uint32_t type_mask, device_local_mask, candidate_mask;
     VkMemoryAllocateInfo allocate_info;
     VkDeviceSize *type_current;
-    uint32_t type_mask;
     bool rebar_budget;
     VkResult vr;
 
+    device_local_mask = 0u;
+    candidate_mask = 0u;
+
     type_mask = base_type_mask;
-    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocate_info.pNext = pNext;
-    allocate_info.allocationSize = size;
-    allocate_info.memoryTypeIndex = UINT32_MAX;
 
     while (type_mask)
     {
         uint32_t type_index = vkd3d_bitmask_iter32(&type_mask);
+
         if ((memory_props->memoryTypes[type_index].propertyFlags & type_flags) == type_flags)
         {
-            allocate_info.memoryTypeIndex = type_index;
-            break;
+            candidate_mask |= 1u << type_index;
+
+            if (memory_props->memoryTypes[type_index].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+                device_local_mask |= 1u << type_index;
         }
     }
 
-    if (allocate_info.memoryTypeIndex == UINT32_MAX)
+    /* If device-local memory is not explicitly requested and the type mask covers system memory,
+     * ensure that we don't accidentally use HVV. This may happen in case a driver does not expose
+     * uncached system memory. */
+    if (!(type_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && (candidate_mask != device_local_mask))
+        candidate_mask &= ~device_local_mask;
+
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.pNext = pNext;
+    allocate_info.allocationSize = size;
+    allocate_info.memoryTypeIndex = vkd3d_bitmask_tzcnt32(candidate_mask);
+
+    if (allocate_info.memoryTypeIndex >= memory_props->memoryTypeCount)
     {
         /* We consider CACHED optional here if we cannot find a memory type that supports it.
          * Failing to allocate CACHED is not a scenario where we would fall back. */
