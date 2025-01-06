@@ -18007,13 +18007,20 @@ static void d3d12_command_queue_push_fence_waits_to_worker(struct d3d12_command_
         cookie = vkd3d_queue_timeline_trace_register_wait(&worker->device->queue_timeline_trace,
                 &fence_wait->fence->ID3D12Fence_iface, fence_wait->virtual_value);
 
-        memset(&fence_info, 0, sizeof(fence_info));
-        fence_info.fence = &command_queue->wait_fences[i].fence->ID3D12Fence_iface;
-        fence_info.vk_semaphore = fence_wait->vk_semaphore;
-        fence_info.vk_semaphore_value = fence_wait->vk_semaphore_value;
+        /* Only wait for fence completion if we're interested in it for profiling purposes.
+         * Otherwise, there is no point in waiting on it since we resolved the wait to a vkd3d_queue internal timeline.
+         * This also functions as a performance workaround for NV since NV seems to dislike when the same timeline is
+         * waited on by multiple threads, which could happen in this code path. See issue 2256 for more details. */
+        if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+        {
+            memset(&fence_info, 0, sizeof(fence_info));
+            fence_info.fence = &fence_wait->fence->ID3D12Fence_iface;
+            fence_info.vk_semaphore = fence_wait->vk_semaphore;
+            fence_info.vk_semaphore_value = fence_wait->vk_semaphore_value;
 
-        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
-            ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
+            if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
+                ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
+        }
     }
 }
 
