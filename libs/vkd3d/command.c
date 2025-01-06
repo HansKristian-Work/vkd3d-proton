@@ -19539,6 +19539,14 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             {
                 cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "WAIT (normal)");
                 d3d12_command_queue_wait(queue, impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
+
+                /* NVIDIA drivers seem to prefer that waits are flushed on their own?
+                 * Currently not understood why, but this resolves a regression in HZD remastered. */
+                if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                        queue->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+                {
+                    d3d12_command_queue_flush_waiters(queue, 0u);
+                }
             }
 
             d3d12_fence_iface_dec_ref(submission.wait.fence);
