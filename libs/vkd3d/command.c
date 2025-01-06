@@ -18094,13 +18094,17 @@ static void d3d12_command_queue_push_fence_waits_to_worker(struct d3d12_command_
         cookie = vkd3d_queue_timeline_trace_register_wait(&worker->device->queue_timeline_trace,
                 &fence_wait->fence->ID3D12Fence_iface, fence_wait->virtual_value);
 
-        memset(&fence_info, 0, sizeof(fence_info));
-        fence_info.fence = &command_queue->wait_fences[i].fence->ID3D12Fence_iface;
-        fence_info.vk_semaphore = fence_wait->vk_semaphore;
-        fence_info.vk_semaphore_value = fence_wait->vk_semaphore_value;
-
-        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
-            ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
+        /* Normal fence waits resolve to vkd3d_queue's submission timeline,
+         * and shared fences are waited on inline, so we don't need to hold the ID3D12Fence's lifetime
+         * longer than we need. We only need to queue up a wait for purposes of queue profiles here. */
+        if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+        {
+            memset(&fence_info, 0, sizeof(fence_info));
+            fence_info.vk_semaphore = fence_wait->vk_semaphore;
+            fence_info.vk_semaphore_value = fence_wait->vk_semaphore_value;
+            if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
+                ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
+        }
     }
 }
 
