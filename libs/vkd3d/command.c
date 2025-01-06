@@ -2631,6 +2631,15 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
     }
 }
 
+static bool vkd3d_queue_estimated_load_less_than(const struct vkd3d_queue *a, const struct vkd3d_queue *b)
+{
+    /* Prefer to not alias user queues if possible.
+     * Weigh internal queues as half a queue for purposes of comparison. */
+    unsigned int a_cost = a->command_queue_count * 2 + (a->virtual_queue_count - a->command_queue_count);
+    unsigned int b_cost = b->command_queue_count * 2 + (b->virtual_queue_count - b->command_queue_count);
+    return a_cost < b_cost;
+}
+
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
         struct d3d12_command_queue *command_queue)
 {
@@ -2692,8 +2701,9 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_
         {
             struct vkd3d_queue *candidate = queue_family->queues[i];
 
-            /* Don't try to alias with internal queues if possible. */
-            bool same_prio_level = candidate->command_queue_count != 0;
+            /* Don't try to alias with internal queues if possible when using high-prio queues.
+             * Internal queues are considered NORMAL prio. */
+            bool same_prio_level = candidate->command_queue_count != 0 || prio == D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
 
             for (j = 0; j < candidate->command_queue_count && same_prio_level; j++)
             {
@@ -2706,7 +2716,7 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_
             if (!same_prio_level)
                 continue;
 
-            if (!queue || candidate->virtual_queue_count < queue->virtual_queue_count)
+            if (!queue || vkd3d_queue_estimated_load_less_than(candidate, queue))
                 queue = candidate;
         }
     }
@@ -2718,7 +2728,7 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_
             struct vkd3d_queue *candidate = queue_family->queues[i];
             if (candidate->virtual_queue_count == 0 && !allow_vacant_queue)
                 continue;
-            if (!queue || candidate->virtual_queue_count < queue->virtual_queue_count)
+            if (!queue || vkd3d_queue_estimated_load_less_than(candidate, queue))
                 queue = candidate;
         }
     }
