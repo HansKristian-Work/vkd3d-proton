@@ -2636,13 +2636,25 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_
 {
     unsigned int num_available_physical_queues = 0;
     struct vkd3d_queue *last_vacant_queue = NULL;
+    D3D12_COMMAND_LIST_TYPE type;
     struct vkd3d_queue *queue;
     bool allow_vacant_queue;
     bool is_higher_prio;
     unsigned int i, j;
     int prio;
 
-    prio = command_queue ? command_queue->desc.Priority : D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    if (command_queue)
+    {
+        prio = command_queue->desc.Priority;
+        type = command_queue->desc.Type;
+    }
+    else
+    {
+        prio = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+        /* This is effectively ignored since internal queues are created on startup. */
+        type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    }
+
     is_higher_prio = prio >= D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
 
     for (i = 0; i < queue_family->queue_count; i++)
@@ -2684,7 +2696,12 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_
             bool same_prio_level = candidate->command_queue_count != 0;
 
             for (j = 0; j < candidate->command_queue_count && same_prio_level; j++)
-                same_prio_level = candidate->command_queues[j]->desc.Priority == prio;
+            {
+                /* Only fuse physical queues here if they are of the same type.
+                 * E.g. high-prio COMPUTE and high-prio COPY should be able to get their separate queues. */
+                same_prio_level = candidate->command_queues[j]->desc.Priority == prio &&
+                        candidate->command_queues[j]->desc.Type == type;
+            }
 
             if (!same_prio_level)
                 continue;
