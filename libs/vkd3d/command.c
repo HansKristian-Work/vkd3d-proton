@@ -7348,6 +7348,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
 
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
         VKD3D_BREADCRUMB_TAG("ForcePreBarrier");
+        VKD3D_BREADCRUMB_COMMAND(BARRIER);
 
         list->current_compute_meta_flags &= ~(VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
                 VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH |
@@ -7388,6 +7389,7 @@ static void d3d12_command_list_check_compute_barrier(struct d3d12_command_list *
 
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
         VKD3D_BREADCRUMB_TAG("ForceBarrier");
+        VKD3D_BREADCRUMB_COMMAND(BARRIER);
     }
 }
 
