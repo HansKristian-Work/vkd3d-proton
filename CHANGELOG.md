@@ -1,5 +1,16 @@
 # Change Log
 
+## 2.14.1
+
+This is a bug-fix release which resolves some regressions introduced in 2.14.
+
+- Fix a crash on start-up which affected GPUs without sparse support. E.g. Intel iGPU or Turnip.
+  Crash could happen even if that GPU was the secondary GPU on the system.
+- Fix a memory allocation issue affecting NVK.
+- Fix a CPU performance regression issue affecting Horizon Zero Dawn Remastered on NVIDIA GPUs.
+  This fix might improve CPU performance in other games too, but unverified.
+- Not a regression fix, but add a `no_upload_hvv` workaround for Arma Reforger to workaround weird asset loading behavior.
+
 ## 2.14
 
 Rolls up the usual collection of new features, performance improvements, bug fixes and the copious amount of game workarounds,
