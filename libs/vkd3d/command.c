@@ -7677,6 +7677,53 @@ static bool vk_image_copy_from_d3d12(VkImageCopy2 *image_copy,
     return true;
 }
 
+static void d3d12_command_list_transition_image_layout_with_global_memory_barrier(struct d3d12_command_list *list,
+        struct d3d12_command_list_barrier_batch *batch,
+        VkImage vk_image, const VkImageSubresourceLayers *vk_subresource,
+        VkPipelineStageFlags2 src_stages, VkAccessFlags2 src_access, VkImageLayout old_layout,
+        VkPipelineStageFlags2 dst_stages, VkAccessFlags2 dst_access, VkImageLayout new_layout,
+        VkAccessFlags2 global_src_access, VkAccessFlags2 global_dst_access)
+{
+    VkImageMemoryBarrier2 vk_barrier;
+    bool need_global_barrier;
+
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = src_stages;
+    vk_barrier.srcAccessMask = src_access;
+    vk_barrier.dstStageMask = dst_stages;
+    vk_barrier.dstAccessMask = dst_access;
+    vk_barrier.oldLayout = old_layout;
+    vk_barrier.newLayout = new_layout;
+    vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier.image = vk_image;
+    vk_barrier.subresourceRange = vk_subresource_range_from_layers(vk_subresource);
+
+    need_global_barrier = global_src_access || global_dst_access;
+
+    if (need_global_barrier)
+    {
+        d3d12_command_list_barrier_batch_add_global_transition(list, batch,
+                src_stages, global_src_access, dst_stages, global_dst_access);
+    }
+
+    d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &vk_barrier);
+}
+
+static void d3d12_command_list_transition_image_layout(struct d3d12_command_list *list,
+        struct d3d12_command_list_barrier_batch *batch,
+        VkImage vk_image, const VkImageSubresourceLayers *vk_subresource,
+        VkPipelineStageFlags2 src_stages, VkAccessFlags2 src_access, VkImageLayout old_layout,
+        VkPipelineStageFlags2 dst_stages, VkAccessFlags2 dst_access, VkImageLayout new_layout)
+{
+    d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch,
+            vk_image, vk_subresource,
+            src_stages, src_access, old_layout,
+            dst_stages, dst_access, new_layout,
+            0, 0);
+}
+
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
         struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
@@ -8013,53 +8060,6 @@ static bool validate_d3d12_box(const D3D12_BOX *box)
     return box->right > box->left
             && box->bottom > box->top
             && box->back > box->front;
-}
-
-static void d3d12_command_list_transition_image_layout_with_global_memory_barrier(struct d3d12_command_list *list,
-        struct d3d12_command_list_barrier_batch *batch,
-        VkImage vk_image, const VkImageSubresourceLayers *vk_subresource,
-        VkPipelineStageFlags2 src_stages, VkAccessFlags2 src_access, VkImageLayout old_layout,
-        VkPipelineStageFlags2 dst_stages, VkAccessFlags2 dst_access, VkImageLayout new_layout,
-        VkAccessFlags2 global_src_access, VkAccessFlags2 global_dst_access)
-{
-    VkImageMemoryBarrier2 vk_barrier;
-    bool need_global_barrier;
-
-    memset(&vk_barrier, 0, sizeof(vk_barrier));
-    vk_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    vk_barrier.srcStageMask = src_stages;
-    vk_barrier.srcAccessMask = src_access;
-    vk_barrier.dstStageMask = dst_stages;
-    vk_barrier.dstAccessMask = dst_access;
-    vk_barrier.oldLayout = old_layout;
-    vk_barrier.newLayout = new_layout;
-    vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier.image = vk_image;
-    vk_barrier.subresourceRange = vk_subresource_range_from_layers(vk_subresource);
-
-    need_global_barrier = global_src_access || global_dst_access;
-
-    if (need_global_barrier)
-    {
-        d3d12_command_list_barrier_batch_add_global_transition(list, batch,
-                src_stages, global_src_access, dst_stages, global_dst_access);
-    }
-
-    d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &vk_barrier);
-}
-
-static void d3d12_command_list_transition_image_layout(struct d3d12_command_list *list,
-        struct d3d12_command_list_barrier_batch *batch,
-        VkImage vk_image, const VkImageSubresourceLayers *vk_subresource,
-        VkPipelineStageFlags2 src_stages, VkAccessFlags2 src_access, VkImageLayout old_layout,
-        VkPipelineStageFlags2 dst_stages, VkAccessFlags2 dst_access, VkImageLayout new_layout)
-{
-    d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch,
-            vk_image, vk_subresource,
-            src_stages, src_access, old_layout,
-            dst_stages, dst_access, new_layout,
-            0, 0);
 }
 
 static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_list *list,
