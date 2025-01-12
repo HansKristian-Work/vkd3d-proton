@@ -7724,6 +7724,122 @@ static void d3d12_command_list_transition_image_layout(struct d3d12_command_list
             0, 0);
 }
 
+struct d3d12_image_copy_barrier
+{
+    /* Barrier flags that apply during the copy pass */
+    struct
+    {
+        VkPipelineStageFlagBits2 stages;
+        VkAccessFlagBits2 access;
+        VkImageLayout layout;
+    } src, dst;
+
+    bool use_copy;
+    bool dst_is_depth_stencil;
+};
+
+static void d3d12_command_list_copy_image_barrier_flags(struct d3d12_image_copy_barrier *barrier,
+        const struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
+        const struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
+        const VkImageCopy2 *region, bool overlapping_subresource)
+{
+    /* Individual aspects of planar images are treated as-if they were using a view-compatible
+     * format, so we can copy between planes and color images as long as the formats are of the
+     * same size. */
+    static const VkImageAspectFlags compatible_aspects = VK_IMAGE_ASPECT_COLOR_BIT |
+            VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT | VK_IMAGE_ASPECT_PLANE_2_BIT;
+
+    barrier->use_copy = dst_format->vk_aspect_mask == src_format->vk_aspect_mask ||
+            ((dst_format->vk_aspect_mask & compatible_aspects) && (src_format->vk_aspect_mask & compatible_aspects));
+    barrier->dst_is_depth_stencil = !!(dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
+
+    if (barrier->use_copy)
+    {
+        if (overlapping_subresource)
+        {
+            barrier->src.layout = VK_IMAGE_LAYOUT_GENERAL;
+            barrier->dst.layout = VK_IMAGE_LAYOUT_GENERAL;
+        }
+        else
+        {
+            barrier->src.layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            barrier->dst.layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        }
+
+        barrier->src.stages = VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier->src.access = VK_ACCESS_2_TRANSFER_READ_BIT;
+        barrier->dst.stages = VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier->dst.access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    }
+    else
+    {
+        barrier->src.layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        barrier->src.stages = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        barrier->src.access = VK_ACCESS_2_SHADER_READ_BIT;
+
+        if (barrier->dst_is_depth_stencil)
+        {
+            /* We will only promote one aspect out of common layout. */
+            if (region->dstSubresource.aspectMask == VK_IMAGE_ASPECT_DEPTH_BIT)
+            {
+                barrier->dst.layout = dst_resource->common_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ?
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                        : VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL;
+            }
+            else if (region->dstSubresource.aspectMask == VK_IMAGE_ASPECT_STENCIL_BIT)
+            {
+                barrier->dst.layout = dst_resource->common_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ?
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                        : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
+            }
+            else
+                barrier->dst.layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+            barrier->dst.stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            barrier->dst.access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        }
+        else
+        {
+            barrier->dst.layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            barrier->dst.stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            barrier->dst.access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        }
+    }
+}
+
+static void d3d12_command_list_copy_image_transition_images(struct d3d12_command_list *list,
+        struct d3d12_command_list_barrier_batch *batch,
+        struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
+        struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
+        const VkImageCopy2 *region, bool writes_full_subresource, bool overlapping_subresource)
+{
+    struct d3d12_image_copy_barrier barrier;
+    VkAccessFlags2 dst_copy_pass_access;
+
+    d3d12_command_list_copy_image_barrier_flags(&barrier,
+        dst_resource, dst_format,
+        src_resource, src_format,
+        region, overlapping_subresource);
+
+    dst_copy_pass_access = barrier.dst.access;
+    if (overlapping_subresource)
+        dst_copy_pass_access |= barrier.src.access;
+
+    d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
+        &region->dstSubresource,
+        VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
+        writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
+        barrier.dst.stages, dst_copy_pass_access, barrier.dst.layout);
+
+    if (!overlapping_subresource)
+    {
+        d3d12_command_list_transition_image_layout(list, batch, src_resource->res.vk_image,
+            &region->srcSubresource, VK_PIPELINE_STAGE_2_COPY_BIT,
+            VK_ACCESS_2_NONE, src_resource->common_layout,
+            barrier.src.stages, barrier.src.access, barrier.src.layout);
+    }
+}
+
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
         struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
@@ -7732,138 +7848,46 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
     struct vkd3d_copy_image_pipeline_key pipeline_key;
-    VkPipelineStageFlags2 src_stages, dst_stages;
+    struct d3d12_command_list_barrier_batch batch;
     struct vkd3d_copy_image_info pipeline_info;
     VkRenderingAttachmentInfo attachment_info;
-    VkImageMemoryBarrier2 vk_image_barriers[2];
     VkWriteDescriptorSet vk_descriptor_write;
+    struct d3d12_image_copy_barrier barrier;
     struct vkd3d_copy_image_args push_args;
     struct vkd3d_view *dst_view, *src_view;
-    VkAccessFlags2 src_access, dst_access;
-    VkImageLayout src_layout, dst_layout;
-    bool dst_is_depth_stencil, use_copy;
     VkDescriptorImageInfo vk_image_info;
     VkRenderingInfo rendering_info;
     VkCopyImageInfo2 copy_info;
-    VkDependencyInfo dep_info;
     VkViewport viewport;
     unsigned int i;
     HRESULT hr;
 
-    /* Individual aspects of planar images are treated as-if they were using a view-compatible
-     * format, so we can copy between planes and color images as long as the formats are of the
-     * same size. */
-    static const VkImageAspectFlags compatible_aspects = VK_IMAGE_ASPECT_COLOR_BIT |
-            VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT | VK_IMAGE_ASPECT_PLANE_2_BIT;
+    d3d12_command_list_barrier_batch_init(&batch);
 
-    use_copy = dst_format->vk_aspect_mask == src_format->vk_aspect_mask ||
-            ((dst_format->vk_aspect_mask & compatible_aspects) && (src_format->vk_aspect_mask & compatible_aspects));
-    dst_is_depth_stencil = !!(dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
+    d3d12_command_list_copy_image_barrier_flags(&barrier,
+        dst_resource, dst_format,
+        src_resource, src_format,
+        region, overlapping_subresource);
 
-    if (use_copy)
-    {
-        if (overlapping_subresource)
-        {
-            src_layout = VK_IMAGE_LAYOUT_GENERAL;
-            dst_layout = VK_IMAGE_LAYOUT_GENERAL;
-        }
-        else
-        {
-            src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-            dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        }
+    d3d12_command_list_copy_image_transition_images(list, &batch,
+        dst_resource, dst_format, src_resource, src_format,
+        region, writes_full_subresource, overlapping_subresource);
 
-        src_stages = VK_PIPELINE_STAGE_2_COPY_BIT;
-        dst_stages = VK_PIPELINE_STAGE_2_COPY_BIT;
-        src_access = VK_ACCESS_2_TRANSFER_READ_BIT;
-        dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    }
-    else
-    {
-        src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        src_stages = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        src_access = VK_ACCESS_2_SHADER_READ_BIT;
-
-        if (dst_is_depth_stencil)
-        {
-            /* We will only promote one aspect out of common layout. */
-            if (region->dstSubresource.aspectMask == VK_IMAGE_ASPECT_DEPTH_BIT)
-            {
-                dst_layout = dst_resource->common_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ?
-                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                        : VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL;
-            }
-            else if (region->dstSubresource.aspectMask == VK_IMAGE_ASPECT_STENCIL_BIT)
-            {
-                dst_layout = dst_resource->common_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ?
-                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-                        : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
-            }
-            else
-                dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-
-            dst_stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-            dst_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        }
-        else
-        {
-            dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-            dst_stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        }
-    }
-
-    memset(&dep_info, 0, sizeof(dep_info));
-    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep_info.imageMemoryBarrierCount = overlapping_subresource ? 1 : 2;
-    dep_info.pImageMemoryBarriers = vk_image_barriers;
-
-    memset(vk_image_barriers, 0, sizeof(vk_image_barriers));
-
-    for (i = 0; i < ARRAY_SIZE(vk_image_barriers); i++)
-    {
-        vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    }
-
-    vk_image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    vk_image_barriers[0].dstStageMask = dst_stages;
-    vk_image_barriers[0].dstAccessMask = dst_access;
-    /* Fully writing a subresource with a copy is a valid way to use the "advanced" aliasing model of D3D12.
-     * In this model, a complete Copy command is sufficient to activate an aliased resource.
-     * This is also an optimization, since we can avoid a potential decompress when entering TRANSFER_DST layout. */
-    vk_image_barriers[0].oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout;
-    vk_image_barriers[0].newLayout = dst_layout;
-    vk_image_barriers[0].image = dst_resource->res.vk_image;
-    vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
-
-    if (overlapping_subresource)
-        vk_image_barriers[0].dstAccessMask |= src_access;
-
-    vk_image_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    vk_image_barriers[1].dstStageMask = src_stages;
-    vk_image_barriers[1].dstAccessMask = src_access;
-    vk_image_barriers[1].oldLayout = src_resource->common_layout;
-    vk_image_barriers[1].newLayout = src_layout;
-    vk_image_barriers[1].image = src_resource->res.vk_image;
-    vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
-
-    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    d3d12_command_list_barrier_batch_end(list, &batch);
 
     VKD3D_BREADCRUMB_TAG("Image -> Image");
     VKD3D_BREADCRUMB_RESOURCE(src_resource);
     VKD3D_BREADCRUMB_RESOURCE(dst_resource);
     VKD3D_BREADCRUMB_IMAGE_COPY(region);
 
-    if (use_copy)
+    if (barrier.use_copy)
     {
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2;
         copy_info.pNext = NULL;
         copy_info.srcImage = src_resource->res.vk_image;
-        copy_info.srcImageLayout = src_layout;
+        copy_info.srcImageLayout = barrier.src.layout;
         copy_info.dstImage = dst_resource->res.vk_image;
-        copy_info.dstImageLayout = dst_layout;
+        copy_info.dstImageLayout = barrier.dst.layout;
         copy_info.regionCount = 1;
         copy_info.pRegions = region;
 
@@ -7943,7 +7967,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         memset(&attachment_info, 0, sizeof(attachment_info));
         attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         attachment_info.imageView = dst_view->vk_image_view;
-        attachment_info.imageLayout = dst_layout;
+        attachment_info.imageLayout = barrier.dst.layout;
         attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -7986,7 +8010,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         vk_image_info.sampler = VK_NULL_HANDLE;
         vk_image_info.imageView = src_view->vk_image_view;
-        vk_image_info.imageLayout = src_layout;
+        vk_image_info.imageLayout = barrier.src.layout;
 
         vk_descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         vk_descriptor_write.pNext = NULL;
@@ -8035,21 +8059,24 @@ cleanup:
             vkd3d_view_decref(src_view, list->device);
     }
 
-    vk_image_barriers[0].srcStageMask = dst_stages;
-    vk_image_barriers[0].srcAccessMask = dst_access;
-    vk_image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    vk_image_barriers[0].dstAccessMask = VK_ACCESS_2_NONE;
-    vk_image_barriers[0].oldLayout = dst_layout;
-    vk_image_barriers[0].newLayout = dst_resource->common_layout;
+    d3d12_command_list_barrier_batch_init(&batch);
 
-    vk_image_barriers[1].srcStageMask = src_stages;
-    vk_image_barriers[1].srcAccessMask = VK_ACCESS_2_NONE;
-    vk_image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    vk_image_barriers[1].dstAccessMask = VK_ACCESS_2_NONE;
-    vk_image_barriers[1].oldLayout = src_layout;
-    vk_image_barriers[1].newLayout = src_resource->common_layout;
+    d3d12_command_list_transition_image_layout(list, &batch, dst_resource->res.vk_image,
+        &region->dstSubresource, barrier.dst.stages,
+        barrier.dst.access, barrier.dst.layout,
+        VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
+        dst_resource->common_layout);
 
-    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    if (!overlapping_subresource)
+    {
+        d3d12_command_list_transition_image_layout(list, &batch, src_resource->res.vk_image,
+            &region->srcSubresource, barrier.src.stages,
+            VK_ACCESS_2_NONE, barrier.src.layout,
+            VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
+            src_resource->common_layout);
+    }
+
+    d3d12_command_list_barrier_batch_end(list, &batch);
 
     if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         d3d12_command_list_update_subresource_data(list, dst_resource, region->dstSubresource);
