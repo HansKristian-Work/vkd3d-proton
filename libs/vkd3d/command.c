@@ -8297,6 +8297,16 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
     }
 }
 
+
+static bool vk_image_copy_subresource_equals(const ID3D12Resource *res, const VkImageSubresourceLayers *subres,
+        const ID3D12Resource *other_res, const VkImageSubresourceLayers *other_subres)
+{
+    return res == other_res &&
+            subres->aspectMask == other_subres->aspectMask &&
+            subres->baseArrayLayer == other_subres->baseArrayLayer &&
+            subres->mipLevel == other_subres->mipLevel;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command_list_iface *iface,
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
@@ -8339,10 +8349,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                 subres = &copy_info.copy.buffer_image.imageSubresource;
                 other_subres = &other_info->copy.buffer_image.imageSubresource;
                 assert(subres->layerCount == 1 && other_subres->layerCount == 1);
-                alias = copy_info.dst.pResource == other_info->dst.pResource &&
-                         subres->aspectMask == other_subres->aspectMask &&
-                         subres->baseArrayLayer == other_subres->baseArrayLayer &&
-                         subres->mipLevel == other_subres->mipLevel;
+                alias = vk_image_copy_subresource_equals(copy_info.dst.pResource, subres,
+                    other_info->dst.pResource, other_subres);
                 break;
             case VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER:
                 /* Test for destination aliasing as D3D12 requires serialization on overlapping copies (WAW hazard). */
