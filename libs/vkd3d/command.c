@@ -7841,6 +7841,7 @@ static void d3d12_command_list_copy_image_transition_images(struct d3d12_command
 }
 
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
+        struct d3d12_command_list_barrier_batch *batch,
         struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
         struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
         const VkImageCopy2 *region, bool writes_full_subresource, bool overlapping_subresource)
@@ -7848,7 +7849,6 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
     struct vkd3d_copy_image_pipeline_key pipeline_key;
-    struct d3d12_command_list_barrier_batch batch;
     struct vkd3d_copy_image_info pipeline_info;
     VkRenderingAttachmentInfo attachment_info;
     VkWriteDescriptorSet vk_descriptor_write;
@@ -7862,18 +7862,10 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     unsigned int i;
     HRESULT hr;
 
-    d3d12_command_list_barrier_batch_init(&batch);
-
     d3d12_command_list_copy_image_barrier_flags(&barrier,
         dst_resource, dst_format,
         src_resource, src_format,
         region, overlapping_subresource);
-
-    d3d12_command_list_copy_image_transition_images(list, &batch,
-        dst_resource, dst_format, src_resource, src_format,
-        region, writes_full_subresource, overlapping_subresource);
-
-    d3d12_command_list_barrier_batch_end(list, &batch);
 
     VKD3D_BREADCRUMB_TAG("Image -> Image");
     VKD3D_BREADCRUMB_RESOURCE(src_resource);
@@ -8059,9 +8051,7 @@ cleanup:
             vkd3d_view_decref(src_view, list->device);
     }
 
-    d3d12_command_list_barrier_batch_init(&batch);
-
-    d3d12_command_list_transition_image_layout(list, &batch, dst_resource->res.vk_image,
+    d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
         &region->dstSubresource, barrier.dst.stages,
         barrier.dst.access, barrier.dst.layout,
         VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
@@ -8069,14 +8059,12 @@ cleanup:
 
     if (!overlapping_subresource)
     {
-        d3d12_command_list_transition_image_layout(list, &batch, src_resource->res.vk_image,
+        d3d12_command_list_transition_image_layout(list, batch, src_resource->res.vk_image,
             &region->srcSubresource, barrier.src.stages,
             VK_ACCESS_2_NONE, barrier.src.layout,
             VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
             src_resource->common_layout);
     }
-
-    d3d12_command_list_barrier_batch_end(list, &batch);
 
     if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         d3d12_command_list_update_subresource_data(list, dst_resource, region->dstSubresource);
@@ -8165,14 +8153,13 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
     }
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
     {
-        bool overlapping_subresource;
         assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
 
         out->dst_format = dst_resource->format;
         out->src_format = src_resource->format;
 
-        overlapping_subresource = dst_resource == src_resource && src->SubresourceIndex == dst->SubresourceIndex;
+        out->overlapping_subresource = dst_resource == src_resource && src->SubresourceIndex == dst->SubresourceIndex;
 
         if (!vk_image_copy_from_d3d12(&out->copy.image, src->SubresourceIndex, dst->SubresourceIndex,
                 &src_resource->desc, &dst_resource->desc, out->src_format, out->dst_format,
@@ -8186,7 +8173,7 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
          * Need to skip any UNDEFINED transition here. Similar concern as in D3D12_RESOLVE_MODE_DECOMPRESS. */
         out->writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &out->copy.image.extent,
-                &out->copy.image.dstSubresource) && !overlapping_subresource;
+                &out->copy.image.dstSubresource) && !out->overlapping_subresource;
         out->batch_type = VKD3D_BATCH_TYPE_COPY_IMAGE;
 
         out->writes_full_resource =
@@ -8239,6 +8226,10 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
         d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_resource);
+
+        d3d12_command_list_copy_image_transition_images(list, batch, dst_resource, info->dst_format,
+            src_resource, info->src_format, &info->copy.image, info->writes_full_subresource,
+            info->overlapping_subresource);
     }
 }
 
@@ -8310,14 +8301,9 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
-        const VkImageSubresourceLayers *src_range = &info->copy.image.srcSubresource;
-        const VkImageSubresourceLayers *dst_range = &info->copy.image.dstSubresource;
-        bool overlap = dst_resource == src_resource &&
-                src_range->baseArrayLayer == dst_range->baseArrayLayer &&
-                src_range->mipLevel == dst_range->mipLevel &&
-                src_range->aspectMask == dst_range->aspectMask;
-        d3d12_command_list_copy_image(list, dst_resource, info->dst_format,
-                src_resource, info->src_format, &info->copy.image, info->writes_full_subresource, overlap);
+        d3d12_command_list_copy_image(list, batch, dst_resource, info->dst_format,
+            src_resource, info->src_format, &info->copy.image, info->writes_full_subresource,
+            info->overlapping_subresource);
     }
 }
 
@@ -8386,7 +8372,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                         (res->flags & VKD3D_RESOURCE_RESERVED) || (other_res->flags & VKD3D_RESOURCE_RESERVED);
                 break;
             case VKD3D_BATCH_TYPE_COPY_IMAGE:
-                /* TODO: Check for alias once we start batching barriers for image-image copies too */
+                /* Test for destination aliasing as D3D12 requires serialization on overlapping copies (WAW hazards). */
+                alias = vk_image_copy_subresource_equals(
+                        copy_info.dst.pResource, &copy_info.copy.image.dstSubresource,
+                        other_info->dst.pResource, &other_info->copy.image.dstSubresource);
                 break;
             default:
                 assert(false);
@@ -8411,6 +8400,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
+    struct d3d12_command_list_barrier_batch barriers;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferCopy2 vk_buffer_copy;
     unsigned int subresource_idx;
@@ -8507,8 +8497,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
                 }
 
                 /* CopyResource() always copies all subresources, so we can safely discard the dst_resource contents. */
-                d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
+                d3d12_command_list_barrier_batch_init(&barriers);
+                d3d12_command_list_copy_image_transition_images(list, &barriers, dst_resource, dst_resource->format,
                         src_resource, src_resource->format, &vk_image_copy, true, false);
+                d3d12_command_list_barrier_batch_end(list, &barriers);
+                d3d12_command_list_barrier_batch_init(&barriers);
+                d3d12_command_list_copy_image(list, &barriers, dst_resource, dst_resource->format,
+                        src_resource, src_resource->format, &vk_image_copy, true, false);
+                d3d12_command_list_barrier_batch_end(list, &barriers);
             }
         }
     }
@@ -15056,6 +15052,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
+    struct d3d12_command_list_barrier_batch barriers;
     VkImageSubresourceLayers src_subresource;
     VkImageSubresourceLayers dst_subresource;
     VkOffset3D src_offset;
@@ -15191,9 +15188,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
         image_copy.dstOffset = dst_offset;
         image_copy.extent = extent;
 
-        d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
-                src_resource, src_resource->format, &image_copy,
-                writes_full_subresource, overlapping_subresource);
+        d3d12_command_list_barrier_batch_init(&barriers);
+        d3d12_command_list_copy_image_transition_images(list, &barriers,
+            dst_resource, dst_resource->format, src_resource,
+            src_resource->format, &image_copy, writes_full_subresource,
+            overlapping_subresource);
+        d3d12_command_list_barrier_batch_end(list, &barriers);
+        d3d12_command_list_barrier_batch_init(&barriers);
+        d3d12_command_list_copy_image(list, &barriers,
+            dst_resource, dst_resource->format, src_resource,
+            src_resource->format, &image_copy, writes_full_subresource,
+            overlapping_subresource);
+        d3d12_command_list_barrier_batch_end(list, &barriers);
     }
     else
     {
