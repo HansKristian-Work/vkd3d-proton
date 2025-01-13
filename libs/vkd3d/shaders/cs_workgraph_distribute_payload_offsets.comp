@@ -246,30 +246,5 @@ void main()
 			}
 		}
 	}
-
-	// Atomics are implicitly coherent, so no need to use extra coherent here.
-	if (should_compact_broadcast)
-	{
-		// Make sure all subgroups are done before we commit the write.
-		memoryBarrierBuffer();
-		barrier();
-
-		if (gl_LocalInvocationIndex == 0)
-		{
-			restrict IndirectCommandsBufferAtomic atomics = IndirectCommandsBufferAtomic(registers.commands);
-			uint counter = atomicAdd(atomics.indirect_commands_atomic[registers.node_index].expander_workgroup_counter, 1u);
-
-			if (counter + 1 == gl_NumWorkGroups.x)
-			{
-				// Reset counter for next iteration, need atomic to ensure it's a coherent write.
-				atomicAnd(atomics.indirect_commands_atomic[registers.node_index].expander_workgroup_counter, 0u);
-				// Exchange to get coherent read and reset to 0, nifty.
-				uint total_groups = atomicExchange(atomics.indirect_commands_atomic[registers.node_index].expander_total_groups, 0u);
-				uint wgx = atomicOr(atomics.indirect_commands_atomic[registers.node_index].secondary_execute.x, 0u);
-				uint average_amplification = min(1024u, uint(float(total_groups) / float(max(1u, wgx))));
-				atomicMax(atomics.indirect_commands_atomic[registers.node_index].secondary_execute.z, average_amplification);
-			}
-		}
-	}
 }
 

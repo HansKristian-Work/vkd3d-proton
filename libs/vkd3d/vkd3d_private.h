@@ -4474,6 +4474,13 @@ struct vkd3d_workgraph_payload_offsets_args
     uint32_t packed_offset_counts_stride;
 };
 
+struct vkd3d_workgraph_complete_compaction_args
+{
+    VkDeviceAddress commands;
+    VkDeviceAddress meta;
+    uint32_t node_count;
+};
+
 struct vkd3d_workgraph_workgroups_args
 {
     VkDeviceAddress node_atomics_va;
@@ -4504,11 +4511,13 @@ struct vkd3d_workgraph_indirect_pipeline
 struct vkd3d_workgraph_indirect_ops
 {
     VkPipelineLayout vk_setup_gpu_input_layout;
+    VkPipelineLayout vk_complete_compaction_layout;
     VkPipelineLayout vk_workgroup_layout;
     VkPipelineLayout vk_payload_offset_layout;
     VkPipeline vk_payload_workgroup_pipeline[2];
     VkPipeline vk_setup_gpu_input_pipeline;
     VkPipeline vk_payload_offset_pipeline;
+    VkPipeline vk_complete_compaction_pipeline;
 };
 
 struct vkd3d_meta_ops
@@ -4594,8 +4603,15 @@ void vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(struct vkd3d_meta_ops *me
         struct vkd3d_workgraph_meta_pipeline_info *info);
 void vkd3d_meta_get_workgraph_payload_offset_pipeline(struct vkd3d_meta_ops *meta_ops,
         struct vkd3d_workgraph_meta_pipeline_info *info);
+void vkd3d_meta_get_workgraph_complete_compaction_pipeline(struct vkd3d_meta_ops *meta_ops,
+        struct vkd3d_workgraph_meta_pipeline_info *info);
 
 static inline uint32_t vkd3d_meta_get_workgraph_setup_gpu_input_workgroup_size(void)
+{
+    return 32;
+}
+
+static inline uint32_t vkd3d_meta_get_workgraph_complete_compaction_workgroup_size(void)
 {
     return 32;
 }

@@ -18,8 +18,8 @@ struct IndirectCommands
 	uint end_elements; // Read by node as input metadata in coalesce / thread mode.
 	uint linear_offset_atomic; // Used by expander to write unrolled data.
 	uint total_fused_elements;
-	uint expander_workgroup_counter; // Used by payload exander.
-	uint expander_total_groups; // Used by payload expander.
+	uint expander_total_groups;
+	uint padding0;
 };
 
 #endif
