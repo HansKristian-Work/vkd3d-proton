@@ -4469,10 +4469,9 @@ struct vkd3d_workgraph_payload_offsets_args
     VkDeviceAddress unrolled_offsets;
     VkDeviceAddress commands;
     VkDeviceAddress payload;
+    VkDeviceAddress meta;
     uint32_t node_index;
     uint32_t packed_offset_counts_stride;
-    uint32_t payload_stride;
-    int32_t grid_offset_or_count;
 };
 
 struct vkd3d_workgraph_workgroups_args
@@ -4509,12 +4508,7 @@ struct vkd3d_workgraph_indirect_ops
     VkPipelineLayout vk_payload_offset_layout;
     VkPipeline vk_payload_workgroup_pipeline[2];
     VkPipeline vk_setup_gpu_input_pipeline;
-
-    struct vkd3d_workgraph_indirect_pipeline *payload_pipelines;
-    size_t payload_pipelines_size;
-    size_t payload_pipelines_count;
-
-    pthread_mutex_t lock;
+    VkPipeline vk_payload_offset_pipeline;
 };
 
 struct vkd3d_meta_ops
@@ -4599,8 +4593,6 @@ void vkd3d_meta_get_workgraph_workgroup_pipeline(struct vkd3d_meta_ops *meta_ops
 void vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(struct vkd3d_meta_ops *meta_ops,
         struct vkd3d_workgraph_meta_pipeline_info *info);
 void vkd3d_meta_get_workgraph_payload_offset_pipeline(struct vkd3d_meta_ops *meta_ops,
-        uint32_t component_bits, uint32_t component_count,
-        bool group_tracking, bool group_compact,
         struct vkd3d_workgraph_meta_pipeline_info *info);
 
 static inline uint32_t vkd3d_meta_get_workgraph_setup_gpu_input_workgroup_size(void)
