@@ -4470,8 +4470,6 @@ struct vkd3d_workgraph_payload_offsets_args
     VkDeviceAddress commands;
     VkDeviceAddress payload;
     VkDeviceAddress meta;
-    uint32_t node_index;
-    uint32_t packed_offset_counts_stride;
 };
 
 struct vkd3d_workgraph_complete_compaction_args

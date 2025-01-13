@@ -39,19 +39,20 @@
  * will hurt us. The shader emitting amplification rate can dynamically adjust between 1 and 1024 rate as needed. */
 #define MAX_AMPLIFICATION_RATE 1024u
 
-/* 64 bytes per node, nicely aligns to a cache line. */
+/* 48 bytes per node. */
 struct d3d12_workgraph_indirect_command
 {
     uint32_t primary_execute[3];
     uint32_t primary_linear_offset; /* Read by node as input metadata. */
     uint32_t secondary_execute[3];
     uint32_t secondary_linear_offset; /* Read by node as input metadata. */
-    uint32_t expander_execute[3];
     uint32_t end_elements; /* Read by node as input metadata in coalesce / thread mode. */
     uint32_t linear_offset_atomic; /* Used by expander to write unrolled data. */
-    uint32_t total_fused_elements;
     uint32_t padding[2];
 };
+
+/* The first 16 bytes are reserved for payload expander execution. */
+#define WG_INDIRECT_COMMAND_OFFSET 16
 
 struct d3d12_workgraph_node_shared_execution
 {
@@ -118,8 +119,9 @@ struct d3d12_wg_state_object_program
 
     VkDeviceSize counters_scratch_offset;
     VkDeviceSize counters_scratch_size;
-    VkDeviceSize indirect_commands_scratch_offset;
-    VkDeviceSize indirect_commands_scratch_size;
+    VkDeviceSize indirect_commands_scratch_base_offset;
+    VkDeviceSize indirect_commands_scratch_node_offset;
+    VkDeviceSize indirect_commands_scratch_base_size;
     VkDeviceSize dividers_scratch_offset;
     VkDeviceSize dividers_scratch_size;
     VkDeviceSize share_mapping_scratch_offset;
@@ -2130,15 +2132,17 @@ static HRESULT d3d12_wg_state_object_compile_program(
     program->member##_size = (size); \
     scratch_offset += program->member##_size
 
-    alloc_scratch(counters_scratch, (1 + data->entry_points_count) * sizeof(uint32_t) * 2);
-    alloc_scratch(indirect_commands_scratch,
-            data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command));
+    alloc_scratch(counters_scratch, (2 + data->entry_points_count) * sizeof(uint32_t));
+    alloc_scratch(indirect_commands_scratch_base,
+            data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command) + WG_INDIRECT_COMMAND_OFFSET);
     alloc_scratch(dividers_scratch, data->entry_points_count * sizeof(uint32_t));
     alloc_scratch(share_mapping_scratch, data->entry_points_count * sizeof(uint32_t));
     alloc_scratch(payload_expander_scratch, data->entry_points_count * sizeof(struct d3d12_wg_payload_expander_meta));
 #undef alloc_scratch
 
     program->required_scratch_size = scratch_offset;
+    program->indirect_commands_scratch_node_offset =
+            program->indirect_commands_scratch_base_offset + WG_INDIRECT_COMMAND_OFFSET;
 
     for (level = 0; level < program->num_levels; level++)
     {
@@ -2695,9 +2699,6 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
     push.node_payload_output_atomic_bda = list->wg_state.BackingMemory.StartAddress;
     /* Counteract fixed offset applied by shader */
     push.node_payload_output_offset = program->required_scratch_size / sizeof(uint32_t) - 2;
-    push.node_payload_output_stride =
-            (list->wg_state.BackingMemory.SizeInBytes - program->required_scratch_size) / max(state->modules_count, 1);
-    push.node_payload_output_stride /= sizeof(uint32_t);
 
     table_index = node_input->local_root_arguments_table_index;
     if (table_index != UINT32_MAX)
@@ -2910,7 +2911,7 @@ static void d3d12_command_list_emit_distribute_workgroups(struct d3d12_command_l
             VK_PIPELINE_BIND_POINT_COMPUTE, program->workgroup_distributor.vk_pipeline));
 
     args.node_atomics_va = list->wg_state.BackingMemory.StartAddress;
-    args.commands_va = program->indirect_commands_scratch_offset + list->wg_state.BackingMemory.StartAddress;
+    args.commands_va = program->indirect_commands_scratch_base_offset + list->wg_state.BackingMemory.StartAddress;
     args.dividers_va = program->dividers_scratch_offset + list->wg_state.BackingMemory.StartAddress;
     args.node_share_mapping_va = program->share_mapping_scratch_offset + list->wg_state.BackingMemory.StartAddress;
     args.num_nodes = state->entry_points_count;
@@ -2941,65 +2942,39 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
     struct vkd3d_workgraph_complete_compaction_args complete_args;
     struct vkd3d_workgraph_payload_offsets_args args;
     const struct vkd3d_unique_resource *resource;
-    unsigned int node_index;
-    uint32_t max_node_index;
-    unsigned int i;
+    VkDeviceSize vk_offset;
 
     resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, list->wg_state.BackingMemory.StartAddress);
     if (!resource)
         return;
 
-    for (i = 0; i < program->levels[level].nodes_count; i++)
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            program->payload_offset_expander.vk_pipeline));
+
+    args.commands = list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_base_offset;
+    args.meta = list->wg_state.BackingMemory.StartAddress + program->payload_expander_scratch_offset;
+    args.payload = payload_va;
+    args.unrolled_offsets = state->unrolled_offsets.va;
+    args.packed_offset_counts = list->wg_state.BackingMemory.StartAddress + program->required_scratch_size;
+
+    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+            program->payload_offset_expander.vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(args), &args));
+
+    if (list->device->vk_info.EXT_debug_utils)
     {
-        const struct vkd3d_shader_node_input_data *node_input;
-        VkDeviceSize vk_offset;
-
-        node_index = program->levels[level].nodes[i];
-        node_input = state->entry_points[node_index].node_input;
-
-        /* Empty nodes don't care about payloads. */
-        if (node_input->payload_stride == 0)
-            continue;
-
-        max_node_index = max(max_node_index, node_index);
-
-        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                program->payload_offset_expander.vk_pipeline));
-
-        args.node_index = node_index;
-        args.commands = list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_offset;
-        args.meta = list->wg_state.BackingMemory.StartAddress + program->payload_expander_scratch_offset;
-        args.payload = payload_va;
-        args.unrolled_offsets = state->unrolled_offsets.va;
-        args.packed_offset_counts = list->wg_state.BackingMemory.StartAddress + program->required_scratch_size;
-        args.packed_offset_counts_stride =
-                (list->wg_state.BackingMemory.SizeInBytes - program->required_scratch_size) / max(state->modules_count, 1);
-        args.packed_offset_counts_stride /= sizeof(uint32_t);
-
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                program->payload_offset_expander.vk_pipeline_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT,
-                0, sizeof(args), &args));
-
-        vk_offset = list->wg_state.BackingMemory.StartAddress - resource->va;
-        vk_offset += program->indirect_commands_scratch_offset;
-        vk_offset += node_index * sizeof(struct d3d12_workgraph_indirect_command);
-        vk_offset += offsetof(struct d3d12_workgraph_indirect_command, expander_execute);
-
-        if (list->device->vk_info.EXT_debug_utils)
-        {
-            char buf[256];
-            snprintf(buf, sizeof(buf), "Payload Distribute - level %u - node %s[%u]",
-                    level, node_input->node_id, node_input->node_array_index);
-            d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
-        }
-
-        VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, resource->vk_buffer, vk_offset));
-
-        VKD3D_BREADCRUMB_TAG("payload-offset");
-        VKD3D_BREADCRUMB_AUX32(level);
-        VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_META);
+        char buf[256];
+        snprintf(buf, sizeof(buf), "Payload Distribute - level %u", level);
+        d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
     }
+
+    vk_offset = list->wg_state.BackingMemory.StartAddress - resource->va;
+    vk_offset += program->indirect_commands_scratch_base_offset;
+
+    VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, resource->vk_buffer, vk_offset));
+    VKD3D_BREADCRUMB_TAG("payload-offset");
+    VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_META);
 
     /* This shader only expands offsets, indirect data is already written. */
     d3d12_command_list_workgraph_barrier(list,
@@ -3011,7 +2986,7 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
         uint32_t wgx;
         complete_args.commands = args.commands;
         complete_args.meta = args.meta;
-        complete_args.node_count = max_node_index + 1;
+        complete_args.node_count = program->num_pipelines;
 
         VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 program->complete_compaction.vk_pipeline));
@@ -3099,7 +3074,7 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     {
         const struct vkd3d_unique_resource *resource;
         VkDeviceAddress indirect_va =
-                list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_offset +
+                list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_node_offset +
                 sizeof(struct d3d12_workgraph_indirect_command) * node_index;
 
         push.node_payload_stride_or_offsets_bda = state->unrolled_offsets.va;
@@ -3119,7 +3094,7 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
         vk_secondary_indirect_offset += offsetof(struct d3d12_workgraph_indirect_command, secondary_execute);
 
         push.node_total_nodes_bda =
-                list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_offset +
+                list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_node_offset +
                 sizeof(struct d3d12_workgraph_indirect_command) * node_index +
                 offsetof(struct d3d12_workgraph_indirect_command, end_elements);
 
@@ -3131,9 +3106,6 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     push.node_payload_output_atomic_bda = list->wg_state.BackingMemory.StartAddress;
     /* Compensate for offset applied by shader. */
     push.node_payload_output_offset = program->required_scratch_size / sizeof(uint32_t) - 2;
-    push.node_payload_output_stride =
-            (list->wg_state.BackingMemory.SizeInBytes - program->required_scratch_size) / max(state->modules_count, 1);
-    push.node_payload_output_stride /= sizeof(uint32_t);
 
     table_index = node_input->local_root_arguments_table_index;
     if (table_index != UINT32_MAX)

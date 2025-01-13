@@ -8,7 +8,7 @@ layout(local_size_x = 32) in;
 
 layout(buffer_reference, buffer_reference_align = 16, std430) buffer IndirectCommandsBuffer
 {
-	IndirectCommands indirect_commands[];
+	layout(offset = 16) IndirectCommands indirect_commands[];
 };
 
 struct NodeMeta
