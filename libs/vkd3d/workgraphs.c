@@ -2031,6 +2031,7 @@ static HRESULT d3d12_wg_state_object_compile_program(
         struct d3d12_wg_state_object_program *program)
 {
     struct d3d12_wg_state_object_spec_constant_tmp tmp;
+    VkDeviceSize scratch_offset = 0;
     unsigned int level;
     HRESULT hr = S_OK;
     unsigned int i;
@@ -2097,18 +2098,20 @@ static HRESULT d3d12_wg_state_object_compile_program(
     vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(&object->device->meta_ops,
             &program->gpu_input_setup);
 
-    program->counters_scratch_offset = 0;
-    program->counters_scratch_size = (1 + data->entry_points_count) * sizeof(uint32_t) * 2;
-    program->indirect_commands_scratch_offset = align(program->counters_scratch_size, 64);
-    program->indirect_commands_scratch_size =
-            data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command);
-    program->dividers_scratch_offset =
-            align(program->indirect_commands_scratch_offset + program->indirect_commands_scratch_size, 64);
-    program->dividers_scratch_size = data->entry_points_count * sizeof(uint32_t);
-    program->share_mapping_scratch_offset =
-            align(program->dividers_scratch_offset + program->dividers_scratch_size, 64);
-    program->share_mapping_scratch_size = data->entry_points_count * sizeof(uint32_t);
-    program->required_scratch_size = program->share_mapping_scratch_offset + program->share_mapping_scratch_size;
+#define alloc_scratch(member, size) \
+    scratch_offset = align64(scratch_offset, 64); \
+    program->member##_offset = scratch_offset; \
+    program->member##_size = (size); \
+    scratch_offset += program->member##_size
+
+    alloc_scratch(counters_scratch, (1 + data->entry_points_count) * sizeof(uint32_t) * 2);
+    alloc_scratch(indirect_commands_scratch,
+            data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command));
+    alloc_scratch(dividers_scratch, data->entry_points_count * sizeof(uint32_t));
+    alloc_scratch(share_mapping_scratch, data->entry_points_count * sizeof(uint32_t));
+#undef alloc_scratch
+
+    program->required_scratch_size = scratch_offset;
 
     for (level = 0; level < program->num_levels; level++)
     {
