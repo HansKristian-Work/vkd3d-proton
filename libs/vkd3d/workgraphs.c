@@ -1768,16 +1768,18 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     uint32_t component_bits = 0;
     bool group_tracking;
     bool group_compact;
+    bool is_broadcast;
     unsigned int i, j;
     VkResult vr;
 
     enum
     {
         SPEC_IS_ENTRY_POINT = 0,
-        SPEC_IS_STATIC_BROADCAST,
         SPEC_IS_INDIRECT_BDA_STRIDE,
+        SPEC_COUNT_NON_BROADCAST,
+        SPEC_IS_STATIC_BROADCAST = SPEC_COUNT_NON_BROADCAST,
         SPEC_IS_GRID_IS_UPPER_BOUND,
-        SPEC_COUNT
+        SPEC_COUNT_BROADCAST
     };
 
     /* Already compiled PSO. */
@@ -1792,6 +1794,7 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 
     entry = &data->entry_points[entry_point_index];
+    is_broadcast = entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING;
 
     /* TODO: These can be overridden during compilation. */
     program->pipelines[entry_point_index].name = vkd3d_dup_entry_point(entry->node_input->node_id);
@@ -1820,7 +1823,7 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
         tmp->spec_data_count += 1;
 
-    tmp->spec_data_count += SPEC_COUNT;
+    tmp->spec_data_count += is_broadcast ? SPEC_COUNT_BROADCAST : SPEC_COUNT_NON_BROADCAST;
 
     vkd3d_array_reserve((void **)&tmp->spec_data, &tmp->spec_data_size, tmp->spec_data_count, sizeof(*tmp->spec_data));
     vkd3d_array_reserve((void **)&tmp->map_entries, &tmp->map_entries_size, tmp->spec_data_count, sizeof(*tmp->map_entries));
@@ -1892,6 +1895,11 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
         for (i = 0; i < ARRAY_SIZE(entries); i++)
         {
             VkSpecializationMapEntry *map_entry = &tmp->map_entries[spec_constant_index + entries[i].spec_offset];
+
+            if (!is_broadcast && entries[i].spec_offset >= SPEC_COUNT_NON_BROADCAST)
+                continue;
+
+            assert(entries[i].spec_id != UINT32_MAX);
             map_entry->offset = sizeof(uint32_t) * (spec_constant_index + entries[i].spec_offset);
             map_entry->size = sizeof(uint32_t);
             map_entry->constantID = entries[i].spec_id;
@@ -1899,12 +1907,12 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     }
 
     /* CPU node entry, static payload. */
-    if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
+    if (is_broadcast)
     {
+        tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 1;
+        tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
         tmp->spec_data[spec_constant_index + SPEC_IS_GRID_IS_UPPER_BOUND] = 0;
         tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 1;
-        tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
-        tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 1;
 
         vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
                 VK_NULL_HANDLE, 1, &pipeline_info, NULL,
@@ -1918,10 +1926,15 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     }
 
     /* CPU node entry, multiple payloads. */
-    tmp->spec_data[spec_constant_index + SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
-    tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
     tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
     tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 1;
+
+    if (is_broadcast)
+    {
+        tmp->spec_data[spec_constant_index +
+                SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
+        tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
+    }
 
     vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
             VK_NULL_HANDLE, 1, &pipeline_info, NULL,
@@ -1933,10 +1946,15 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     }
 
     /* GPU entry */
-    tmp->spec_data[spec_constant_index + SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
-    tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
     tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 1;
     tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 1;
+
+    if (is_broadcast)
+    {
+        tmp->spec_data[spec_constant_index +
+                SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
+        tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
+    }
 
     vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
             VK_NULL_HANDLE, 1, &pipeline_info, NULL,
@@ -1948,10 +1966,15 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     }
 
     /* Non-entry node */
-    tmp->spec_data[spec_constant_index + SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
-    tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
-    tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
     tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 0;
+    tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
+
+    if (is_broadcast)
+    {
+        tmp->spec_data[spec_constant_index +
+                SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
+        tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
+    }
 
     vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
             VK_NULL_HANDLE, 1, &pipeline_info, NULL,
@@ -1962,7 +1985,7 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
         return hresult_from_vk_result(vr);
     }
 
-    assert(spec_constant_index + SPEC_COUNT == tmp->spec_data_count);
+    assert(spec_constant_index + (is_broadcast ? SPEC_COUNT_BROADCAST : SPEC_COUNT_NON_BROADCAST) == tmp->spec_data_count);
 
     return S_OK;
 }
