@@ -17756,6 +17756,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;
+        if (cmd_list->cmd.needs_global_queue_sync)
+            sub.execute.needs_global_queue_sync = true;
 
         /* Submission logic for IB fallbacks seems to have exposed something ... very dodgy in RADV. */
         if (cmd_list->cmd.uses_dgc_compute_in_async_compute &&

@@ -2873,6 +2873,7 @@ struct d3d12_command_list_sequence
     unsigned int active_non_inline_running_queries;
     bool uses_dgc_compute_in_async_compute;
     bool clear_uav_pending;
+    bool needs_global_queue_sync;
 
     /* Number of draws, dispatches, copies etc. Used to fuse barrier-only
      * command buffers for staggered submissions. */
@@ -3236,6 +3237,7 @@ struct d3d12_command_queue_submission_execute
 
     bool debug_capture;
     bool split_submission;
+    bool needs_global_queue_sync;
 };
 
 struct d3d12_command_queue_submission_bind_sparse
