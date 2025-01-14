@@ -18822,12 +18822,9 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
 }
 
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
-        const VkCommandBufferSubmitInfo *cmd, const uint32_t *cmd_cost, UINT count,
+        const struct d3d12_command_queue_submission_execute *exec,
         const VkCommandBufferSubmitInfo *transition_cmd,
-        const VkSemaphoreSubmitInfo *transition_semaphore,
-        struct d3d12_command_allocator **command_allocators, size_t num_command_allocators,
-        struct vkd3d_queue_timeline_trace_cookie timeline_cookie,
-        uint64_t low_latency_frame_id, bool debug_capture, bool split_submissions)
+        const VkSemaphoreSubmitInfo *transition_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
@@ -18839,6 +18836,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     uint32_t cmd_index, cmd_count, total_cost;
     struct vkd3d_fence_wait_info fence_info;
     VkSubmitInfo2 submit_desc[2], *submit;
+    VKD3D_UNUSED bool debug_capture;
     uint64_t consumed_present_id;
     uint32_t num_submits;
     VkQueue vk_queue;
@@ -18847,16 +18845,16 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     HRESULT hr;
 
     TRACE("queue %p, command_list_count %u, command_lists %p.\n",
-          command_queue, count, cmd);
+          command_queue, exec->cmd_count, exec->cmd);
 
     if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
     {
         ERR("Failed to acquire queue %p.\n", vkd3d_queue);
-        for (i = 0; i < num_command_allocators; i++)
-            d3d12_command_allocator_dec_ref(command_allocators[i]);
-        vkd3d_free(command_allocators);
+        for (i = 0; i < exec->num_command_allocators; i++)
+            d3d12_command_allocator_dec_ref(exec->command_allocators[i]);
+        vkd3d_free(exec->command_allocators);
         vkd3d_queue_timeline_trace_complete_execute(&command_queue->device->queue_timeline_trace,
-                NULL, timeline_cookie);
+                NULL, exec->timeline_cookie);
         return;
     }
 
@@ -18866,10 +18864,10 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
      * If a submission index is not marked to be captured after all, we drop any capture here.
      * Deciding this in the submission thread is more robust than the alternative, since the submission
      * threads are mostly serialized. */
-    if (debug_capture)
+    if (exec->debug_capture)
         debug_capture = vkd3d_renderdoc_command_queue_begin_capture(command_queue);
-#else
-    (void)debug_capture;
+    else
+        debug_capture = false;
 #endif
 
     stagger_submissions = d3d12_command_queue_needs_staggered_submissions_locked(command_queue);
@@ -18904,7 +18902,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
     cmd_index = 0;
 
-    while (cmd_index < count)
+    while (cmd_index < exec->cmd_count)
     {
         is_first = cmd_index == 0;
 
@@ -18918,34 +18916,34 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         {
             /* Group up command buffers in such a way that any submission at least reaches the
              * minimum cost threshold in order to reduce delays from CPU<->GPU round-trips. */
-            total_cost = cmd_cost[cmd_index];
+            total_cost = exec->cmd_cost[cmd_index];
             cmd_count = 1;
 
-            while (cmd_index + cmd_count < count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD)
+            while (cmd_index + cmd_count < exec->cmd_count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD)
             {
-                total_cost += cmd_cost[cmd_index + cmd_count];
+                total_cost += exec->cmd_cost[cmd_index + cmd_count];
                 cmd_count++;
             }
 
             /* If all remaining command buffers in the set are low cost, add them as well. */
             total_cost = 0;
 
-            for (i = cmd_index + cmd_count; i < count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD; i++)
-                total_cost += cmd_cost[i];
+            for (i = cmd_index + cmd_count; i < exec->cmd_count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD; i++)
+                total_cost += exec->cmd_cost[i];
 
             if (total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD)
-                cmd_count = count - cmd_index;
+                cmd_count = exec->cmd_count - cmd_index;
         }
         else
         {
             /* Submit everything at once */
-            cmd_count = count;
+            cmd_count = exec->cmd_count;
         }
 
         submit = &submit_desc[num_submits++];
         submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
         submit->commandBufferInfoCount = cmd_count;
-        submit->pCommandBufferInfos = &cmd[cmd_index];
+        submit->pCommandBufferInfos = &exec->cmd[cmd_index];
         submit->signalSemaphoreInfoCount = 1;
         submit->pSignalSemaphoreInfos = signal_semaphore_infos;
 
@@ -18956,7 +18954,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         }
 
         cmd_index += cmd_count;
-        is_last = cmd_index == count;
+        is_last = cmd_index == exec->cmd_count;
 
         if (command_queue->device->vk_info.NV_low_latency2)
         {
@@ -18970,12 +18968,12 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
              * it is not possible for a present ID to keep contributing to the frame's completion.
              * The likely case here is that application just forgot to signal present ID.
              * Don't bother trying to mark submission present ID if application isn't bothering to set markers properly. */
-            if (low_latency_swapchain && low_latency_frame_id > consumed_present_id &&
+            if (low_latency_swapchain && exec->low_latency_frame_id > consumed_present_id &&
                     dxgi_vk_swap_chain_low_latency_enabled(low_latency_swapchain))
             {
                 latency_submit_present_info.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV;
                 latency_submit_present_info.pNext = NULL;
-                latency_submit_present_info.presentID = low_latency_frame_id;
+                latency_submit_present_info.presentID = exec->low_latency_frame_id;
 
                 for (i = 0; i < num_submits; i++)
                     submit_desc[i].pNext = &latency_submit_present_info;
@@ -18987,7 +18985,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         if (is_first)
         {
-            vkd3d_queue_timeline_trace_begin_execute_overhead(&command_queue->device->queue_timeline_trace, timeline_cookie);
+            vkd3d_queue_timeline_trace_begin_execute_overhead(&command_queue->device->queue_timeline_trace, exec->timeline_cookie);
             d3d12_command_queue_gather_wait_semaphores_locked(command_queue, &submit_desc[0],
                   VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
         }
@@ -19003,7 +19001,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
             binary_semaphore_info->stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         }
 
-        if (split_submissions)
+        if (exec->split_submission)
             vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue, num_submits, submit_desc);
         else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
             ERR("Failed to submit queue(s), vr %d.\n", vr);
@@ -19041,7 +19039,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         command_queue->last_submission_timeline_value = signal_semaphore_infos[0].value;
     }
 
-    vkd3d_queue_timeline_trace_end_execute_overhead(&command_queue->device->queue_timeline_trace, timeline_cookie);
+    vkd3d_queue_timeline_trace_end_execute_overhead(&command_queue->device->queue_timeline_trace, exec->timeline_cookie);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (debug_capture)
@@ -19057,15 +19055,15 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
      *   If there are pending submissions waiting, we are expected to ignore the reset.
      *   We will report a failure in this case. Some games run into this.
      */
-    if (vr == VK_SUCCESS && num_command_allocators)
+    if (vr == VK_SUCCESS && exec->num_command_allocators)
     {
         memset(&fence_info, 0, sizeof(fence_info));
         fence_info.vk_semaphore = vkd3d_queue->submission_timeline;
         fence_info.vk_semaphore_value = signal_semaphore_infos[0].value;
-        fence_info.command_allocators = command_allocators;
-        fence_info.num_command_allocators = num_command_allocators;
+        fence_info.command_allocators = exec->command_allocators;
+        fence_info.num_command_allocators = exec->num_command_allocators;
 
-        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &timeline_cookie)))
+        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &exec->timeline_cookie)))
         {
             ERR("Failed to enqueue timeline semaphore.\n");
         }
@@ -19535,16 +19533,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     &transition_cmd.commandBuffer,
                     &transition_semaphore.value);
 
-            d3d12_command_queue_execute(queue, submission.execute.cmd,
-                    submission.execute.cmd_cost,
-                    submission.execute.cmd_count,
-                    &transition_cmd, &transition_semaphore,
-                    submission.execute.command_allocators,
-                    submission.execute.num_command_allocators,
-                    submission.execute.timeline_cookie,
-                    submission.execute.low_latency_frame_id,
-                    submission.execute.debug_capture,
-                    submission.execute.split_submission);
+            d3d12_command_queue_execute(queue, &submission.execute, &transition_cmd, &transition_semaphore);
 
             /* command_queue_execute takes ownership of the
              * outstanding_submission_counters and queue_timeline_indices allocations.
