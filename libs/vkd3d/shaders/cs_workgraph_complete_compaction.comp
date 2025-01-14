@@ -1,0 +1,52 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 32) in;
+
+#include "cs_workgraph_data_structures.h"
+
+layout(buffer_reference, buffer_reference_align = 16, std430) buffer IndirectCommandsBuffer
+{
+	layout(offset = 16) IndirectCommands indirect_commands[];
+};
+
+struct NodeMeta
+{
+	uint packed_control;
+	uint payload_stride_grid_offset_or_count;
+};
+
+layout(buffer_reference, buffer_reference_align = 8, std430) restrict readonly buffer NodeTypeMeta
+{
+	NodeMeta data[];
+};
+
+layout(push_constant, std430) uniform Registers
+{
+	IndirectCommandsBuffer commands;
+	NodeTypeMeta meta;
+	uint num_nodes;
+} registers;
+
+void main()
+{
+	uint node_index = gl_GlobalInvocationID.x;
+	if (node_index >= registers.num_nodes)
+		return;
+
+	bool should_compact_broadcast = bitfieldExtract(registers.meta.data[node_index].packed_control, 24, 8) != 0;
+	if (should_compact_broadcast)
+		should_compact_broadcast = registers.commands.indirect_commands[node_index].primary_execute.y == 0u;
+
+	if (should_compact_broadcast)
+	{
+		uint total_groups = registers.commands.indirect_commands[node_index].expander_total_groups;
+		registers.commands.indirect_commands[node_index].expander_total_groups = 0u;
+		uint wgx = registers.commands.indirect_commands[node_index].secondary_execute.x;
+		uint average_amplification = min(1024u, uint(float(total_groups) / float(max(1u, wgx))));
+		uint current_amplification = registers.commands.indirect_commands[node_index].secondary_execute.z;
+		if (average_amplification > current_amplification)
+			registers.commands.indirect_commands[node_index].secondary_execute.z = average_amplification;
+	}
+}

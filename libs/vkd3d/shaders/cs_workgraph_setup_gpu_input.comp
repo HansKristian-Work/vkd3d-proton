@@ -1,0 +1,93 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+
+layout(local_size_x = 32) in;
+layout(constant_id = 0) const bool REQUIRE_WG_DIVIDER = true;
+
+// D3D12_NODE_GPU_INPUT
+layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer GPUInputNumNodes
+{
+	uint entry_point_index;
+	uint num_nodes;
+};
+
+struct IndirectCommand
+{
+	uvec4 primary_dispatch_and_offset;
+	uvec4 secondary_dispatch_and_offset;
+};
+
+layout(buffer_reference, buffer_reference_align = 16, std430) writeonly buffer Indirects
+{
+	IndirectCommand commands[];
+};
+
+layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer DividersOrAmplification
+{
+	int data[];
+};
+
+layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer EntryPoints
+{
+	uint data[];
+};
+
+layout(push_constant) uniform Registers
+{
+	GPUInputNumNodes node_input;
+	Indirects indirects;
+	DividersOrAmplification coalesce_dividers;
+	EntryPoints entry_point_mapping;
+	uint num_entry_points;
+} registers;
+
+// Arbitrary tuneable.
+const uint AMPLIFICATION_EXTRA_SHIFT = 2;
+
+void main()
+{
+	uint id = gl_GlobalInvocationID.x;
+	if (id < registers.num_entry_points)
+	{
+		// For shared input nodes, there can be multiple nodes executing for any given input.
+		if (registers.entry_point_mapping.data[id] == registers.node_input.entry_point_index)
+		{
+			const uint WG_DIVIDER = 32 * 1024;
+			uint count = registers.node_input.num_nodes;
+			uint wg_count;
+
+			int divider = registers.coalesce_dividers.data[id];
+
+			if (divider > 1)
+				wg_count = (count + uint(divider) - 1) / uint(divider);
+			else
+				wg_count = count;
+
+			uint coalesce_mult = divider > 0 ? uint(divider) : 1u;
+			uint amplification = divider < 0 ? uint(-divider) : 1u;
+
+			// Try to balance work we spawn on the GPU.
+			amplification = max(1u, amplification >> findMSB(max(wg_count >> AMPLIFICATION_EXTRA_SHIFT, 1u)));
+
+			IndirectCommand cmd;
+
+			if (REQUIRE_WG_DIVIDER)
+			{
+				cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, amplification, 0);
+				cmd.secondary_dispatch_and_offset = uvec4(wg_count % WG_DIVIDER, 1, amplification,
+					cmd.primary_dispatch_and_offset.y * WG_DIVIDER * coalesce_mult);
+			}
+			else
+			{
+				cmd.primary_dispatch_and_offset = uvec4(0);
+				cmd.secondary_dispatch_and_offset = uvec4(wg_count, 1, amplification, 0);
+			}
+			registers.indirects.commands[id] = cmd;
+		}
+		else
+		{
+			registers.indirects.commands[id] = IndirectCommand(uvec4(0), uvec4(0));
+		}
+	}
+}
+
