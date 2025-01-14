@@ -2748,7 +2748,11 @@ struct vkd3d_query_lookup_entry
     uint64_t query_mask;
 };
 
-#define VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE 16
+/* This is arbitrary, but tuned towards real-world use cases.
+ * One such use case is copying mipmapped cubemaps.
+ * 6 faces * up to 5 LODs for environment probes eats the budget.
+ * Observed in at least one UE5 title, so probably worth tuning for that. */
+#define VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE 32
 
 struct d3d12_transfer_batch_state
 {
