@@ -4488,6 +4488,11 @@ struct vkd3d_workgraph_workgroups_args
     uint32_t num_nodes;
 };
 
+/* If the implementation supports 16M workgroups (arbitrarily chosen large number),
+ * we don't have to split execution into primary and secondary.
+ * Reduces number of indirect node dispatches by a factor of 2 since the primary will always be empty. */
+#define VKD3D_WORKGRAPH_MAX_WGX_NO_PRIMARY_EXECUTION_THRESHOLD 0xffffffu
+
 struct vkd3d_workgraph_setup_gpu_input_args
 {
     VkDeviceAddress gpu_input_va;

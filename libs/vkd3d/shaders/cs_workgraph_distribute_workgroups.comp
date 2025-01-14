@@ -10,6 +10,12 @@ layout(local_size_x_id = 0) in;
 layout(constant_id = 1) const uint FUSED_DIVIDER = 0;
 layout(constant_id = 2) const bool COMPACT_BROADCAST_NODES = false;
 
+// If maxComputeWorkGroups[0] is huge, we don't have to worry.
+// AMD and NV support that at least.
+// When we introduce mesh shaders, we'll have to be more conservative.
+// However, mesh nodes will require some esoteric MDI handling anyway, so ... eh.
+layout(constant_id = 3) const bool REQUIRE_WG_DIVIDER = true;
+
 #include "cs_workgraph_data_structures.h"
 
 layout(buffer_reference, buffer_reference_align = 8, std430) buffer NodeAtomics
@@ -108,14 +114,26 @@ void main()
 			amplification = max(1u, amplification >> findMSB(max(total_wgs >> AMPLIFICATION_EXTRA_SHIFT, 1u)));
 
 			IndirectCommands cmd;
-			cmd.primary_execute = uvec3(WG_DIVIDER, total_wgs / WG_DIVIDER, amplification);
+			uint spilled_wgs;
+
+			if (REQUIRE_WG_DIVIDER)
+			{
+				cmd.primary_execute = uvec3(WG_DIVIDER, total_wgs / WG_DIVIDER, amplification);
+				spilled_wgs = total_wgs % WG_DIVIDER;
+			}
+			else
+			{
+				cmd.primary_execute = uvec3(0);
+				spilled_wgs = total_wgs;
+			}
+
 			cmd.primary_linear_offset = node_linear_offset;
 
 			// If we only do secondary executions we can compact empty broadcasts easily.
 			// This is relevant for AMD Compute Rasterizer demo for whatever reason. *shrug*
 			uint secondary_executions = COMPACT_BROADCAST_NODES &&
 				dynamic_amplification && coalesce_divider < 0 &&
-				cmd.primary_execute.y == 0 ? 0u : total_wgs % WG_DIVIDER;
+				cmd.primary_execute.y == 0 ? 0u : spilled_wgs;
 
 			cmd.secondary_execute = uvec3(secondary_executions, 1, amplification);
 			cmd.secondary_linear_offset = node_linear_offset + cmd.primary_execute.y * WG_DIVIDER * coalesce_mult;
@@ -174,9 +192,11 @@ void main()
 	{
 		uint fused = registers.atomics.fused_atomic;
 
+		const uint FUSE_LIMIT = REQUIRE_WG_DIVIDER ? 0xffffu : 0xffffffu;
+
 		// Do a single ubershader that does payload expansion. Goes as wide as reasonably possible.
 		registers.commands.expander_execute_total_elements =
-			uvec4(min(0xffffu, (fused + FUSED_DIVIDER - 1) / FUSED_DIVIDER), 1, 1, fused);
+			uvec4(min(FUSE_LIMIT, (fused + FUSED_DIVIDER - 1) / FUSED_DIVIDER), 1, 1, fused);
 
 		registers.atomics.payload_atomic = 0;
 		registers.atomics.fused_atomic = 0;

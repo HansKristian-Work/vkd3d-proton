@@ -3015,6 +3015,12 @@ struct vkd3d_workgraph_gpu_input_indirect
     uint32_t secondary_linear_offset;
 };
 
+static bool d3d12_wg_requires_primary_execution(const struct d3d12_wg_state_object *state)
+{
+    return state->device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0] <
+            VKD3D_WORKGRAPH_MAX_WGX_NO_PRIMARY_EXECUTION_THRESHOLD;
+}
+
 static void d3d12_command_list_workgraph_execute_node_gpu(
         struct d3d12_command_list *list, const struct d3d12_wg_state_object *state,
         const struct d3d12_wg_state_object_program *program,
@@ -3127,12 +3133,15 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
         d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
     }
 
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-            sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
+    if (d3d12_wg_requires_primary_execution(state))
+    {
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+                sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
 
-    VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_primary_indirect_offset));
+        VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_primary_indirect_offset));
+    }
 
     push.node_linear_offset_bda = secondary_linear_offset_bda;
     VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,

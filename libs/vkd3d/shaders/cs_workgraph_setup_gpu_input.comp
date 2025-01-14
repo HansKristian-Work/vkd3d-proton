@@ -2,6 +2,7 @@
 #extension GL_EXT_buffer_reference : require
 
 layout(local_size_x = 32) in;
+layout(constant_id = 0) const bool REQUIRE_WG_DIVIDER = true;
 
 // D3D12_NODE_GPU_INPUT
 layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer GPUInputNumNodes
@@ -69,9 +70,18 @@ void main()
 			amplification = max(1u, amplification >> findMSB(max(wg_count >> AMPLIFICATION_EXTRA_SHIFT, 1u)));
 
 			IndirectCommand cmd;
-			cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, amplification, 0);
-			cmd.secondary_dispatch_and_offset = uvec4(wg_count % WG_DIVIDER, 1, amplification,
+
+			if (REQUIRE_WG_DIVIDER)
+			{
+				cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, amplification, 0);
+				cmd.secondary_dispatch_and_offset = uvec4(wg_count % WG_DIVIDER, 1, amplification,
 					cmd.primary_dispatch_and_offset.y * WG_DIVIDER * coalesce_mult);
+			}
+			else
+			{
+				cmd.primary_dispatch_and_offset = uvec4(0);
+				cmd.secondary_dispatch_and_offset = uvec4(wg_count, 1, amplification, 0);
+			}
 			registers.indirects.commands[id] = cmd;
 		}
 		else

@@ -2050,7 +2050,7 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
     VkSpecializationMapEntry map_entries[3];
     VkPushConstantRange push_range;
     VkSpecializationInfo spec_info;
-    uint32_t spec_data[3];
+    uint32_t spec_data[4];
     unsigned int i;
     VkResult vr;
 
@@ -2095,6 +2095,8 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
     spec_data[0] = device->device_info.vulkan_1_1_properties.subgroupSize;
     spec_data[1] = device->device_info.vulkan_1_1_properties.subgroupSize;
     spec_data[2] = 0;
+    spec_data[3] = device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0] >=
+            VKD3D_WORKGRAPH_MAX_WGX_NO_PRIMARY_EXECUTION_THRESHOLD;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_workgroups),
             cs_workgraph_distribute_workgroups, workgraph_ops->vk_workgroup_layout,
@@ -2107,11 +2109,6 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
             &spec_info, true, &workgraph_ops->vk_payload_workgroup_pipeline[1])))
         return hresult_from_vk_result(vr);
 
-    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_setup_gpu_input),
-            cs_workgraph_setup_gpu_input, workgraph_ops->vk_setup_gpu_input_layout,
-            NULL, true, &workgraph_ops->vk_setup_gpu_input_pipeline)))
-        return hresult_from_vk_result(vr);
-
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_complete_compaction),
             cs_workgraph_complete_compaction, workgraph_ops->vk_complete_compaction_layout,
             NULL, true, &workgraph_ops->vk_complete_compaction_pipeline)))
@@ -2122,6 +2119,12 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_payload_offsets),
             cs_workgraph_distribute_payload_offsets, workgraph_ops->vk_payload_offset_layout,
             &spec_info, true, &workgraph_ops->vk_payload_offset_pipeline)))
+        return hresult_from_vk_result(vr);
+
+    spec_data[0] = spec_data[3];
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_setup_gpu_input),
+            cs_workgraph_setup_gpu_input, workgraph_ops->vk_setup_gpu_input_layout,
+            &spec_info, true, &workgraph_ops->vk_setup_gpu_input_pipeline)))
         return hresult_from_vk_result(vr);
 
     return S_OK;
