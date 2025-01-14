@@ -17611,6 +17611,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         return;
     }
 
+    memset(&sub, 0, sizeof(sub));
+
     /* ExecuteCommandLists submission barrier buffer */
     num_command_buffers = command_queue->vkd3d_queue->barrier_command_buffer ? 1 : 0;
 
@@ -17662,9 +17664,6 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     timeline_cookie = vkd3d_queue_timeline_trace_register_execute(
             &command_queue->device->queue_timeline_trace,
             command_lists, command_list_count);
-
-    sub.execute.debug_capture = false;
-    sub.execute.split_submission = false;
 
     num_transitions = 0;
 
