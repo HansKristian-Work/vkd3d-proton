@@ -100,45 +100,41 @@ to that allocation per-node.
 E.g. for group allocation:
 
 ```glsl
-// Decompiled via SPIRV-Cross.
 uint AllocateGroupNodeRecords(
     uint64_t AtomicCountersBDA, uint NodeMetadataIndex,
-    uint Count, uint Stride, uint AllocationOffset, uint AllocationStride)
+    uint Count, uint Stride, uint AllocationOffset)
 {
-    // Count == 0 is valid, but invalid to access the payload data.
     if (Count == 0u)
     {
         return 0u;
     }
-  
     if (gl_LocalInvocationIndex == 0u)
     {
-        _176 _178 = _176(AtomicCountersBDA);
-        uint _180 = NodeMetadataIndex * 2u;
-      
+        _171 _173 = _171(AtomicCountersBDA);
+
         // Allocate memory for Count entries aligned to 16 bytes.
         // Stride is compile-time constant and depends on the payload data type + metadata.
-        uint _183 = atomicAdd(_178.payloadCount, ((Count * Stride) + 15u) & 4294967280u);
-      
-        // Allocate a reference entry. Only needs u32 for up to 256 allocations.
-        // Memory requirement scales a lot with number of nodes in the graph, but what can you do.
-        uint _189 = atomicAdd(_178.perNodeFusedAndTotal[_180], 1u);
-      
+        uint _176 = atomicAdd(_173.payloadCount, ((Count * Stride) + 15u) & 4294967280u);
+
+        // Allocate a reference entry. Only needs two u32s for up to 256 allocations.
+        uint _182 = atomicAdd(_173.fusedCount, 1u);
+
         // Record the total number of nodes so that we can prefix-sum allocate payload offsets later.
-        uint _185 = atomicAdd(_178.perNodeFusedAndTotal[_180 + 1u], Count);
+        uint _178 = atomicAdd(_173.perNodeTotal[NodeMetadataIndex], Count);
+        uint _184 = AllocationOffset + (2u * _182);
       
-        // Pack (payload offset / 16) in 24 MSBs, (count - 1) in 8 LSBs.
-        _178.perNodeFusedAndTotal[((AllocationStride * NodeMetadataIndex) + AllocationOffset) + _189] =
-            (_183 << 4u) | (Count - 1u);
-        AllocateGroupNodeRecordsShared = _183;
+        // Record node/count/payload offset. Read by payload expander later.
+        _173.perNodeTotal[_184] = (NodeMetadataIndex << 8u) | (Count - 1u);
+        _173.perNodeTotal[_184 + 1u] = _176;
+        AllocateGroupNodeRecordsShared = _176;
     }
-  
+
     // Must be called in uniform control flow.
     // Sandwich barrier to avoid WAR hazards for back to back allocations.
     barrier();
-    uint _195 = AllocateGroupNodeRecordsShared;
+    uint _189 = AllocateGroupNodeRecordsShared;
     barrier();
-    return _195;
+    return _189;
 }
 ```
 
@@ -163,44 +159,14 @@ UserPointerType _141 = _132(NodeDispatch.NodePayloadOutputBDA + uint64_t(_117 + 
 ```
 
 Nodes can also be called per-thread. If we deduce the node index is wave uniform,
-the code is straight forward subgroup code.
-
-```glsl
-uint AllocateThreadNodeRecords(
-      uint64_t AtomicCountersBDA, uint NodeMetadataIndex,
-      uint Count, uint Stride, uint AllocationOffset, uint AllocationStride)
-{
-    uint _78 = subgroupAdd(Count);
-    if (_78 == 0u)
-    {
-        return 0u;
-    }
-    uint _112;
-    if (subgroupElect())
-    {
-        NodeAtomics _95 = NodeAtomics(AtomicCountersBDA);
-        uint _97 = NodeMetadataIndex * 2u;
-        uint _100 = atomicAdd(_95.payloadCount, ((_78 * Stride) + 15u) & 4294967280u);
-        uint _106 = atomicAdd(_95.perNodeFusedAndTotal[_97], 1u);
-        uint _102 = atomicAdd(_95.perNodeFusedAndTotal[_97 + 1u], _78);
-        _95.perNodeFusedAndTotal[((AllocationStride * NodeMetadataIndex) + AllocationOffset) + _106] =
-            (_100 << 4u) | (_78 - 1u);
-        _112 = _100;
-    }
-    else
-    {
-        _112 = _79; // Undef
-    }
-    // TODO: InclusiveAdd - self style is probably better, but *shrug* for now.
-    return subgroupBroadcastFirst(_112) + (subgroupExclusiveAdd(Count) * Stride);
-```
+the code is straight forward subgroup code with typical reductions, elections, scans, etc.
 
 If the node index is not wave uniform, we need a waterfall loop.
 
 ```glsl
 uint AllocateThreadNodeRecordsWaterfall(
         uint64_t AtomicCountersBDA, uint NodeMetadataIndex,
-        uint Count, uint Stride, uint AllocationOffset, uint AllocationStride)
+        uint Count, uint Stride, uint AllocationOffset)
 {
     uint _128;
     for (;;)
@@ -208,7 +174,7 @@ uint AllocateThreadNodeRecordsWaterfall(
         uint _126 = subgroupBroadcastFirst(NodeMetadataIndex);
         if (_126 == NodeMetadataIndex)
         {
-            _128 = AllocateThreadNodeRecords(AtomicCountersBDA, _126, Count, Stride, AllocationOffset, AllocationStride);
+            _128 = AllocateThreadNodeRecords(AtomicCountersBDA, _126, Count, Stride, AllocationOffset);
             break;
         }
         continue;
@@ -419,6 +385,10 @@ To emit N workgroups, we can dispatch twice:
 (2^15, N / 2^15, 1)
 (N % 2^15, 1, 1)
 ```
+
+NOTE: Recently RADV also gained support for > 64k workgroups in the first dimension, so
+we can avoid the unrolling, and simply put everything in the second dispatch.
+The current implementation supports this optimization.
 
 To obtain the base offset for the dispatch `node_linear_offset_bda` is used.
 Alternatively, one dispatch can loop to cover large N, but that adds more complexity to dxil-spirv codegen.
@@ -1098,6 +1068,11 @@ For broadcast nodes with MaxGrid, there's also a mode to compact away empty SV_D
 AMD's rasterizer demo loves to emit empty dispatches and it wreaks havoc on the amplification algorithm,
 so I had to implement that too. The implementation is fairly straight forward as one can expect.
 The usual ballot / bit-count / mbcnt shenanigans.
+
+NOTE: In the earlier implementation, there would be one specialized dispatch per node, but as that became
+impractical for large node counts, the payload expander turned into an ubershader that consumes
+node index + payload offset + count instead. There was no obvious performance loss,
+and saves a lot of dispatches and memory in the worst cases.
 
 ## RenderDoc support
 
