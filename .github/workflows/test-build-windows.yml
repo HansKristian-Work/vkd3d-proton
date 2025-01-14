@@ -16,8 +16,8 @@ jobs:
     - name: Setup widl and glslangValidator
       shell: pwsh
       run: |
-        choco install strawberryperl curl -y
-        curl "https://raw.githubusercontent.com/HansKristian-Work/vkd3d-proton-ci/main/glslangValidator.exe" -o "C:\Strawberry\c\bin\glslangValidator.exe"
+        choco install strawberryperl -y
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HansKristian-Work/vkd3d-proton-ci/main/glslangValidator.exe" -OutFile "C:\Strawberry\c\bin\glslangValidator.exe"
         Write-Output "C:\Strawberry\c\bin" | Out-File -FilePath "${Env:GITHUB_PATH}" -Append
 
     - name: Setup Meson
