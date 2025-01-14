@@ -38,7 +38,10 @@ static void d3d12_fence_iface_dec_ref(d3d12_fence_iface *iface);
 static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *allocator);
 static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fence, uint64_t value);
 
-#define MAX_BATCHED_IMAGE_BARRIERS 16
+/* This must be at least twice the number of texture region batches, since we must be able to resolve
+ * a source + destination memory barrier per copy without incurring a barrier flush.
+ * A barrier flush breaks our ability to eliminate redundant transitions for e.g. source copies. */
+#define MAX_BATCHED_IMAGE_BARRIERS (VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE * 2)
 struct d3d12_command_list_barrier_batch
 {
     VkImageMemoryBarrier2 vk_image_barriers[MAX_BATCHED_IMAGE_BARRIERS];
