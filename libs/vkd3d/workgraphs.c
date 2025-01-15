@@ -39,19 +39,20 @@
  * will hurt us. The shader emitting amplification rate can dynamically adjust between 1 and 1024 rate as needed. */
 #define MAX_AMPLIFICATION_RATE 1024u
 
-/* 64 bytes per node, nicely aligns to a cache line. */
+/* 48 bytes per node. */
 struct d3d12_workgraph_indirect_command
 {
     uint32_t primary_execute[3];
     uint32_t primary_linear_offset; /* Read by node as input metadata. */
     uint32_t secondary_execute[3];
     uint32_t secondary_linear_offset; /* Read by node as input metadata. */
-    uint32_t expander_execute[3];
     uint32_t end_elements; /* Read by node as input metadata in coalesce / thread mode. */
     uint32_t linear_offset_atomic; /* Used by expander to write unrolled data. */
-    uint32_t total_fused_elements;
     uint32_t padding[2];
 };
+
+/* The first 16 bytes are reserved for payload expander execution. */
+#define WG_INDIRECT_COMMAND_OFFSET 16
 
 struct d3d12_workgraph_node_shared_execution
 {
@@ -79,12 +80,19 @@ struct d3d12_wg_state_object_pipeline
     VkPipeline vk_non_entry_pipeline;
     /* layout is part of modules array */
 
-    /* Meta shader. distribute_payload_offsets.comp. This is specialized per node. */
-    struct vkd3d_workgraph_meta_pipeline_info payload_offset_expander;
-
     /* These can be overridden per graph in theory. */
     const WCHAR *name;
     UINT array_index;
+};
+
+struct d3d12_wg_payload_expander_meta
+{
+    uint8_t group_components;
+    uint8_t group_components_u32;
+    uint8_t rw_group_tracking;
+    uint8_t group_compact_broadcast;
+    uint16_t payload_stride;
+    int16_t grid_offset_or_count;
 };
 
 /* Many similarities to ray-tracing state objects, but the implementations are vastly different
@@ -104,21 +112,27 @@ struct d3d12_wg_state_object_program
     /* Meta shader. distribute_workgroups.comp */
     struct vkd3d_workgraph_meta_pipeline_info workgroup_distributor;
     struct vkd3d_workgraph_meta_pipeline_info gpu_input_setup;
+    struct vkd3d_workgraph_meta_pipeline_info payload_offset_expander;
+    struct vkd3d_workgraph_meta_pipeline_info complete_compaction;
 
     bool compact_broadcast_nodes_with_max_grid;
 
     VkDeviceSize counters_scratch_offset;
     VkDeviceSize counters_scratch_size;
-    VkDeviceSize indirect_commands_scratch_offset;
-    VkDeviceSize indirect_commands_scratch_size;
+    VkDeviceSize indirect_commands_scratch_base_offset;
+    VkDeviceSize indirect_commands_scratch_node_offset;
+    VkDeviceSize indirect_commands_scratch_base_size;
     VkDeviceSize dividers_scratch_offset;
     VkDeviceSize dividers_scratch_size;
     VkDeviceSize share_mapping_scratch_offset;
     VkDeviceSize share_mapping_scratch_size;
+    VkDeviceSize payload_expander_scratch_offset;
+    VkDeviceSize payload_expander_scratch_size;
     VkDeviceSize required_scratch_size;
 
     int32_t *coalesce_dividers_or_amp;
     uint32_t *share_mapping;
+    struct d3d12_wg_payload_expander_meta *payload_expander_meta;
 
     const D3D12_NODE_ID *explicit_entry_points;
     size_t explicit_entry_point_count;
@@ -191,6 +205,7 @@ static void d3d12_state_object_free_programs(
         vkd3d_free(programs[i].pipelines);
         vkd3d_free(programs[i].coalesce_dividers_or_amp);
         vkd3d_free(programs[i].share_mapping);
+        vkd3d_free(programs[i].payload_expander_meta);
     }
     vkd3d_free(programs);
 }
@@ -1764,20 +1779,18 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     VkComputePipelineCreateInfo pipeline_info;
     VkSpecializationInfo spec_info;
     uint32_t spec_constant_index;
-    uint32_t component_count = 0;
-    uint32_t component_bits = 0;
-    bool group_tracking;
-    bool group_compact;
+    bool is_broadcast;
     unsigned int i, j;
     VkResult vr;
 
     enum
     {
         SPEC_IS_ENTRY_POINT = 0,
-        SPEC_IS_STATIC_BROADCAST,
         SPEC_IS_INDIRECT_BDA_STRIDE,
+        SPEC_COUNT_NON_BROADCAST,
+        SPEC_IS_STATIC_BROADCAST = SPEC_COUNT_NON_BROADCAST,
         SPEC_IS_GRID_IS_UPPER_BOUND,
-        SPEC_COUNT
+        SPEC_COUNT_BROADCAST
     };
 
     /* Already compiled PSO. */
@@ -1792,25 +1805,11 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 
     entry = &data->entry_points[entry_point_index];
+    is_broadcast = entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING;
 
     /* TODO: These can be overridden during compilation. */
     program->pipelines[entry_point_index].name = vkd3d_dup_entry_point(entry->node_input->node_id);
     program->pipelines[entry_point_index].array_index = entry->node_input->node_array_index;
-
-    if (entry->node_input->node_track_rw_input_sharing ||
-            (entry->node_input->dispatch_grid_is_upper_bound && program->compact_broadcast_nodes_with_max_grid))
-    {
-        component_bits = entry->node_input->dispatch_grid_type_bits;
-        component_count = entry->node_input->dispatch_grid_components;
-    }
-
-    group_tracking = entry->node_input->node_track_rw_input_sharing;
-    group_compact = entry->node_input->dispatch_grid_is_upper_bound &&
-            program->compact_broadcast_nodes_with_max_grid;
-
-    vkd3d_meta_get_workgraph_payload_offset_pipeline(&object->device->meta_ops,
-            component_bits, component_count, group_tracking, group_compact,
-            &program->pipelines[entry_point_index].payload_offset_expander);
 
     /* Set up spec constants for node outputs, etc. This will
      * have to be expanded a bit to also cover things like sparse array checks, recursion state, etc. */
@@ -1820,7 +1819,7 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
         tmp->spec_data_count += 1;
 
-    tmp->spec_data_count += SPEC_COUNT;
+    tmp->spec_data_count += is_broadcast ? SPEC_COUNT_BROADCAST : SPEC_COUNT_NON_BROADCAST;
 
     vkd3d_array_reserve((void **)&tmp->spec_data, &tmp->spec_data_size, tmp->spec_data_count, sizeof(*tmp->spec_data));
     vkd3d_array_reserve((void **)&tmp->map_entries, &tmp->map_entries_size, tmp->spec_data_count, sizeof(*tmp->map_entries));
@@ -1892,6 +1891,11 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
         for (i = 0; i < ARRAY_SIZE(entries); i++)
         {
             VkSpecializationMapEntry *map_entry = &tmp->map_entries[spec_constant_index + entries[i].spec_offset];
+
+            if (!is_broadcast && entries[i].spec_offset >= SPEC_COUNT_NON_BROADCAST)
+                continue;
+
+            assert(entries[i].spec_id != UINT32_MAX);
             map_entry->offset = sizeof(uint32_t) * (spec_constant_index + entries[i].spec_offset);
             map_entry->size = sizeof(uint32_t);
             map_entry->constantID = entries[i].spec_id;
@@ -1899,12 +1903,12 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     }
 
     /* CPU node entry, static payload. */
-    if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
+    if (is_broadcast)
     {
+        tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 1;
+        tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
         tmp->spec_data[spec_constant_index + SPEC_IS_GRID_IS_UPPER_BOUND] = 0;
         tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 1;
-        tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
-        tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 1;
 
         vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
                 VK_NULL_HANDLE, 1, &pipeline_info, NULL,
@@ -1918,10 +1922,15 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     }
 
     /* CPU node entry, multiple payloads. */
-    tmp->spec_data[spec_constant_index + SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
-    tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
     tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
     tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 1;
+
+    if (is_broadcast)
+    {
+        tmp->spec_data[spec_constant_index +
+                SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
+        tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
+    }
 
     vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
             VK_NULL_HANDLE, 1, &pipeline_info, NULL,
@@ -1933,10 +1942,15 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     }
 
     /* GPU entry */
-    tmp->spec_data[spec_constant_index + SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
-    tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
     tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 1;
     tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 1;
+
+    if (is_broadcast)
+    {
+        tmp->spec_data[spec_constant_index +
+                SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
+        tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
+    }
 
     vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
             VK_NULL_HANDLE, 1, &pipeline_info, NULL,
@@ -1948,10 +1962,15 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     }
 
     /* Non-entry node */
-    tmp->spec_data[spec_constant_index + SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
-    tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
-    tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
     tmp->spec_data[spec_constant_index + SPEC_IS_ENTRY_POINT] = 0;
+    tmp->spec_data[spec_constant_index + SPEC_IS_INDIRECT_BDA_STRIDE] = 0;
+
+    if (is_broadcast)
+    {
+        tmp->spec_data[spec_constant_index +
+                SPEC_IS_GRID_IS_UPPER_BOUND] = entry->node_input->dispatch_grid_is_upper_bound;
+        tmp->spec_data[spec_constant_index + SPEC_IS_STATIC_BROADCAST] = 0;
+    }
 
     vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
             VK_NULL_HANDLE, 1, &pipeline_info, NULL,
@@ -1962,7 +1981,7 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
         return hresult_from_vk_result(vr);
     }
 
-    assert(spec_constant_index + SPEC_COUNT == tmp->spec_data_count);
+    assert(spec_constant_index + (is_broadcast ? SPEC_COUNT_BROADCAST : SPEC_COUNT_NON_BROADCAST) == tmp->spec_data_count);
 
     return S_OK;
 }
@@ -2008,6 +2027,7 @@ static HRESULT d3d12_wg_state_object_compile_program(
         struct d3d12_wg_state_object_program *program)
 {
     struct d3d12_wg_state_object_spec_constant_tmp tmp;
+    VkDeviceSize scratch_offset = 0;
     unsigned int level;
     HRESULT hr = S_OK;
     unsigned int i;
@@ -2017,13 +2037,18 @@ static HRESULT d3d12_wg_state_object_compile_program(
     program->num_pipelines = data->entry_points_count;
     program->coalesce_dividers_or_amp = vkd3d_calloc(program->num_pipelines, sizeof(int32_t));
     program->share_mapping = vkd3d_malloc(program->num_pipelines * sizeof(uint32_t));
+    program->payload_expander_meta = vkd3d_calloc(program->num_pipelines, sizeof(struct d3d12_wg_payload_expander_meta));
 
     for (i = 0; i < program->num_pipelines; i++)
         program->share_mapping[i] = UINT32_MAX;
 
+    program->compact_broadcast_nodes_with_max_grid =
+            d3d12_wg_state_object_program_can_compact_broadcast_nodes(object, data, program);
+
     for (i = 0; i < program->num_pipelines; i++)
     {
         const struct vkd3d_shader_node_input_data *node_input = data->entry_points[i].node_input;
+        struct d3d12_wg_payload_expander_meta *meta;
         uint32_t node_index;
 
         if (!node_input)
@@ -2054,38 +2079,70 @@ static HRESULT d3d12_wg_state_object_compile_program(
                 return E_INVALIDARG;
         }
 
-        if (!node_input->node_share_input_id || *node_input->node_share_input_id == '\0')
-            continue;
+        meta = &program->payload_expander_meta[i];
+        meta->payload_stride = node_input->payload_stride;
 
-        node_index = d3d12_work_graph_find_node_by_id(
-                data->entry_points, data->entry_points_count,
-                node_input->node_share_input_id, node_input->node_share_input_array_index);
+        if (node_input->dispatch_grid_is_upper_bound)
+        {
+            meta->grid_offset_or_count = (int)node_input->dispatch_grid_offset;
+        }
+        else
+        {
+            uint32_t total_wgs = node_input->broadcast_grid[0] *
+                    node_input->broadcast_grid[1] *
+                    node_input->broadcast_grid[2];
+            meta->grid_offset_or_count = -(int)total_wgs;
+        }
 
-        /* If we don't find the node, assume there is no sharing to care about anyway, so *shrug*. */
-        if (node_index != UINT32_MAX)
-            program->share_mapping[i] = node_index;
+        if (node_input->node_track_rw_input_sharing ||
+                (node_input->dispatch_grid_is_upper_bound && program->compact_broadcast_nodes_with_max_grid))
+        {
+            meta->group_components_u32 = node_input->dispatch_grid_type_bits == 32;
+            meta->group_components = node_input->dispatch_grid_components;
+        }
+
+        meta->rw_group_tracking = node_input->node_track_rw_input_sharing;
+        meta->group_compact_broadcast = node_input->dispatch_grid_is_upper_bound &&
+                program->compact_broadcast_nodes_with_max_grid;
+
+        if (node_input->node_share_input_id && *node_input->node_share_input_id != '\0')
+        {
+            node_index = d3d12_work_graph_find_node_by_id(
+                    data->entry_points, data->entry_points_count,
+                    node_input->node_share_input_id, node_input->node_share_input_array_index);
+
+            /* If we don't find the node, assume there is no sharing to care about anyway, so *shrug*. */
+            if (node_index != UINT32_MAX)
+                program->share_mapping[i] = node_index;
+        }
     }
-
-    program->compact_broadcast_nodes_with_max_grid =
-            d3d12_wg_state_object_program_can_compact_broadcast_nodes(object, data, program);
 
     vkd3d_meta_get_workgraph_workgroup_pipeline(&object->device->meta_ops,
             &program->workgroup_distributor, program->compact_broadcast_nodes_with_max_grid);
     vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(&object->device->meta_ops,
             &program->gpu_input_setup);
+    vkd3d_meta_get_workgraph_payload_offset_pipeline(&object->device->meta_ops,
+            &program->payload_offset_expander);
+    vkd3d_meta_get_workgraph_complete_compaction_pipeline(&object->device->meta_ops,
+            &program->complete_compaction);
 
-    program->counters_scratch_offset = 0;
-    program->counters_scratch_size = (1 + data->entry_points_count) * sizeof(uint32_t) * 2;
-    program->indirect_commands_scratch_offset = align(program->counters_scratch_size, 64);
-    program->indirect_commands_scratch_size =
-            data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command);
-    program->dividers_scratch_offset =
-            align(program->indirect_commands_scratch_offset + program->indirect_commands_scratch_size, 64);
-    program->dividers_scratch_size = data->entry_points_count * sizeof(uint32_t);
-    program->share_mapping_scratch_offset =
-            align(program->dividers_scratch_offset + program->dividers_scratch_size, 64);
-    program->share_mapping_scratch_size = data->entry_points_count * sizeof(uint32_t);
-    program->required_scratch_size = program->share_mapping_scratch_offset + program->share_mapping_scratch_size;
+#define alloc_scratch(member, size) \
+    scratch_offset = align64(scratch_offset, 64); \
+    program->member##_offset = scratch_offset; \
+    program->member##_size = (size); \
+    scratch_offset += program->member##_size
+
+    alloc_scratch(counters_scratch, (2 + data->entry_points_count) * sizeof(uint32_t));
+    alloc_scratch(indirect_commands_scratch_base,
+            data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command) + WG_INDIRECT_COMMAND_OFFSET);
+    alloc_scratch(dividers_scratch, data->entry_points_count * sizeof(uint32_t));
+    alloc_scratch(share_mapping_scratch, data->entry_points_count * sizeof(uint32_t));
+    alloc_scratch(payload_expander_scratch, data->entry_points_count * sizeof(struct d3d12_wg_payload_expander_meta));
+#undef alloc_scratch
+
+    program->required_scratch_size = scratch_offset;
+    program->indirect_commands_scratch_node_offset =
+            program->indirect_commands_scratch_base_offset + WG_INDIRECT_COMMAND_OFFSET;
 
     for (level = 0; level < program->num_levels; level++)
     {
@@ -2467,6 +2524,8 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
     resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, list->wg_state.BackingMemory.StartAddress);
     if (resource)
     {
+        /* TODO: Deal with > 64k sizes? */
+
         VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, resource->vk_buffer,
                 list->wg_state.BackingMemory.StartAddress - resource->va,
                 wg_state->programs[wg_state_program_index].dividers_scratch_offset, 0));
@@ -2482,6 +2541,12 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
                 wg_state->programs[wg_state_program_index].share_mapping_scratch_offset,
                 wg_state->programs[wg_state_program_index].num_pipelines * sizeof(uint32_t),
                 wg_state->programs[wg_state_program_index].share_mapping));
+
+        VK_CALL(vkCmdUpdateBuffer(list->cmd.vk_command_buffer, resource->vk_buffer,
+                list->wg_state.BackingMemory.StartAddress - resource->va +
+                wg_state->programs[wg_state_program_index].payload_expander_scratch_offset,
+                wg_state->programs[wg_state_program_index].num_pipelines * sizeof(struct d3d12_wg_payload_expander_meta),
+                wg_state->programs[wg_state_program_index].payload_expander_meta));
     }
 
     vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
@@ -2634,9 +2699,6 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
     push.node_payload_output_atomic_bda = list->wg_state.BackingMemory.StartAddress;
     /* Counteract fixed offset applied by shader */
     push.node_payload_output_offset = program->required_scratch_size / sizeof(uint32_t) - 2;
-    push.node_payload_output_stride =
-            (list->wg_state.BackingMemory.SizeInBytes - program->required_scratch_size) / max(state->modules_count, 1);
-    push.node_payload_output_stride /= sizeof(uint32_t);
 
     table_index = node_input->local_root_arguments_table_index;
     if (table_index != UINT32_MAX)
@@ -2849,7 +2911,7 @@ static void d3d12_command_list_emit_distribute_workgroups(struct d3d12_command_l
             VK_PIPELINE_BIND_POINT_COMPUTE, program->workgroup_distributor.vk_pipeline));
 
     args.node_atomics_va = list->wg_state.BackingMemory.StartAddress;
-    args.commands_va = program->indirect_commands_scratch_offset + list->wg_state.BackingMemory.StartAddress;
+    args.commands_va = program->indirect_commands_scratch_base_offset + list->wg_state.BackingMemory.StartAddress;
     args.dividers_va = program->dividers_scratch_offset + list->wg_state.BackingMemory.StartAddress;
     args.node_share_mapping_va = program->share_mapping_scratch_offset + list->wg_state.BackingMemory.StartAddress;
     args.num_nodes = state->entry_points_count;
@@ -2877,89 +2939,71 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
         uint32_t level, D3D12_GPU_VIRTUAL_ADDRESS payload_va)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_workgraph_complete_compaction_args complete_args;
     struct vkd3d_workgraph_payload_offsets_args args;
     const struct vkd3d_unique_resource *resource;
-    unsigned int node_index;
-    unsigned int i;
+    VkDeviceSize vk_offset;
 
     resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, list->wg_state.BackingMemory.StartAddress);
     if (!resource)
         return;
 
-    for (i = 0; i < program->levels[level].nodes_count; i++)
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            program->payload_offset_expander.vk_pipeline));
+
+    args.commands = list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_base_offset;
+    args.meta = list->wg_state.BackingMemory.StartAddress + program->payload_expander_scratch_offset;
+    args.payload = payload_va;
+    args.unrolled_offsets = state->unrolled_offsets.va;
+    args.packed_offset_counts = list->wg_state.BackingMemory.StartAddress + program->required_scratch_size;
+
+    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+            program->payload_offset_expander.vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(args), &args));
+
+    if (list->device->vk_info.EXT_debug_utils)
     {
-        const struct vkd3d_shader_node_input_data *node_input;
-        VkDeviceSize vk_offset;
-
-        node_index = program->levels[level].nodes[i];
-        node_input = state->entry_points[node_index].node_input;
-
-        /* Empty nodes don't care about payloads. */
-        if (node_input->payload_stride == 0)
-            continue;
-
-        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                program->pipelines[node_index].payload_offset_expander.vk_pipeline));
-
-        args.node_index = node_index;
-        args.commands = list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_offset;
-        args.payload = payload_va;
-        args.unrolled_offsets = state->unrolled_offsets.va;
-        args.packed_offset_counts = list->wg_state.BackingMemory.StartAddress + program->required_scratch_size;
-        args.packed_offset_counts_stride =
-                (list->wg_state.BackingMemory.SizeInBytes - program->required_scratch_size) / max(state->modules_count, 1);
-        args.packed_offset_counts_stride /= sizeof(uint32_t);
-        args.payload_stride = node_input->payload_stride;
-
-        if (node_input->dispatch_grid_is_upper_bound)
-        {
-            args.grid_offset_or_count = (int)node_input->dispatch_grid_offset;
-            /* Component type and components is spec constant. */
-        }
-        else
-        {
-            uint32_t total_wgs = node_input->broadcast_grid[0] *
-                    node_input->broadcast_grid[1] *
-                    node_input->broadcast_grid[2];
-            args.grid_offset_or_count = -(int)total_wgs;
-        }
-
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                program->pipelines[node_index].payload_offset_expander.vk_pipeline_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT,
-                0, sizeof(args), &args));
-
-        vk_offset = list->wg_state.BackingMemory.StartAddress - resource->va;
-        vk_offset += program->indirect_commands_scratch_offset;
-        vk_offset += node_index * sizeof(struct d3d12_workgraph_indirect_command);
-        vk_offset += offsetof(struct d3d12_workgraph_indirect_command, expander_execute);
-
-        if (list->device->vk_info.EXT_debug_utils)
-        {
-            char buf[256];
-            snprintf(buf, sizeof(buf), "Payload Distribute - level %u - node %s[%u]",
-                    level, node_input->node_id, node_input->node_array_index);
-            d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
-        }
-
-        VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, resource->vk_buffer, vk_offset));
-
-        VKD3D_BREADCRUMB_TAG("payload-offset");
-        VKD3D_BREADCRUMB_AUX32(level);
-        VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_META);
+        char buf[256];
+        snprintf(buf, sizeof(buf), "Payload Distribute - level %u", level);
+        d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
     }
 
+    vk_offset = list->wg_state.BackingMemory.StartAddress - resource->va;
+    vk_offset += program->indirect_commands_scratch_base_offset;
+
+    VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, resource->vk_buffer, vk_offset));
+    VKD3D_BREADCRUMB_TAG("payload-offset");
+    VKD3D_BREADCRUMB_COMMAND(WORKGRAPH_META);
+
+    /* This shader only expands offsets, indirect data is already written. */
+    d3d12_command_list_workgraph_barrier(list,
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+
+    /* To prepare for ubershader payload expander, we cannot rely on single-pass handling anymore. */
     if (program->compact_broadcast_nodes_with_max_grid)
     {
+        uint32_t wgx;
+        complete_args.commands = args.commands;
+        complete_args.meta = args.meta;
+        complete_args.node_count = program->num_pipelines;
+
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                program->complete_compaction.vk_pipeline));
+
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                program->complete_compaction.vk_pipeline_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT,
+                0, sizeof(complete_args), &complete_args));
+
+        wgx = complete_args.node_count;
+        wgx = align(complete_args.node_count, vkd3d_meta_get_workgraph_complete_compaction_workgroup_size()) /
+                vkd3d_meta_get_workgraph_complete_compaction_workgroup_size();
+        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, wgx, 1, 1));
+
         d3d12_command_list_workgraph_barrier(list,
                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
                 VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
-    }
-    else
-    {
-        /* This shader only expands offsets, indirect data is already written. */
-        d3d12_command_list_workgraph_barrier(list,
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     }
 }
 
@@ -2970,6 +3014,12 @@ struct vkd3d_workgraph_gpu_input_indirect
     uint32_t secondary_indirect[3];
     uint32_t secondary_linear_offset;
 };
+
+static bool d3d12_wg_requires_primary_execution(const struct d3d12_wg_state_object *state)
+{
+    return state->device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0] <
+            VKD3D_WORKGRAPH_MAX_WGX_NO_PRIMARY_EXECUTION_THRESHOLD;
+}
 
 static void d3d12_command_list_workgraph_execute_node_gpu(
         struct d3d12_command_list *list, const struct d3d12_wg_state_object *state,
@@ -3030,7 +3080,7 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     {
         const struct vkd3d_unique_resource *resource;
         VkDeviceAddress indirect_va =
-                list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_offset +
+                list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_node_offset +
                 sizeof(struct d3d12_workgraph_indirect_command) * node_index;
 
         push.node_payload_stride_or_offsets_bda = state->unrolled_offsets.va;
@@ -3050,7 +3100,7 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
         vk_secondary_indirect_offset += offsetof(struct d3d12_workgraph_indirect_command, secondary_execute);
 
         push.node_total_nodes_bda =
-                list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_offset +
+                list->wg_state.BackingMemory.StartAddress + program->indirect_commands_scratch_node_offset +
                 sizeof(struct d3d12_workgraph_indirect_command) * node_index +
                 offsetof(struct d3d12_workgraph_indirect_command, end_elements);
 
@@ -3062,9 +3112,6 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     push.node_payload_output_atomic_bda = list->wg_state.BackingMemory.StartAddress;
     /* Compensate for offset applied by shader. */
     push.node_payload_output_offset = program->required_scratch_size / sizeof(uint32_t) - 2;
-    push.node_payload_output_stride =
-            (list->wg_state.BackingMemory.SizeInBytes - program->required_scratch_size) / max(state->modules_count, 1);
-    push.node_payload_output_stride /= sizeof(uint32_t);
 
     table_index = node_input->local_root_arguments_table_index;
     if (table_index != UINT32_MAX)
@@ -3086,12 +3133,15 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
         d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.8f, 0.8f, 1.0f);
     }
 
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-            sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
+    if (d3d12_wg_requires_primary_execution(state))
+    {
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+                sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
 
-    VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_primary_indirect_offset));
+        VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_primary_indirect_offset));
+    }
 
     push.node_linear_offset_bda = secondary_linear_offset_bda;
     VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
