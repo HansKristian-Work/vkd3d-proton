@@ -17508,6 +17508,10 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
         }
     }
 
+    /* Avoids tripping validation error since it's not legal to have bindCount == 0. */
+    if (sub.bind_sparse.bind_count == 0)
+        goto fail;
+
     vkd3d_free(bound_tiles);
     d3d12_command_queue_add_submission(command_queue, &sub);
     return;
