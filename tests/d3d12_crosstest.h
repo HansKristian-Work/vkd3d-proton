@@ -574,6 +574,11 @@ static inline bool is_amd_vulkan_device(ID3D12Device *device)
     return false;
 }
 
+static inline bool is_adreno_device(ID3D12Device *device)
+{
+    return false;
+}
+
 static inline bool is_vk_device_extension_supported(ID3D12Device *device, const char *ext)
 {
     return false;
@@ -729,6 +734,15 @@ static inline bool is_amd_vulkan_device(ID3D12Device *device)
     return properties.driverID == VK_DRIVER_ID_MESA_RADV_KHR ||
             properties.driverID == VK_DRIVER_ID_AMD_OPEN_SOURCE_KHR ||
             properties.driverID == VK_DRIVER_ID_AMD_PROPRIETARY;
+}
+
+static inline bool is_adreno_device(ID3D12Device *device)
+{
+    VkPhysicalDeviceDriverPropertiesKHR properties;
+
+    get_driver_properties(device, &properties);
+    return properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY ||
+            properties.driverID == VK_DRIVER_ID_MESA_TURNIP;
 }
 #endif
 
