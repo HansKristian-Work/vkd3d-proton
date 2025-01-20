@@ -2730,6 +2730,18 @@ static bool vkd3d_shader_stages_require_work_locked(struct d3d12_pipeline_state 
     return false;
 }
 
+static void vkd3d_shader_code_init_empty_fs(struct vkd3d_shader_code *code)
+{
+#include <fs_empty.h>
+    void *tmp;
+
+    memset(&code->meta, 0, sizeof(code->meta));
+    code->size = sizeof(fs_empty);
+    tmp = vkd3d_malloc(sizeof(fs_empty));
+    memcpy(tmp, fs_empty, sizeof(fs_empty));
+    code->code = tmp;
+}
+
 static HRESULT vkd3d_late_compile_shader_stages(struct d3d12_pipeline_state *state)
 {
     /* We are at risk of having to compile pipelines late if we return from CreatePipelineState without
@@ -2758,13 +2770,25 @@ static HRESULT vkd3d_late_compile_shader_stages(struct d3d12_pipeline_state *sta
 
     for (i = 0; i < graphics->stage_count; i++)
     {
-        if (graphics->stages[i].module == VK_NULL_HANDLE && !graphics->code[i].size &&
-                graphics->cached_desc.bytecode[i].BytecodeLength)
+        if (graphics->stages[i].module == VK_NULL_HANDLE && !graphics->code[i].size)
         {
-            /* If we're compiling late, we don't care about debug. Debug capturing disables module identifiers. */
-            if (FAILED(hr = vkd3d_compile_shader_stage(state, state->device, graphics->cached_desc.bytecode_stages[i],
-                    &graphics->cached_desc.bytecode[i], &graphics->code[i], NULL)))
+            if (graphics->cached_desc.bytecode[i].BytecodeLength)
+            {
+                /* If we're compiling late, we don't care about debug. Debug capturing disables module identifiers. */
+                if (FAILED(hr = vkd3d_compile_shader_stage(state, state->device,
+                        graphics->cached_desc.bytecode_stages[i],
+                        &graphics->cached_desc.bytecode[i], &graphics->code[i], NULL)))
+                    break;
+            }
+            else if (graphics->cached_desc.bytecode_stages[i] == VK_SHADER_STAGE_FRAGMENT_BIT)
+            {
+                vkd3d_shader_code_init_empty_fs(&graphics->code[i]);
+            }
+            else
+            {
+                hr = E_INVALIDARG;
                 break;
+            }
         }
 
         if (graphics->stages[i].module == VK_NULL_HANDLE)
@@ -4216,10 +4240,17 @@ static HRESULT d3d12_pipeline_state_graphics_create_shader_stages(
             else
                 debug_output = NULL;
 
-            if (FAILED(hr = vkd3d_compile_shader_stage(state, device,
+            if (graphics->cached_desc.bytecode_stages[i] == VK_SHADER_STAGE_FRAGMENT_BIT &&
+                    graphics->cached_desc.bytecode[i].BytecodeLength == 0)
+            {
+                vkd3d_shader_code_init_empty_fs(&graphics->code[i]);
+            }
+            else if (FAILED(hr = vkd3d_compile_shader_stage(state, device,
                     graphics->cached_desc.bytecode_stages[i],
                     &graphics->cached_desc.bytecode[i], &graphics->code[i], debug_output)))
+            {
                 return hr;
+            }
         }
 
         if (FAILED(hr = vkd3d_setup_shader_stage(state, device,
@@ -4484,6 +4515,16 @@ static bool vkd3d_validate_vertex_input_signature(const struct vkd3d_shader_sign
     return true;
 }
 
+static bool d3d12_graphics_pipeline_state_needs_noop_fs(
+        const struct d3d12_device *device,
+        const struct d3d12_graphics_pipeline_state *graphics)
+{
+    return (graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT) &&
+            !(graphics->stage_flags & VK_SHADER_STAGE_FRAGMENT_BIT) &&
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+            device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
@@ -4526,6 +4567,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     };
 
     graphics->stage_flags = vkd3d_pipeline_state_desc_get_shader_stages(desc);
+
     /* Defer taking ref-count until completion. */
     state->device = device;
     graphics->stage_count = 0;
@@ -4566,6 +4608,13 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
          * We can just pretend we have no render targets in this case, which is fine. */
         rt_count = 0;
     }
+
+    /* RADV screws up a bit when faced with depth-only mesh shaders.
+     * - No cross-stage optimization ends up happening.
+     * - Rendering glitches are observed. It's unclear why.
+     * Adding a noop FS is trivial. */
+    if (d3d12_graphics_pipeline_state_needs_noop_fs(device, graphics))
+        graphics->stage_flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
 
     graphics->null_attachment_mask = 0;
     graphics->rtv_active_mask = 0;
@@ -4754,6 +4803,16 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
 
         if (!(graphics->stage_flags & shader_stages_lut[i].stage))
             continue;
+
+        /* Can happen for mesh -> fragment workaround. */
+        if (!b->BytecodeLength)
+        {
+            graphics->cached_desc.bytecode[graphics->stage_count].BytecodeLength = 0;
+            graphics->cached_desc.bytecode[graphics->stage_count].pShaderBytecode = NULL;
+            graphics->cached_desc.bytecode_stages[graphics->stage_count] = shader_stages_lut[i].stage;
+            ++graphics->stage_count;
+            continue;
+        }
 
         prev_stage = curr_stage;
         curr_stage = shader_stages_lut[i].stage;
