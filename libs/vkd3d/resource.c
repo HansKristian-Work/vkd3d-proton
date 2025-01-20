@@ -2982,6 +2982,15 @@ static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC1 *d
     return S_OK;
 }
 
+static bool d3d12_device_requires_explicit_sparse_init(struct d3d12_device *device)
+{
+    /* While it's not perfectly clear from specification, apparently the consensus is that sparse page
+     * tables should be initialized to "unbound" by driver.
+     * Keep this code path here until we have clarified the specification. */
+    (void)device;
+    return false;
+}
+
 static HRESULT d3d12_resource_init_page_table(struct d3d12_resource *resource,
         struct d3d12_device *device, struct d3d12_sparse_info *sparse)
 {
@@ -3004,6 +3013,7 @@ static HRESULT d3d12_resource_init_page_table(struct d3d12_resource *resource,
     VkBindSparseInfo bind_info;
     VkDeviceSize metadata_size;
     unsigned int i, j, k;
+    bool explicit_init;
     HRESULT hr = S_OK;
     VkResult vr;
 
@@ -3014,18 +3024,23 @@ static HRESULT d3d12_resource_init_page_table(struct d3d12_resource *resource,
     memset(&bind_info, 0, sizeof(bind_info));
     bind_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
 
+    explicit_init = d3d12_device_requires_explicit_sparse_init(device);
+
     if (d3d12_resource_is_buffer(resource))
     {
-        memset(&buffer_bind, 0, sizeof(buffer_bind));
-        buffer_bind.size = align64(resource->desc.Width, VKD3D_TILE_SIZE);
+        if (explicit_init)
+        {
+            memset(&buffer_bind, 0, sizeof(buffer_bind));
+            buffer_bind.size = align64(resource->desc.Width, VKD3D_TILE_SIZE);
 
-        memset(&buffer_bind_info, 0, sizeof(buffer_bind_info));
-        buffer_bind_info.buffer = resource->res.vk_buffer;
-        buffer_bind_info.bindCount = 1;
-        buffer_bind_info.pBinds = &buffer_bind;
+            memset(&buffer_bind_info, 0, sizeof(buffer_bind_info));
+            buffer_bind_info.buffer = resource->res.vk_buffer;
+            buffer_bind_info.bindCount = 1;
+            buffer_bind_info.pBinds = &buffer_bind;
 
-        bind_info.bufferBindCount = 1;
-        bind_info.pBufferBinds = &buffer_bind_info;
+            bind_info.bufferBindCount = 1;
+            bind_info.pBufferBinds = &buffer_bind_info;
+        }
     }
     else
     {
@@ -3054,14 +3069,14 @@ static HRESULT d3d12_resource_init_page_table(struct d3d12_resource *resource,
             mip_tail_layer_count = (req->formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT)
                     ? 1u : d3d12_resource_desc_get_layer_count(&resource->desc);
 
-            if (req->imageMipTailSize)
+            if (req->imageMipTailSize && explicit_init)
                 opaque_bind_count += mip_tail_layer_count;
 
             if (req->formatProperties.aspectMask & VK_IMAGE_ASPECT_METADATA_BIT)
             {
                 metadata_size += mip_tail_layer_count * req->imageMipTailSize;
             }
-            else
+            else if (explicit_init)
             {
                 standard_mip_count = req->imageMipTailSize
                         ? min(resource->desc.MipLevels, req->imageMipTailFirstLod)
@@ -3121,7 +3136,7 @@ static HRESULT d3d12_resource_init_page_table(struct d3d12_resource *resource,
                     metadata_size += req->imageMipTailSize;
                 }
             }
-            else
+            else if (explicit_init)
             {
                 if (req->imageMipTailSize)
                 {
@@ -3176,48 +3191,50 @@ static HRESULT d3d12_resource_init_page_table(struct d3d12_resource *resource,
         }
     }
 
-    vkd3d_queue = device->internal_sparse_queue;
-
-    if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
+    if (bind_info.bufferBindCount || bind_info.imageBindCount || bind_info.imageOpaqueBindCount)
     {
-        ERR("Failed to acquire queue %p.\n", vkd3d_queue);
-        goto cleanup;
+        vkd3d_queue = device->internal_sparse_queue;
+
+        if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
+        {
+            ERR("Failed to acquire queue %p.\n", vkd3d_queue);
+            goto cleanup;
+        }
+
+        /* This timeline will only get signaled on the internal sparse queue */
+        sparse->init_timeline_value = device->sparse_init_timeline_value + 1u;
+
+        memset(&timeline_info, 0, sizeof(timeline_info));
+        timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        timeline_info.waitSemaphoreValueCount = 1;
+        timeline_info.pWaitSemaphoreValues = &device->sparse_init_timeline_value;
+        timeline_info.signalSemaphoreValueCount = 1;
+        timeline_info.pSignalSemaphoreValues = &sparse->init_timeline_value;
+
+        bind_info.pNext = &timeline_info;
+        bind_info.waitSemaphoreCount = 1;
+        bind_info.pWaitSemaphores = &device->sparse_init_timeline;
+        bind_info.signalSemaphoreCount = 1;
+        bind_info.pSignalSemaphores = &device->sparse_init_timeline;
+
+        vr = VK_CALL(vkQueueBindSparse(vk_queue, 1, &bind_info, VK_NULL_HANDLE));
+
+        device->sparse_init_timeline_value = sparse->init_timeline_value;
+        vkd3d_queue_release(vkd3d_queue);
+
+        if (vr < 0)
+        {
+            ERR("Failed to initialize sparse resource, vr %d.\n", vr);
+            hr = hresult_from_vk_result(vr);
+            goto cleanup;
+        }
+
+        /* The application is free to use or destroy the resource immediately
+         * after creation. Stall subsequent queue submissions until the resource
+         * is initialized. */
+        vkd3d_add_wait_to_all_queues(device, device->sparse_init_timeline,
+                resource->sparse.init_timeline_value);
     }
-
-    /* This timeline will only get signaled on the internal sparse queue */
-    sparse->init_timeline_value = device->sparse_init_timeline_value + 1u;
-
-    memset(&timeline_info, 0, sizeof(timeline_info));
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline_info.waitSemaphoreValueCount = 1;
-    timeline_info.pWaitSemaphoreValues = &device->sparse_init_timeline_value;
-    timeline_info.signalSemaphoreValueCount = 1;
-    timeline_info.pSignalSemaphoreValues = &sparse->init_timeline_value;
-
-    bind_info.pNext = &timeline_info;
-    bind_info.waitSemaphoreCount = 1;
-    bind_info.pWaitSemaphores = &device->sparse_init_timeline;
-    bind_info.signalSemaphoreCount = 1;
-    bind_info.pSignalSemaphores = &device->sparse_init_timeline;
-
-    vr = VK_CALL(vkQueueBindSparse(vk_queue, 1, &bind_info, VK_NULL_HANDLE));
-
-    device->sparse_init_timeline_value = sparse->init_timeline_value;
-    vkd3d_queue_release(vkd3d_queue);
-
-    if (vr < 0)
-    {
-        ERR("Failed to initialize sparse resource, vr %d.\n", vr);
-        hr = hresult_from_vk_result(vr);
-        goto cleanup;
-    }
-
-
-    /* The application is free to use or destroy the resource immediately
-     * after creation. Stall subsequent queue submissions until the resource
-     * is initialized. */
-    vkd3d_add_wait_to_all_queues(device, device->sparse_init_timeline,
-            resource->sparse.init_timeline_value);
 
 cleanup:
     vkd3d_free(sparse_requirements);
