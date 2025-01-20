@@ -466,7 +466,12 @@ enum vkd3d_shader_quirk
 
     /* Extremely specific workaround for cubemap importance sampling pass.
      * The lowest res mips may contain garbage. */
-    VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS = (1 << 22)
+    VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS = (1 << 22),
+
+    /* When an alloca array forwards loads to a CBV, a game might attempt to access the private array OOB.
+     * This can lead to page faults. Clamps the input index to the private array size
+     * as the simplest possible workaround. */
+    VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING = (1 << 23),
 };
 
 struct vkd3d_shader_quirk_hash
