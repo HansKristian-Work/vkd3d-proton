@@ -17422,7 +17422,16 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
         if (range_tile == 0)
         {
             if (range_flags)
+            {
                 range_flag = range_flags[range_idx];
+
+                if (range_flag == D3D12_TILE_RANGE_FLAG_NULL &&
+                        (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES) &&
+                        command_queue->device->workarounds.amdgpu_broken_null_tile_mapping)
+                {
+                    range_flag = D3D12_TILE_RANGE_FLAG_SKIP;
+                }
+            }
 
             if (range_tile_counts)
                 range_size = range_tile_counts[range_idx];

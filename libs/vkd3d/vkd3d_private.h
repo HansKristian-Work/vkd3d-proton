@@ -5041,6 +5041,7 @@ struct d3d12_device
     struct
     {
         bool amdgpu_broken_clearvram;
+        bool amdgpu_broken_null_tile_mapping;
     } workarounds;
 };
 

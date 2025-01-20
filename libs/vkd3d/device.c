@@ -1008,6 +1008,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"transfer_queue", VKD3D_CONFIG_FLAG_TRANSFER_QUEUE},
     {"no_gpu_upload_heap", VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP},
     {"one_time_submit", VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT},
+    {"skip_null_sparse_tiles", VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -3053,6 +3054,12 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
             device->workarounds.amdgpu_broken_clearvram = true;
         }
     }
+
+    /* AMDGPU seems to have a strange bug where remapping a page to NULL can cause an impossible
+     * page table issue where it's now possible to fault on a PRT page.
+     * It's unknown which kernel version introduced it and when it will be fixed.
+     * Only seems to affect very specific content which does not really rely on the NULL page behavior anyway. */
+    device->workarounds.amdgpu_broken_null_tile_mapping = true;
 }
 
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
