@@ -112,6 +112,7 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_TRANSFER_QUEUE (1ull << 54)
 #define VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP (1ull << 55)
 #define VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT (1ull << 56)
+#define VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES (1ull << 57)
 
 struct vkd3d_instance;
 
