@@ -113,7 +113,9 @@ static void vkd3d_meta_make_shader_stage(VkPipelineShaderStageCreateInfo *info, 
 static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
         size_t code_size, const uint32_t *code, VkPipelineLayout layout,
         const VkSpecializationInfo *specialization_info,
-        bool descriptor_buffer_compatible, VkPipeline *pipeline)
+        bool descriptor_buffer_compatible,
+        const VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *required_size,
+        VkPipeline *pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkComputePipelineCreateInfo pipeline_info;
@@ -138,6 +140,8 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
 
     vkd3d_meta_make_shader_stage(&pipeline_info.stage,
             VK_SHADER_STAGE_COMPUTE_BIT, module, "main", specialization_info);
+
+    pipeline_info.stage.pNext = required_size;
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, pipeline));
     VK_CALL(vkDestroyShaderModule(device->vk_device, module, NULL));
@@ -437,7 +441,7 @@ static HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_u
     for (i = 0; i < ARRAY_SIZE(pipelines); i++)
     {
         if ((vr = vkd3d_meta_create_compute_pipeline(device, pipelines[i].code_size, pipelines[i].code,
-                *pipelines[i].pipeline_layout, NULL, true, pipelines[i].pipeline)) < 0)
+                *pipelines[i].pipeline_layout, NULL, true, NULL, pipelines[i].pipeline)) < 0)
         {
             ERR("Failed to create compute pipeline %u, vr %d.\n", i, vr);
             goto fail;
@@ -1176,7 +1180,8 @@ static HRESULT vkd3d_meta_create_resolve_image_compute_pipeline(struct vkd3d_met
     }
 
     if ((vr = vkd3d_meta_create_compute_pipeline(meta_ops->device, cs_size, cs_code,
-            meta_resolve_image_ops->vk_compute_pipeline_layout, &spec_info, true, &pipeline->vk_pipeline)) < 0)
+            meta_resolve_image_ops->vk_compute_pipeline_layout, &spec_info, true, NULL,
+            &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
     memset(&pipeline->key, 0, sizeof(pipeline->key));
@@ -1464,12 +1469,14 @@ static HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
 
     field_count = 1;
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_query), cs_resolve_query,
-            meta_query_ops->vk_gather_pipeline_layout, &spec_info, true, &meta_query_ops->vk_gather_occlusion_pipeline)) < 0)
+            meta_query_ops->vk_gather_pipeline_layout, &spec_info, true, NULL,
+            &meta_query_ops->vk_gather_occlusion_pipeline)) < 0)
         goto fail;
 
     field_count = 2;
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_query), cs_resolve_query,
-            meta_query_ops->vk_gather_pipeline_layout, &spec_info, true, &meta_query_ops->vk_gather_so_statistics_pipeline)) < 0)
+            meta_query_ops->vk_gather_pipeline_layout, &spec_info, true, NULL,
+            &meta_query_ops->vk_gather_so_statistics_pipeline)) < 0)
         goto fail;
 
     push_constant_range.size = sizeof(struct vkd3d_query_resolve_args);
@@ -1479,7 +1486,8 @@ static HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
         goto fail;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_binary_queries), cs_resolve_binary_queries,
-            meta_query_ops->vk_resolve_pipeline_layout, NULL, true, &meta_query_ops->vk_resolve_binary_pipeline)) < 0)
+            meta_query_ops->vk_resolve_pipeline_layout, NULL, true, NULL,
+            &meta_query_ops->vk_resolve_binary_pipeline)) < 0)
         goto fail;
 
     return S_OK;
@@ -1548,13 +1556,13 @@ static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
             sizeof(cs_execute_indirect_multi_dispatch), cs_execute_indirect_multi_dispatch,
-            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout, NULL, true,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout, NULL, true, NULL,
             &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_pipeline)) < 0)
         goto fail;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
             sizeof(cs_execute_indirect_multi_dispatch_state), cs_execute_indirect_multi_dispatch_state,
-            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout, NULL, true,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout, NULL, true, NULL,
             &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_pipeline)) < 0)
         goto fail;
 
@@ -1631,7 +1639,8 @@ static HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predica
         spec_info.pData = &spec_data[i];
 
         if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_predicate_command), cs_predicate_command,
-                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true, &meta_predicate_ops->vk_command_pipelines[i])) < 0)
+                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true, NULL,
+                &meta_predicate_ops->vk_command_pipelines[i])) < 0)
             goto fail;
 
         meta_predicate_ops->data_sizes[i] = spec_data[i].arg_count * sizeof(uint32_t);
@@ -1648,14 +1657,14 @@ static HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predica
         num_active_words = 2; /* vertex/indexCount and instanceCount */
         if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_predicate_command_execute_indirect),
                 cs_predicate_command_execute_indirect,
-                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true,
+                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true, NULL,
                 &meta_predicate_ops->vk_command_pipelines[VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_GRAPHICS])) < 0)
             goto fail;
 
         num_active_words = 3; /* X, Y and Z */
         if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_predicate_command_execute_indirect),
                 cs_predicate_command_execute_indirect,
-                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true,
+                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true, NULL,
                 &meta_predicate_ops->vk_command_pipelines[VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_COMPUTE])) < 0)
             goto fail;
 
@@ -1664,7 +1673,8 @@ static HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predica
     }
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_predicate), cs_resolve_predicate,
-            meta_predicate_ops->vk_resolve_pipeline_layout, NULL, true, &meta_predicate_ops->vk_resolve_pipeline)) < 0)
+            meta_predicate_ops->vk_resolve_pipeline_layout, NULL, true, NULL,
+            &meta_predicate_ops->vk_resolve_pipeline)) < 0)
         goto fail;
 
     return S_OK;
@@ -1807,7 +1817,7 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
             debug ? sizeof(cs_execute_indirect_patch_debug_ring) : sizeof(cs_execute_indirect_patch),
             debug ? cs_execute_indirect_patch_debug_ring : cs_execute_indirect_patch,
             meta_indirect_ops->vk_pipeline_layout, &spec,
-            true, &meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline);
+            true, NULL, &meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline);
 
     if (vr)
     {
@@ -1858,14 +1868,14 @@ static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, 
             sizeof(cs_emit_nv_memory_decompression_regions),
             cs_emit_nv_memory_decompression_regions,
             dstorage_ops->vk_emit_nv_memory_decompression_regions_layout,
-            NULL, false, &dstorage_ops->vk_emit_nv_memory_decompression_regions_pipeline)))
+            NULL, false, NULL, &dstorage_ops->vk_emit_nv_memory_decompression_regions_pipeline)))
         return hresult_from_vk_result(vr);
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
             sizeof(cs_emit_nv_memory_decompression_workgroups),
             cs_emit_nv_memory_decompression_workgroups,
             dstorage_ops->vk_emit_nv_memory_decompression_regions_layout,
-            NULL, false, &dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline)))
+            NULL, false, NULL, &dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline)))
         return hresult_from_vk_result(vr);
 
     return S_OK;
@@ -2019,7 +2029,7 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
 
             if ((vr = vkd3d_meta_create_compute_pipeline(device, pipelines[i].code_size,
                     pipelines[i].code, vk_layout,
-                    NULL, true, &sampler_feedback_ops->vk_pipelines[pipelines[i].type])))
+                    NULL, true, NULL, &sampler_feedback_ops->vk_pipelines[pipelines[i].type])))
                 return hresult_from_vk_result(vr);
         }
         else
