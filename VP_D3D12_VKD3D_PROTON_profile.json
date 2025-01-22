@@ -452,7 +452,8 @@
         "shader_model_67": {
             "extensions": {
                 "VK_KHR_shader_maximal_reconvergence": 1,
-                "VK_KHR_shader_quad_control": 1
+                "VK_KHR_shader_quad_control": 1,
+                "VK_KHR_maintenance8": 1
             },
             "features": {
                 "VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR": {
@@ -460,6 +461,9 @@
                 },
                 "VkPhysicalDeviceShaderQuadControlFeaturesKHR": {
                     "shaderQuadControl": true
+                },
+                "VkPhysicalDeviceMaintenance8FeaturesKHR": {
+                    "maintenance8": true
                 }
             }
         },
