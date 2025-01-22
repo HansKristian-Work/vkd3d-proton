@@ -222,6 +222,10 @@ VK_DEVICE_EXT_PFN(vkCmdCopyAccelerationStructureKHR)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
 VK_DEVICE_EXT_PFN(vkCmdSetFragmentShadingRateKHR)
 
+/* VK_KHR_calibrated_timestamps */
+VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsKHR)
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsKHR)
+
 #ifdef VK_KHR_external_memory_win32
 /* VK_KHR_external_memory_win32 */
 VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandleKHR)
@@ -233,10 +237,6 @@ VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandlePropertiesKHR)
 VK_DEVICE_EXT_PFN(vkGetSemaphoreWin32HandleKHR)
 VK_DEVICE_EXT_PFN(vkImportSemaphoreWin32HandleKHR)
 #endif
-
-/* VK_EXT_calibrated_timestamps */
-VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
-VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)
 
 /* VK_EXT_conditional_rendering */
 VK_DEVICE_EXT_PFN(vkCmdBeginConditionalRenderingEXT)
