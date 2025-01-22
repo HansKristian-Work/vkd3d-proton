@@ -8553,8 +8553,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          */
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_6 && ((
                 device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence &&
-                device->device_info.shader_quad_control_features.shaderQuadControl &&
-                device->device_info.maintenance_8_features.maintenance8) ||
+                device->device_info.shader_quad_control_features.shaderQuadControl) ||
                 (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES)))
         {
             /* Helper lanes in wave ops behavior appears to work as intended on NV and RADV.
