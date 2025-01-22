@@ -80,12 +80,12 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_SHADER_MAXIMAL_RECONVERGENCE, KHR_shader_maximal_reconvergence),
     VK_EXTENSION(KHR_SHADER_QUAD_CONTROL, KHR_shader_quad_control),
     VK_EXTENSION(KHR_COMPUTE_SHADER_DERIVATIVES, KHR_compute_shader_derivatives),
+    VK_EXTENSION(KHR_CALIBRATED_TIMESTAMPS, KHR_calibrated_timestamps),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
 #endif
     /* EXT extensions */
-    VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CONSERVATIVE_RASTERIZATION, EXT_conservative_rasterization),
     VK_EXTENSION(EXT_CUSTOM_BORDER_COLOR, EXT_custom_border_color),
@@ -1329,7 +1329,7 @@ static uint32_t vkd3d_physical_device_get_time_domains(struct d3d12_device *devi
     uint32_t result = 0;
     VkResult vr;
 
-    if ((vr = VK_CALL(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(physical_device, &domain_count, NULL))) < 0)
+    if ((vr = VK_CALL(vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(physical_device, &domain_count, NULL))) < 0)
     {
         ERR("Failed to enumerate time domains, vr %d.\n", vr);
         return 0;
@@ -1338,7 +1338,7 @@ static uint32_t vkd3d_physical_device_get_time_domains(struct d3d12_device *devi
     if (!(domains = vkd3d_calloc(domain_count, sizeof(*domains))))
         return 0;
 
-    if ((vr = VK_CALL(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(physical_device, &domain_count, domains))) < 0)
+    if ((vr = VK_CALL(vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(physical_device, &domain_count, domains))) < 0)
     {
         ERR("Failed to enumerate time domains, vr %d.\n", vr);
         vkd3d_free(domains);
@@ -1349,10 +1349,10 @@ static uint32_t vkd3d_physical_device_get_time_domains(struct d3d12_device *devi
     {
         switch (domains[i])
         {
-            case VK_TIME_DOMAIN_DEVICE_EXT:
+            case VK_TIME_DOMAIN_DEVICE_KHR:
                 result |= VKD3D_TIME_DOMAIN_DEVICE;
                 break;
-            case VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT:
+            case VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR:
                 result |= VKD3D_TIME_DOMAIN_QPC;
                 break;
             default:
@@ -1588,7 +1588,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->push_descriptor_properties);
     }
 
-    if (vulkan_info->EXT_calibrated_timestamps)
+    if (vulkan_info->KHR_calibrated_timestamps)
         info->time_domains = vkd3d_physical_device_get_time_domains(device);
 
     if (vulkan_info->EXT_conditional_rendering)

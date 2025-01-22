@@ -133,8 +133,8 @@ struct vkd3d_vulkan_info
     bool KHR_shader_maximal_reconvergence;
     bool KHR_shader_quad_control;
     bool KHR_compute_shader_derivatives;
+    bool KHR_calibrated_timestamps;
     /* EXT device extensions */
-    bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
     bool EXT_custom_border_color;

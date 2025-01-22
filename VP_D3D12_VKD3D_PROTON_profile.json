@@ -5,7 +5,7 @@
             "extensions": {
                 "VK_KHR_push_descriptor": 1,
                 "VK_KHR_swapchain": 1,
-                "VK_EXT_calibrated_timestamps" : 1,
+                "VK_KHR_calibrated_timestamps" : 1,
                 "VK_EXT_custom_border_color" : 1,
                 "VK_EXT_depth_clip_enable": 1,
                 "VK_EXT_robustness2": 1,

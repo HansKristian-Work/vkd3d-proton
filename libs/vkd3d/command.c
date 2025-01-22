@@ -17916,14 +17916,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12C
     memset(timestamp_infos, 0, sizeof(timestamp_infos));
 
     timestamp_info = &timestamp_infos[count++];
-    timestamp_info->sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
-    timestamp_info->timeDomain = VK_TIME_DOMAIN_DEVICE_EXT;
+    timestamp_info->sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR;
+    timestamp_info->timeDomain = VK_TIME_DOMAIN_DEVICE_KHR;
 
     if (device->device_info.time_domains & VKD3D_TIME_DOMAIN_QPC)
     {
         timestamp_info = &timestamp_infos[count++];
-        timestamp_info->sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
-        timestamp_info->timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT;
+        timestamp_info->sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR;
+        timestamp_info->timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR;
     }
     else
     {
@@ -17931,7 +17931,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12C
         QueryPerformanceCounter(&qpc_begin);
     }
 
-    if ((vr = VK_CALL(vkGetCalibratedTimestampsEXT(device->vk_device,
+    if ((vr = VK_CALL(vkGetCalibratedTimestampsKHR(device->vk_device,
             count, timestamp_infos, timestamps, &max_deviation))) < 0)
     {
         ERR("Querying calibrated timestamps failed, vr %d.\n", vr);
