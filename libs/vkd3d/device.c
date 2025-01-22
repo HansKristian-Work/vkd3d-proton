@@ -8221,13 +8221,11 @@ static void d3d12_device_caps_init_feature_options14(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS14 *options14 = &device->d3d12_caps.options14;
 
-    /* This is more dubious to enable.
-     * The only blocking feature here is texture with dynamic offsets.
-     * In Vulkan as-is, only textureGather supports integer offsets.
-     * This works fine in practice, however, but we shouldn't expose this by default
-     * until we have an actual extension. */
-    options14->AdvancedTextureOpsSupported = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES) &&
-            device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_7;
+    /* Texture with dynamic offsets works fine in practice and is officially supported by maintenance8.
+     * Enable with experimental features for older drivers.
+     */
+    options14->AdvancedTextureOpsSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_7 &&
+        (device->device_info.maintenance_8_features.maintenance8 || (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES));
     options14->WriteableMSAATexturesSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_7 &&
             device->device_info.features2.features.shaderStorageImageMultisample;
     options14->IndependentFrontAndBackStencilRefMaskSupported = TRUE;
@@ -8539,8 +8537,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          *   - Vulkan by default says that helper lanes participate, but they may not participate in any non-quad operation.
          *     KHR_shader_maximal_reconvergence is needed to guarantee this behaviour.
          * - Programmable offsets (AdvancedTextureOps)
-         *   - There is no legal way to use this, except for textureGather.
-         *   - In practice however, it just happens to work anyways.
+         *   - maintenance8 enables this.
          *   - It's optional and depends on castable texture formats either way.
          *   - We can enable it through app-opt if there is a real need for it.
          * - MSAA UAV (separate feature)
@@ -8556,7 +8553,8 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          */
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_6 && ((
                 device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence &&
-                device->device_info.shader_quad_control_features.shaderQuadControl) ||
+                device->device_info.shader_quad_control_features.shaderQuadControl &&
+                device->device_info.maintenance_8_features.maintenance8) ||
                 (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES)))
         {
             /* Helper lanes in wave ops behavior appears to work as intended on NV and RADV.
