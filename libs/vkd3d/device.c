@@ -5134,8 +5134,6 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_default(d3d
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    VkImageViewAddressPropertiesNVX out_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_ADDRESS_PROPERTIES_NVX };
-    VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
     const struct vkd3d_vk_device_procs *vk_procs;
     VkResult vr;
     struct d3d12_resource *d3d12_resource_ = impl_from_ID3D12Resource(resource);
@@ -5152,20 +5150,31 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_default(d3d
     {
         struct d3d12_desc_split d = d3d12_desc_decode_va(descriptor.ptr);
 
-        imageViewHandleInfo.imageView = d.view->info.image.view->vk_image_view;
-        imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-
-        vk_procs = &device->vk_procs;
-        d3d12_uav_info->surfaceHandle = VK_CALL(vkGetImageViewHandleNVX(device->vk_device, &imageViewHandleInfo));
-    
-        if ((vr = VK_CALL(vkGetImageViewAddressNVX(device->vk_device, imageViewHandleInfo.imageView, &out_info))) < 0)
+        if (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
         {
-            ERR("Failed to get imageview address, vr %d.\n", vr);
-            return;
+            d3d12_uav_info->gpuVAStart = d.view->info.buffer.va;
+            d3d12_uav_info->gpuVASize = d.view->info.buffer.range;
         }
-        
-        d3d12_uav_info->gpuVAStart = out_info.deviceAddress;
-        d3d12_uav_info->gpuVASize = out_info.size;
+        else
+        {
+            VkImageViewAddressPropertiesNVX out_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_ADDRESS_PROPERTIES_NVX };
+            VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
+
+            imageViewHandleInfo.imageView = d.view->info.image.view->vk_image_view;
+            imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+
+            vk_procs = &device->vk_procs;
+            d3d12_uav_info->surfaceHandle = VK_CALL(vkGetImageViewHandleNVX(device->vk_device, &imageViewHandleInfo));
+
+            if ((vr = VK_CALL(vkGetImageViewAddressNVX(device->vk_device, imageViewHandleInfo.imageView, &out_info))) < 0)
+            {
+                ERR("Failed to get imageview address, vr %d.\n", vr);
+                return;
+            }
+
+            d3d12_uav_info->gpuVAStart = out_info.deviceAddress;
+            d3d12_uav_info->gpuVASize = out_info.size;
+        }
         /* Set this to null so that subsequent calls to this API wont update the previous pointer. */
         d3d12_uav_info = NULL;
     }
