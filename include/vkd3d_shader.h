@@ -1007,7 +1007,6 @@ struct vkd3d_shader_node_input_push_signature
     VkDeviceAddress node_payload_output_atomic_bda;
     VkDeviceAddress local_root_signature_bda;
     uint32_t node_payload_output_offset;
-    uint32_t node_payload_output_stride;
     uint32_t node_remaining_recursion_levels;
 };
 
