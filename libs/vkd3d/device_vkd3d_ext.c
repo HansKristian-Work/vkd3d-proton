@@ -174,6 +174,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaTextureObject(d3d
     srv_desc = d3d12_desc_decode_va(srv_handle.ptr);
     sampler_desc = d3d12_desc_decode_va(sampler_handle.ptr);
 
+    /* If image flag is not set, descriptor cannot be used as a CudaTexture */
+    if (!(srv_desc.view->info.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
+        return E_INVALIDARG;
+
     imageViewHandleInfo.imageView = srv_desc.view->info.image.view->vk_image_view;
     imageViewHandleInfo.sampler = sampler_desc.view->info.image.view->vk_sampler;
     imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -197,6 +201,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(d3d
 
     device = d3d12_device_from_ID3D12DeviceExt(iface);
     uav_desc = d3d12_desc_decode_va(uav_handle.ptr);
+
+    /* If image flag is not set, descriptor cannot be used as a CudaSurface */
+    if (!(uav_desc.view->info.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
+        return E_INVALIDARG;
 
     imageViewHandleInfo.imageView = uav_desc.view->info.image.view->vk_image_view;
     imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
