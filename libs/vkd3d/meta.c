@@ -2153,7 +2153,7 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
     spec_data[0] = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
     spec_data[1] = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
     spec_data[2] = 0;
-    spec_data[3] = device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0] >=
+    spec_data[3] = device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0] <
             VKD3D_WORKGRAPH_MAX_WGX_NO_PRIMARY_EXECUTION_THRESHOLD;
 
     memset(&required, 0, sizeof(required));
