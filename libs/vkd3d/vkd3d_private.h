@@ -5193,6 +5193,7 @@ struct d3d12_device
 
     struct vkd3d_device_swapchain_info swapchain_info;
     struct vkd3d_device_frame_markers frame_markers;
+    struct vkd3d_hud *hud;
 
     struct
     {

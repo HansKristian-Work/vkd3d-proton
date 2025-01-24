@@ -3744,6 +3744,9 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     size_t i, j;
 
+    if (device->hud)
+        vkd3d_hud_destroy(device->hud);
+
     d3d_destruction_notifier_free(&device->destruction_notifier);
 
     if (device->internal_sparse_queue)
@@ -9202,6 +9205,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     d3d12_device_reserve_internal_sparse_queue(device);
     d3d_destruction_notifier_init(&device->destruction_notifier, (IUnknown*)&device->ID3D12Device_iface);
+
+    device->hud = vkd3d_hud_create(device);
     return S_OK;
 
 out_cleanup_descriptor_qa_global_info:
