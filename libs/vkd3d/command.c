@@ -19563,7 +19563,10 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
 
         case VKD3D_SUBMISSION_BIND_SPARSE:
-            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "SPARSE");
+        {
+            char tag[64];
+            snprintf(tag, sizeof(tag), "SPARSE %p", submission.bind_sparse.dst_resource);
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, tag);
             d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL);
 
             d3d12_command_queue_bind_sparse(queue, submission.bind_sparse.mode,
@@ -19571,6 +19574,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     submission.bind_sparse.bind_count, submission.bind_sparse.bind_infos);
             vkd3d_free(submission.bind_sparse.bind_infos);
             break;
+        }
 
         case VKD3D_SUBMISSION_DRAIN:
             cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "DRAIN");
