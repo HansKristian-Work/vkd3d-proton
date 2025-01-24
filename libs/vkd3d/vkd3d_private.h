@@ -3358,6 +3358,20 @@ struct d3d12_command_queue
 
     VkSemaphore serializing_semaphore;
     bool serializing_semaphore_signaled;
+
+    struct
+    {
+        uint32_t buffer_binds_count;
+        uint32_t image_binds_count;
+        uint32_t image_opaque_binds_count;
+        size_t buffer_binds_size;
+        size_t image_binds_size;
+        size_t image_opaque_binds_size;
+        VkSparseBufferMemoryBindInfo *buffer_binds;
+        VkSparseImageMemoryBindInfo *image_binds;
+        VkSparseImageOpaqueMemoryBindInfo *image_opaque_binds;
+        uint32_t total_tiles;
+    } sparse;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,

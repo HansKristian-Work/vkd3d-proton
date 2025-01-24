@@ -17248,6 +17248,9 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
         vkd3d_free(command_queue->submissions);
         vkd3d_free(command_queue->wait_semaphores);
         vkd3d_free(command_queue->wait_fences);
+        vkd3d_free(command_queue->sparse.buffer_binds);
+        vkd3d_free(command_queue->sparse.image_binds);
+        vkd3d_free(command_queue->sparse.image_opaque_binds);
         vkd3d_free(command_queue);
 
         d3d12_device_release(device);
@@ -19124,38 +19127,14 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         struct vkd3d_sparse_memory_bind *bind_infos)
 {
     struct vkd3d_sparse_memory_bind_range *bind_ranges = NULL;
-    struct vkd3d_queue_timeline_trace_cookie cookie;
     unsigned int first_packed_tile, processed_tiles;
-    VkSparseImageOpaqueMemoryBindInfo opaque_info;
-    const struct vkd3d_vk_device_procs *vk_procs;
+    VkSparseImageMemoryBindInfo *image_info = NULL;
     VkSparseImageMemoryBind *image_binds = NULL;
-    VkTimelineSemaphoreSubmitInfo timeline_info;
-    VkSparseBufferMemoryBindInfo buffer_info;
     VkSparseMemoryBind *memory_binds = NULL;
-    struct vkd3d_fence_wait_info fence_info;
-    VkSparseImageMemoryBindInfo image_info;
-    VkSemaphoreSubmitInfo signal_info;
-    VkBindSparseInfo bind_sparse_info;
-    struct vkd3d_queue *queue_sparse;
-    uint64_t wait_semaphore_value;
-    struct vkd3d_queue *queue;
-    uint32_t total_tiles = 0;
-    VkQueue vk_queue_sparse;
     unsigned int i, j, k;
-    VkQueue vk_queue;
-    VkResult vr;
 
     TRACE("queue %p, dst_resource %p, src_resource %p, count %u, bind_infos %p.\n",
           command_queue, dst_resource, src_resource, count, bind_infos);
-
-    vk_procs = &command_queue->device->vk_procs;
-
-    memset(&timeline_info, 0, sizeof(timeline_info));
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-
-    memset(&bind_sparse_info, 0, sizeof(bind_sparse_info));
-    bind_sparse_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
-    bind_sparse_info.pNext = &timeline_info;
 
     if (!(bind_ranges = vkd3d_malloc(count * sizeof(*bind_ranges))))
     {
@@ -19169,18 +19148,23 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 
     if (d3d12_resource_is_buffer(dst_resource))
     {
+        VkSparseBufferMemoryBindInfo *buffer_info;
+
         if (!(memory_binds = vkd3d_malloc(count * sizeof(*memory_binds))))
         {
             ERR("Failed to allocate sparse memory bind info.\n");
             goto cleanup;
         }
 
-        buffer_info.buffer = dst_resource->res.vk_buffer;
-        buffer_info.bindCount = count;
-        buffer_info.pBinds = memory_binds;
+        vkd3d_array_reserve((void **)&command_queue->sparse.buffer_binds,
+                &command_queue->sparse.buffer_binds_size,
+                command_queue->sparse.buffer_binds_count + 1,
+                sizeof(command_queue->sparse.buffer_binds[0]));
 
-        bind_sparse_info.bufferBindCount = 1;
-        bind_sparse_info.pBufferBinds = &buffer_info;
+        buffer_info = &command_queue->sparse.buffer_binds[command_queue->sparse.buffer_binds_count++];
+        buffer_info->buffer = dst_resource->res.vk_buffer;
+        buffer_info->bindCount = count;
+        buffer_info->pBinds = memory_binds;
     }
     else
     {
@@ -19202,18 +19186,22 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 
         if (opaque_bind_count)
         {
+            VkSparseImageOpaqueMemoryBindInfo *opaque_info;
             if (!(memory_binds = vkd3d_malloc(opaque_bind_count * sizeof(*memory_binds))))
             {
                 ERR("Failed to allocate sparse memory bind info.\n");
                 goto cleanup;
             }
 
-            opaque_info.image = dst_resource->res.vk_image;
-            opaque_info.bindCount = opaque_bind_count;
-            opaque_info.pBinds = memory_binds;
+            vkd3d_array_reserve((void **)&command_queue->sparse.image_opaque_binds,
+                    &command_queue->sparse.image_opaque_binds_size,
+                    command_queue->sparse.image_opaque_binds_count + 1,
+                    sizeof(command_queue->sparse.image_opaque_binds[0]));
 
-            bind_sparse_info.imageOpaqueBindCount = 1;
-            bind_sparse_info.pImageOpaqueBinds = &opaque_info;
+            opaque_info = &command_queue->sparse.image_opaque_binds[command_queue->sparse.image_opaque_binds_count++];
+            opaque_info->image = dst_resource->res.vk_image;
+            opaque_info->bindCount = opaque_bind_count;
+            opaque_info->pBinds = memory_binds;
         }
 
         if (image_bind_count)
@@ -19224,21 +19212,24 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
                 goto cleanup;
             }
 
+            vkd3d_array_reserve((void **)&command_queue->sparse.image_binds,
+                    &command_queue->sparse.image_binds_size,
+                    command_queue->sparse.image_binds_count + 1,
+                    sizeof(command_queue->sparse.image_binds[0]));
+
             /* The image bind count is not exact but only an upper limit,
              * so do the actual counting while filling in bind infos */
-            image_info.image = dst_resource->res.vk_image;
-            image_info.bindCount = 0;
-            image_info.pBinds = image_binds;
-
-            bind_sparse_info.imageBindCount = 1;
-            bind_sparse_info.pImageBinds = &image_info;
+            image_info = &command_queue->sparse.image_binds[command_queue->sparse.image_binds_count++];
+            image_info->image = dst_resource->res.vk_image;
+            image_info->bindCount = 0;
+            image_info->pBinds = image_binds;
         }
     }
 
     for (i = 0, k = 0; i < count; i++)
     {
         struct vkd3d_sparse_memory_bind_range *bind = &bind_ranges[i];
-        total_tiles += bind->tile_count;
+        command_queue->sparse.total_tiles += bind->tile_count;
 
         while (bind->tile_count)
         {
@@ -19254,7 +19245,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
                     /* Bind entire subresource at once to reduce overhead */
                     const struct d3d12_sparse_tile *last_tile = &tile[tile_count - 1];
 
-                    VkSparseImageMemoryBind *vk_bind = &image_binds[image_info.bindCount++];
+                    VkSparseImageMemoryBind *vk_bind = &image_binds[image_info->bindCount++];
                     vk_bind->subresource = tile->image.subresource;
                     vk_bind->offset = tile->image.offset;
                     vk_bind->extent.width = last_tile->image.offset.x + last_tile->image.extent.width;
@@ -19268,7 +19259,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
                 }
                 else
                 {
-                    VkSparseImageMemoryBind *vk_bind = &image_binds[image_info.bindCount++];
+                    VkSparseImageMemoryBind *vk_bind = &image_binds[image_info->bindCount++];
                     vk_bind->subresource = tile->image.subresource;
                     vk_bind->offset = tile->image.offset;
                     vk_bind->extent = tile->image.extent;
@@ -19307,6 +19298,33 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         }
     }
 
+cleanup:
+    vkd3d_free(bind_ranges);
+}
+
+static void d3d12_command_queue_flush_bind_sparse(struct d3d12_command_queue *command_queue)
+{
+    struct vkd3d_queue_timeline_trace_cookie cookie;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkTimelineSemaphoreSubmitInfo timeline_info;
+    struct vkd3d_queue *queue, *queue_sparse;
+    struct vkd3d_fence_wait_info fence_info;
+    VkQueue vk_queue, vk_queue_sparse;
+    VkSemaphoreSubmitInfo signal_info;
+    VkBindSparseInfo bind_sparse_info;
+    uint64_t wait_semaphore_value;
+    VkResult vr;
+    uint32_t i;
+
+    if (command_queue->sparse.buffer_binds_count == 0 &&
+            command_queue->sparse.image_binds_count == 0 &&
+            command_queue->sparse.image_opaque_binds_count == 0)
+    {
+        return;
+    }
+
+    vk_procs = &command_queue->device->vk_procs;
+
     /* Ensure that we use a queue that supports sparse binding */
     queue = command_queue->vkd3d_queue;
 
@@ -19339,15 +19357,27 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
      * regular command execution. Pending waiters are flushed beforehand. */
     wait_semaphore_value = queue->submission_timeline_count++;
 
+    memset(&timeline_info, 0, sizeof(timeline_info));
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+
     timeline_info.waitSemaphoreValueCount = 1;
     timeline_info.pWaitSemaphoreValues = &wait_semaphore_value;
     timeline_info.signalSemaphoreValueCount = 1;
     timeline_info.pSignalSemaphoreValues = &queue->submission_timeline_count;
 
+    memset(&bind_sparse_info, 0, sizeof(bind_sparse_info));
+    bind_sparse_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
+    bind_sparse_info.pNext = &timeline_info;
     bind_sparse_info.pWaitSemaphores = &queue->submission_timeline;
     bind_sparse_info.pSignalSemaphores = &queue->submission_timeline;
     bind_sparse_info.waitSemaphoreCount = 1;
     bind_sparse_info.signalSemaphoreCount = 1;
+    bind_sparse_info.bufferBindCount = command_queue->sparse.buffer_binds_count;
+    bind_sparse_info.imageOpaqueBindCount = command_queue->sparse.image_opaque_binds_count;
+    bind_sparse_info.imageBindCount = command_queue->sparse.image_binds_count;
+    bind_sparse_info.pBufferBinds = command_queue->sparse.buffer_binds;
+    bind_sparse_info.pImageBinds = command_queue->sparse.image_binds;
+    bind_sparse_info.pImageOpaqueBinds = command_queue->sparse.image_opaque_binds;
 
     if ((vr = VK_CALL(vkQueueBindSparse(vk_queue_sparse, 1, &bind_sparse_info, VK_NULL_HANDLE))) < 0)
         ERR("Failed to perform sparse binding, vr %d.\n", vr);
@@ -19374,15 +19404,23 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     vkd3d_queue_release(queue);
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
-    cookie = vkd3d_queue_timeline_trace_register_sparse(&command_queue->device->queue_timeline_trace, total_tiles);
+    cookie = vkd3d_queue_timeline_trace_register_sparse(&command_queue->device->queue_timeline_trace, command_queue->sparse.total_tiles);
     if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
         if (FAILED(vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &cookie)))
             ERR("Failed to enqueue timeline semaphore.\n");
 
 cleanup:
-    vkd3d_free(memory_binds);
-    vkd3d_free(image_binds);
-    vkd3d_free(bind_ranges);
+    for (i = 0; i < command_queue->sparse.buffer_binds_count; i++)
+        vkd3d_free((void *)command_queue->sparse.buffer_binds[i].pBinds);
+    for (i = 0; i < command_queue->sparse.image_binds_count; i++)
+        vkd3d_free((void *)command_queue->sparse.image_binds[i].pBinds);
+    for (i = 0; i < command_queue->sparse.image_opaque_binds_count; i++)
+        vkd3d_free((void *)command_queue->sparse.image_opaque_binds[i].pBinds);
+
+    command_queue->sparse.buffer_binds_count = 0;
+    command_queue->sparse.image_binds_count = 0;
+    command_queue->sparse.image_opaque_binds_count = 0;
+    command_queue->sparse.total_tiles = 0;
 }
 
 void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue)
@@ -19573,6 +19611,9 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     submission.bind_sparse.dst_resource, submission.bind_sparse.src_resource,
                     submission.bind_sparse.bind_count, submission.bind_sparse.bind_infos);
             vkd3d_free(submission.bind_sparse.bind_infos);
+
+            /* TODO: Batch and flush later. */
+            d3d12_command_queue_flush_bind_sparse(queue);
             break;
         }
 
