@@ -23,7 +23,7 @@
 
 #define SPIRV_CODE(name) name, sizeof(name)
 
-static VkResult vkd3d_meta_create_shader_module(struct d3d12_device *device,
+VkResult vkd3d_meta_create_shader_module(struct d3d12_device *device,
         const uint32_t *code, size_t code_size, VkShaderModule *module)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;

@@ -4567,6 +4567,9 @@ struct vkd3d_meta_ops
     struct vkd3d_workgraph_indirect_ops workgraph;
 };
 
+VkResult vkd3d_meta_create_shader_module(struct d3d12_device *device,
+        const uint32_t *code, size_t code_size, VkShaderModule *module);
+
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
 
