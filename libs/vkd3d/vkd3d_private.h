@@ -3371,6 +3371,14 @@ struct d3d12_command_queue
         VkSparseImageMemoryBindInfo *image_binds;
         VkSparseImageOpaqueMemoryBindInfo *image_opaque_binds;
         uint32_t total_tiles;
+
+        struct
+        {
+            const struct d3d12_resource *resource;
+            uint32_t *tile_mask;
+        } *tracked;
+        size_t tracked_size;
+        size_t tracked_count;
     } sparse;
 };
 
