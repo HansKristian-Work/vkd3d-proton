@@ -4992,6 +4992,36 @@ void vkd3d_queue_timeline_trace_begin_execute_overhead(struct vkd3d_queue_timeli
 void vkd3d_queue_timeline_trace_end_execute_overhead(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 
+struct vkd3d_hud;
+
+struct vkd3d_hud_render_parameters
+{
+    VkCommandBuffer cmd_buffer;
+    VkSurfaceFormatKHR swapchain_format;
+    VkExtent2D swapchain_extent;
+};
+
+struct vkd3d_hud *vkd3d_hud_create(struct d3d12_device *device);
+void vkd3d_hud_destroy(struct vkd3d_hud *hud);
+void vkd3d_hud_update(struct vkd3d_hud *hud, uint32_t swapchain_cookie,
+        VkCommandBuffer cmd_buffer, const struct vkd3d_timeline_semaphore *signal_semaphore);
+void vkd3d_hud_render(struct vkd3d_hud *hud, uint32_t swapchain_cookie, struct vkd3d_hud_render_parameters *context);
+uint32_t vkd3d_hud_allocate_swapchain_cookie(struct vkd3d_hud *hud);
+void vkd3d_hud_unregister_swapchain(struct vkd3d_hud *hud, uint32_t cookie);
+
+struct vkd3d_hud_queue_info *vkd3d_hud_register_queue(struct vkd3d_hud *hud,
+        struct d3d12_command_queue *queue);
+void vkd3d_hud_unregister_queue(struct vkd3d_hud *hud, struct vkd3d_hud_queue_info *queue_info);
+void vkd3d_hud_queue_register_submission(struct vkd3d_hud *hud, struct vkd3d_hud_queue_info *queue_info,
+        struct vkd3d_queue_timeline_trace_cookie cookie, const struct vkd3d_queue_timeline_trace_state *sub_info,
+        uint32_t command_list_count, ID3D12CommandList * const *command_lists);
+void vkd3d_hud_queue_begin_submission(struct vkd3d_hud *hud, struct vkd3d_queue_timeline_trace_cookie cookie,
+        const struct vkd3d_queue_timeline_trace_state *sub_info);
+void vkd3d_hud_queue_complete_submission(struct vkd3d_hud *hud,
+        struct vkd3d_queue_timeline_trace_cookie cookie,
+        const struct vkd3d_queue_timeline_trace_state *sub_info,
+        uint64_t current_time_ns);
+
 struct vkd3d_address_binding_report_buffer_info
 {
     const char *tag;
