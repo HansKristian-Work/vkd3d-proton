@@ -17251,6 +17251,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
         vkd3d_free(command_queue->sparse.buffer_binds);
         vkd3d_free(command_queue->sparse.image_binds);
         vkd3d_free(command_queue->sparse.image_opaque_binds);
+        vkd3d_free(command_queue->sparse.tracked);
         vkd3d_free(command_queue);
 
         d3d12_device_release(device);
@@ -19121,6 +19122,69 @@ static unsigned int vkd3d_compact_sparse_bind_ranges(const struct d3d12_resource
     return j;
 }
 
+static void d3d12_command_queue_flush_bind_sparse(struct d3d12_command_queue *command_queue);
+
+static void d3d12_command_queue_register_sparse_hazard(
+        struct d3d12_command_queue *command_queue,
+        const struct d3d12_resource *dst_resource,
+        const struct vkd3d_sparse_memory_bind *binds, unsigned int count)
+{
+    const struct vkd3d_sparse_memory_bind *bind;
+    unsigned int tracker_index, i;
+    bool check_hazard = true;
+    uint32_t *tile_mask;
+
+    for (tracker_index = 0; tracker_index < command_queue->sparse.tracked_count; tracker_index++)
+        if (command_queue->sparse.tracked[tracker_index].resource == dst_resource)
+            break;
+
+    if (tracker_index == command_queue->sparse.tracked_count)
+    {
+        vkd3d_array_reserve((void **)&command_queue->sparse.tracked,
+                &command_queue->sparse.tracked_size,
+                command_queue->sparse.tracked_count + 1,
+                sizeof(*command_queue->sparse.tracked));
+
+        command_queue->sparse.tracked[tracker_index].resource = dst_resource;
+        command_queue->sparse.tracked[tracker_index].tile_mask =
+                vkd3d_calloc(align(dst_resource->sparse.tile_count, 32) / 32, sizeof(uint32_t));
+        command_queue->sparse.tracked_count++;
+        check_hazard = false;
+    }
+
+    tile_mask = command_queue->sparse.tracked[tracker_index].tile_mask;
+
+    if (check_hazard)
+    {
+        for (i = 0; i < count; i++)
+        {
+            bind = &binds[i];
+            if (tile_mask[bind->dst_tile / 32] & (1u << (bind->dst_tile & 31)))
+            {
+                /* Hazard detected. Flush the sparse submit and then restart. */
+
+                /* No need to reallocate the tile mask block, temporarily pilfer it. */
+                command_queue->sparse.tracked[tracker_index].tile_mask = NULL;
+                d3d12_command_queue_flush_bind_sparse(command_queue);
+
+                assert(command_queue->sparse.tracked_count == 0);
+                assert(command_queue->sparse.tracked_size >= 1);
+                command_queue->sparse.tracked[0].resource = dst_resource;
+                command_queue->sparse.tracked[0].tile_mask = tile_mask;
+                command_queue->sparse.tracked_count = 1;
+                memset(tile_mask, 0, align(dst_resource->sparse.tile_count, 32) / 8);
+                break;
+            }
+        }
+    }
+
+    for (i = 0; i < count; i++)
+    {
+        bind = &binds[i];
+        tile_mask[bind->dst_tile / 32] |= (1u << (bind->dst_tile & 31));
+    }
+}
+
 static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_queue,
         enum vkd3d_sparse_memory_bind_mode mode, struct d3d12_resource *dst_resource,
         struct d3d12_resource *src_resource, unsigned int count,
@@ -19141,6 +19205,8 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         ERR("Failed to allocate bind range info.\n");
         goto cleanup;
     }
+
+    d3d12_command_queue_register_sparse_hazard(command_queue, dst_resource, bind_infos, count);
 
     count = vkd3d_compact_sparse_bind_ranges(src_resource, bind_ranges, bind_infos, count, mode);
 
@@ -19323,6 +19389,8 @@ static void d3d12_command_queue_flush_bind_sparse(struct d3d12_command_queue *co
         return;
     }
 
+    cookie = vkd3d_queue_timeline_trace_register_generic_region(&command_queue->device->queue_timeline_trace, "SPARSE FLUSH");
+
     vk_procs = &command_queue->device->vk_procs;
 
     /* Ensure that we use a queue that supports sparse binding */
@@ -19404,6 +19472,8 @@ static void d3d12_command_queue_flush_bind_sparse(struct d3d12_command_queue *co
     vkd3d_queue_release(queue);
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
+    vkd3d_queue_timeline_trace_complete_execute(&command_queue->device->queue_timeline_trace, &command_queue->fence_worker, cookie);
+
     cookie = vkd3d_queue_timeline_trace_register_sparse(&command_queue->device->queue_timeline_trace, command_queue->sparse.total_tiles);
     if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
         if (FAILED(vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &cookie)))
@@ -19416,10 +19486,13 @@ cleanup:
         vkd3d_free((void *)command_queue->sparse.image_binds[i].pBinds);
     for (i = 0; i < command_queue->sparse.image_opaque_binds_count; i++)
         vkd3d_free((void *)command_queue->sparse.image_opaque_binds[i].pBinds);
+    for (i = 0; i < command_queue->sparse.tracked_count; i++)
+        vkd3d_free((void *)command_queue->sparse.tracked[i].tile_mask);
 
     command_queue->sparse.buffer_binds_count = 0;
     command_queue->sparse.image_binds_count = 0;
     command_queue->sparse.image_opaque_binds_count = 0;
+    command_queue->sparse.tracked_count = 0;
     command_queue->sparse.total_tiles = 0;
 }
 
@@ -19524,6 +19597,9 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         memmove(queue->submissions, queue->submissions + 1, queue->submissions_count * sizeof(submission));
         pthread_mutex_unlock(&queue->queue_lock);
 
+        if (submission.type != VKD3D_SUBMISSION_BIND_SPARSE)
+            d3d12_command_queue_flush_bind_sparse(queue);
+
         switch (submission.type)
         {
         case VKD3D_SUBMISSION_STOP:
@@ -19611,9 +19687,6 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     submission.bind_sparse.dst_resource, submission.bind_sparse.src_resource,
                     submission.bind_sparse.bind_count, submission.bind_sparse.bind_infos);
             vkd3d_free(submission.bind_sparse.bind_infos);
-
-            /* TODO: Batch and flush later. */
-            d3d12_command_queue_flush_bind_sparse(queue);
             break;
         }
 
