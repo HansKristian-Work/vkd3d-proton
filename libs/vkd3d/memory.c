@@ -1822,7 +1822,6 @@ static inline bool vkd3d_driver_implicitly_clears(struct d3d12_device *device)
     switch (device->device_info.vulkan_1_2_properties.driverID)
     {
         /* Known to pass test_stress_suballocation which hits this path. */
-        case VK_DRIVER_ID_MESA_RADV:
         case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
         case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
             return true;
