@@ -11887,6 +11887,9 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         list->cmd.clear_uav_pending = true;
 
     d3d12_command_list_debug_mark_end_region(list);
+
+    VKD3D_BREADCRUMB_RESOURCE(resource);
+    VKD3D_BREADCRUMB_COMMAND(CLEAR_UAV);
 }
 
 static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *list,
@@ -12093,6 +12096,9 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     d3d12_command_list_debug_mark_end_region(list);
+
+    VKD3D_BREADCRUMB_RESOURCE(resource);
+    VKD3D_BREADCRUMB_COMMAND(CLEAR_UAV_COPY);
 }
 
 static VkClearColorValue vkd3d_fixup_clear_uav_swizzle(struct d3d12_device *device,
