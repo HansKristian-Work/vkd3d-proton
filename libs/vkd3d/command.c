@@ -18159,6 +18159,7 @@ static void d3d12_command_queue_eliminate_completed_waits(struct d3d12_command_q
         /* If value is 0, we might be dealing with a binary semaphore */
         if (command_queue->wait_semaphores[i].value)
         {
+            semaphore_value = 0;
             VK_CALL(vkGetSemaphoreCounterValue(command_queue->device->vk_device,
                     command_queue->wait_semaphores[i].semaphore, &semaphore_value));
 
