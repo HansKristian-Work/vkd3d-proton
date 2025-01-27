@@ -7720,7 +7720,39 @@ struct d3d12_image_copy_barrier
     bool dst_is_depth_stencil;
 };
 
-static void d3d12_command_list_copy_image_barrier_flags(struct d3d12_image_copy_barrier *barrier,
+/* maintenance8 enables copies between:
+    • 32-bit depth (VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT)
+        ◦ VK_FORMAT_R32_SFLOAT, VK_FORMAT_R32_SINT, VK_FORMAT_R32_UINT
+    • 24-bit depth (VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D24_UNORM_S8_UINT)
+        ◦ VK_FORMAT_R32_SFLOAT, VK_FORMAT_R32_SINT, VK_FORMAT_R32_UINT
+    • 16-bit depth (VK_FORMAT_D16_UNORM, VK_FORMAT_D16_UNORM_S8_UINT)
+        ◦ VK_FORMAT_R16_SFLOAT, VK_FORMAT_R16_UNORM, VK_FORMAT_R16_SNORM, VK_FORMAT_R16_UINT, VK_FORMAT_R16_SINT
+    • 8-bit stencil (VK_FORMAT_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT)
+        ◦ VK_FORMAT_R8_UINT, VK_FORMAT_R8_SINT, VK_FORMAT_R8_UNORM, VK_FORMAT_R8_SNORM
+ 
+ * assume if one format is depth/stencil and the other is color then it is allowed
+ */
+static bool d3d12_command_list_check_ds_color_copy_compatibility(struct d3d12_command_list *list,
+    const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format)
+{
+    VkImageAspectFlags ds_bits = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    const struct vkd3d_format *ds_format = dst_format->vk_aspect_mask & ds_bits ? dst_format : src_format;
+    const struct vkd3d_format *color_format = ds_format == dst_format ? src_format : dst_format;
+
+    /* TODO: maintenance8 only allows GRAPHICS queue DS<->COLOR, but future extensions may allow on other queues */
+    if (list->type != D3D12_COMMAND_LIST_TYPE_DIRECT || !list->device->device_info.maintenance_8_features.maintenance8)
+        return false;
+
+    /* ensure formats detected as expected */
+    if ((ds_format->vk_aspect_mask & ds_bits) == 0 ||
+        (color_format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT) == 0)
+        return false;
+
+    return true;
+}
+
+static void d3d12_command_list_copy_image_barrier_flags(struct d3d12_command_list *list,
+        struct d3d12_image_copy_barrier *barrier,
         const struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
         const struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
         const VkImageCopy2 *region, bool overlapping_subresource)
@@ -7732,7 +7764,8 @@ static void d3d12_command_list_copy_image_barrier_flags(struct d3d12_image_copy_
             VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT | VK_IMAGE_ASPECT_PLANE_2_BIT;
 
     barrier->use_copy = dst_format->vk_aspect_mask == src_format->vk_aspect_mask ||
-            ((dst_format->vk_aspect_mask & compatible_aspects) && (src_format->vk_aspect_mask & compatible_aspects));
+            ((dst_format->vk_aspect_mask & compatible_aspects) && (src_format->vk_aspect_mask & compatible_aspects)) ||
+            d3d12_command_list_check_ds_color_copy_compatibility(list, dst_format, src_format);
     barrier->dst_is_depth_stencil = !!(dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
 
     if (barrier->use_copy)
@@ -7798,7 +7831,7 @@ static void d3d12_command_list_copy_image_transition_images(struct d3d12_command
     struct d3d12_image_copy_barrier barrier;
     VkAccessFlags2 dst_copy_pass_access;
 
-    d3d12_command_list_copy_image_barrier_flags(&barrier,
+    d3d12_command_list_copy_image_barrier_flags(list, &barrier,
         dst_resource, dst_format,
         src_resource, src_format,
         region, overlapping_subresource);
@@ -7844,7 +7877,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     unsigned int i;
     HRESULT hr;
 
-    d3d12_command_list_copy_image_barrier_flags(&barrier,
+    d3d12_command_list_copy_image_barrier_flags(list, &barrier,
         dst_resource, dst_format,
         src_resource, src_format,
         region, overlapping_subresource);
