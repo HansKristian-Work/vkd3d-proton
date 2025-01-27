@@ -28,17 +28,15 @@ HRESULT vkd3d_queue_timeline_trace_init(struct vkd3d_queue_timeline_trace *trace
     char env[VKD3D_PATH_MAX];
     unsigned int i;
 
-    if (!vkd3d_get_env_var("VKD3D_QUEUE_PROFILE", env, sizeof(env)))
-        return S_OK;
+    if (vkd3d_get_env_var("VKD3D_QUEUE_PROFILE", env, sizeof(env)))
+        trace->file = fopen(env, "w");
 
-    trace->file = fopen(env, "w");
     if (trace->file)
     {
+
         INFO("Creating timeline trace in: \"%s\".\n", env);
         fputs("[\n", trace->file);
     }
-    else
-        return S_OK;
 
     pthread_mutex_init(&trace->lock, NULL);
     pthread_mutex_init(&trace->ready_lock, NULL);
@@ -54,7 +52,7 @@ HRESULT vkd3d_queue_timeline_trace_init(struct vkd3d_queue_timeline_trace *trace
     trace->base_ts = vkd3d_get_current_time_ns();
 
     if (vkd3d_get_env_var("VKD3D_QUEUE_PROFILE_ABSOLUTE", env, sizeof(env)) &&
-            env[0] == '1')
+            env[0] == '1' && trace->file)
     {
         /* Wine logs are QPC relative */
         trace->base_ts = 0;
@@ -128,6 +126,8 @@ void vkd3d_queue_timeline_trace_cleanup(struct vkd3d_queue_timeline_trace *trace
     vkd3d_free(trace->vacant_indices);
     vkd3d_free(trace->ready_command_lists);
     vkd3d_free(trace->state);
+
+    trace->active = false;
 }
 
 struct vkd3d_queue_timeline_trace_cookie
@@ -174,22 +174,25 @@ void vkd3d_queue_timeline_trace_complete_event_signal(struct vkd3d_queue_timelin
     end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
     start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
 
-    if (worker)
+    if (trace->file)
     {
-        pid = worker->queue->submission_thread_tid;
-        if (start_ts < worker->timeline.lock_end_event_ts)
-            start_ts = worker->timeline.lock_end_event_ts;
-        if (end_ts < start_ts)
-            end_ts = start_ts;
-        worker->timeline.lock_end_event_ts = end_ts;
+        if (worker)
+        {
+            pid = worker->queue->submission_thread_tid;
+            if (start_ts < worker->timeline.lock_end_event_ts)
+                start_ts = worker->timeline.lock_end_event_ts;
+            if (end_ts < start_ts)
+                end_ts = start_ts;
+            worker->timeline.lock_end_event_ts = end_ts;
 
-        fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"event\", \"pid\": \"0x%04x\", \"ts\": %f, \"dur\": %f },\n",
-                state->desc, pid, start_ts, end_ts - start_ts);
-    }
-    else
-    {
-        fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"inline\", \"pid\": \"shared fence\", \"ts\": %f, \"dur\": %f },\n",
-                state->desc, start_ts, end_ts - start_ts);
+            fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"event\", \"pid\": \"0x%04x\", \"ts\": %f, \"dur\": %f },\n",
+                    state->desc, pid, start_ts, end_ts - start_ts);
+        }
+        else
+        {
+            fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"inline\", \"pid\": \"shared fence\", \"ts\": %f, \"dur\": %f },\n",
+                    state->desc, start_ts, end_ts - start_ts);
+        }
     }
 
     vkd3d_queue_timeline_trace_free_index(trace, cookie.index);
@@ -204,12 +207,15 @@ void vkd3d_queue_timeline_trace_complete_present_wait(struct vkd3d_queue_timelin
     if (!trace->active || cookie.index == 0)
         return;
 
-    state = &trace->state[cookie.index];
-    end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
-    start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
+    if (trace->file)
+    {
+        state = &trace->state[cookie.index];
+        end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
+        start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
 
-    fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"wait\", \"pid\": \"present\", \"ts\": %f, \"dur\": %f },\n",
-            state->desc, start_ts, end_ts - start_ts);
+        fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"wait\", \"pid\": \"present\", \"ts\": %f, \"dur\": %f },\n",
+                state->desc, start_ts, end_ts - start_ts);
+    }
 
     vkd3d_queue_timeline_trace_free_index(trace, cookie.index);
 }
@@ -223,12 +229,15 @@ void vkd3d_queue_timeline_trace_complete_blocking(struct vkd3d_queue_timeline_tr
     if (!trace->active || cookie.index == 0)
         return;
 
-    state = &trace->state[cookie.index];
-    end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
-    start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
+    if (trace->file)
+    {
+        state = &trace->state[cookie.index];
+        end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
+        start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
 
-    fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"0x%04x\", \"pid\": \"%s\", \"ts\": %f, \"dur\": %f },\n",
-            state->desc, state->tid, pid, start_ts, end_ts - start_ts);
+        fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"0x%04x\", \"pid\": \"%s\", \"ts\": %f, \"dur\": %f },\n",
+                state->desc, state->tid, pid, start_ts, end_ts - start_ts);
+    }
 
     vkd3d_queue_timeline_trace_free_index(trace, cookie.index);
 }
@@ -267,7 +276,7 @@ vkd3d_queue_timeline_trace_register_sparse(struct vkd3d_queue_timeline_trace *tr
 
 struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_execute(struct vkd3d_queue_timeline_trace *trace,
-        ID3D12CommandList * const *command_lists, unsigned int count)
+        struct d3d12_command_queue *command_queue, ID3D12CommandList * const *command_lists, unsigned int count)
 {
     struct vkd3d_queue_timeline_trace_cookie cookie = {0};
     struct vkd3d_queue_timeline_trace_state *state;
@@ -284,8 +293,11 @@ vkd3d_queue_timeline_trace_register_execute(struct vkd3d_queue_timeline_trace *t
     state->start_ts = vkd3d_get_current_time_ns();
     snprintf(state->desc, sizeof(state->desc), "SUBMIT #%"PRIu64" (%u lists)", submission_count, count);
 
-    /* Might be useful later. */
-    (void)command_lists;
+    if (trace->hud && command_queue->hud_info)
+    {
+        vkd3d_hud_queue_register_submission(trace->hud,
+                command_queue->hud_info, cookie, state, count, command_lists);
+    }
 
     return cookie;
 }
@@ -368,7 +380,7 @@ vkd3d_queue_timeline_trace_register_command_list(struct vkd3d_queue_timeline_tra
     struct vkd3d_queue_timeline_trace_cookie cookie = {0};
     struct vkd3d_queue_timeline_trace_state *state;
     uint64_t submission_count;
-    if (!trace->active)
+    if (!trace->active || !trace->file)
         return cookie;
 
     cookie.index = vkd3d_queue_timeline_trace_allocate_index(trace, &submission_count);
@@ -407,7 +419,7 @@ void vkd3d_queue_timeline_trace_register_instantaneous(struct vkd3d_queue_timeli
     struct vkd3d_queue_timeline_trace_state *state;
     unsigned int index;
 
-    if (!trace->active)
+    if (!trace->active || !trace->file)
         return;
 
     index = vkd3d_queue_timeline_trace_allocate_index(trace, NULL);
@@ -550,6 +562,7 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
 {
     double end_ts, start_submit_ts, start_ts, overhead_start_ts, overhead_end_ts;
     const struct vkd3d_queue_timeline_trace_state *state;
+    uint64_t current_time_ns;
     unsigned int pid;
     const char *tid;
     double *ts_lock;
@@ -557,14 +570,19 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
     if (!trace->active || cookie.index == 0)
         return;
 
+    current_time_ns = vkd3d_get_current_time_ns();
+
     state = &trace->state[cookie.index];
     start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
     start_submit_ts = (double)(state->start_submit_ts - trace->base_ts) * 1e-3;
-    end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
+    end_ts = (double)(current_time_ns - trace->base_ts) * 1e-3;
     overhead_start_ts = start_ts + 1e-3 * state->overhead_start_offset;
     overhead_end_ts = start_ts + 1e-3 * state->overhead_end_offset;
 
-    if (worker)
+    if (trace->hud)
+        vkd3d_hud_queue_complete_submission(trace->hud, cookie, state, current_time_ns);
+
+    if (worker && trace->file)
     {
         if (state->type == VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_SUBMISSION)
             vkd3d_queue_timeline_trace_flush_instantaneous(trace, worker);
@@ -619,11 +637,18 @@ void vkd3d_queue_timeline_trace_begin_execute(struct vkd3d_queue_timeline_trace 
         struct vkd3d_queue_timeline_trace_cookie cookie)
 {
     struct vkd3d_queue_timeline_trace_state *state;
+    uint64_t current_time_ns;
+
     if (!trace->active || cookie.index == 0)
         return;
 
+    current_time_ns = vkd3d_get_current_time_ns();
+
     state = &trace->state[cookie.index];
-    state->start_submit_ts = vkd3d_get_current_time_ns();
+    state->start_submit_ts = current_time_ns;
+
+    if (trace->hud)
+        vkd3d_hud_queue_begin_submission(trace->hud, cookie, state);
 }
 
 void vkd3d_queue_timeline_trace_begin_execute_overhead(struct vkd3d_queue_timeline_trace *trace,

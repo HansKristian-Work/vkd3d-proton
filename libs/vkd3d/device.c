@@ -9207,6 +9207,11 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     d3d_destruction_notifier_init(&device->destruction_notifier, (IUnknown*)&device->ID3D12Device_iface);
 
     device->hud = vkd3d_hud_create(device);
+    device->queue_timeline_trace.hud = device->hud;
+
+    if (!device->queue_timeline_trace.file && !device->queue_timeline_trace.hud)
+        vkd3d_queue_timeline_trace_cleanup(&device->queue_timeline_trace);
+
     return S_OK;
 
 out_cleanup_descriptor_qa_global_info:

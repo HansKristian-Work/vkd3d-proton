@@ -3311,6 +3311,8 @@ struct vkd3d_fence_virtual_wait
     uint64_t vk_semaphore_value;
 };
 
+struct vkd3d_hud_queue_info;
+
 /* ID3D12CommandQueueExt */
 typedef ID3D12CommandQueueExt d3d12_command_queue_vkd3d_ext_iface;
 
@@ -3382,6 +3384,8 @@ struct d3d12_command_queue
         size_t tracked_size;
         size_t tracked_count;
     } sparse;
+
+    struct vkd3d_hud_queue_info *hud_info;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
@@ -4913,6 +4917,7 @@ struct vkd3d_queue_timeline_trace
     pthread_mutex_t lock;
     pthread_mutex_t ready_lock;
     FILE *file;
+    struct vkd3d_hud *hud;
     bool active;
 
     unsigned int *vacant_indices;
@@ -4961,7 +4966,7 @@ struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_sparse(struct vkd3d_queue_timeline_trace *trace, uint32_t num_tiles);
 struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_execute(struct vkd3d_queue_timeline_trace *trace,
-        ID3D12CommandList * const *command_lists, unsigned int count);
+        struct d3d12_command_queue *command_queue, ID3D12CommandList * const *command_lists, unsigned int count);
 struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_command_list(struct vkd3d_queue_timeline_trace *trace);
 
