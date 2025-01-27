@@ -18398,27 +18398,46 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
 static void d3d12_command_queue_wait_shared(struct d3d12_command_queue *command_queue,
         struct d3d12_shared_fence *fence, UINT64 value)
 {
+    struct d3d12_device *device = command_queue->device;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkSemaphoreWaitInfo wait_info;
-    struct d3d12_device *device;
+    uint64_t current_value;
     VkResult vr;
 
     assert(fence->timeline_semaphore);
 
-    device = command_queue->device;
     vk_procs = &device->vk_procs;
 
     /* Resolve the wait on the CPU rather than submitting it to the Vulkan queue.
      * For shared fences, we cannot know when signal operations for the fence get
      * queued up, so this is the only way to prevent wait-before-signal situations
      * when multiple D3D12 queues use the same Vulkan queue. */
-    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-    wait_info.pNext = NULL;
-    wait_info.flags = 0;
-    wait_info.pSemaphores = &fence->timeline_semaphore;
-    wait_info.semaphoreCount = 1;
-    wait_info.pValues = &value;
-    vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, UINT64_MAX));
+    if (device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_NVIDIA_PROPRIETARY ||
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
+    {
+        memset(&wait_info, 0, sizeof(wait_info));
+        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        wait_info.pSemaphores = &fence->timeline_semaphore;
+        wait_info.semaphoreCount = 1;
+        wait_info.pValues = &value;
+
+        vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, UINT64_MAX));
+    }
+    else
+    {
+        /* Apparently, games with DLSS frame gen have severe stuttering issues if
+         * vkWaitSemaphores is used, busy-waiting seems to work around the problem */
+        while (true)
+        {
+            vr = VK_CALL(vkGetSemaphoreCounterValue(device->vk_device, fence->timeline_semaphore, &current_value));
+
+            if (vr || current_value >= value)
+                break;
+
+            vkd3d_pause();
+        }
+    }
+
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
 }
 
