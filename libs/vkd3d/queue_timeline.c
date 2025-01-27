@@ -23,8 +23,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-#define NUM_ENTRIES (256 * 1024)
-
 HRESULT vkd3d_queue_timeline_trace_init(struct vkd3d_queue_timeline_trace *trace, struct d3d12_device *device)
 {
     char env[VKD3D_PATH_MAX];
@@ -46,13 +44,13 @@ HRESULT vkd3d_queue_timeline_trace_init(struct vkd3d_queue_timeline_trace *trace
     pthread_mutex_init(&trace->ready_lock, NULL);
 
     vkd3d_array_reserve((void**)&trace->vacant_indices, &trace->vacant_indices_size,
-            NUM_ENTRIES, sizeof(*trace->vacant_indices));
+            VKD3D_TIMELINE_TRACE_NUM_ENTRIES, sizeof(*trace->vacant_indices));
 
     /* Reserve entry 0 as sentinel. */
-    for (i = 1; i < NUM_ENTRIES; i++)
+    for (i = 1; i < VKD3D_TIMELINE_TRACE_NUM_ENTRIES; i++)
         trace->vacant_indices[trace->vacant_indices_count++] = i;
 
-    trace->state = vkd3d_calloc(NUM_ENTRIES, sizeof(*trace->state));
+    trace->state = vkd3d_calloc(VKD3D_TIMELINE_TRACE_NUM_ENTRIES, sizeof(*trace->state));
     trace->base_ts = vkd3d_get_current_time_ns();
 
     if (vkd3d_get_env_var("VKD3D_QUEUE_PROFILE_ABSOLUTE", env, sizeof(env)) &&

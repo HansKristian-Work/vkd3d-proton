@@ -4906,6 +4906,8 @@ struct vkd3d_queue_timeline_trace_state
     char desc[128 - 6 * sizeof(uint64_t)];
 };
 
+#define VKD3D_TIMELINE_TRACE_NUM_ENTRIES (256 * 1024)
+
 struct vkd3d_queue_timeline_trace
 {
     pthread_mutex_t lock;
