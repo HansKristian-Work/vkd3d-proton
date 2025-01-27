@@ -452,6 +452,11 @@ uint32_t vkd3d_descriptor_debug_get_shader_interface_flags(
             flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FLUSH_NAN |
                     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
         }
+        else if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_EXPECT_ASSUME)
+        {
+            flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME |
+                    VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
+        }
         else if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW)
             flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
     }
