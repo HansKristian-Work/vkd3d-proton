@@ -294,6 +294,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_descriptor_qa_global_info *global_info;
+    VkMemoryPropertyFlags memory_properties;
     const uint32_t num_payloads = 4096;
     D3D12_RESOURCE_DESC1 buffer_desc;
     D3D12_HEAP_PROPERTIES heap_info;
@@ -328,9 +329,13 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         return hr;
     }
 
+    memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+#endif
+
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            &global_info->payload_device_allocation)))
+            memory_properties, &global_info->payload_device_allocation)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hr;
@@ -362,11 +367,15 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         return hr;
     }
 
+    memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+#endif
+
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_control_buffer,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            &global_info->control_device_allocation)))
+            memory_properties, &global_info->control_device_allocation)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hr;
@@ -474,6 +483,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_descriptor_qa_global_info *global_info;
+    VkMemoryPropertyFlags memory_properties;
     D3D12_RESOURCE_DESC1 buffer_desc;
     D3D12_HEAP_PROPERTIES heap_info;
     D3D12_HEAP_FLAGS heap_flags;
@@ -508,8 +518,13 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
         return hr;
     }
 
+    memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+#endif
+
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            memory_properties,
             &global_info->payload_device_allocation)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
