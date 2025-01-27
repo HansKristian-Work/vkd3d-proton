@@ -131,3 +131,29 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
 
     *range_count = new_count;
 }
+
+VkMemoryPropertyFlags vkd3d_debug_buffer_memory_properties(struct d3d12_device *device, VkMemoryPropertyFlags flags)
+{
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    {
+        /* Expect crashes since we won't have time to flush caches.
+         * We use coherent in the debug_channel.h header, but not necessarily guaranteed to be coherent with
+         * host reads, so make extra sure. */
+        if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory)
+        {
+            flags |= VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD;
+            INFO("Enabling uncached device memory for debug buffer.\n");
+        }
+        else if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+        {
+            /* Writes to sysmem seem to be coherent, but not ReBAR. Very slow, but hey,
+             * we're desperate when we're doing breadcrumb + debug ring! */
+            flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            INFO("Forcing (implicitly-coherent) sysmem for debug buffer.\n");
+        }
+    }
+
+    return flags;
+}

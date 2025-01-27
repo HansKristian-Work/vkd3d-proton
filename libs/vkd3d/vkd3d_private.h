@@ -3614,6 +3614,8 @@ enum vkd3d_shader_hash_range_kind
 
 void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **ranges,
         size_t *range_size, size_t *range_count, enum vkd3d_shader_hash_range_kind kind);
+
+VkMemoryPropertyFlags vkd3d_debug_buffer_memory_properties(struct d3d12_device *device, VkMemoryPropertyFlags flags);
 #endif
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS

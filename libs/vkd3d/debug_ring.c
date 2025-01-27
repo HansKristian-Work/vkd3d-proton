@@ -400,21 +400,9 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
     memory_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-    /* If we're doing breadcrumb debugging, we also need to be able to read debug ring messages
-     * from a crash, so we cannot rely on being able to copy the device payload back to host.
-     * Use PCI-e BAR + UNCACHED + DEVICE_COHERENT if we must. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
-    {
-        INFO("Using debug ring with breadcrumbs, opting in to device uncached payload buffer.\n");
-        /* We use coherent in the debug_channel.h header, but not necessarily guaranteed to be coherent with
-         * host reads, so make extra sure. */
-        if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory)
-        {
-            memory_props |= VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD;
-            INFO("Enabling uncached device memory for debug ring.\n");
-        }
-    }
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    memory_props = vkd3d_debug_buffer_memory_properties(device, memory_props);
+#endif
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->host_buffer,
             memory_props, &ring->host_buffer_memory)))
@@ -432,24 +420,9 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
-    {
-        /* Expect crashes since we won't have time to flush caches.
-         * We use coherent in the debug_channel.h header, but not necessarily guaranteed to be coherent with
-         * host reads, so make extra sure. */
-        if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory)
-        {
-            memory_props |= VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD;
-        }
-        else if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
-        {
-            /* Writes to sysmem seem to be coherent, but not ReBAR. Very slow, but hey,
-             * we're desperate when we're doing breadcrumb + debug ring! */
-            memory_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                    VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
-                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        }
-    }
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    memory_props = vkd3d_debug_buffer_memory_properties(device, memory_props);
+#endif
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->device_atomic_buffer,
             memory_props, &ring->device_atomic_buffer_memory)))
