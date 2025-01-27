@@ -23,6 +23,7 @@
 #include "vkd3d_common.h"
 #include <assert.h>
 #include <stdio.h>
+#include "vkd3d_descriptor_debug.h"
 
 /* Just allocate everything up front. This only consumes host memory anyways. */
 #define MAX_COMMAND_LISTS (32 * 1024)
@@ -592,6 +593,9 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
     struct vkd3d_queue_family_info *queue_family_info;
     VkQueue vk_queue;
     unsigned int i;
+
+    /* There may be latent information in the QA checker. */
+    vkd3d_descriptor_debug_kick_qa_check(device->descriptor_qa_global_info);
 
     /* Avoid interleaved logs when multiple threads observe device lost. */
     pthread_mutex_lock(&global_report_lock);
