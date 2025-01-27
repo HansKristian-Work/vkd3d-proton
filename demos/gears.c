@@ -848,7 +848,7 @@ static void cxg_idle(struct demo *demo, void *user_data)
 
 static int cxg_main(void)
 {
-    unsigned int width = 300, height = 300;
+    unsigned int width = 1600, height = 900;
     struct cx_gears cxg;
 
     memset(&cxg, 0, sizeof(cxg));

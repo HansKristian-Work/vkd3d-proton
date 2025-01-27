@@ -120,6 +120,8 @@ struct dxgi_vk_swap_chain
     bool debug_latency;
     bool swapchain_maintenance1;
 
+    uint32_t hud_cookie;
+
     struct
     {
         /* When resizing user buffers or emit commands internally,
@@ -161,6 +163,7 @@ struct dxgi_vk_swap_chain
         uint32_t backbuffer_height;
         uint32_t backbuffer_count;
         VkFormat backbuffer_format;
+        VkColorSpaceKHR backbuffer_color_space;
 
         struct vkd3d_swapchain_info pipeline;
 
@@ -457,6 +460,9 @@ static void dxgi_vk_swap_chain_cleanup_common(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     unsigned int i;
+
+    if (chain->queue->device->hud)
+        vkd3d_hud_unregister_swapchain(chain->queue->device->hud, chain->hud_cookie);
 
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_internal_blit_semaphore, NULL));
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_complete_semaphore, NULL));
@@ -1477,6 +1483,7 @@ static void dxgi_vk_swap_chain_destroy_swapchain_in_present_task(struct dxgi_vk_
     chain->present.backbuffer_width = 0;
     chain->present.backbuffer_height = 0;
     chain->present.backbuffer_format = VK_FORMAT_UNDEFINED;
+    chain->present.backbuffer_color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     chain->present.backbuffer_count = 0;
     chain->present.force_swapchain_recreation = false;
     chain->present.present_id_valid = false;
@@ -1896,6 +1903,7 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     chain->present.backbuffer_width = swapchain_create_info.imageExtent.width;
     chain->present.backbuffer_height = swapchain_create_info.imageExtent.height;
     chain->present.backbuffer_format = swapchain_create_info.imageFormat;
+    chain->present.backbuffer_color_space = swapchain_create_info.imageColorSpace;
     chain->present.current_backbuffer_index = UINT32_MAX;
 
     if (!chain->present.vk_blit_command_pool)
@@ -1975,6 +1983,8 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
 static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *chain, VkCommandBuffer vk_cmd, uint32_t swapchain_index)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    struct vkd3d_hud_render_parameters hud_params;
+    struct vkd3d_timeline_semaphore hud_semaphore;
     VkRenderingAttachmentInfo attachment_info;
     VkImageMemoryBarrier2 image_barrier;
     VkDescriptorImageInfo image_info;
@@ -1984,6 +1994,14 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
     VkDependencyInfo dep_info;
     VkViewport viewport;
     bool blank_present;
+
+    if (chain->queue->device->hud)
+    {
+        hud_semaphore.vk_semaphore = chain->present.vk_internal_blit_semaphore;
+        hud_semaphore.last_signaled = chain->present.internal_blit_count + 1u;
+
+        vkd3d_hud_update(chain->queue->device->hud, chain->hud_cookie, vk_cmd, &hud_semaphore);
+    }
 
     /* If application intends to present before we have rendered to it,
      * it is valid, but we need to ignore the blit, just clear backbuffer. */
@@ -2088,6 +2106,16 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
                     chain->present.pipeline.vk_pipeline_layout, 0, 1, &write_info));
 
         VK_CALL(vkCmdDraw(vk_cmd, 3, 1, 0, 0));
+
+        if (chain->queue->device->hud)
+        {
+            hud_params.cmd_buffer = vk_cmd;
+            hud_params.swapchain_format.format = chain->present.backbuffer_format;
+            hud_params.swapchain_format.colorSpace = chain->present.backbuffer_color_space;
+            hud_params.swapchain_extent = rendering_info.renderArea.extent;
+
+            vkd3d_hud_render(chain->queue->device->hud, chain->hud_cookie, &hud_params);
+        }
     }
 
     VK_CALL(vkCmdEndRendering(vk_cmd));
@@ -3012,6 +3040,9 @@ static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVk
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_frame_rate_limiter(chain)))
         goto cleanup_low_latency;
+
+    if (chain->queue->device->hud)
+        chain->hud_cookie = vkd3d_hud_allocate_swapchain_cookie(chain->queue->device->hud);
 
     ID3D12CommandQueue_AddRef(&queue->ID3D12CommandQueue_iface);
     return S_OK;
