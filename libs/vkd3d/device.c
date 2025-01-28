@@ -760,7 +760,7 @@ static const struct vkd3d_shader_quirk_info gzw_quirks = {
 
 /* Apparently some meshlets may try to allocate too many vertices/primitives. */
 static const struct vkd3d_shader_quirk_info rebirth_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_MESH_OUTPUT_ROBUSTNESS,
+    NULL, 0, VKD3D_SHADER_QUIRK_MESH_OUTPUT_ROBUSTNESS | VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
 };
 
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
