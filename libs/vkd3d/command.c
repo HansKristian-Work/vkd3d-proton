@@ -9870,7 +9870,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     if (list->state == state)
         return;
 
-    if (state)
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_RETAIN_PSOS) && state)
         d3d12_command_allocator_retain_pipeline_state(list->allocator, state);
 
     d3d12_command_list_invalidate_current_pipeline(list, false);
