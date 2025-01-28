@@ -2246,6 +2246,17 @@ static bool d3d12_command_allocator_add_buffer_view(struct d3d12_command_allocat
     return true;
 }
 
+static void d3d12_command_allocator_retain_pipeline_state(struct d3d12_command_allocator *allocator,
+        struct d3d12_pipeline_state *state)
+{
+    if (!vkd3d_array_reserve((void **)&allocator->pipelines, &allocator->pipelines_size,
+            allocator->pipelines_count + 1, sizeof(*allocator->pipelines)))
+        return;
+
+    d3d12_pipeline_state_inc_ref(state);
+    allocator->pipelines[allocator->pipelines_count++] = state;
+}
+
 static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *list)
 {
     TRACE("list %p.\n", list);
@@ -2272,6 +2283,12 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
         vkd3d_view_decref(allocator->views[i], device);
     }
     allocator->view_count = 0;
+
+    for (i = 0; i < allocator->pipelines_count; i++)
+    {
+        d3d12_pipeline_state_dec_ref(allocator->pipelines[i]);
+    }
+    allocator->pipelines_count = 0;
 }
 
 static void d3d12_command_allocator_set_name(struct d3d12_command_allocator *allocator, const char *name)
@@ -2362,6 +2379,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
         d3d12_command_allocator_free_resources(allocator);
         vkd3d_free(allocator->buffer_views);
         vkd3d_free(allocator->views);
+        vkd3d_free(allocator->pipelines);
 
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
         {
@@ -9851,6 +9869,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
     if (list->state == state)
         return;
+
+    if (state)
+        d3d12_command_allocator_retain_pipeline_state(list->allocator, state);
 
     d3d12_command_list_invalidate_current_pipeline(list, false);
     /* SetPSO and SetPSO1 alias the same internal active pipeline state even if they are completely different types. */

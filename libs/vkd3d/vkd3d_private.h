@@ -2484,6 +2484,10 @@ struct d3d12_command_allocator
     size_t buffer_views_size;
     size_t buffer_view_count;
 
+    struct d3d12_pipeline_state **pipelines;
+    size_t pipelines_size;
+    size_t pipelines_count;
+
     VkCommandBuffer *command_buffers;
     size_t command_buffers_size;
     size_t command_buffer_count;
