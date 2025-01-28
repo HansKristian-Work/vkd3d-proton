@@ -605,6 +605,12 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Outlaws_Plus.exe", VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT, 0 },
     /* ArmA Reforger suffers from slow asset loading with HVV enabled */
     { VKD3D_STRING_COMPARE_STARTS_WITH, "ArmaReforger", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV },
+    /* FFVII Rebirth (2909400).
+     * Game can destroy PSOs while they are in-flight.
+     * Also, add no-staggered since this is a UE title without the common workaround,
+     * although that only seems to matter when FSR/DLSS injectors are used. */
+    { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe",
+            VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
