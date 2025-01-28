@@ -2255,8 +2255,7 @@ static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *li
     memset(&list->cmd, 0, sizeof(list->cmd));
 }
 
-static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator,
-        bool keep_reusable_resources)
+static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator)
 {
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2360,7 +2359,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
         if (allocator->current_command_list)
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
-        d3d12_command_allocator_free_resources(allocator, false);
+        d3d12_command_allocator_free_resources(allocator);
         vkd3d_free(allocator->buffer_views);
         vkd3d_free(allocator->views);
 
@@ -2536,7 +2535,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     device = allocator->device;
     vk_procs = &device->vk_procs;
 
-    d3d12_command_allocator_free_resources(allocator, true);
+    d3d12_command_allocator_free_resources(allocator);
 
     vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
             VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMAND_ALLOCATOR_RESET, allocator->command_buffer_count);
