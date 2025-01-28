@@ -473,6 +473,9 @@ enum vkd3d_shader_quirk
      * This can lead to page faults. Clamps the input index to the private array size
      * as the simplest possible workaround. */
     VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING = (1 << 23),
+
+    /* If SetMeshOutputsEXT will be called out of bounds, exit the meshlet instead. */
+    VKD3D_SHADER_QUIRK_MESH_OUTPUT_ROBUSTNESS = (1 << 24),
 };
 
 struct vkd3d_shader_quirk_hash
