@@ -608,9 +608,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* FFVII Rebirth (2909400).
      * Game can destroy PSOs while they are in-flight.
      * Also, add no-staggered since this is a UE title without the common workaround,
-     * although that only seems to matter when FSR/DLSS injectors are used. */
+     * although that only seems to matter when FSR/DLSS injectors are used.
+     * Also, attempt to workaround a painful amdgpu kernel bug with null sparse tiles. */
     { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe",
-            VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
+            VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT | VKD3D_CONFIG_FLAG_DUMMY_NULL_SPARSE_TILES, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
@@ -1016,6 +1017,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"no_gpu_upload_heap", VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP},
     {"one_time_submit", VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT},
     {"skip_null_sparse_tiles", VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES},
+    {"dummy_null_sparse_tiles", VKD3D_CONFIG_FLAG_DUMMY_NULL_SPARSE_TILES},
 };
 
 static void vkd3d_config_flags_init_once(void)

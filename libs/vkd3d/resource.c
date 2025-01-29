@@ -9109,6 +9109,7 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
         struct d3d12_device *device)
 {
     VkBufferUsageFlags2KHR vk_usage_flags;
+    VkDeviceSize size;
     HRESULT hr;
 
     bool requires_offset_buffer = device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment > 4;
@@ -9164,8 +9165,14 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
     /* Creates a default descriptor buffer we can use if the application does not bind anything.
      * This might happen if a meta shader is used without any prior descriptor heap bound,
      * and we need to use push descriptors with bufferlessPushDescriptors == VK_FALSE. */
+
+    /* The global descriptor buffer can be used as a DUMMY_NULL_TILE when a workaround is applied,
+     * so make sure it's at least 64K. In cases where it's relevant, we can rely on zerovram behavior too. */
+    size = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DUMMY_NULL_SPARSE_TILES) ?
+            VKD3D_TILE_SIZE : 4 * 1024;
+
     if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, vk_usage_flags,
-            4 * 1024, "descriptor-buffer", &global_descriptor_buffer->resource.vk_buffer)))
+            size, "descriptor-buffer", &global_descriptor_buffer->resource.vk_buffer)))
     {
         return hr;
     }

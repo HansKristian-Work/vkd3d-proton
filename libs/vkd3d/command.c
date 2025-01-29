@@ -17514,8 +17514,21 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
 
                 if (range_flag == D3D12_TILE_RANGE_FLAG_NULL)
                 {
-                    bind->vk_memory = VK_NULL_HANDLE;
-                    bind->vk_offset = 0;
+                    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DUMMY_NULL_SPARSE_TILES) &&
+                            command_queue->device->workarounds.amdgpu_broken_null_tile_mapping)
+                    {
+                        /* We have a convenient dummy BO already. It will also be allocated in 32-bit VA range,
+                         * so it's easy to detect binds to it in RADV bo history.
+                         * If we didn't use descriptor buffers for whatever reason we'll get the default NULL mapping behavior
+                         * which is fine, since this is such a targeted workaround. */
+                        bind->vk_memory = command_queue->device->global_descriptor_buffer.resource.device_allocation.vk_memory;
+                        bind->vk_offset = 0;
+                    }
+                    else
+                    {
+                        bind->vk_memory = VK_NULL_HANDLE;
+                        bind->vk_offset = 0;
+                    }
                 }
                 else
                 {
