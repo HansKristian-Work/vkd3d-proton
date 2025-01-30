@@ -185,6 +185,34 @@ FORCEINLINE uint64_t vkd3d_atomic_uint64_decrement(uint64_t *target, vkd3d_memor
     return result;
 }
 
+FORCEINLINE uint64_t vkd3d_atomic_uint64_add(uint64_t *target, uint64_t value, vkd3d_memory_order order)
+{
+    uint64_t result;
+    vkd3d_atomic_choose_intrinsic(order, result, InterlockedAdd, 64, (LONG64*)target, value);
+    return result;
+}
+
+FORCEINLINE uint64_t vkd3d_atomic_uint64_sub(uint64_t *target, uint64_t value, vkd3d_memory_order order)
+{
+    uint64_t result;
+    vkd3d_atomic_choose_intrinsic(order, result, InterlockedAdd, 64, (LONG64*)target, (uint32_t)(-(int32_t)value));
+    return result;
+}
+
+FORCEINLINE uint64_t vkd3d_atomic_uint64_and(uint64_t *target, uint64_t value, vkd3d_memory_order order)
+{
+    uint64_t result;
+    vkd3d_atomic_choose_intrinsic(order, result, InterlockedAnd, 64, (LONG64*)target, value);
+    return result;
+}
+
+FORCEINLINE uint64_t vkd3d_atomic_uint64_or(uint64_t *target, uint64_t value, vkd3d_memory_order order)
+{
+    uint64_t result;
+    vkd3d_atomic_choose_intrinsic(order, result, InterlockedOr, 64, (LONG64*)target, value);
+    return result;
+}
+
 FORCEINLINE uint64_t vkd3d_atomic_uint64_compare_exchange(UINT64* target, uint64_t expected, uint64_t desired,
         vkd3d_memory_order success_order, vkd3d_memory_order fail_order)
 {
@@ -238,6 +266,10 @@ static inline uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, ui
 # define vkd3d_atomic_uint64_exchange_explicit(target, value, order) vkd3d_atomic_generic_exchange_explicit(target, value, order)
 # define vkd3d_atomic_uint64_increment(target, order)                vkd3d_atomic_generic_increment(target, order)
 # define vkd3d_atomic_uint64_decrement(target, order)                vkd3d_atomic_generic_decrement(target, order)
+# define vkd3d_atomic_uint64_add(target, value, order)               vkd3d_atomic_generic_add(target, value, order)
+# define vkd3d_atomic_uint64_sub(target, value, order)               vkd3d_atomic_generic_sub(target, value, order)
+# define vkd3d_atomic_uint64_and(target, value, order)               vkd3d_atomic_generic_and(target, value, order)
+# define vkd3d_atomic_uint64_or(target, value, order)                vkd3d_atomic_generic_or(target, value, order)
 static inline uint64_t vkd3d_atomic_uint64_compare_exchange(UINT64* target, uint64_t expected, uint64_t desired,
         vkd3d_memory_order success_order, vkd3d_memory_order fail_order)
 {

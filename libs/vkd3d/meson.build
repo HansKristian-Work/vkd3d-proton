@@ -60,6 +60,12 @@ vkd3d_shaders =[
   'shaders/cs_workgraph_distribute_payload_offsets.comp',
   'shaders/cs_workgraph_complete_compaction.comp',
   'shaders/cs_workgraph_setup_gpu_input.comp',
+
+  'shaders/hud/cs_hud_update_general.comp',
+  'shaders/hud/fs_hud_render_text.frag',
+  'shaders/hud/fs_hud_render_frametimes.frag',
+  'shaders/hud/vs_hud_render_text.vert',
+  'shaders/hud/vs_hud_render_frametimes.vert',
 ]
 
 vkd3d_src = [
@@ -71,6 +77,7 @@ vkd3d_src = [
   'device.c',
   'device_vkd3d_ext.c',
   'heap.c',
+  'hud.c',
   'memory.c',
   'meta.c',
   'meta_commands.c',

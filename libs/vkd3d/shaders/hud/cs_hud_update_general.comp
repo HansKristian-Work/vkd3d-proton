@@ -1,0 +1,198 @@
+#version 460
+
+layout(local_size_x = 256) in;
+
+#extension GL_GOOGLE_include_directive : enable
+
+#include "hud_common.glsl"
+#include "hud_common_cs.glsl"
+
+layout(buffer_reference, buffer_reference_align = 16, scalar)
+readonly buffer queue_stats
+{
+    hud_queue_submission_stats_t stats[];
+};
+
+layout(push_constant, scalar)
+uniform push_data_t
+{
+    hud_buffer  data_buffer;
+    uint32_t    update_count;
+    uint32_t    refresh_count;
+    uint32_t    enabled_items;
+    float       gpu_ms_per_tick;
+    uint32_t    fps_draw_index;
+    uint32_t    frametime_draw_index;
+} args;
+
+struct deferred_write_t
+{
+    int32_t   number;
+    uint16_t  draw_index;
+    uint16_t  decimal_point;
+    uint32_t  suffix;
+};
+
+/* Helpers to defer and parallelize int->string conversions */
+shared deferred_write_t deferred_writes_shared[gl_WorkGroupSize.x];
+shared uint32_t deferred_write_count_shared;
+
+void defer_write_number_string(int32_t number, uint32_t decimal_point, uint32_t suffix, uint32_t draw_index)
+{
+    uint32_t index = atomicAdd(deferred_write_count_shared, 1u);
+
+    deferred_write_t args;
+    args.number = number;
+    args.draw_index = uint16_t(draw_index);
+    args.decimal_point = uint16_t(decimal_point);
+    args.suffix = suffix;
+
+    if (index < gl_WorkGroupSize.x)
+        deferred_writes_shared[index] = args;
+}
+
+void perform_deferred_writes()
+{
+    uint32_t tid = gl_LocalInvocationIndex;
+
+    if (tid >= deferred_write_count_shared)
+        return;
+
+    deferred_write_t write = deferred_writes_shared[tid];
+
+    u32vec4 str = u32vec4(0u);
+
+    string_state_t state = { };
+    cs_string_init(str, state, write.suffix);
+
+    cs_string_from_int(str, state, write.number, write.decimal_point);
+    cs_string_finalize(str, state);
+
+    cs_write_string(args.data_buffer, write.draw_index, str, state);
+}
+
+/* Three-way reduction over recorded frametimes: Sum, Min, Max */
+shared vec3 gpu_frametimes_shared[HUD_MAX_FRAMETIME_RECORDS / 2u];
+
+vec3 update_frametimes(hud_buffer data, uint32_t gpu_ticks)
+{
+    /* Perform initial reduction using buffer data */
+    uint32_t tid = gl_LocalInvocationIndex;
+
+    if (2u * tid < HUD_MAX_FRAMETIME_RECORDS) {
+        float a = data.stats.frame_intervals_ms[2u * tid + 0u];
+        float b = data.stats.frame_intervals_ms[2u * tid + 1u];
+
+        gpu_frametimes_shared[tid] = vec3(a + b, min(a, b), max(a, b));
+    }
+
+    barrier();
+
+    /* Perform further reduction until we have all stats */
+    uint input_count = HUD_MAX_FRAMETIME_RECORDS / 2u;
+
+    while (input_count > 1u) {
+        uint output_count = (input_count + 1u) / 2u;
+
+        if (tid + output_count < input_count) {
+            vec3 a = gpu_frametimes_shared[tid];
+            vec3 b = gpu_frametimes_shared[tid + output_count];
+
+            gpu_frametimes_shared[tid] = vec3(a.x + b.x,
+              min(a.y, b.y), max(a.z, b.z));
+        }
+
+        barrier();
+
+        input_count = output_count;
+    }
+
+    /* Compute current frame time and factor it into the result */
+    float gpu_ms = float(gpu_ticks) * args.gpu_ms_per_tick;
+
+    vec3 result = vec3(gpu_frametimes_shared[0].x + gpu_ms,
+        min(gpu_frametimes_shared[0].y, gpu_ms),
+        max(gpu_frametimes_shared[0].z, gpu_ms));
+
+    /* Write everything to the data buffer */
+    if (tid == 0u)
+    {
+        data.stats.avg_frametime_ms = result.x / float(HUD_MAX_FRAMETIME_RECORDS + 1u);
+        data.stats.max_frametime_ms = result.z;
+
+        data.stats.frame_intervals_ms[args.update_count % HUD_MAX_FRAMETIME_RECORDS] = gpu_ms;
+    }
+
+    return result;
+}
+
+void main()
+{
+    hud_buffer data = args.data_buffer;
+
+    uint64_t curr_update_time = data.stats.update_timestamps[(args.update_count - 0u) % HUD_MAX_BUFFERED_FRAMES];
+    uint64_t prev_update_time = data.stats.update_timestamps[(args.update_count - 1u) % HUD_MAX_BUFFERED_FRAMES];
+
+    /* Init shared structures */
+    uint32_t tid = gl_LocalInvocationIndex;
+
+    if (tid == 0u)
+        deferred_write_count_shared = 0u;
+
+    barrier();
+
+    if (args.update_count == 0u)
+    {
+        /* We don't have any data to refresh yet, just ensure we don't
+         * do anything silly with uninitialized timestamps for now. */
+        if (tid == 0u)
+            data.stats.refresh_timestamp = curr_update_time;
+    }
+    else
+    {
+        /* Periodically refresh the frame rate and some other statistics */
+        bool needs_refresh = args.update_count == args.refresh_count;
+
+        if (tid == 0u)
+        {
+            float fps;
+
+            if (needs_refresh)
+            {
+                uint64_t refresh_time = data.stats.refresh_timestamp;
+                uint64_t refresh_delta = curr_update_time - refresh_time;
+
+                float time_since_last_refresh_ms = float(refresh_delta) * args.gpu_ms_per_tick;
+
+                fps = (1000.0 * float(args.update_count - data.stats.refresh_update_count)) / time_since_last_refresh_ms;
+
+                data.stats.refresh_timestamp = curr_update_time;
+                data.stats.refresh_update_count = args.update_count;
+
+                data.stats.display_fps = fps;
+            }
+            else
+            {
+                fps = data.stats.display_fps;
+            }
+
+            if ((args.enabled_items & HUD_ITEM_FPS) != 0u)
+                defer_write_number_string(int32_t(round(10.0f * fps)), 1u, 0u, args.fps_draw_index);
+        }
+
+        if ((args.enabled_items & HUD_ITEM_FRAMETIMES) != 0u)
+        {
+            vec2 frametimes = update_frametimes(data, uint32_t(curr_update_time - prev_update_time)).yz;
+
+            if (tid < 2u)
+            {
+                float ms = tid == 0u ? frametimes.x : frametimes.y;
+                defer_write_number_string(int32_t(round(10.0f * ms)), 1u, 0x736d20u, args.frametime_draw_index + tid);
+            }
+        }
+    }
+
+    barrier();
+
+    perform_deferred_writes();
+}

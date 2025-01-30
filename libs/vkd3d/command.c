@@ -17264,6 +17264,8 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
     {
         struct d3d12_device *device = command_queue->device;
 
+        vkd3d_hud_unregister_queue(command_queue->device->hud, command_queue->hud_info);
+
         d3d_destruction_notifier_free(&command_queue->destruction_notifier);
         vkd3d_private_store_destroy(&command_queue->private_store);
 
@@ -17703,7 +17705,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #endif
 
     timeline_cookie = vkd3d_queue_timeline_trace_register_execute(
-            &command_queue->device->queue_timeline_trace,
+            &command_queue->device->queue_timeline_trace, command_queue,
             command_lists, command_list_count);
 
     num_transitions = 0;
@@ -19822,6 +19824,8 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     }
 
     d3d_destruction_notifier_init(&queue->destruction_notifier, (IUnknown*)&queue->ID3D12CommandQueue_iface);
+
+    queue->hud_info = vkd3d_hud_register_queue(device->hud, queue);
     return S_OK;
 
 fail_pthread_create:
