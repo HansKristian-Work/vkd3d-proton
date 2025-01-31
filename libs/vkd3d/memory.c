@@ -489,9 +489,21 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
 
     if (allocation->cpu_address)
     {
+        const struct d3d12_device *device = queue->device;
+        const struct vkd3d_vk_device_procs *vk_procs;
+        VkMappedMemoryRange mapped_range = { 0 };
+
+        vk_procs = &device->vk_procs;
+
+        mapped_range.memory = allocation->device_allocation.vk_memory;
+        mapped_range.offset = allocation->offset;
+        mapped_range.size = allocation->resource.size;
+
         /* Probably faster than doing this on the GPU
          * and having to worry about synchronization */
         memset(allocation->cpu_address, 0, allocation->resource.size);
+
+        VK_CALL(vkFlushMappedMemoryRanges(device->vk_device, 1, &mapped_range));
     }
     else if (allocation->resource.vk_buffer)
     {
