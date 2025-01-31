@@ -2187,6 +2187,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
     struct vkd3d_subresource_layout *subresource_layout;
     struct d3d12_device *device = resource->device;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkMappedMemoryRange mapped_range = { 0 };
     struct vkd3d_format_footprint footprint;
     const struct vkd3d_format *format;
     uint32_t plane_idx;
@@ -2194,6 +2196,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     VkOffset3D offset;
     uint8_t *dst_data;
     D3D12_BOX box;
+
+    vk_procs = &device->vk_procs;
 
     TRACE("iface %p, src_data %p, src_row_pitch %u, src_slice_pitch %u, "
             "dst_sub_resource %u, dst_box %s.\n",
@@ -2258,6 +2262,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     vkd3d_format_copy_data(format, src_data, src_row_pitch, src_slice_pitch, dst_data,
             subresource_layout->row_pitch, subresource_layout->depth_pitch, extent.width, extent.height, extent.depth);
 
+    mapped_range.memory = resource->mem.device_allocation.vk_memory;
+    mapped_range.offset = resource->mem.offset + subresource_layout->offset;
+    mapped_range.size = (extent.depth - 1) * subresource_layout->depth_pitch +
+      extent.height * subresource_layout->row_pitch;
+    VK_CALL(vkFlushMappedMemoryRanges(device->vk_device, 1, &mapped_range));
+
     return vkd3d_memory_transfer_queue_write_subresource(&device->memory_transfers,
             resource, dst_sub_resource, offset, extent);
 }
@@ -2267,12 +2277,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         UINT src_sub_resource, const D3D12_BOX *src_box)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
+    struct d3d12_device *device = resource->device;
     struct vkd3d_subresource_layout *subresource_layout;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkMappedMemoryRange mapped_range = { 0 };
     struct vkd3d_format_footprint footprint;
     const struct vkd3d_format *format;
     uint32_t plane_idx;
     uint8_t *src_data;
     D3D12_BOX box;
+
+    vk_procs = &device->vk_procs;
 
     TRACE("iface %p, dst_data %p, dst_row_pitch %u, dst_slice_pitch %u, "
             "src_sub_resource %u, src_box %s.\n",
@@ -2325,6 +2340,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
 
     src_data += subresource_layout->offset + vkd3d_format_get_data_offset(format,
             subresource_layout->row_pitch, subresource_layout->depth_pitch, src_box->left, src_box->top, src_box->front);
+
+    mapped_range.memory = resource->mem.device_allocation.vk_memory;
+    mapped_range.offset = resource->mem.offset + subresource_layout->offset;
+    mapped_range.size = (src_box->back - src_box->front - 1) * subresource_layout->depth_pitch +
+      (src_box->bottom - src_box->top) * subresource_layout->row_pitch;
+    VK_CALL(vkInvalidateMappedMemoryRanges(device->vk_device, 1, &mapped_range));
 
     vkd3d_format_copy_data(format, src_data, subresource_layout->row_pitch,
             subresource_layout->depth_pitch, dst_data, dst_row_pitch, dst_slice_pitch,
