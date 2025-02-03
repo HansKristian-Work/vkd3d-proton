@@ -118,6 +118,7 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
         VkPipeline *pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     VkComputePipelineCreateInfo pipeline_info;
     VkShaderModule module;
     VkResult vr;
@@ -143,7 +144,9 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
 
     pipeline_info.stage.pNext = required_size;
 
+    cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, pipeline));
+    vkd3d_queue_timeline_trace_complete_pso_compile(&device->queue_timeline_trace, cookie, 0, "META COMP");
     VK_CALL(vkDestroyShaderModule(device->vk_device, module, NULL));
 
     return vr;
@@ -158,6 +161,7 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
     VkPipelineColorBlendAttachmentState blend_attachment;
     VkPipelineShaderStageCreateInfo shader_stages[3];
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     VkPipelineInputAssemblyStateCreateInfo ia_state;
     VkPipelineRasterizationStateCreateInfo rs_state;
     VkPipelineRenderingCreateInfoKHR rendering_info;
@@ -297,9 +301,11 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
                 VK_SHADER_STAGE_FRAGMENT_BIT, fs_module, "main", spec_info);
     }
 
+    cookie = vkd3d_queue_timeline_trace_register_pso_compile(&meta_ops->device->queue_timeline_trace);
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(meta_ops->device->vk_device,
             VK_NULL_HANDLE, 1, &pipeline_info, NULL, vk_pipeline))))
         ERR("Failed to create graphics pipeline, vr %d.\n", vr);
+    vkd3d_queue_timeline_trace_complete_pso_compile(&meta_ops->device->queue_timeline_trace, cookie, 0, "META GFX");
 
     return vr;
 }
