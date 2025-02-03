@@ -388,7 +388,7 @@ void vkd3d_queue_timeline_trace_close_command_list(struct vkd3d_queue_timeline_t
         struct vkd3d_queue_timeline_trace_cookie cookie)
 {
     struct vkd3d_queue_timeline_trace_state *state;
-    if (!trace->active || cookie.index == 0)
+    if (!trace->active || cookie.index == 0 || !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_QUEUE_PROFILE_EXTRA))
         return;
 
     state = &trace->state[cookie.index];
@@ -408,6 +408,11 @@ void vkd3d_queue_timeline_trace_register_instantaneous(struct vkd3d_queue_timeli
 {
     struct vkd3d_queue_timeline_trace_state *state;
     unsigned int index;
+
+    /* Most of the instantaneous events are very spammy and rarely show anything actionable. */
+    if (type != VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_QUEUE_PRESENT &&
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_QUEUE_PROFILE_EXTRA))
+        return;
 
     if (!trace->active)
         return;
