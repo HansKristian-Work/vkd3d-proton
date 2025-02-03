@@ -633,7 +633,7 @@ void test_shader_sm66_quad_op_semantics(void)
     unsigned int i, x, y;
 
 #include "shaders/sm_advanced/headers/cs_quad_swap_2d_sm66.h"
-#include "shaders/sm_advanced/headers/cs_quad_swap_2d_sm60.h"
+/*#include "shaders/sm_advanced/headers/cs_quad_swap_2d_sm60.h"*/
 #include "shaders/sm_advanced/headers/cs_quad_swap_2d_unaligned.h"
 
     struct test
@@ -653,7 +653,9 @@ void test_shader_sm66_quad_op_semantics(void)
      */
     static const struct test tests[] =
     {
-        { &cs_quad_swap_2d_sm60_dxil, 2, 2, D3D_SHADER_MODEL_6_0, false },
+        /* There is no well defined mapping between threadID and lanes in pre SM6.6. This test isn't technically valid.
+         * It needs to be rewritten, but it's not exactly a very exciting test either ...
+         * { &cs_quad_swap_2d_sm60_dxil, 2, 2, D3D_SHADER_MODEL_6_0, false },*/
         { &cs_quad_swap_2d_sm66_dxil, 2, 2, D3D_SHADER_MODEL_6_6, true },
         { &cs_quad_swap_2d_unaligned_dxil, 2, 2, D3D_SHADER_MODEL_6_6, false },
     };
