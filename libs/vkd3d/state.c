@@ -2940,6 +2940,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     VkPipelineCreationFeedbackCreateInfo feedback_info;
     struct vkd3d_shader_debug_ring_spec_info spec_info;
     struct vkd3d_shader_code_debug *spirv_code_debug;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     VkPipelineCreationFeedbackEXT feedbacks[1];
     VkComputePipelineCreateInfo pipeline_info;
     VkPipelineCreationFeedbackEXT feedback;
@@ -3016,8 +3017,30 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     if (state->compute.code.meta.flags & VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS)
         pipeline_info.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
 
+    cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
+
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, &state->compute.vk_pipeline));
+
+    if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+    {
+        const char *kind;
+
+        if (vr == VK_SUCCESS)
+        {
+            if (pipeline_info.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT)
+                kind = "COMP IDENT OK";
+            else
+                kind = "COMP OK";
+        }
+        else if (vr == VK_PIPELINE_COMPILE_REQUIRED)
+            kind = "COMP MISS";
+        else
+            kind = "COMP ERR";
+
+        vkd3d_queue_timeline_trace_complete_pso_compile(&device->queue_timeline_trace,
+                cookie, vkd3d_pipeline_cache_compatibility_condense(&state->pipeline_cache_compat), kind);
+    }
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
@@ -3052,8 +3075,17 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
         vk_remove_struct(&pipeline_info.stage,
                 VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_MODULE_IDENTIFIER_CREATE_INFO_EXT);
 
+        cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
+
         vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
                 vk_cache, 1, &pipeline_info, NULL, &state->compute.vk_pipeline));
+
+        if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+        {
+            const char *kind = vr == VK_SUCCESS ? "FALLBACK OK" : "FALLBACK ERR";
+            vkd3d_queue_timeline_trace_complete_pso_compile(&device->queue_timeline_trace,
+                    cookie, vkd3d_pipeline_cache_compatibility_condense(&state->pipeline_cache_compat), kind);
+        }
     }
 
     TRACE("Called vkCreateComputePipelines.\n");
@@ -5777,6 +5809,7 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     struct vkd3d_fragment_output_pipeline_desc fragment_output_desc;
     struct vkd3d_vertex_input_pipeline_desc vertex_input_desc;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     VkPipelineLibraryCreateInfoKHR library_info;
     VkGraphicsPipelineCreateInfo create_info;
     VkPipeline vk_libraries[3];
@@ -5822,8 +5855,17 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
     if (!key)
         create_info.flags |= VK_PIPELINE_CREATE_LINK_TIME_OPTIMIZATION_BIT_EXT;
 
+    cookie = vkd3d_queue_timeline_trace_register_pso_compile(&state->device->queue_timeline_trace);
+
     vr = VK_CALL(vkCreateGraphicsPipelines(state->device->vk_device,
             vk_cache, 1, &create_info, NULL, vk_pipeline));
+
+    if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+    {
+        const char *kind = vr == VK_SUCCESS ? "LINK OK" : "LINK ERR";
+        vkd3d_queue_timeline_trace_complete_pso_compile(&state->device->queue_timeline_trace,
+                cookie, vkd3d_pipeline_cache_compatibility_condense(&state->pipeline_cache_compat), kind);
+    }
 
     if (vr != VK_SUCCESS && vr != VK_PIPELINE_COMPILE_REQUIRED)
     {
@@ -5851,6 +5893,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     VkPipelineMultisampleStateCreateInfo multisample_info;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
@@ -6021,7 +6064,29 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     else
         feedback_info.pipelineStageCreationFeedbackCount = 0;
 
+    cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
+
     vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline));
+
+    if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+    {
+        const char *kind;
+
+        if (vr == VK_SUCCESS)
+        {
+            if (pipeline_desc.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT)
+                kind = "GFX IDENT OK";
+            else
+                kind = "GFX OK";
+        }
+        else if (vr == VK_PIPELINE_COMPILE_REQUIRED)
+            kind = "GFX MISS";
+        else
+            kind = "GFX ERR";
+
+        vkd3d_queue_timeline_trace_complete_pso_compile(&device->queue_timeline_trace,
+                cookie, vkd3d_pipeline_cache_compatibility_condense(&state->pipeline_cache_compat), kind);
+    }
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
@@ -6048,7 +6113,16 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         pipeline_desc.flags &= ~VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
         /* Internal modules are known to be non-null now. */
         pipeline_desc.pStages = state->graphics.stages;
+
+        cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
         vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline));
+
+        if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+        {
+            const char *kind = vr == VK_SUCCESS ? "FALLBACK OK" : "FALLBACK ERR";
+            vkd3d_queue_timeline_trace_complete_pso_compile(&device->queue_timeline_trace,
+                    cookie, vkd3d_pipeline_cache_compatibility_condense(&state->pipeline_cache_compat), kind);
+        }
     }
 
     TRACE("Completed vkCreateGraphicsPipelines.\n");
