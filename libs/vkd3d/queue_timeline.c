@@ -216,6 +216,27 @@ void vkd3d_queue_timeline_trace_complete_present_wait(struct vkd3d_queue_timelin
     vkd3d_queue_timeline_trace_free_index(trace, cookie.index);
 }
 
+void vkd3d_queue_timeline_trace_complete_pso_compile(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie, uint64_t pso_hash, const char *completion_kind)
+{
+    const struct vkd3d_queue_timeline_trace_state *state;
+    double end_ts, start_ts;
+    unsigned int tid;
+
+    if (!trace->active || cookie.index == 0)
+        return;
+
+    state = &trace->state[cookie.index];
+    end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
+    start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
+
+    tid = vkd3d_get_current_thread_id();
+    fprintf(trace->file, "{ \"name\": \"%016"PRIx64" %s\", \"ph\": \"X\", \"tid\": \"0x%04x\", \"pid\": \"pso\", \"ts\": %f, \"dur\": %f },\n",
+            pso_hash, completion_kind, tid, start_ts, end_ts - start_ts);
+
+    vkd3d_queue_timeline_trace_free_index(trace, cookie.index);
+}
+
 void vkd3d_queue_timeline_trace_complete_blocking(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie, const char *pid)
 {
@@ -441,6 +462,13 @@ vkd3d_queue_timeline_trace_register_present_wait(struct vkd3d_queue_timeline_tra
     char str[128];
     snprintf(str, sizeof(str), "WAIT (id = %"PRIu64")", present_id);
     return vkd3d_queue_timeline_trace_register_generic_op(trace, VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_WAIT, str);
+}
+
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_pso_compile(struct vkd3d_queue_timeline_trace *trace)
+{
+    /* Details are filled in later. */
+    return vkd3d_queue_timeline_trace_register_generic_op(trace, VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PSO_COMPILATION, "");
 }
 
 struct vkd3d_queue_timeline_trace_cookie
