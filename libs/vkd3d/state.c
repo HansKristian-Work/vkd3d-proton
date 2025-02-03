@@ -465,8 +465,13 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
 
 static bool d3d12_root_signature_may_require_global_heap_binding(void)
 {
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    /* Expect-assume path always wants to see global heap binding for size query purposes. */
+    return true;
+#else
     /* Robustness purposes, we may access the global heap out of band of the root signature. */
     return d3d12_descriptor_heap_require_padding_descriptors();
+#endif
 }
 
 static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_info *info,
