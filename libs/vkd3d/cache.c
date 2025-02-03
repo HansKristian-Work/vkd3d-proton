@@ -2759,7 +2759,7 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
     }
 }
 
-static uint64_t vkd3d_pipeline_cache_compatibility_condense(const struct vkd3d_pipeline_cache_compatibility *compat)
+uint64_t vkd3d_pipeline_cache_compatibility_condense(const struct vkd3d_pipeline_cache_compatibility *compat)
 {
     unsigned int i;
     uint64_t h;
