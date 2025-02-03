@@ -2378,6 +2378,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
 bool d3d12_cached_pipeline_state_is_dummy(const struct d3d12_cached_pipeline_state *state);
 void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_compatibility *compat,
         const struct d3d12_pipeline_state_desc *desc);
+uint64_t vkd3d_pipeline_cache_compatibility_condense(const struct vkd3d_pipeline_cache_compatibility *compat);
 
 ULONG d3d12_pipeline_library_inc_public_ref(struct d3d12_pipeline_library *state);
 ULONG d3d12_pipeline_library_dec_public_ref(struct d3d12_pipeline_library *state);
