@@ -218,6 +218,8 @@ struct vkd3d_vulkan_info
     unsigned int extension_count;
     const char* const* extension_names;
 
+    bool supports_cubin_64bit;
+
     bool rasterization_stream;
     unsigned int max_vertex_attrib_divisor;
 
