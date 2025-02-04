@@ -258,6 +258,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx(d3d
     return S_OK;
 }
 
+static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SupportsCubin64bit(d3d12_device_vkd3d_ext_iface *iface)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    TRACE("iface %p.\n", iface);
+
+    return device->vk_info.supports_cubin_64bit && vk_procs->vkGetImageViewHandle64NVX;
+}
+
 CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
