@@ -351,6 +351,53 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaMergedTextureSamp
     return S_OK;
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaIndependentDescriptorObject(d3d12_device_vkd3d_ext_iface *iface,
+       D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_PARAMS *params)
+{
+    VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct d3d12_desc_split desc;
+
+    TRACE("iface %p, desc %zu, type %d.\n",
+            iface, (size_t)params->desc, params->type);
+
+    if (!device->vk_info.supports_cubin_64bit || !vk_procs->vkGetImageViewHandle64NVX)
+        return E_NOTIMPL;
+    
+    if (params->pNext)
+    {
+        FIXME("pNext not supported.\n");
+        params->pNext = NULL;
+    }
+
+    desc = d3d12_desc_decode_va(params->desc);
+
+    if (!(desc.view->info.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
+        return E_INVALIDARG;
+
+    imageViewHandleInfo.imageView = desc.view->info.image.view->vk_image_view;
+
+    switch (params->type)
+    {
+        case D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_SURFACE:
+            imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            break;
+        case D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_TEXTURE:
+            imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            break;
+        case D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_SAMPLER:
+            FIXME("SAMPLER object type not supported.\n");
+            return E_FAIL;
+        default:
+            ERR("Unsupported object type %d\n", params->type);
+            return E_INVALIDARG;
+    }
+
+    params->handle = VK_CALL(vkGetImageViewHandle64NVX(device->vk_device, &imageViewHandleInfo));
+    return S_OK;
+}
+
 CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
