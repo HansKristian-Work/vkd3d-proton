@@ -232,6 +232,11 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
         }
     }
 
+    if (vulkan_info->NVX_binary_import && vulkan_info->NVX_image_view_handle &&
+            has_extension(extensions, count, VK_NVX_BINARY_IMPORT_EXTENSION_NAME, 2) &&
+            has_extension(extensions, count, VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME, 3))
+        vulkan_info->supports_cubin_64bit = true;
+
     for (i = 0; i < user_extension_count; ++i)
     {
         if (!has_extension(extensions, count, user_extensions[i], 0))
