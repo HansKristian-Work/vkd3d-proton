@@ -2728,6 +2728,10 @@ static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
     if (get_spec_version(vk_extensions, count, VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME) < 3)
         vulkan_info->EXT_vertex_attribute_divisor = false;
 
+    vulkan_info->supports_cubin_64bit = vulkan_info->NVX_binary_import && vulkan_info->NVX_image_view_handle &&
+            get_spec_version(vk_extensions, count, VK_NVX_BINARY_IMPORT_EXTENSION_NAME) >= 2 &&
+            get_spec_version(vk_extensions, count, VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME) >= 3;
+
     vkd3d_free(vk_extensions);
     return S_OK;
 }
