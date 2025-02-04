@@ -399,7 +399,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaIndependentDescri
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
+CONST_VTBL struct ID3D12DeviceExt2Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_vkd3d_ext_QueryInterface,
@@ -418,6 +418,12 @@ CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
     /* ID3D12DeviceExt1 methods */
     d3d12_device_vkd3d_ext_CreateResourceFromBorrowedHandle,
     d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx,
+
+    /* ID3D12DeviceExt2 methods */
+    d3d12_device_vkd3d_ext_SupportsCubin64bit,
+    d3d12_device_vkd3d_ext_CreateCubinComputeShaderExV2,
+    d3d12_device_vkd3d_ext_GetCudaMergedTextureSamplerObject,
+    d3d12_device_vkd3d_ext_GetCudaIndependentDescriptorObject,
 };
 
 
