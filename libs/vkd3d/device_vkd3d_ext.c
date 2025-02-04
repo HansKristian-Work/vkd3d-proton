@@ -88,31 +88,45 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(d3d12_d
     return ret_val;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShaderWithName(d3d12_device_vkd3d_ext_iface *iface, const void *cubin_data,
-       UINT32 cubin_size, UINT32 block_x, UINT32 block_y, UINT32 block_z, const char *shader_name, D3D12_CUBIN_DATA_HANDLE **out_handle)
+static HRESULT d3d12_device_vkd3d_ext_create_cubin_compute_shader(struct d3d12_device *device,
+       const void *cubin_data, UINT32 cubin_size, UINT32 block_x, UINT32 block_y, UINT32 block_z,
+       const char *shader_name, bool use_64bit_texturing, UINT32 flags, D3D12_CUBIN_DATA_HANDLE **out_handle)
 {
     VkCuFunctionCreateInfoNVX functionCreateInfo = { VK_STRUCTURE_TYPE_CU_FUNCTION_CREATE_INFO_NVX };
     VkCuModuleCreateInfoNVX moduleCreateInfo = { VK_STRUCTURE_TYPE_CU_MODULE_CREATE_INFO_NVX };
+    VkCuModuleTexturingModeCreateInfoNVX moduleTexturingModeCreateInfo;
     const struct vkd3d_vk_device_procs *vk_procs;
     D3D12_CUBIN_DATA_HANDLE *handle;
-    struct d3d12_device *device;
     VkDevice vk_device;
     VkResult vr;
-    
-    TRACE("iface %p, cubin_data %p, cubin_size %u, shader_name %s\n", iface, cubin_data, cubin_size, shader_name);
-    if (!cubin_data || !cubin_size || !shader_name)
-        return E_INVALIDARG;    
 
-    device = d3d12_device_from_ID3D12DeviceExt(iface);
+    if (!cubin_data || !cubin_size || !shader_name || flags)
+        return E_INVALIDARG;
+
+    vk_procs = &device->vk_procs;
+
+    if (use_64bit_texturing)
+    {
+        if (!device->vk_info.supports_cubin_64bit || !vk_procs->vkGetImageViewHandle64NVX)
+            return E_NOTIMPL;
+
+        moduleTexturingModeCreateInfo.sType = VK_STRUCTURE_TYPE_CU_MODULE_TEXTURING_MODE_CREATE_INFO_NVX;
+        moduleTexturingModeCreateInfo.pNext = NULL;
+        moduleTexturingModeCreateInfo.use64bitTexturing = VK_TRUE;
+        moduleCreateInfo.pNext = &moduleTexturingModeCreateInfo;
+    }
+
     vk_device = device->vk_device;
     handle = vkd3d_calloc(1, sizeof(D3D12_CUBIN_DATA_HANDLE));
+    if (!handle)
+        return E_OUTOFMEMORY;
+
     handle->blockX = block_x;
     handle->blockY = block_y;
     handle->blockZ = block_z;
 
     moduleCreateInfo.pData = cubin_data;
     moduleCreateInfo.dataSize = cubin_size;
-    vk_procs = &device->vk_procs;
     if ((vr = VK_CALL(vkCreateCuModuleNVX(vk_device, &moduleCreateInfo, NULL, &handle->vkCuModule))) < 0)
     {
         ERR("Failed to create cubin shader, vr %d.\n", vr);
@@ -130,9 +144,20 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShader
         vkd3d_free(handle);
         return hresult_from_vk_result(vr);
     }
-    
+
     *out_handle = handle;
     return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShaderWithName(d3d12_device_vkd3d_ext_iface *iface, const void *cubin_data,
+       UINT32 cubin_size, UINT32 block_x, UINT32 block_y, UINT32 block_z, const char *shader_name, D3D12_CUBIN_DATA_HANDLE **out_handle)
+{
+    TRACE("iface %p, cubin_data %p, cubin_size %"PRIu32", block_x %"PRIu32", block_y %"PRIu32", block_z %"PRIu32", shader_name %s\n",
+            iface, cubin_data, cubin_size, block_x, block_y, block_z, shader_name);
+
+    return d3d12_device_vkd3d_ext_create_cubin_compute_shader(d3d12_device_from_ID3D12DeviceExt(iface),
+            cubin_data, cubin_size, block_x, block_y, block_z,
+            shader_name, false, 0, out_handle);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_DestroyCubinComputeShader(d3d12_device_vkd3d_ext_iface *iface, D3D12_CUBIN_DATA_HANDLE *handle)
@@ -266,6 +291,23 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SupportsCubin64bit(d3d12_de
     TRACE("iface %p.\n", iface);
 
     return device->vk_info.supports_cubin_64bit && vk_procs->vkGetImageViewHandle64NVX;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShaderExV2(d3d12_device_vkd3d_ext_iface *iface,
+       D3D12_CREATE_CUBIN_SHADER_PARAMS *params)
+{
+    TRACE("iface %p, cubin_data %p, cubin_size %"PRIu32", block_x %"PRIu32", block_y %"PRIu32", block_z %"PRIu32", shader_name %s, flags %"PRIx32"\n",
+            iface, params->pCubin, params->size, params->blockX, params->blockY, params->blockZ, params->pShaderName, params->flags);
+    
+    if (params->pNext)
+    {
+        FIXME("pNext not supported.\n");
+        params->pNext = NULL;
+    }
+
+    return d3d12_device_vkd3d_ext_create_cubin_compute_shader(d3d12_device_from_ID3D12DeviceExt(iface),
+            params->pCubin, params->size, params->blockX, params->blockY, params->blockZ,
+            params->pShaderName, true, params->flags, &params->hShader);
 }
 
 CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
