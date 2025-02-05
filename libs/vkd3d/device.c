@@ -611,6 +611,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * although that only seems to matter when FSR/DLSS injectors are used. */
     { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe",
             VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
+    /* Catch-all for benchmark and presumably the beta. There is an impossible amdgpu bug with PRT sparse. */
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "MonsterHunterWilds", VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
