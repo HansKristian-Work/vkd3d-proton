@@ -473,7 +473,7 @@ void test_update_tile_mappings_remap_stress(void)
                 ID3D12Resource_GetGPUVirtualAddress(resource) + OFFSET_INTO_PAGE);
         ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1,
                 ID3D12Resource_GetGPUVirtualAddress(output_resource));
-        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 64, 1, 1);
         transition_resource_state(context.list, output_resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_COPY_SOURCE);
         get_buffer_readback_with_command_list(output_resource, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
