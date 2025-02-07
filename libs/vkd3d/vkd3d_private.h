@@ -243,8 +243,6 @@ struct vkd3d_fence_wait_info
     uint64_t vk_semaphore_value;
     uint64_t virtual_value;
     uint64_t update_count;
-    struct d3d12_command_allocator **command_allocators;
-    size_t num_command_allocators;
     bool signal;
     vkd3d_waiting_fence_callback release_callback;
     unsigned char userdata[32];
