@@ -34,7 +34,6 @@ vkd3d_shaders =[
   'shaders/vs_swapchain_fullscreen.vert',
   'shaders/fs_swapchain_fullscreen.frag',
   'shaders/cs_execute_indirect_patch.comp',
-  'shaders/cs_execute_indirect_patch_debug_ring.comp',
   'shaders/cs_execute_indirect_multi_dispatch.comp',
   'shaders/cs_execute_indirect_multi_dispatch_state.comp',
 
@@ -60,6 +59,10 @@ vkd3d_shaders =[
   'shaders/cs_workgraph_distribute_payload_offsets.comp',
   'shaders/cs_workgraph_complete_compaction.comp',
   'shaders/cs_workgraph_setup_gpu_input.comp',
+
+  'shaders/cs_execute_indirect_debug_ring.comp',
+  'shaders/cs_execute_indirect_patch_debug_ring.comp',
+  'shaders/cs_execute_indirect_multi_dispatch_state_debug_ring.comp',
 ]
 
 vkd3d_src = [
