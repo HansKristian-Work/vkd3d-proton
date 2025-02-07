@@ -448,12 +448,29 @@ static void *vkd3d_waiting_fence_set_callback(struct vkd3d_fence_wait_info *fenc
     return callback ? fence_info->userdata : NULL;
 }
 
+struct vkd3d_waiting_fence_submission_info
+{
+    struct d3d12_command_allocator **command_allocators;
+    size_t num_command_allocators;
+};
+
+static void vkd3d_waiting_fence_release_submission(struct vkd3d_fence_worker *worker,
+        void *userdata, bool complete)
+{
+    struct vkd3d_waiting_fence_submission_info *info = userdata;
+    size_t i;
+
+    for (i = 0; i < info->num_command_allocators; i++)
+        d3d12_command_allocator_dec_ref(info->command_allocators[i]);
+
+    vkd3d_free(info->command_allocators);
+}
+
 HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         const struct vkd3d_fence_wait_info *fence_info,
         const struct vkd3d_queue_timeline_trace_cookie *timeline_cookie)
 {
     struct vkd3d_waiting_fence *waiting_fence;
-    size_t i;
     int rc;
 
     TRACE("worker %p, fence %p, value %#"PRIx64", vk_semaphore %p, vk_semaphore_value %#"PRIx64", signal %d.\n",
@@ -463,9 +480,6 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
     if ((rc = pthread_mutex_lock(&worker->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        for (i = 0; i < fence_info->num_command_allocators; i++)
-            d3d12_command_allocator_dec_ref(fence_info->command_allocators[i]);
-        vkd3d_free(fence_info->command_allocators);
         vkd3d_waiting_fence_release(worker, fence_info, false);
         if (timeline_cookie)
         {
@@ -480,9 +494,6 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
     {
         ERR("Failed to add GPU timeline semaphore.\n");
         pthread_mutex_unlock(&worker->mutex);
-        for (i = 0; i < fence_info->num_command_allocators; i++)
-            d3d12_command_allocator_dec_ref(fence_info->command_allocators[i]);
-        vkd3d_free(fence_info->command_allocators);
         vkd3d_waiting_fence_release(worker, fence_info, false);
         if (timeline_cookie)
         {
@@ -514,10 +525,6 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
 static void vkd3d_waiting_fence_complete_submissions(struct d3d12_device *device,
         struct vkd3d_fence_worker *worker, const struct vkd3d_waiting_fence *fence, bool complete)
 {
-    size_t i;
-    for (i = 0; i < fence->fence_info.num_command_allocators; i++)
-        d3d12_command_allocator_dec_ref(fence->fence_info.command_allocators[i]);
-    vkd3d_free(fence->fence_info.command_allocators);
     vkd3d_waiting_fence_release(worker, &fence->fence_info, complete);
     vkd3d_queue_timeline_trace_complete_execute(&device->queue_timeline_trace, worker, fence->timeline_cookie);
 }
@@ -576,10 +583,6 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     if (fence->fence_info.fence)
         d3d12_fence_iface_dec_ref(fence->fence_info.fence);
 
-    /* Submission release should only be paired with an execute command.
-     * Such execute commands can be paired with a d3d12_fence_dec_ref(),
-     * but no signalling operation. */
-    assert(!fence->fence_info.num_command_allocators || !fence->fence_info.signal);
     vkd3d_waiting_fence_complete_submissions(device, worker, fence, true);
 }
 
@@ -18889,6 +18892,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
+    struct vkd3d_waiting_fence_submission_info *submission_info;
     VkLatencySubmissionPresentIdNV latency_submit_present_info;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkSemaphoreSubmitInfo signal_semaphore_infos[2];
@@ -19121,8 +19125,11 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         memset(&fence_info, 0, sizeof(fence_info));
         fence_info.vk_semaphore = vkd3d_queue->submission_timeline;
         fence_info.vk_semaphore_value = signal_semaphore_infos[0].value;
-        fence_info.command_allocators = exec->command_allocators;
-        fence_info.num_command_allocators = exec->num_command_allocators;
+
+        submission_info = vkd3d_waiting_fence_set_callback(&fence_info,
+                &vkd3d_waiting_fence_release_submission, sizeof(*submission_info));
+        submission_info->command_allocators = exec->command_allocators;
+        submission_info->num_command_allocators = exec->num_command_allocators;
 
         if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &exec->timeline_cookie)))
         {
