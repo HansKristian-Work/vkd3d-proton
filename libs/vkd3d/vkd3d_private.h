@@ -238,12 +238,8 @@ typedef void (*vkd3d_waiting_fence_callback)(struct vkd3d_fence_worker *, void *
 
 struct vkd3d_fence_wait_info
 {
-    d3d12_fence_iface *fence;
     VkSemaphore vk_semaphore;
     uint64_t vk_semaphore_value;
-    uint64_t virtual_value;
-    uint64_t update_count;
-    bool signal;
     vkd3d_waiting_fence_callback release_callback;
     unsigned char userdata[32];
 };
