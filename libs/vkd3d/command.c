@@ -586,7 +586,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSemaphoreWaitInfo wait_info;
     uint64_t timeout = UINT64_MAX;
-    int vr;
+    VkResult vr;
 
     TRACE("worker %p, vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", worker,
             fence->fence_info.vk_semaphore, fence->fence_info.vk_semaphore_value);
