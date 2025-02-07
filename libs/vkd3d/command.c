@@ -466,6 +466,43 @@ static void vkd3d_waiting_fence_release_submission(struct vkd3d_fence_worker *wo
     vkd3d_free(info->command_allocators);
 }
 
+struct vkd3d_waiting_fence_signal_info
+{
+    struct d3d12_fence *fence;
+    uint64_t virtual_value;
+    uint64_t update_count;
+};
+
+static void vkd3d_waiting_fence_signal_fence(struct vkd3d_fence_worker *worker,
+        void *userdata, bool complete)
+{
+    struct vkd3d_waiting_fence_signal_info *info = userdata;
+    HRESULT hr;
+
+    if (complete)
+    {
+        TRACE("Signaling fence %p to virtual value %"PRIu64".\n", info->fence, info->virtual_value);
+
+        if (FAILED(hr = d3d12_fence_signal(info->fence, worker, info->update_count)))
+            ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
+    }
+
+    d3d12_fence_dec_ref(info->fence);
+}
+
+struct vkd3d_waiting_fence_release_info
+{
+    d3d12_fence_iface *fence;
+};
+
+static void vkd3d_waiting_fence_release_fence(struct vkd3d_fence_worker *worker,
+        void *userdata, bool complete)
+{
+    struct vkd3d_waiting_fence_release_info *info = userdata;
+
+    d3d12_fence_iface_dec_ref(info->fence);
+}
+
 HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         const struct vkd3d_fence_wait_info *fence_info,
         const struct vkd3d_queue_timeline_trace_cookie *timeline_cookie)
@@ -473,9 +510,8 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
     struct vkd3d_waiting_fence *waiting_fence;
     int rc;
 
-    TRACE("worker %p, fence %p, value %#"PRIx64", vk_semaphore %p, vk_semaphore_value %#"PRIx64", signal %d.\n",
-            worker, fence_info->fence, fence_info->virtual_value, fence_info->vk_semaphore,
-            fence_info->vk_semaphore_value, fence_info->signal);
+    TRACE("worker %p, vk_semaphore %p, vk_semaphore_value %#"PRIx64", callback %p.\n",
+            worker, fence_info->vk_semaphore, fence_info->vk_semaphore_value, fence_info->release_callback);
 
     if ((rc = pthread_mutex_lock(&worker->mutex)))
     {
@@ -502,9 +538,6 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         }
         return E_OUTOFMEMORY;
     }
-
-    if (fence_info->fence)
-        d3d12_fence_iface_inc_ref(fence_info->fence);
 
     waiting_fence = &worker->enqueued_fences[worker->enqueued_fence_count];
     memcpy(&waiting_fence->fence_info, fence_info, sizeof(*fence_info));
@@ -533,10 +566,8 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
 {
     struct d3d12_device *device = worker->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct d3d12_fence *local_fence;
     VkSemaphoreWaitInfo wait_info;
     uint64_t timeout = UINT64_MAX;
-    HRESULT hr;
     int vr;
 
     TRACE("worker %p, vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", worker,
@@ -568,20 +599,6 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     /* This is a good time to kick the debug threads into action. */
     vkd3d_shader_debug_ring_kick(&device->debug_ring, device, false);
     vkd3d_descriptor_debug_kick_qa_check(device->descriptor_qa_global_info);
-
-    if (fence->fence_info.fence && !is_shared_ID3D12Fence1(fence->fence_info.fence) && fence->fence_info.signal)
-    {
-        local_fence = impl_from_ID3D12Fence1(fence->fence_info.fence);
-
-        TRACE("Signaling fence %p to virtual value %"PRIu64".\n", local_fence,
-                fence->fence_info.virtual_value);
-
-        if (FAILED(hr = d3d12_fence_signal(local_fence, worker, fence->fence_info.update_count)))
-            ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
-    }
-
-    if (fence->fence_info.fence)
-        d3d12_fence_iface_dec_ref(fence->fence_info.fence);
 
     vkd3d_waiting_fence_complete_submissions(device, worker, fence, true);
 }
@@ -18123,7 +18140,6 @@ static void d3d12_command_queue_push_fence_waits_to_worker(struct d3d12_command_
         if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
         {
             memset(&fence_info, 0, sizeof(fence_info));
-            fence_info.fence = &fence_wait->fence->ID3D12Fence_iface;
             fence_info.vk_semaphore = fence_wait->vk_semaphore;
             fence_info.vk_semaphore_value = fence_wait->vk_semaphore_value;
 
@@ -18411,6 +18427,7 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
 static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue,
         struct d3d12_fence *fence, UINT64 value)
 {
+    struct vkd3d_waiting_fence_signal_info *signal_info;
     struct vkd3d_queue_timeline_trace_cookie cookie;
     struct vkd3d_fence_wait_info fence_info;
     uint64_t update_count;
@@ -18429,12 +18446,16 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     update_count = d3d12_fence_add_pending_signal_locked(fence, value, command_queue);
 
     memset(&fence_info, 0, sizeof(fence_info));
-    fence_info.fence = &fence->ID3D12Fence_iface;
     fence_info.vk_semaphore = command_queue->vkd3d_queue->submission_timeline;
     fence_info.vk_semaphore_value = command_queue->last_submission_timeline_value;
-    fence_info.virtual_value = value;
-    fence_info.update_count = update_count;
-    fence_info.signal = true;
+
+    signal_info = vkd3d_waiting_fence_set_callback(&fence_info,
+            &vkd3d_waiting_fence_signal_fence, sizeof(*signal_info));
+    signal_info->fence = fence;
+    signal_info->virtual_value = value;
+    signal_info->update_count = update_count;
+
+    d3d12_fence_inc_ref(signal_info->fence);
 
     if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &cookie)))
         ERR("Failed to enqueue timeline semaphore, hr #%x.\n", hr);
@@ -18473,6 +18494,7 @@ static void d3d12_command_queue_wait_shared(struct d3d12_command_queue *command_
 static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *command_queue,
         struct d3d12_shared_fence *fence, UINT64 value)
 {
+    struct vkd3d_waiting_fence_release_info *release_info;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     struct vkd3d_fence_wait_info fence_info;
@@ -18532,10 +18554,14 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     memset(&fence_info, 0, sizeof(fence_info));
-    fence_info.fence = &fence->ID3D12Fence_iface;
     fence_info.vk_semaphore = vkd3d_queue->submission_timeline;
     fence_info.vk_semaphore_value = vkd3d_queue->submission_timeline_count;
-    fence_info.signal = true;
+
+    release_info = vkd3d_waiting_fence_set_callback(&fence_info,
+            &vkd3d_waiting_fence_release_fence, sizeof(*release_info));
+    release_info->fence = &fence->ID3D12Fence_iface;
+
+    d3d12_shared_fence_inc_ref(fence);
 
     if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, NULL)))
     {
