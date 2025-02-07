@@ -466,6 +466,24 @@ static void vkd3d_waiting_fence_release_submission(struct vkd3d_fence_worker *wo
     vkd3d_free(info->command_allocators);
 }
 
+struct vkd3d_waiting_fence_sparse_bind_info
+{
+    struct d3d12_resource **resources;
+    size_t num_resources;
+};
+
+static void vkd3d_waiting_fence_release_sparse_resources(struct vkd3d_fence_worker *worker,
+        void *userdata, bool complete)
+{
+    struct vkd3d_waiting_fence_sparse_bind_info *info = userdata;
+    size_t i;
+
+    for (i = 0; i < info->num_resources; i++)
+        d3d12_resource_decref(info->resources[i]);
+
+    vkd3d_free(info->resources);
+}
+
 struct vkd3d_waiting_fence_signal_info
 {
     struct d3d12_fence *fence;
@@ -17597,6 +17615,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
         goto fail;
 
     vkd3d_free(bound_tiles);
+
+    d3d12_resource_incref(res);
     d3d12_command_queue_add_submission(command_queue, &sub);
     return;
 
@@ -17652,6 +17672,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
         }
     }
 
+    d3d12_resource_incref(dst_res);
     d3d12_command_queue_add_submission(command_queue, &sub);
     return;
 
@@ -19211,7 +19232,7 @@ static void d3d12_command_queue_flush_bind_sparse(struct d3d12_command_queue *co
 
 static void d3d12_command_queue_register_sparse_hazard(
         struct d3d12_command_queue *command_queue,
-        const struct d3d12_resource *dst_resource,
+        struct d3d12_resource *dst_resource,
         const struct vkd3d_sparse_memory_bind *binds, unsigned int count)
 {
     const struct vkd3d_sparse_memory_bind *bind;
@@ -19235,6 +19256,8 @@ static void d3d12_command_queue_register_sparse_hazard(
                 vkd3d_calloc(align(dst_resource->sparse.tile_count, 32) / 32, sizeof(uint32_t));
         command_queue->sparse.tracked_count++;
         check_hazard = false;
+
+        d3d12_resource_incref(dst_resource);
     }
 
     tile_mask = command_queue->sparse.tracked[tracker_index].tile_mask;
@@ -19258,6 +19281,8 @@ static void d3d12_command_queue_register_sparse_hazard(
                 command_queue->sparse.tracked[0].tile_mask = tile_mask;
                 command_queue->sparse.tracked_count = 1;
                 memset(tile_mask, 0, align(dst_resource->sparse.tile_count, 32) / 8);
+
+                d3d12_resource_incref(dst_resource);
                 break;
             }
         }
@@ -19451,10 +19476,13 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 
 cleanup:
     vkd3d_free(bind_ranges);
+
+    d3d12_resource_decref(dst_resource);
 }
 
 static void d3d12_command_queue_flush_bind_sparse(struct d3d12_command_queue *command_queue)
 {
+    struct vkd3d_waiting_fence_sparse_bind_info *resource_info;
     struct vkd3d_queue_timeline_trace_cookie cookie;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkTimelineSemaphoreSubmitInfo timeline_info;
@@ -19554,15 +19582,26 @@ static void d3d12_command_queue_flush_bind_sparse(struct d3d12_command_queue *co
     fence_info.vk_semaphore = queue->submission_timeline;
     fence_info.vk_semaphore_value = queue->submission_timeline_count;
 
+    resource_info = vkd3d_waiting_fence_set_callback(&fence_info,
+            &vkd3d_waiting_fence_release_sparse_resources, sizeof(*resource_info));
+    resource_info->num_resources = command_queue->sparse.tracked_count;
+    resource_info->resources = vkd3d_calloc(resource_info->num_resources, sizeof(*resource_info->resources));
+
+    for (i = 0; i < command_queue->sparse.tracked_count; i++)
+    {
+        resource_info->resources[i] = command_queue->sparse.tracked[i].resource;
+        d3d12_resource_incref(resource_info->resources[i]);
+    }
+
     vkd3d_queue_release(queue);
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     vkd3d_queue_timeline_trace_complete_execute(&command_queue->device->queue_timeline_trace, &command_queue->fence_worker, cookie);
 
     cookie = vkd3d_queue_timeline_trace_register_sparse(&command_queue->device->queue_timeline_trace, command_queue->sparse.total_tiles);
-    if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
-        if (FAILED(vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &cookie)))
-            ERR("Failed to enqueue timeline semaphore.\n");
+
+    if (FAILED(vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &cookie)))
+        ERR("Failed to enqueue timeline semaphore.\n");
 
 cleanup:
     for (i = 0; i < command_queue->sparse.buffer_binds_count; i++)
@@ -19572,7 +19611,10 @@ cleanup:
     for (i = 0; i < command_queue->sparse.image_opaque_binds_count; i++)
         vkd3d_free((void *)command_queue->sparse.image_opaque_binds[i].pBinds);
     for (i = 0; i < command_queue->sparse.tracked_count; i++)
+    {
+        d3d12_resource_decref(command_queue->sparse.tracked[i].resource);
         vkd3d_free((void *)command_queue->sparse.tracked[i].tile_mask);
+    }
 
     command_queue->sparse.buffer_binds_count = 0;
     command_queue->sparse.image_binds_count = 0;
