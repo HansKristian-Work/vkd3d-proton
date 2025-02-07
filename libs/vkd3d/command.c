@@ -432,6 +432,22 @@ HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint64_t in
     return hresult_from_vk_result(vr);
 }
 
+static void vkd3d_waiting_fence_release(struct vkd3d_fence_worker *worker,
+        const struct vkd3d_fence_wait_info *fence_info, bool complete)
+{
+    if (fence_info->release_callback)
+        fence_info->release_callback(worker, (void *)fence_info->userdata, complete);
+}
+
+static void *vkd3d_waiting_fence_set_callback(struct vkd3d_fence_wait_info *fence_info,
+        vkd3d_waiting_fence_callback callback, size_t userdata_size)
+{
+    assert(userdata_size <= sizeof(fence_info->userdata));
+
+    fence_info->release_callback = callback;
+    return callback ? fence_info->userdata : NULL;
+}
+
 HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         const struct vkd3d_fence_wait_info *fence_info,
         const struct vkd3d_queue_timeline_trace_cookie *timeline_cookie)
@@ -450,6 +466,7 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         for (i = 0; i < fence_info->num_command_allocators; i++)
             d3d12_command_allocator_dec_ref(fence_info->command_allocators[i]);
         vkd3d_free(fence_info->command_allocators);
+        vkd3d_waiting_fence_release(worker, fence_info, false);
         if (timeline_cookie)
         {
             vkd3d_queue_timeline_trace_complete_execute(&worker->device->queue_timeline_trace,
@@ -466,6 +483,7 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         for (i = 0; i < fence_info->num_command_allocators; i++)
             d3d12_command_allocator_dec_ref(fence_info->command_allocators[i]);
         vkd3d_free(fence_info->command_allocators);
+        vkd3d_waiting_fence_release(worker, fence_info, false);
         if (timeline_cookie)
         {
             vkd3d_queue_timeline_trace_complete_execute(&worker->device->queue_timeline_trace,
@@ -478,7 +496,7 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         d3d12_fence_iface_inc_ref(fence_info->fence);
 
     waiting_fence = &worker->enqueued_fences[worker->enqueued_fence_count];
-    waiting_fence->fence_info = *fence_info;
+    memcpy(&waiting_fence->fence_info, fence_info, sizeof(*fence_info));
     if (timeline_cookie)
     {
         waiting_fence->timeline_cookie = *timeline_cookie;
@@ -493,13 +511,14 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
     return S_OK;
 }
 
-static void vkd3d_waiting_fence_release_submissions(struct d3d12_device *device,
-        struct vkd3d_fence_worker *worker, const struct vkd3d_waiting_fence *fence)
+static void vkd3d_waiting_fence_complete_submissions(struct d3d12_device *device,
+        struct vkd3d_fence_worker *worker, const struct vkd3d_waiting_fence *fence, bool complete)
 {
     size_t i;
     for (i = 0; i < fence->fence_info.num_command_allocators; i++)
         d3d12_command_allocator_dec_ref(fence->fence_info.command_allocators[i]);
     vkd3d_free(fence->fence_info.command_allocators);
+    vkd3d_waiting_fence_release(worker, &fence->fence_info, complete);
     vkd3d_queue_timeline_trace_complete_execute(&device->queue_timeline_trace, worker, fence->timeline_cookie);
 }
 
@@ -535,7 +554,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     {
         ERR("Failed to wait for Vulkan timeline semaphore, vr %d.\n", vr);
         VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST || vr == VK_TIMEOUT);
-        vkd3d_waiting_fence_release_submissions(device, worker, fence);
+        vkd3d_waiting_fence_complete_submissions(device, worker, fence, false);
         return;
     }
 
@@ -561,7 +580,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
      * Such execute commands can be paired with a d3d12_fence_dec_ref(),
      * but no signalling operation. */
     assert(!fence->fence_info.num_command_allocators || !fence->fence_info.signal);
-    vkd3d_waiting_fence_release_submissions(device, worker, fence);
+    vkd3d_waiting_fence_complete_submissions(device, worker, fence, true);
 }
 
 static void *vkd3d_fence_worker_main(void *arg)
