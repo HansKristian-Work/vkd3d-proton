@@ -130,6 +130,7 @@ struct vkd3d_vulkan_info
     bool KHR_present_id;
     bool KHR_maintenance5;
     bool KHR_maintenance6;
+    bool KHR_maintenance7;
     bool KHR_maintenance8;
     bool KHR_shader_maximal_reconvergence;
     bool KHR_shader_quad_control;
@@ -4685,6 +4686,9 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMemoryDecompressionPropertiesNV memory_decompression_properties;
     VkPhysicalDeviceMaintenance5PropertiesKHR maintenance_5_properties;
     VkPhysicalDeviceMaintenance6PropertiesKHR maintenance_6_properties;
+    VkPhysicalDeviceMaintenance7PropertiesKHR maintenance_7_properties;
+    /* the ID of the layer implementation if running layered */
+    VkDriverId layer_driver_id;
     VkPhysicalDeviceLineRasterizationPropertiesEXT line_rasterization_properties;
     VkPhysicalDeviceComputeShaderDerivativesPropertiesKHR compute_shader_derivatives_properties_khr;
 
@@ -4732,6 +4736,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV device_generated_commands_compute_features_nv;
     VkPhysicalDeviceMaintenance5FeaturesKHR maintenance_5_features;
     VkPhysicalDeviceMaintenance6FeaturesKHR maintenance_6_features;
+    VkPhysicalDeviceMaintenance7FeaturesKHR maintenance_7_features;
     VkPhysicalDeviceMaintenance8FeaturesKHR maintenance_8_features;
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
