@@ -1849,6 +1849,11 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->maintenance_6_properties);
     }
 
+    memset(&layered_props, 0, sizeof(layered_props));
+    memset(&layered_props_list, 0, sizeof(layered_props_list));
+    memset(&vk_layered_props, 0, sizeof(vk_layered_props));
+    memset(&real_driver_props, 0, sizeof(real_driver_props));
+
     if (vulkan_info->KHR_maintenance7)
     {
         info->maintenance_7_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_7_FEATURES_KHR;
@@ -1856,20 +1861,18 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->maintenance_7_features);
         vk_prepend_struct(&info->properties2, &info->maintenance_7_properties);
 
-        memset(&layered_props, 0, sizeof(layered_props));
-        memset(&vk_layered_props, 0, sizeof(vk_layered_props));
-        memset(&layered_props_list, 0, sizeof(layered_props_list));
-        memset(&real_driver_props, 0, sizeof(real_driver_props));
         layered_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LAYERED_API_PROPERTIES_KHR;
-        vk_layered_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LAYERED_API_VULKAN_PROPERTIES_KHR;
-        layered_props_list.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LAYERED_API_PROPERTIES_LIST_KHR;
-        real_driver_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
 
         /* assume a potentially single-layered implementation: at some point in the future it might be interesting to go deeper */
+        layered_props_list.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LAYERED_API_PROPERTIES_LIST_KHR;
         layered_props_list.layeredApiCount = 1;
         layered_props_list.pLayeredApis = &layered_props;
         vk_prepend_struct(&info->properties2, &layered_props_list);
+
+        vk_layered_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LAYERED_API_VULKAN_PROPERTIES_KHR;
         vk_prepend_struct(&layered_props, &vk_layered_props);
+
+        real_driver_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
         vk_prepend_struct(&vk_layered_props.properties, &real_driver_props);
     }
 
