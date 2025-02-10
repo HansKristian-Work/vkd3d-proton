@@ -533,6 +533,7 @@
                 "VK_EXT_device_generated_commands": 1,
                 "VK_KHR_maintenance5": 1,
                 "VK_KHR_maintenance6": 1,
+                "VK_KHR_maintenance7": 1,
                 "VK_EXT_depth_bias_control": 1
             },
             "features": {
@@ -566,6 +567,9 @@
                 },
                 "VkPhysicalDeviceMaintenance6FeaturesKHR": {
                     "maintenance6": true
+                },
+                "VkPhysicalDeviceMaintenance7FeaturesKHR": {
+                    "maintenance7": true
                 },
                 "VkPhysicalDeviceDepthBiasControlFeaturesEXT": {
                     "depthBiasControl": true,
