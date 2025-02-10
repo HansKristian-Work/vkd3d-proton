@@ -3125,6 +3125,31 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
      * It's unknown which kernel version introduced it and when it will be fixed.
      * Only seems to affect very specific content which does not really rely on the NULL page behavior anyway. */
     device->workarounds.amdgpu_broken_null_tile_mapping = true;
+
+    /* IMRs should not have this workaround enabled or else perf will drop */
+    switch (device->device_info.vulkan_1_2_properties.driverID)
+    {
+        case VK_DRIVER_ID_IMAGINATION_PROPRIETARY:
+        case VK_DRIVER_ID_QUALCOMM_PROPRIETARY:
+        case VK_DRIVER_ID_ARM_PROPRIETARY:
+        case VK_DRIVER_ID_BROADCOM_PROPRIETARY:
+        case VK_DRIVER_ID_MESA_TURNIP:
+        case VK_DRIVER_ID_MESA_V3DV:
+        case VK_DRIVER_ID_MESA_PANVK:
+        case VK_DRIVER_ID_SAMSUNG_PROPRIETARY:
+        case VK_DRIVER_ID_IMAGINATION_OPEN_SOURCE_MESA:
+        case VK_DRIVER_ID_MESA_HONEYKRISP:
+            device->workarounds.tiler_renderpass_barriers = true;
+            break;
+        /* layered implementations are handled transparently */
+        case VK_DRIVER_ID_MOLTENVK:
+        case VK_DRIVER_ID_JUICE_PROPRIETARY:
+        case VK_DRIVER_ID_MESA_VENUS:
+        case VK_DRIVER_ID_MESA_DOZEN:
+        case VK_DRIVER_ID_VULKAN_SC_EMULATION_ON_VULKAN:
+        default:
+            break;
+    }
 }
 
 static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
