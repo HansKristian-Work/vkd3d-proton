@@ -3170,6 +3170,42 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
     VKD3D_BREADCRUMB_COMMAND(CLEAR_INLINE);
 }
 
+static void d3d12_command_list_sync_tiler_renderpass_writes(struct d3d12_command_list *list, const VkRenderingInfo *rendering_info)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+
+    /* tilers can emit these with minimal sync overhead, IMRs get annihilated */
+    if (list->device->workarounds.tiler_renderpass_barriers)
+    {
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        if (rendering_info->colorAttachmentCount)
+        {
+            vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            vk_barrier.srcAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            vk_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            vk_barrier.dstAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        }
+        if (rendering_info->pDepthAttachment || rendering_info->pStencilAttachment)
+        {
+            vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            vk_barrier.srcAccessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            vk_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            vk_barrier.dstAccessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        }
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    }
+}
+
 static void d3d12_command_list_resolve_buffer_copy_writes(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -3868,6 +3904,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
         }
 
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
+        d3d12_command_list_sync_tiler_renderpass_writes(list, &rendering_info);
     }
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
@@ -4750,6 +4787,7 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
     if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
     {
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
+        d3d12_command_list_sync_tiler_renderpass_writes(list, &list->rendering_info.info);
         d3d12_command_list_debug_mark_end_region(list);
     }
 
