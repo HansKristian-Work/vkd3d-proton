@@ -5440,7 +5440,8 @@ static inline void d3d12_device_register_swapchain(struct d3d12_device *device, 
     }
     else
     {
-        dxgi_vk_swap_chain_decref(device->swapchain_info.low_latency_swapchain);
+        if (device->swapchain_info.low_latency_swapchain)
+            dxgi_vk_swap_chain_decref(device->swapchain_info.low_latency_swapchain);
         device->swapchain_info.low_latency_swapchain = NULL;
     }
 
