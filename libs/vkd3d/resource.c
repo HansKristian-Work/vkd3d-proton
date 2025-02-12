@@ -2262,6 +2262,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     vkd3d_format_copy_data(format, src_data, src_row_pitch, src_slice_pitch, dst_data,
             subresource_layout->row_pitch, subresource_layout->depth_pitch, extent.width, extent.height, extent.depth);
 
+    mapped_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
     mapped_range.memory = resource->mem.device_allocation.vk_memory;
     mapped_range.offset = resource->mem.offset + subresource_layout->offset;
     mapped_range.size = (extent.depth - 1) * subresource_layout->depth_pitch +
@@ -2341,6 +2342,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
     src_data += subresource_layout->offset + vkd3d_format_get_data_offset(format,
             subresource_layout->row_pitch, subresource_layout->depth_pitch, src_box->left, src_box->top, src_box->front);
 
+    mapped_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
     mapped_range.memory = resource->mem.device_allocation.vk_memory;
     mapped_range.offset = resource->mem.offset + subresource_layout->offset;
     mapped_range.size = (src_box->back - src_box->front - 1) * subresource_layout->depth_pitch +

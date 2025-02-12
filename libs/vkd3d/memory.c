@@ -495,6 +495,7 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
 
         vk_procs = &device->vk_procs;
 
+        mapped_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
         mapped_range.memory = allocation->device_allocation.vk_memory;
         mapped_range.offset = allocation->offset;
         mapped_range.size = allocation->resource.size;
