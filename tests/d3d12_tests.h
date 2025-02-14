@@ -434,3 +434,5 @@ decl_test(test_large_texel_buffer_view);
 decl_test(test_destruction_notifier_callback);
 decl_test(test_destruction_notifier_interfaces);
 decl_test(test_sparse_default_mapping);
+decl_test(test_varying_nointerpolation_mixed_type_dxbc);
+decl_test(test_varying_nointerpolation_mixed_type_dxil);
