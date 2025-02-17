@@ -1520,7 +1520,8 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
      * use vectorized load-stores. When we emit vectorized load-store ops,
      * the storage buffer must be aligned properly, so this is fine in practice
      * and is a nice speed boost. */
-    if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+    if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY ||
+        info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_NVK)
         info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
 
     /* UE5 is broken and assumes that if mesh shaders are supported, barycentrics are also supported.
