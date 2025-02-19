@@ -1431,3 +1431,132 @@ void test_bindless_bufinfo_dxil(void)
     test_bindless_bufinfo(true);
 }
 
+void test_divergent_buffer_index_varying(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_DESCRIPTOR_RANGE desc_range;
+
+    struct test_context_desc context_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct test_context context;
+    D3D12_INDEX_BUFFER_VIEW ibv;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    unsigned int x, y, i;
+    ID3D12Resource *ibo;
+    ID3D12Resource *cbv;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+    /* AMD D3D12 drivers seem to automatically promote this shader to non-uniform.
+     * Assetto Corsa EVO has been observed in the wild to rely on this behavior.
+     * Specifically CBVs seem to be promoted for whatever reason. */
+
+#include "shaders/bindless/headers/vs_divergent_buffer_index_varying.h"
+#include "shaders/bindless/headers/ps_divergent_buffer_index_varying.h"
+
+    uint32_t cbv_data[64 * (256 / 4)] = { 0 };
+    uint32_t ibo_data[64 * 6];
+
+    for (i = 0; i < 64; i++)
+    {
+        ibo_data[6 * i + 0] = 4 * i + 0;
+        ibo_data[6 * i + 1] = 4 * i + 1;
+        ibo_data[6 * i + 2] = 4 * i + 2;
+        ibo_data[6 * i + 3] = 4 * i + 3;
+        ibo_data[6 * i + 4] = 4 * i + 2;
+        ibo_data[6 * i + 5] = 4 * i + 1;
+        cbv_data[i * (256 / 4)] = 1000 + i;
+    }
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.rt_format = DXGI_FORMAT_R32_FLOAT;
+    context_desc.rt_width = 16;
+    context_desc.rt_height = 16;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (!is_amd_vulkan_device(context.device) && !is_amd_windows_device(context.device))
+    {
+        skip("Skipping test which is intended to prove weirdness on AMD specifically.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    ibo = create_upload_buffer(context.device, sizeof(ibo_data), ibo_data);
+    cbv = create_upload_buffer(context.device, sizeof(cbv_data), cbv_data);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 64);
+
+    for (i = 0; i < 64; i++)
+    {
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
+        D3D12_CPU_DESCRIPTOR_HANDLE h;
+
+        memset(&cbv_desc, 0, sizeof(cbv_desc));
+        cbv_desc.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(cbv) + 256 * i;
+        cbv_desc.SizeInBytes = 256;
+        h = get_cpu_descriptor_handle(&context, heap, i);
+        ID3D12Device_CreateConstantBufferView(context.device, &cbv_desc, h);
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    memset(&desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param.DescriptorTable.NumDescriptorRanges = 1;
+    rs_param.DescriptorTable.pDescriptorRanges = &desc_range;
+    desc_range.NumDescriptors = 64;
+    desc_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    ok(SUCCEEDED(create_root_signature(context.device, &rs_desc, &context.root_signature)), "Failed to create root signature.\n");
+
+    init_pipeline_state_desc_dxil(&pso_desc, context.root_signature, DXGI_FORMAT_R32_FLOAT, &vs_divergent_buffer_index_varying_dxil, &ps_divergent_buffer_index_varying_dxil, NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr %x\n", hr);
+
+    ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ibo);
+    ibv.Format = DXGI_FORMAT_R32_UINT;
+    ibv.SizeInBytes = sizeof(ibo_data);
+    set_viewport(&vp, 0, 0, 16, 16, 0, 1);
+    set_rect(&sci, 0, 0, 16, 16);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_IASetIndexBuffer(context.list, &ibv);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_DrawIndexedInstanced(context.list, 64 * 6, 1, 0, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+
+    for (y = 0; y < 16; y++)
+    {
+        for (x = 0; x < 16; x++)
+        {
+            float expected = 1000.0f + ((y >> 1) * 8 + (x >> 1));
+            float value;
+            value = get_readback_float(&rb, x, y);
+            ok(value == expected, "Coord %u, %u: Expected %f, got %f\n", x, y, expected, value);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(ibo);
+    ID3D12Resource_Release(cbv);
+    destroy_test_context(&context);
+}
