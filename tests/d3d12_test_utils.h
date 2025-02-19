@@ -1296,7 +1296,11 @@ static inline void begin_renderdoc_capturing(ID3D12Device *device)
 static inline void end_renderdoc_capturing(ID3D12Device *device)
 {
     if (renderdoc_api)
+    {
         renderdoc_api->EndFrameCapture(device, NULL);
+        /* The UI needs some time to observe that we did a capture before we exit the process. */
+        Sleep(100);
+    }
 }
 #endif
 
