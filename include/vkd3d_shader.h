@@ -473,6 +473,10 @@ enum vkd3d_shader_quirk
      * This can lead to page faults. Clamps the input index to the private array size
      * as the simplest possible workaround. */
     VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING = (1 << 23),
+
+    /* Do more aggressive analysis of when nonuniform may be missing from shaders.
+     * Not done by default since it's overly conservative. */
+    VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM = (1 << 24)
 };
 
 struct vkd3d_shader_quirk_hash
