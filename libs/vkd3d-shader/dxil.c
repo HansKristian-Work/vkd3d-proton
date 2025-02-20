@@ -552,6 +552,36 @@ static bool dxil_match_shader_stage(dxil_spv_shader_stage blob_stage, VkShaderSt
     return true;
 }
 
+static const struct vkd3d_quirk_to_dxil_mapping
+{
+    uint32_t vkd3d_quirk;
+    dxil_spv_shader_quirk dxil_quirk;
+} vkd3d_quirk_mapping[] = {
+    { VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY,
+            DXIL_SPV_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIERS_THREAD_GROUP_COHERENCE },
+    { VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS, DXIL_SPV_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS },
+    { VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING, DXIL_SPV_SHADER_QUIRK_ROBUST_PHYSICAL_CBV_FORWARDING },
+};
+
+static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter, uint32_t quirks)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(vkd3d_quirk_mapping); i++)
+    {
+        if (quirks & vkd3d_quirk_mapping[i].vkd3d_quirk)
+        {
+            const dxil_spv_option_shader_quirk helper =
+                    { { DXIL_SPV_OPTION_SHADER_QUIRK }, vkd3d_quirk_mapping[i].dxil_quirk };
+            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                return false;
+        }
+    }
+
+    return true;
+}
+
+
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         struct vkd3d_shader_code_debug *spirv_debug,
@@ -1107,46 +1137,11 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
-    if (quirks & VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY)
+    if (!vkd3d_dxil_converter_set_quirks(converter, quirks))
     {
-        const dxil_spv_option_shader_quirk helper =
-                { { DXIL_SPV_OPTION_SHADER_QUIRK },
-                    DXIL_SPV_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIERS_THREAD_GROUP_COHERENCE };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SHADER_QUIRK.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS)
-    {
-        const dxil_spv_option_shader_quirk helper =
-                { { DXIL_SPV_OPTION_SHADER_QUIRK },
-                    DXIL_SPV_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SHADER_QUIRK.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING)
-    {
-        const dxil_spv_option_shader_quirk helper =
-                { { DXIL_SPV_OPTION_SHADER_QUIRK },
-                    DXIL_SPV_SHADER_QUIRK_ROBUST_PHYSICAL_CBV_FORWARDING };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SHADER_QUIRK.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
+        ERR("dxil-spirv does not support SHADER_QUIRK.\n");
+        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+        goto end;
     }
 
     remap_userdata.shader_interface_info = shader_interface_info;
@@ -1643,46 +1638,11 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         }
     }
 
-    if (quirks & VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY)
+    if (!vkd3d_dxil_converter_set_quirks(converter, quirks))
     {
-        const dxil_spv_option_shader_quirk helper =
-                { { DXIL_SPV_OPTION_SHADER_QUIRK },
-                    DXIL_SPV_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIERS_THREAD_GROUP_COHERENCE };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SHADER_QUIRK.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS)
-    {
-        const dxil_spv_option_shader_quirk helper =
-                { { DXIL_SPV_OPTION_SHADER_QUIRK },
-                    DXIL_SPV_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SHADER_QUIRK.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING)
-    {
-        const dxil_spv_option_shader_quirk helper =
-                { { DXIL_SPV_OPTION_SHADER_QUIRK },
-                    DXIL_SPV_SHADER_QUIRK_ROBUST_PHYSICAL_CBV_FORWARDING };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SHADER_QUIRK.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
+        ERR("dxil-spirv does not support SHADER_QUIRK.\n");
+        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+        goto end;
     }
 
     if (compiler_args)
