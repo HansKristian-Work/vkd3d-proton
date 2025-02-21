@@ -512,6 +512,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX,
+    VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -611,7 +612,11 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * Also, add no-staggered since this is a UE title without the common workaround,
      * although that only seems to matter when FSR/DLSS injectors are used. */
     { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe",
-            VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
+            VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0,
+            VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
+    /* There aren't many games that use mesh shaders outside of UE5 Nanite fallbacks.
+     * UE5 is broken w.r.t. feature checks, so we have to do opt-in instead :( */
+    { VKD3D_STRING_COMPARE_EXACT, "AlanWake2.exe", 0, 0, VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
     /* Catch-all for benchmark and presumably the beta. There is an impossible amdgpu bug with PRT sparse. */
     { VKD3D_STRING_COMPARE_STARTS_WITH, "MonsterHunterWilds", VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
@@ -1534,8 +1539,11 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
      * after mesh shaders, so Mesa 23.1 will often fail on boot for practically all UE5 content.
      * The reasonable workaround is to disable mesh shaders unless barys are also supported.
      * Nanite can work without mesh shaders.
-     * Unfortunately, we don't know of a robust way to detect UE5, so have to apply this globally. */
-    if (!device->vk_info.KHR_fragment_shader_barycentric && device->vk_info.EXT_mesh_shader)
+     * Unfortunately, we don't know of a robust way to detect UE5, so have to apply this globally.
+     * Similarly, Intel Arc does not expose barycentrics, but does expose mesh shaders ...
+     * Unclear if that will ever be resolved. */
+    if (vkd3d_application_feature_override != VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS &&
+            !device->vk_info.KHR_fragment_shader_barycentric && device->vk_info.EXT_mesh_shader)
     {
         WARN("Mesh shaders are supported, but not barycentrics. Disabling mesh shaders as a global UE5 workaround.\n");
         device->vk_info.EXT_mesh_shader = false;
