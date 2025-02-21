@@ -232,6 +232,11 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
         }
     }
 
+    if (vulkan_info->NVX_binary_import && vulkan_info->NVX_image_view_handle &&
+            has_extension(extensions, count, VK_NVX_BINARY_IMPORT_EXTENSION_NAME, 2) &&
+            has_extension(extensions, count, VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME, 3))
+        vulkan_info->supports_cubin_64bit = true;
+
     for (i = 0; i < user_extension_count; ++i)
     {
         if (!has_extension(extensions, count, user_extensions[i], 0))
@@ -3721,7 +3726,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
     }
 
     if (IsEqualGUID(riid, &IID_ID3D12DeviceExt)
-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt1))
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt1)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt2))
     {
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
@@ -9087,7 +9093,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     }
 }
 
-extern CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12DeviceExt2Vtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDevice1Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 
