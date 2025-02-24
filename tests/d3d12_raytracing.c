@@ -1024,6 +1024,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_desc[3];
     float sbt_colors[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2] = {{0}};
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12CommandSignature *command_signature_cs;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     ID3D12GraphicsCommandList4 *command_list4;
     ID3D12CommandSignature *command_signature;
@@ -1048,6 +1049,8 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
     struct test_geometry test_geom;
     ID3D12RootSignature *local_rs;
     ID3D12Resource *ray_positions;
+    ID3D12PipelineState *cs_pso;
+    ID3D12Resource *cs_indirect;
     struct resource_readback rb;
     unsigned int instance, geom;
     ID3D12Resource *ray_colors;
@@ -1065,6 +1068,8 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
     command_list = context.context.list;
     command_list4 = context.list4;
     queue = context.context.queue;
+    cs_pso = NULL;
+    cs_indirect = NULL;
 
     postbuild_readback = create_readback_buffer(device, 4096);
     postbuild_buffer = create_default_buffer(device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1629,10 +1634,10 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
 
     indirect_buffer = NULL;
     command_signature = NULL;
+    command_signature_cs = NULL;
     if (mode == TEST_MODE_INDIRECT)
-    {
         command_signature = create_command_signature(device, D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS);
-    }
+    command_signature_cs = create_command_signature(device, D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH);
 
     ID3D12GraphicsCommandList4_SetComputeRootSignature(command_list4, global_rs);
     ID3D12GraphicsCommandList4_SetPipelineState1(command_list4, rt_pso);
@@ -1672,6 +1677,17 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
             indirect_buffer = create_upload_buffer(device, sizeof(D3D12_DISPATCH_RAYS_DESC), &desc);
             ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, indirect_buffer, 0, NULL, 0);
         }
+    }
+
+    if (mode == TEST_MODE_PLAIN)
+    {
+        const D3D12_DISPATCH_ARGUMENTS args = { 2, 1, 1 };
+#include "shaders/rt/headers/default_cs.h"
+        cs_pso = create_compute_pipeline_state(context.context.device, global_rs, default_cs_dxil);
+        cs_indirect = create_upload_buffer(device, sizeof(D3D12_DISPATCH_ARGUMENTS), &args);
+        uav_barrier(context.context.list, NULL);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, cs_pso);
+        ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature_cs, 1, cs_indirect, 0, NULL, 0);
     }
 
     transition_resource_state(command_list, ray_colors, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -1731,6 +1747,18 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
                             expected_x += 1.0f; /* Any-hit shader accumulates .x by 1.0f here. */
                     }
                 }
+
+                if (mode == TEST_MODE_PLAIN)
+                {
+                    /* Validate that we can do indirect CS after indirect RT.
+                     * Check for a driver bug we encountered in the wild. */
+                    if (i < 16)
+                    {
+                        expected_x += 1.0f;
+                        expected_y += 2.0f;
+                    }
+                }
+
                 ok(x == expected_x, "Ray color [%u].x mismatch (%f != %f).\n", i, x, expected_x);
                 ok(y == expected_y, "Ray color [%u].y mismatch (%f != %f).\n", i, y, expected_y);
             }
@@ -1806,6 +1834,10 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
 
     if (rt_pso)
         ID3D12StateObject_Release(rt_pso);
+    if (cs_pso)
+        ID3D12PipelineState_Release(cs_pso);
+    if (cs_indirect)
+        ID3D12Resource_Release(cs_indirect);
     if (rt_object_library_tri)
         ID3D12StateObject_Release(rt_object_library_tri);
     if (rt_object_library_aabb)
@@ -1819,6 +1851,8 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
     ID3D12Resource_Release(postbuild_buffer);
     if (command_signature)
         ID3D12CommandSignature_Release(command_signature);
+    if (command_signature_cs)
+        ID3D12CommandSignature_Release(command_signature_cs);
     if (indirect_buffer)
         ID3D12Resource_Release(indirect_buffer);
 
