@@ -114,6 +114,7 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT (1ull << 56)
 #define VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES (1ull << 57)
 #define VKD3D_CONFIG_FLAG_QUEUE_PROFILE_EXTRA (1ull << 58)
+#define VKD3D_CONFIG_FLAG_COPY_BUFFER_SYNC (1ull << 59)
 
 struct vkd3d_instance;
 
