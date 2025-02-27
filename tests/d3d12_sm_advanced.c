@@ -4666,3 +4666,120 @@ void test_sm68_sample_cmp_bias_grad(void)
 
     destroy_test_context(&context);
 }
+
+void test_sm67_helper_lane_only_wave_ops(void)
+{
+    const float default_color[4] = { 1000.0f, 1000.0f, 1000.0f, 1000.0f };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_FEATURE_DATA_SHADER_MODEL model;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[1];
+    struct test_context_desc desc;
+    ID3D12PipelineState *psos[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *src;
+    D3D12_VIEWPORT vp;
+    unsigned int i, j;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+#include "shaders/sm_advanced/headers/vs_helper_lane_wave_ops.h"
+#include "shaders/sm_advanced/headers/helper_lane_only_wave_ops.h"
+#include "shaders/sm_advanced/headers/helper_lane_only_wave_ops_sm67.h"
+
+    static const float input_data[] = { 4, 5, 6, -100, 40, 50, 60, 70 };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.rt_width = 8;
+    desc.rt_height = 8;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    model.HighestShaderModel = D3D_SHADER_MODEL_6_7;
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model))) ||
+        model.HighestShaderModel < D3D_SHADER_MODEL_6_7)
+    {
+        skip("Shader model 6.7 is not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+
+    init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_R32G32B32A32_FLOAT, NULL, NULL, 0, NULL, 0);
+    pso_desc.VS = vs_helper_lane_wave_ops_dxil;
+    pso_desc.PS = helper_lane_only_wave_ops_dxil;
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&psos[0]);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    pso_desc.PS = helper_lane_only_wave_ops_sm67_dxil;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&psos[1]);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    src = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    /* Observed behavior on real drivers and which is part of the undocumented "spec":
+     * - WaveAll tests return true if all threads are helpers.
+     * - If using ReadLaneFirst on only helpers, the return value is 0.
+     * - AMD compiler explicitly inserts robustness to guard against this case.
+     * In this test, we try to make lane 63 contain -100, which should suss out any missing masking in dxil-spirv.
+     * Do this by rendering the same quad pattern across 8x8, which should light up all lanes. */
+
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+    {
+        vkd3d_test_set_context("Test PSO %u", i);
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, default_color, 0, NULL);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, psos[i]);
+        ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(src));
+        set_viewport(&vp, 0, 0, 8, 8, 0, 1);
+        set_rect(&sci, 0, 0, 8, 8);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+
+        for (j = 0; j < 4; j++)
+        {
+            static const struct vec4 expected_data[2][4] = {
+                { {1000, 1000, 1000, 1000}, {1000, 1000, 1000, 1000}, {1000, 1000, 1000, 1000}, {-100, 66, 55, 44} },
+                { {1000, 1000, 1000, 1000}, {1000, 1000, 1000, 1000}, {1000, 1000, 1000, 1000}, {-100, 70, 59, 48} },
+            };
+
+            const struct vec4 *expected = &expected_data[i][j];
+            const struct vec4 *v = get_readback_vec4(&rb, j % 2, j / 2);
+            ok(compare_vec4(expected, v, 0), "(%u, %u): expected (%f, %f, %f, %f), got (%f, %f, %f, %f).\n", j % 2, j / 2,
+                expected->x, expected->y, expected->z, expected->w,
+                v->x, v->y, v->z, v->w);
+        }
+
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        release_resource_readback(&rb);
+    }
+
+    vkd3d_test_set_context(NULL);
+    ID3D12Resource_Release(src);
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+        ID3D12PipelineState_Release(psos[i]);
+    destroy_test_context(&context);
+}
