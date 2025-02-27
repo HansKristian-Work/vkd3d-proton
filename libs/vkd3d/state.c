@@ -4364,7 +4364,37 @@ static HRESULT d3d12_pipeline_state_graphics_create_shader_stages(
     return S_OK;
 }
 
-static void d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_state *state,
+static bool d3d12_pipeline_state_validate_gs_input_toplogy(struct d3d12_pipeline_state *state,
+        const struct vkd3d_shader_meta *gs_meta, uint32_t geometry_meta)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+
+    switch (gs_meta->gs_input_topology)
+    {
+        case VK_PRIMITIVE_TOPOLOGY_POINT_LIST:
+            return graphics->primitive_topology_type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+
+        case VK_PRIMITIVE_TOPOLOGY_LINE_LIST:
+            return !!(geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_LINES);
+
+        case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST:
+            return !!(geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES);
+
+        /* Input topologies with adjacency are not allowed in tessellation
+         * pipelines, so check the input topology type directly. */
+        case VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY:
+            return graphics->primitive_topology_type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+
+        case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY:
+            return graphics->primitive_topology_type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+        default:
+            ERR("Unhandled GS input topology %u.\n", gs_meta->gs_input_topology);
+            return false;
+    }
+}
+
+static HRESULT d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_state *state,
         struct d3d12_device *device)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
@@ -4409,6 +4439,17 @@ static void d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_stat
                     &state->graphics.identifiers[i]));
         }
 
+        /* Validate GS topology against the pipeline topology or domain shader output */
+        if (graphics->stages[i].stage == VK_SHADER_STAGE_GEOMETRY_BIT)
+        {
+            if (!d3d12_pipeline_state_validate_gs_input_toplogy(state, &graphics->code[i].meta, geometry_meta))
+            {
+                WARN("GS input topology %u incompatible with pipeline topology type %u, flags %#x.\n",
+                        graphics->code[i].meta.gs_input_topology, graphics->primitive_topology_type, geometry_meta);
+                return E_INVALIDARG;
+            }
+        }
+
         /* The last active geometry stage determines the output topology */
         if (graphics->stages[i].stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT ||
                 graphics->stages[i].stage == VK_SHADER_STAGE_GEOMETRY_BIT ||
@@ -4427,6 +4468,8 @@ static void d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_stat
 
     if ((geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_LINES) && device->vk_info.EXT_line_rasterization)
         vk_prepend_struct(&graphics->rs_desc, &graphics->rs_line_info);
+
+    return S_OK;
 }
 
 static bool vkd3d_shader_semantic_is_generated_for_stage(enum vkd3d_sysval_semantic sv,
@@ -5260,9 +5303,9 @@ static HRESULT d3d12_pipeline_state_init_graphics_spirv(struct d3d12_pipeline_st
         return hr;
 
     /* At this point, we will have valid meta structures set up.
-     * Deduce further PSO information from these structs. */
-    d3d12_pipeline_state_graphics_handle_meta(state, device);
-    return S_OK;
+     * Deduce further PSO information from these structs and perform
+     * inter-stage validation. */
+    return d3d12_pipeline_state_graphics_handle_meta(state, device);
 }
 
 static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_state *state,
