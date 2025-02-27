@@ -91,7 +91,7 @@ struct vkd3d_shader_meta
     uint8_t cs_wave_size_min; /* If non-zero, minimum or required subgroup size. */
     uint8_t cs_wave_size_max; /* If non-zero, maximum subgroup size. */
     uint8_t cs_wave_size_preferred; /* If non-zero, preferred subgroup size. */
-    uint8_t reserved;
+    uint8_t gs_input_topology; /* VkPrimitiveTopology */
     uint32_t flags; /* vkd3d_shader_meta_flags */
 };
 STATIC_ASSERT(sizeof(struct vkd3d_shader_meta) == 32);
