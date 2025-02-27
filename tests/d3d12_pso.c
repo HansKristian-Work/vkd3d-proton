@@ -4457,3 +4457,133 @@ void test_shader_io_mismatch(void)
 #undef FEATURE_VRS_TIER_2
 #undef FEATURE_BARYCENTRICS
 }
+
+void test_gs_topology_mismatch(bool dxil)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    HRESULT hr, expected;
+    unsigned int i, j;
+
+#include "shaders/pso/headers/vs_topology.h"
+#include "shaders/pso/headers/hs_topology_line.h"
+#include "shaders/pso/headers/hs_topology_triangle.h"
+#include "shaders/pso/headers/ds_topology_line.h"
+#include "shaders/pso/headers/ds_topology_triangle.h"
+#include "shaders/pso/headers/gs_topology_point.h"
+#include "shaders/pso/headers/gs_topology_line.h"
+#include "shaders/pso/headers/gs_topology_line_adj.h"
+#include "shaders/pso/headers/gs_topology_triangle.h"
+#include "shaders/pso/headers/gs_topology_triangle_adj.h"
+
+    static const D3D12_PRIMITIVE_TOPOLOGY_TYPE topology_types[] =
+    {
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+    };
+
+    static const struct
+    {
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE topology;
+        const D3D12_SHADER_BYTECODE *dxbc;
+        const D3D12_SHADER_BYTECODE *dxil;
+        bool uses_adjacency;
+    }
+    geometry_shaders[] =
+    {
+        { D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT,    &gs_topology_point_dxbc,        &gs_topology_point_dxil,        false },
+        { D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,     &gs_topology_line_dxbc,         &gs_topology_line_dxil,         false },
+        { D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,     &gs_topology_line_adj_dxbc,     &gs_topology_line_adj_dxil,     true  },
+        { D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, &gs_topology_triangle_dxbc,     &gs_topology_triangle_dxil,     false },
+        { D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, &gs_topology_triangle_adj_dxbc, &gs_topology_triangle_adj_dxil, true  },
+    };
+
+    static const struct
+    {
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE topology;
+        const D3D12_SHADER_BYTECODE *hs_dxbc;
+        const D3D12_SHADER_BYTECODE *hs_dxil;
+        const D3D12_SHADER_BYTECODE *ds_dxbc;
+        const D3D12_SHADER_BYTECODE *ds_dxil;
+    }
+    tess_shaders[] =
+    {
+        { D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,     &hs_topology_line_dxbc,         &hs_topology_line_dxil,
+                                                  &ds_topology_line_dxbc,         &ds_topology_line_dxil },
+        { D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, &hs_topology_triangle_dxbc,     &hs_topology_triangle_dxil,
+                                                  &ds_topology_triangle_dxbc,     &ds_topology_triangle_dxil },
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    context.root_signature = create_empty_root_signature(context.device, 0u);
+
+    /* GS input topology is validated against the primitive topology type */
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN, NULL, NULL, NULL);
+    pso_desc.VS = dxil ? vs_topology_dxil : vs_topology_dxbc;
+    pso_desc.PS = shader_bytecode(NULL, 0u);
+
+    for (i = 0; i < ARRAY_SIZE(topology_types); i++)
+    {
+        pso_desc.PrimitiveTopologyType = topology_types[i];
+
+        for (j = 0; j < ARRAY_SIZE(geometry_shaders); j++)
+        {
+            vkd3d_test_set_context("Test %u,%u", i, j);
+            pso_desc.GS = dxil ? *geometry_shaders[j].dxil : *geometry_shaders[j].dxbc;
+
+            hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+            expected = geometry_shaders[j].topology == topology_types[i] ? S_OK : E_INVALIDARG;
+
+            ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+
+            if (hr == S_OK)
+                ID3D12PipelineState_Release(pso);
+        }
+    }
+
+    /* If the pipeline has tessellation shaders, GS input topology is validated
+     * against the DS output topology, and adjacency is not allowed. */
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+
+    for (i = 0; i < ARRAY_SIZE(tess_shaders); i++)
+    {
+        pso_desc.HS = dxil ? *tess_shaders[i].hs_dxil : *tess_shaders[i].hs_dxbc;
+        pso_desc.DS = dxil ? *tess_shaders[i].ds_dxil : *tess_shaders[i].ds_dxbc;
+
+        for (j = 0; j < ARRAY_SIZE(geometry_shaders); j++)
+        {
+            vkd3d_test_set_context("Test %u,%u", i, j);
+            pso_desc.GS = dxil ? *geometry_shaders[j].dxil : *geometry_shaders[j].dxbc;
+
+            hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+            expected = (geometry_shaders[j].topology == tess_shaders[i].topology &&
+                    !geometry_shaders[j].uses_adjacency) ? S_OK : E_INVALIDARG;
+
+            ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+
+            if (hr == S_OK)
+                ID3D12PipelineState_Release(pso);
+        }
+    }
+
+    destroy_test_context(&context);
+}
+
+void test_gs_topology_mismatch_dxbc(void)
+{
+    test_gs_topology_mismatch(false);
+}
+
+void test_gs_topology_mismatch_dxil(void)
+{
+    test_gs_topology_mismatch(true);
+}
