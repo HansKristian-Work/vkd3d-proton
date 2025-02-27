@@ -11967,6 +11967,7 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
 
 void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
 {
+    SpvExecutionModel execution_model = SpvExecutionModelMax;
     size_t spirv_words = code->size / sizeof(uint32_t);
     unsigned int i, tracked_builtin_count = 0;
     const uint32_t *spirv = code->code;
@@ -12069,6 +12070,11 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     break;
             }
         }
+        else if (op == SpvOpEntryPoint && count >= 2)
+        {
+            /* Assume only one entry point per module */
+            execution_model = spirv[offset + 1];
+        }
         else if (op == SpvOpExecutionMode && count == 3)
         {
             execution_mode = spirv[offset + 2];
@@ -12080,7 +12086,36 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     meta |= VKD3D_SHADER_META_FLAG_EMITS_LINES;
                     break;
 
+                case SpvExecutionModeInputPoints:
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+                    break;
+
+                case SpvExecutionModeInputLines:
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+                    break;
+
+                case SpvExecutionModeInputLinesAdjacency:
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY;
+                    break;
+
                 case SpvExecutionModeTriangles:
+                    /* For GS, this defines the input topology since the corresponding output
+                     * topology would have to be TriangleStrip instead. For TES, this actually
+                     * declares the output topology. */
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                    else
+                        meta |= VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
+                    break;
+
+                case SpvExecutionModeInputTrianglesAdjacency:
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY;
+                    break;
+
                 case SpvExecutionModeQuads:
                 case SpvExecutionModeOutputTriangleStrip:
                 case SpvExecutionModeOutputTrianglesEXT:
