@@ -440,3 +440,5 @@ decl_test(test_divergent_buffer_index_varying);
 decl_test(test_gs_topology_mismatch_dxbc);
 decl_test(test_gs_topology_mismatch_dxil);
 decl_test(test_sm67_helper_lane_only_wave_ops);
+decl_test(test_constant_lut_out_of_bounds_dxbc);
+decl_test(test_constant_lut_out_of_bounds_dxil);
