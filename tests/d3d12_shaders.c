@@ -15181,3 +15181,87 @@ void test_constant_lut_out_of_bounds_dxil(void)
 {
     test_constant_lut_out_of_bounds(true);
 }
+
+static void test_alloca_out_of_bounds(bool use_dxil)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+
+#include "shaders/shaders/headers/alloca_out_of_bounds.h"
+
+    /* Just arbitrary test stimuli. Make sure to test negative and huge u32 indices. */
+    static const int32_t input_data[8][16][2] = {
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { -7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { -16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { -8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 10000, 4 }, { 10000, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { -16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 1, 10 }, { 1, -100 }, { 1, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+        use_dxil ? alloca_out_of_bounds_dxil : alloca_out_of_bounds_dxbc);
+
+    output = create_default_buffer(context.device, 8 * 16 * sizeof(int32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 8; i++)
+    {
+        for (j = 0; j < 16; j++)
+        {
+            int32_t expected = 0;
+            int32_t value;
+
+            for (k = 0; k < 16; k++)
+            {
+                if (input_data[i][k][0] == (int)j)
+                    expected += input_data[i][k][1];
+            }
+
+            value = get_readback_uint(&rb, 16 * i + j, 0, 0);
+            ok(value == expected, "value %u[%u]: expected %d, got %d\n", i, j, expected, value);
+        }
+    }
+
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    destroy_test_context(&context);
+}
+
+void test_alloca_out_of_bounds_dxbc(void)
+{
+    test_alloca_out_of_bounds(false);
+}
+
+void test_alloca_out_of_bounds_dxil(void)
+{
+    test_alloca_out_of_bounds(true);
+}
