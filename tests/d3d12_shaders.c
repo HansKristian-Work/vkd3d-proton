@@ -15091,3 +15091,93 @@ void test_derivative_hoisting_dxil(void)
 {
     test_derivative_hoisting(true);
 }
+
+static void test_constant_lut_out_of_bounds(bool use_dxil)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/shaders/headers/constant_lut_out_of_bounds.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!use_dxil && is_amd_vulkan_device(context.device) && !is_radv_device(context.device))
+    {
+        skip("Going OOB for LUT can hang GPU on amdvlk. Skipping test. Known TODO.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param[1].Constants.Num32BitValues = 2;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+        use_dxil ? constant_lut_out_of_bounds_dxil : constant_lut_out_of_bounds_dxbc);
+
+    output = create_default_buffer(context.device, 64 * sizeof(float) * 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 0x20000000u, 0);
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 0x40000000u, 1);
+    ID3D12GraphicsCommandList_Dispatch(context.list, 8, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* Driver behavior seems to be to collate all LUTs into a big array, then perform robustness checks on that array.
+     * When there are multiple arrays, there might be leakage between the ICBs. Focus on testing single LUT. */
+
+    for (i = 0; i < 64; i++)
+    {
+        struct vec4 expected = { 102.0f + 2.0f * i, 101.0f + i, 101.0f + i, 101.0f + i };
+        const struct vec4 *value;
+
+        value = get_readback_vec4(&rb, i, 0);
+        if (i >= 9)
+            memset(&expected, 0, sizeof(expected));
+
+        if (i < 9)
+        {
+            ok(value->x == expected.x && value->y == expected.y,
+                "Value %u .xy, expected %f, %f, got %f, %f\n",
+                i, expected.x, expected.y, value->x, value->y);
+        }
+
+        /* Native is robust against this, but the behavior for OOB elements can be a bit dicey.
+         * Usually it'll clamp to 0, but there might be garbage there in some cases.
+         * dxil-spirv range checks this, so the check should be exact. */
+        if (use_dxil)
+        {
+            ok(value->z == expected.z && value->w == expected.w,
+                "Value %u .zw, expected %f, %f, got %f, %f\n",
+                i, expected.z, expected.w, value->z, value->w);
+        }
+    }
+
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    destroy_test_context(&context);
+}
+
+void test_constant_lut_out_of_bounds_dxbc(void)
+{
+    test_constant_lut_out_of_bounds(false);
+}
+
+void test_constant_lut_out_of_bounds_dxil(void)
+{
+    test_constant_lut_out_of_bounds(true);
+}
