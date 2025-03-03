@@ -483,3 +483,5 @@ decl_test(test_constant_lut_out_of_bounds_dxbc);
 decl_test(test_constant_lut_out_of_bounds_dxil);
 decl_test(test_alloca_out_of_bounds_dxbc);
 decl_test(test_alloca_out_of_bounds_dxil);
+decl_test(test_groupshared_out_of_bounds_dxbc);
+decl_test(test_groupshared_out_of_bounds_dxil);
