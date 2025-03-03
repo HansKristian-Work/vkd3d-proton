@@ -6081,6 +6081,10 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         d3d12_command_list_end_current_render_pass(list, false);
     }
 
+    /* We can't change pipelines while transform feedback is active, so end the render pass here if necessary. */
+    if (list->command_buffer_pipeline != vk_pipeline && list->xfb_buffer_count)
+        d3d12_command_list_end_current_render_pass(list, true);
+
     list->dsv_plane_optimal_mask = dsv_plane_optimal_mask;
     list->dsv_layout = dsv_layout;
 
