@@ -2107,7 +2107,8 @@ struct d3d12_graphics_pipeline_state
     VkPipelineCreateFlags library_create_flags;
     struct list compiled_fallback_pipelines;
 
-    bool xfb_enabled;
+    unsigned int xfb_buffer_count;
+
     bool disable_optimization;
 };
 
@@ -2942,7 +2943,7 @@ struct d3d12_command_list
     unsigned int fb_height;
     unsigned int fb_layer_count;
 
-    bool xfb_enabled;
+    unsigned int xfb_buffer_count;
 
     struct
     {

@@ -2049,7 +2049,6 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     VkCommandBufferAllocateInfo command_buffer_info;
     struct d3d12_command_list_iteration *iteration;
     VkCommandBufferBeginInfo begin_info;
-    unsigned int i;
     VkResult vr;
 
     if (list->cmd.iteration_count >= VKD3D_MAX_COMMAND_LIST_SEQUENCES)
@@ -2100,15 +2099,6 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     list->cmd.vk_init_commands_post_indirect_barrier = VK_NULL_HANDLE;
     list->cmd.indirect_meta = &list->cmd.iterations[list->cmd.iteration_count].indirect_meta;
     list->cmd.iteration_count++;
-
-    for (i = 0; i < ARRAY_SIZE(list->so_buffers); i++)
-    {
-        if (list->so_buffers[i])
-        {
-            VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, i, 1,
-                    &list->so_buffers[i], &list->so_buffer_offsets[i], &list->so_buffer_sizes[i]));
-        }
-    }
 
     if (list->predication.enabled_on_command_buffer)
     {
@@ -4782,9 +4772,9 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
 
     d3d12_command_list_handle_active_queries(list, true);
 
-    if (list->xfb_enabled)
+    if (list->xfb_buffer_count)
     {
-        VK_CALL(vkCmdEndTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
+        VK_CALL(vkCmdEndTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
                 list->so_counter_buffers, list->so_counter_buffer_offsets));
     }
 
@@ -4806,7 +4796,7 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
 
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_ACTIVE;
 
-    if (list->xfb_enabled)
+    if (list->xfb_buffer_count)
     {
         /* We need a barrier between pause and resume. */
         memset(&vk_barrier, 0, sizeof(vk_barrier));
@@ -4823,7 +4813,7 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
 
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-        list->xfb_enabled = false;
+        list->xfb_buffer_count = 0u;
     }
 
     d3d12_command_list_flush_query_resolves(list);
@@ -5674,7 +5664,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->fb_height = limits->maxFramebufferHeight;
     list->fb_layer_count = limits->maxFramebufferLayers;
 
-    list->xfb_enabled = false;
+    list->xfb_buffer_count = 0u;
 
     memset(&list->predication, 0, sizeof(list->predication));
 
@@ -6090,6 +6080,10 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         d3d12_command_list_invalidate_rendering_info(list);
         d3d12_command_list_end_current_render_pass(list, false);
     }
+
+    /* We can't change pipelines while transform feedback is active, so end the render pass here if necessary. */
+    if (list->command_buffer_pipeline != vk_pipeline && list->xfb_buffer_count)
+        d3d12_command_list_end_current_render_pass(list, true);
 
     list->dsv_plane_optimal_mask = dsv_plane_optimal_mask;
     list->dsv_layout = dsv_layout;
@@ -6932,6 +6926,40 @@ static void d3d12_command_list_promote_dsv_layout(struct d3d12_command_list *lis
     }
 }
 
+static bool d3d12_command_list_fixup_null_xfb_buffers(struct d3d12_command_list *list, unsigned int count)
+{
+    struct vkd3d_scratch_allocation scratch;
+    unsigned int i;
+
+    memset(&scratch, 0, sizeof(scratch));
+
+    for (i = 0; i < count; i++)
+    {
+        if (list->so_buffers[i])
+            continue;
+
+        /* We can't bind actual null buffers for transform feedback, so just allocate a minimal
+         * amount of scratch memory. This is safe because out-of-bounds writes will be discarded.
+         * We never expect to hit this path in practice, so don't try to be clever about caching
+         * the allocation or anything, just make sure not to crash. */
+        if (!scratch.buffer)
+        {
+            if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                    VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE, VKD3D_NULL_BUFFER_SIZE, 4u, ~0u, &scratch))
+            {
+                ERR("Failed to allocate scratch memory for null xfb buffer.\n");
+                return false;
+            }
+        }
+
+        list->so_buffers[i] = scratch.buffer;
+        list->so_buffer_offsets[i] = scratch.offset;
+        list->so_buffer_sizes[i] = VKD3D_NULL_BUFFER_SIZE;
+    }
+
+    return true;
+}
+
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
         enum vkd3d_pipeline_type pipeline_type)
 {
@@ -6968,12 +6996,17 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_SUSPENDED;
 
     graphics = &list->state->graphics;
-    if (graphics->xfb_enabled)
+    if (graphics->xfb_buffer_count)
     {
-        VK_CALL(vkCmdBeginTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
-                list->so_counter_buffers, list->so_counter_buffer_offsets));
+        list->xfb_buffer_count = graphics->xfb_buffer_count;
 
-        list->xfb_enabled = true;
+        if (!d3d12_command_list_fixup_null_xfb_buffers(list, list->xfb_buffer_count))
+            return false;
+
+        VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
+                list->so_buffers, list->so_buffer_offsets, list->so_buffer_sizes));
+        VK_CALL(vkCmdBeginTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
+                list->so_counter_buffers, list->so_counter_buffer_offsets));
     }
 
     d3d12_command_list_handle_active_queries(list, false);
@@ -11406,12 +11439,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
         UINT start_slot, UINT view_count, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *views)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkDeviceSize offsets[ARRAY_SIZE(list->so_counter_buffers)];
-    VkDeviceSize sizes[ARRAY_SIZE(list->so_counter_buffers)];
-    VkBuffer buffers[ARRAY_SIZE(list->so_counter_buffers)];
     const struct vkd3d_unique_resource *resource;
-    unsigned int i, first, count;
+    unsigned int i;
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
 
@@ -11423,50 +11452,35 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
         return;
     }
 
-    if (start_slot >= ARRAY_SIZE(buffers) || view_count > ARRAY_SIZE(buffers) - start_slot)
+    if (start_slot >= ARRAY_SIZE(list->so_buffers) || view_count > ARRAY_SIZE(list->so_buffers) - start_slot)
     {
         WARN("Invalid start slot %u / view count %u.\n", start_slot, view_count);
         return;
     }
 
-    count = 0;
-    first = start_slot;
     for (i = 0; i < view_count; ++i)
     {
         if (views[i].BufferLocation && views[i].SizeInBytes)
         {
             resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferLocation);
-            buffers[count] = resource->vk_buffer;
-            offsets[count] = views[i].BufferLocation - resource->va;
-            sizes[count] = views[i].SizeInBytes;
-
-            resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferFilledSizeLocation);
             list->so_buffers[start_slot + i] = resource->vk_buffer;
             list->so_buffer_offsets[start_slot + i] = views[i].BufferLocation - resource->va;
             list->so_buffer_sizes[start_slot + i] = views[i].SizeInBytes;
+
+            resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferFilledSizeLocation);
             list->so_counter_buffers[start_slot + i] = resource->vk_buffer;
             list->so_counter_buffer_offsets[start_slot + i] = views[i].BufferFilledSizeLocation - resource->va;
-            ++count;
         }
         else
         {
-            if (count)
-                VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, first, count, buffers, offsets, sizes));
-            count = 0;
-            first = start_slot + i + 1;
-
             list->so_buffers[start_slot + i] = VK_NULL_HANDLE;
             list->so_buffer_offsets[start_slot + i] = 0;
             list->so_buffer_sizes[start_slot + i] = 0;
+
             list->so_counter_buffers[start_slot + i] = VK_NULL_HANDLE;
             list->so_counter_buffer_offsets[start_slot + i] = 0;
-
-            TRACE("Trying to unbind transform feedback buffer %u. Ignoring.\n", start_slot + i);
         }
     }
-
-    if (count)
-        VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, first, count, buffers, offsets, sizes));
 }
 
 static void d3d12_command_list_recompute_fb_size(struct d3d12_command_list *list)
