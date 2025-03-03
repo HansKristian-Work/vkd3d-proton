@@ -4896,7 +4896,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
         graphics->rtv_active_mask &= 1u << 0;
     }
 
-    graphics->xfb_enabled = false;
+    graphics->xfb_buffer_count = 0u;
     if (so_desc->NumEntries)
     {
         if (!(state->root_signature->d3d12_flags & D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT))
@@ -4913,13 +4913,21 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
             goto fail;
         }
 
-        graphics->xfb_enabled = true;
         graphics->cached_desc.xfb_info = vkd3d_shader_transform_feedback_info_dup(so_desc);
 
         if (!graphics->cached_desc.xfb_info)
         {
             hr = E_OUTOFMEMORY;
             goto fail;
+        }
+
+        for (i = 0; i < graphics->cached_desc.xfb_info->element_count; i++)
+        {
+            if (graphics->cached_desc.xfb_info->elements[i].semantic_name)
+            {
+                graphics->xfb_buffer_count = max(graphics->xfb_buffer_count,
+                        graphics->cached_desc.xfb_info->elements[i].output_slot + 1u);
+            }
         }
 
         if (graphics->stage_flags & VK_SHADER_STAGE_GEOMETRY_BIT)
@@ -5228,7 +5236,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     have_attachment = graphics->rt_count || graphics->dsv_format ||
             d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics);
     if ((!have_attachment && !(graphics->stage_flags & VK_SHADER_STAGE_FRAGMENT_BIT))
-            || (graphics->xfb_enabled && so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM))
+            || (graphics->xfb_buffer_count && so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM))
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
     rs_line_info_from_d3d12(device, &graphics->rs_line_info, &graphics->rs_desc, &desc->rasterizer_state);
