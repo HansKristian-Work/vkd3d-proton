@@ -529,6 +529,11 @@ static inline bool get_adapter_desc(ID3D12Device *device, DXGI_ADAPTER_DESC *des
     return SUCCEEDED(hr);
 }
 
+static inline bool is_native_d3d12_device(ID3D12Device *device)
+{
+    return true;
+}
+
 static inline bool is_amd_windows_device(ID3D12Device *device)
 {
     DXGI_ADAPTER_DESC desc;
@@ -692,6 +697,11 @@ static inline void init_adapter_info(void)
             trace("Driver name: %s, driver info: %s.\n", driver_properties.driverName, driver_properties.driverInfo);
         ID3D12Device_Release(device);
     }
+}
+
+static inline bool is_native_d3d12_device(ID3D12Device *device)
+{
+    return false;
 }
 
 static inline bool is_amd_windows_device(ID3D12Device *device)
