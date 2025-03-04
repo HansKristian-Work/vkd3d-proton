@@ -617,8 +617,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* There aren't many games that use mesh shaders outside of UE5 Nanite fallbacks.
      * UE5 is broken w.r.t. feature checks, so we have to do opt-in instead :( */
     { VKD3D_STRING_COMPARE_EXACT, "AlanWake2.exe", 0, 0, VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
-    /* Catch-all for benchmark and presumably the beta. There is an impossible amdgpu bug with PRT sparse. */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "MonsterHunterWilds", VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES, 0 },
+    /* Monster Hunter Wilds (2246340).
+     * There is an impossible amdgpu bug with PRT sparse. */
+    { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterWilds.exe", VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
@@ -719,7 +720,7 @@ static const struct vkd3d_shader_quirk_info witcher3_quirks = {
     witcher3_hashes, ARRAY_SIZE(witcher3_hashes), 0,
 };
 
-static const struct vkd3d_shader_quirk_info pagonia_quirks = {
+static const struct vkd3d_shader_quirk_info heap_robustness_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
 };
 
@@ -806,7 +807,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Witcher 3 (2023) (292030) */
     { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", &witcher3_quirks },
     /* Pioneers of Pagonia (2155180) */
-    { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", &pagonia_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", &heap_robustness_quirks },
     /* AC: Mirage */
     { VKD3D_STRING_COMPARE_EXACT, "ACMirage.exe", &ac_mirage_quirks },
     { VKD3D_STRING_COMPARE_EXACT, "ACMirage_plus.exe", &ac_mirage_quirks },
@@ -824,6 +825,15 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe", &starfield_quirks },
     /* FFVII Rebirth (2909400). */
     { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe", &rebirth_quirks },
+    /* Monster Hunter Wilds (2246340).
+     * As a follow-up for SKIP_NULL_SPARSE, it seems possible that application
+     * can end up loading bogus bindless indices from pages which should have been NULL.
+     * Chasing through UMR wave dumps and captures,
+     * we observe that a faulting index depends on a load from a sparse buffer.
+     * This hasn't been confirmed to be a game bug or indirect vkd3d-proton bug,
+     * but it's plausible enough to be caused by SKIP_NULL_SPARSE that we can justify this hack
+     * until a proper fix is in place. */
+    { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterWilds.exe", &heap_robustness_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
