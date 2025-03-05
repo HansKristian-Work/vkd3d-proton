@@ -618,8 +618,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * UE5 is broken w.r.t. feature checks, so we have to do opt-in instead :( */
     { VKD3D_STRING_COMPARE_EXACT, "AlanWake2.exe", 0, 0, VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
     /* Monster Hunter Wilds (2246340).
-     * There is an impossible amdgpu bug with PRT sparse. */
-    { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterWilds.exe", VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES, 0 },
+     * There is an impossible amdgpu bug with PRT sparse.
+     * No upload HVV as a performance opt since it's very CPU intensive, and there's no obvious GPU uplift from this. */
+    { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterWilds.exe",
+        VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
