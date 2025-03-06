@@ -16759,6 +16759,125 @@ static VkAccessFlags2 vk_access_flags_from_d3d12_barrier(struct d3d12_command_li
     return vk_access;
 }
 
+static VkPipelineStageFlags2 vk_sanitize_stage_flags_for_access(struct d3d12_command_list *list,
+        VkPipelineStageFlags2 stages, VkAccessFlags2 access)
+{
+/* We can't use Vulkan's 64-bit constants to initialize an array since they
+ * are not constant according to C rules, so use a macro instead. */
+#define HANDLE_ACCESS(a, b)                 \
+    do                                      \
+    {                                       \
+        if (access & (a))                   \
+        {                                   \
+            if (!(stages & (b)))            \
+                stages |= (b);              \
+            access &= ~(a);                 \
+        }                                   \
+    } while (0)
+
+    VkPipelineStageFlags2 queue_shader_stages = vk_queue_shader_stages(list->device, list->vk_queue_flags);
+
+    const VkAccessFlags2 all_shader_access = VK_ACCESS_2_UNIFORM_READ_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+            VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT |  VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
+            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_DESCRIPTOR_BUFFER_READ_BIT_EXT;
+
+    const VkAccessFlags2 all_graphics_access =
+            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT | VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT | VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT |
+            VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT | VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT |
+            VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR;
+
+    const VkAccessFlags2 all_transfer_access =
+            VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+    const VkAccessFlags2 all_host_access =
+            VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_HOST_WRITE_BIT;
+
+    /* If any of the meta stage flags are set, ignore any access that is
+     * already accounted for. */
+    if (stages & VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+    {
+        access &= all_host_access;
+    }
+    else
+    {
+        if (stages & VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+            access &= ~(all_graphics_access | all_shader_access);
+        if (stages & VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT)
+            access &= ~all_transfer_access;
+    }
+
+    /* Ensure that for each access flag, we have at least one stage that supports
+     * the given access type. If not, be conservative and add all stages that may
+     * perform that access. */
+    if (access & (VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT))
+    {
+        if (!(stages & ~VK_PIPELINE_STAGE_2_HOST_BIT))
+            stages |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+        access &= ~(VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+    }
+
+    HANDLE_ACCESS(all_shader_access, queue_shader_stages);
+
+    HANDLE_ACCESS(VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_INDEX_READ_BIT,
+            VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,
+            VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT |
+            VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_HOST_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_HOST_BIT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT |
+            VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT |
+            VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT,
+            VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT,
+            VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_EXT |
+            VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_EXT,
+            VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_EXT);
+
+    HANDLE_ACCESS(VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR);
+
+    HANDLE_ACCESS(VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR |
+            queue_shader_stages);
+
+    HANDLE_ACCESS(VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR);
+
+    HANDLE_ACCESS(VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR,
+            VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR);
+
+    if (access)
+        FIXME("Unhandled access flags %#"PRIx64".\n", access);
+
+    return stages;
+#undef HANDLE_ACCESS
+}
+
 static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch, const D3D12_GLOBAL_BARRIER *barrier)
 {
@@ -16781,6 +16900,9 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
     dst_stages = vk_stage_flags_from_d3d12_barrier(list, barrier->SyncAfter, barrier->AccessAfter);
     src_access = vk_access_flags_from_d3d12_barrier(list, barrier->AccessBefore);
     dst_access = vk_access_flags_from_d3d12_barrier(list, barrier->AccessAfter);
+
+    src_stages = vk_sanitize_stage_flags_for_access(list, src_stages, src_access);
+    dst_stages = vk_sanitize_stage_flags_for_access(list, dst_stages, dst_access);
 
     if (d3d12_barrier_invalidates_indirect_arguments(barrier->SyncAfter, barrier->AccessAfter))
     {
@@ -16901,6 +17023,9 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
     /* All COPY operations on images do their own barriers, so we don't have to explicitly flush or invalidate. */
     vk_transition.srcAccessMask &= ~(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
     vk_transition.dstAccessMask &= ~(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
+
+    vk_transition.srcStageMask = vk_sanitize_stage_flags_for_access(list, vk_transition.srcStageMask, vk_transition.srcAccessMask);
+    vk_transition.dstStageMask = vk_sanitize_stage_flags_for_access(list, vk_transition.dstStageMask, vk_transition.dstAccessMask);
 
     /* This works like a "deactivating" discard.
      * The behavior around UNDEFINED layout in D3D12 is ... not well explained in the docs.
