@@ -441,37 +441,39 @@ static HRESULT vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
     return vkd3d_load_vk_global_procs(&instance->vk_global_procs, vkGetInstanceProcAddr);
 }
 
+bool vkd3d_debug_control_mute_message_id(const char *vuid);
+bool vkd3d_debug_control_is_test_suite(void);
+bool vkd3d_debug_control_explode_on_vvl_error(void);
+
 static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
         VkDebugUtilsMessageTypeFlagsEXT message_types,
         const VkDebugUtilsMessengerCallbackDataEXT *callback_data,
         void *userdata)
 {
-    /* Avoid some useless validation warnings which don't contribute much.
-     * - Map memory, likely validation layer bug due to memory alloc flags.
-     * - Pipeline layout limits on NV which are not relevant here.
-     * - SPV_EXT_buffer_device_address shenanigans (need to fix glslang).
-     * - Sample count mismatch in fallback copy shaders.
-     * - Threading error in WaitPresentKHR (false positive).
-     */
     unsigned int i;
-    static const uint32_t ignored_ids[] = {
-        0xc05b3a9du,
-        0x2864340eu,
-        0xbfcfaec2u,
-        0x96f03c1cu,
-        0x8189c842u,
-        0x3d492883u,
-        0x1608dec0u,
-        0x141cb623u,
-    };
-
-    for (i = 0; i < ARRAY_SIZE(ignored_ids); i++)
-        if ((uint32_t)callback_data->messageIdNumber == ignored_ids[i])
-            return VK_FALSE;
 
     if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-        ERR("%s\n", callback_data->pMessage);
+    {
+        if (callback_data->pMessageIdName)
+            if (vkd3d_debug_control_mute_message_id(callback_data->pMessageIdName))
+                return VK_FALSE;
+
+        ERR("%s: %s\n", callback_data->pMessageIdName, callback_data->pMessage);
+
+        for (i = 0; i < callback_data->cmdBufLabelCount; i++)
+            ERR("Label #%u: %s\n", i, callback_data->pCmdBufLabels[i].pLabelName);
+
+        for (i = 0; i < callback_data->objectCount; i++)
+        {
+            ERR("Object #%u: type %u, %s\n", i,
+                    callback_data->pObjects[i].objectType,
+                    callback_data->pObjects[i].pObjectName);
+        }
+
+        if (vkd3d_debug_control_explode_on_vvl_error())
+            abort();
+    }
     else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
         WARN("%s\n", callback_data->pMessage);
 

@@ -40,11 +40,14 @@ START_TEST(d3d12)
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
     pfn_D3D12EnableExperimentalFeatures = get_d3d12_pfn(D3D12EnableExperimentalFeatures);
     pfn_D3D12GetDebugInterface = get_d3d12_pfn(D3D12GetDebugInterface);
+    pfn_D3D12GetInterface = get_d3d12_pfn(D3D12GetInterface);
 
     parse_args(argc, argv);
     enable_d3d12_debug_layer(argc, argv);
     enable_feature_level_override(argc, argv);
     init_adapter_info();
+
+    vkd3d_set_running_in_test_suite();
 
     pfn_D3D12CreateVersionedRootSignatureDeserializer = get_d3d12_pfn(D3D12CreateVersionedRootSignatureDeserializer);
     pfn_D3D12SerializeVersionedRootSignature = get_d3d12_pfn(D3D12SerializeVersionedRootSignature);

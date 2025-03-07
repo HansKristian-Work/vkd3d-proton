@@ -740,6 +740,179 @@ static CONST_VTBL struct IVKD3DCoreInterfaceVtbl d3d12core_interface_vtbl =
     d3d12core_GetInterface,
 };
 
+static pthread_mutex_t vkd3d_debug_control_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint32_t vkd3d_debug_control_is_running_under_test;
+static uint32_t vkd3d_debug_control_explode_on_error;
+static uint32_t vkd3d_debug_control_out_of_spec_behavior[VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_COUNT];
+static uint32_t vkd3d_debug_control_mute_validation_global_counter;
+
+static struct
+{
+    const char *vuid;
+    const char *explanation;
+} vkd3d_debug_control_muted_vuids[32];
+static unsigned int vkd3d_debug_control_muted_vuid_count;
+
+bool vkd3d_debug_control_is_test_suite(void)
+{
+    return vkd3d_atomic_uint32_load_explicit(&vkd3d_debug_control_is_running_under_test, vkd3d_memory_order_relaxed) != 0;
+}
+
+bool vkd3d_debug_control_explode_on_vvl_error(void)
+{
+    return vkd3d_atomic_uint32_load_explicit(&vkd3d_debug_control_explode_on_error, vkd3d_memory_order_relaxed) != 0;
+}
+
+bool vkd3d_debug_control_has_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR behavior)
+{
+    if (behavior >= VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_COUNT)
+        return false;
+    return vkd3d_atomic_uint32_load_explicit(&vkd3d_debug_control_out_of_spec_behavior[behavior], vkd3d_memory_order_relaxed) != 0;
+}
+
+bool vkd3d_debug_control_mute_message_id(const char *vuid)
+{
+    bool ret = false;
+    unsigned int i;
+    if (vkd3d_atomic_uint32_load_explicit(&vkd3d_debug_control_mute_validation_global_counter, vkd3d_memory_order_relaxed))
+        return true;
+
+    pthread_mutex_lock(&vkd3d_debug_control_lock);
+    for (i = 0; i < vkd3d_debug_control_muted_vuid_count && !ret; i++)
+    {
+        if (strstr(vuid, vkd3d_debug_control_muted_vuids[i].vuid))
+        {
+            ret = true;
+            if (vkd3d_debug_control_muted_vuids[i].explanation)
+                INFO("Muted %s: %s\n", vuid, vkd3d_debug_control_muted_vuids[i].explanation);
+            else
+                WARN("Muted %s.\n", vuid);
+        }
+    }
+    pthread_mutex_unlock(&vkd3d_debug_control_lock);
+    return ret;
+}
+
+static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_SetRunningUnderTest(IVKD3DDebugControlInterface *iface)
+{
+    (void)iface;
+    vkd3d_atomic_uint32_store_explicit(&vkd3d_debug_control_is_running_under_test, 1, vkd3d_memory_order_relaxed);
+    INFO("Running in test suite.\n");
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_SetExplodeOnValidationError(
+        IVKD3DDebugControlInterface *iface, BOOL enable)
+{
+    (void)iface;
+    vkd3d_atomic_uint32_store_explicit(&vkd3d_debug_control_explode_on_error, enable, vkd3d_memory_order_relaxed);
+    if (enable)
+        INFO("Enabling explode-on-VVL-error test mode.\n");
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_MuteValidationGlobal(IVKD3DDebugControlInterface *iface)
+{
+    (void)iface;
+    vkd3d_atomic_uint32_increment(&vkd3d_debug_control_mute_validation_global_counter, vkd3d_memory_order_relaxed);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_UnmuteValidationGlobal(IVKD3DDebugControlInterface *iface)
+{
+    (void)iface;
+    vkd3d_atomic_uint32_decrement(&vkd3d_debug_control_mute_validation_global_counter, vkd3d_memory_order_relaxed);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_MuteValidationMessageID(
+        IVKD3DDebugControlInterface *iface, const char *vuid, const char *explanation)
+{
+    HRESULT hr = S_OK;
+    unsigned int i;
+    (void)iface;
+
+    pthread_mutex_lock(&vkd3d_debug_control_lock);
+
+    for (i = 0; i < vkd3d_debug_control_muted_vuid_count; i++)
+    {
+        if (strcmp(vkd3d_debug_control_muted_vuids[i].vuid, vuid) == 0)
+        {
+            hr = E_INVALIDARG;
+            goto out;
+        }
+    }
+
+    if (vkd3d_debug_control_muted_vuid_count == ARRAY_SIZE(vkd3d_debug_control_muted_vuids))
+    {
+        hr = E_OUTOFMEMORY;
+        goto out;
+    }
+
+    vkd3d_debug_control_muted_vuids[vkd3d_debug_control_muted_vuid_count].vuid = vuid;
+    vkd3d_debug_control_muted_vuids[vkd3d_debug_control_muted_vuid_count].explanation = explanation;
+    vkd3d_debug_control_muted_vuid_count++;
+out:
+    pthread_mutex_unlock(&vkd3d_debug_control_lock);
+    return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_UnmuteValidationMessageID(
+        IVKD3DDebugControlInterface *iface, const char *vuid)
+{
+    unsigned int i;
+    (void)iface;
+
+    pthread_mutex_lock(&vkd3d_debug_control_lock);
+
+    for (i = 0; i < vkd3d_debug_control_muted_vuid_count; i++)
+    {
+        if (strcmp(vkd3d_debug_control_muted_vuids[i].vuid, vuid) == 0)
+        {
+            vkd3d_debug_control_muted_vuids[i] = vkd3d_debug_control_muted_vuids[--vkd3d_debug_control_muted_vuid_count];
+            pthread_mutex_unlock(&vkd3d_debug_control_lock);
+            return S_OK;
+        }
+    }
+
+    pthread_mutex_unlock(&vkd3d_debug_control_lock);
+    return E_INVALIDARG;
+}
+
+static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_SetOutOfSpecTestBehavior(
+        IVKD3DDebugControlInterface *iface, VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR behavior, BOOL enable)
+{
+    (void)iface;
+
+    if (behavior < VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_COUNT)
+    {
+        vkd3d_atomic_uint32_store_explicit(
+                &vkd3d_debug_control_out_of_spec_behavior[behavior], enable,
+                vkd3d_memory_order_relaxed);
+        return S_OK;
+    }
+    else
+    {
+        return E_INVALIDARG;
+    }
+}
+
+static CONST_VTBL struct IVKD3DDebugControlInterfaceVtbl vkd3d_debug_control_vtbl =
+{
+    vkd3d_debug_control_SetRunningUnderTest,
+    vkd3d_debug_control_SetExplodeOnValidationError,
+    vkd3d_debug_control_MuteValidationGlobal,
+    vkd3d_debug_control_UnmuteValidationGlobal,
+    vkd3d_debug_control_MuteValidationMessageID,
+    vkd3d_debug_control_UnmuteValidationMessageID,
+    vkd3d_debug_control_SetOutOfSpecTestBehavior,
+};
+
+static const struct IVKD3DDebugControlInterface vkd3d_debug_control_instance =
+{
+    .lpVtbl = &vkd3d_debug_control_vtbl,
+};
+
 static const d3d12core_interface d3d12core_interface_instance =
 {
     .lpVtbl = &d3d12core_interface_vtbl,
@@ -757,6 +930,16 @@ static HRESULT d3d12core_D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
             return S_OK;
         }
     }
+
+    if (IsEqualGUID(rcslid, &CLSID_VKD3DDebugControl))
+    {
+        if (IsEqualGUID(iid, &IID_IVKD3DDebugControlInterface))
+        {
+            *debug = (void*)&vkd3d_debug_control_instance;
+            return S_OK;
+        }
+    }
+
     return E_NOINTERFACE;
 }
 
