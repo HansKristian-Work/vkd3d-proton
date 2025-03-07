@@ -24,6 +24,7 @@ PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSign
 PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
 PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES pfn_D3D12EnableExperimentalFeatures;
 PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
+PFN_D3D12_GET_INTERFACE pfn_D3D12GetInterface;
 D3D_FEATURE_LEVEL vkd3d_device_feature_level = D3D_FEATURE_LEVEL_11_0;
 const char *vkd3d_test_platform = "other";
 struct vkd3d_test_state_context vkd3d_test_state;

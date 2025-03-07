@@ -61,6 +61,7 @@
 extern PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
 extern PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES pfn_D3D12EnableExperimentalFeatures;
 extern PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
+extern PFN_D3D12_GET_INTERFACE pfn_D3D12GetInterface;
 extern PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
 extern PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature;
 extern bool use_warp_device;
@@ -804,6 +805,47 @@ static inline bool device_supports_gpu_upload_heap(ID3D12Device *device)
         return false;
 
     return options16.GPUUploadHeapSupported;
+}
+
+static inline void vkd3d_set_running_in_test_suite(void)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+    {
+        IVKD3DDebugControlInterface_SetRunningUnderTest(dbg);
+        if (getenv("VKD3D_TEST_EXPLODE_ON_VVL"))
+            IVKD3DDebugControlInterface_SetExplodeOnValidationError(dbg, TRUE);
+    }
+}
+
+static inline void vkd3d_mute_validation_message(const char *vuid, const char *explanation)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+        ok(SUCCEEDED(IVKD3DDebugControlInterface_MuteValidationMessageID(dbg, vuid, explanation)), "Failed to mute validation.\n");
+}
+
+static inline void vkd3d_unmute_validation_message(const char *vuid)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+        ok(SUCCEEDED(IVKD3DDebugControlInterface_UnmuteValidationMessageID(dbg, vuid)), "Failed to unmute validation.\n");
+}
+
+static inline void vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR behavior, BOOL enable)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+        ok(SUCCEEDED(IVKD3DDebugControlInterface_SetOutOfSpecTestBehavior(dbg, behavior, enable)), "Failed to unmute validation.\n");
 }
 
 #endif  /* __VKD3D_D3D12_CROSSTEST_H */
