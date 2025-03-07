@@ -716,12 +716,16 @@ HRESULT STDMETHODCALLTYPE d3d12core_EnableExperimentalFeatures(d3d12core_interfa
     return E_NOINTERFACE;
 }
 
+static HRESULT d3d12core_D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **debug);
+
 static HRESULT STDMETHODCALLTYPE d3d12core_GetInterface(d3d12core_interface *core,
         REFCLSID rcslid, REFIID iid, void **debug)
 {
     TRACE("rcslid %s iid %s, debug %p.\n", debugstr_guid(rcslid), debugstr_guid(iid), debug);
 
-    return D3D12GetInterface(rcslid, iid, debug);
+    /* Need to call the static one here, otherwise we end up calling back into d3d12, not d3d12core, creating
+     * a stack overflow. */
+    return d3d12core_D3D12GetInterface(rcslid, iid, debug);
 }
 
 static CONST_VTBL struct IVKD3DCoreInterfaceVtbl d3d12core_interface_vtbl =
@@ -741,7 +745,7 @@ static const d3d12core_interface d3d12core_interface_instance =
     .lpVtbl = &d3d12core_interface_vtbl,
 };
 
-HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **debug)
+static HRESULT d3d12core_D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **debug)
 {
     TRACE("rcslid %s iid %s, debug %p.\n", debugstr_guid(rcslid), debugstr_guid(iid), debug);
 
@@ -756,6 +760,10 @@ HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
     return E_NOINTERFACE;
 }
 
+HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **debug)
+{
+    return d3d12core_D3D12GetInterface(rcslid, iid, debug);
+}
 
 /* Just expose the latest stable AgilitySDK version.
  * This is actually exported as a UINT and not a function it seems. */
