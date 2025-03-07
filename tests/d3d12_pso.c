@@ -4296,6 +4296,8 @@ void test_shader_io_mismatch(void)
     for (i = 0; i < pso_desc.NumRenderTargets; i++)
         pso_desc.RTVFormats[i] = render_target_subobject.render_target_formats.RTFormats[i];
 
+    vkd3d_mute_validation_message("08733", "Testing out of spec behavior with stage IO");
+
     for (i = 0; i < ARRAY_SIZE(input_descs); i++)
     {
         vkd3d_test_set_context("Test %u", i);
@@ -4313,9 +4315,13 @@ void test_shader_io_mismatch(void)
             ID3D12PipelineState_Release(pso);
     }
 
+    vkd3d_unmute_validation_message("08733");
+
     /* Test general shader interface compatibility */
     pso_desc.InputLayout.NumElements = 1;
     pso_desc.InputLayout.pInputElementDescs = &input_descs[0];
+
+    vkd3d_mute_validation_message("07754", "Testing out of spec behavior with stage IO");
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -4361,6 +4367,8 @@ void test_shader_io_mismatch(void)
         if (SUCCEEDED(hr))
             ID3D12PipelineState_Release(pso);
     }
+
+    vkd3d_unmute_validation_message("07754");
 
     /* Test some stream output scenarios with or without rasterized stream */
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -4554,6 +4562,9 @@ void test_gs_topology_mismatch(bool dxil)
      * against the DS output topology, and adjacency is not allowed. */
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
 
+    if (!dxil)
+        vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
+
     for (i = 0; i < ARRAY_SIZE(tess_shaders); i++)
     {
         pso_desc.HS = dxil ? *tess_shaders[i].hs_dxil : *tess_shaders[i].hs_dxbc;
@@ -4574,6 +4585,9 @@ void test_gs_topology_mismatch(bool dxil)
                 ID3D12PipelineState_Release(pso);
         }
     }
+
+    if (!dxil)
+        vkd3d_unmute_validation_message("08737");
 
     destroy_test_context(&context);
 }

@@ -4749,6 +4749,12 @@ void test_large_texel_buffer_view(void)
     {
         vkd3d_test_set_context("Test %u", i);
 
+        if (tests[i].element_count > (1 << D3D12_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP))
+        {
+            vkd3d_mute_validation_message("09427", "Intentionally testing out of spec behavior");
+            vkd3d_mute_validation_message("09428", "Intentionally testing out of spec behavior");
+        }
+
         memset(&srv_desc, 0, sizeof(srv_desc));
         srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
         srv_desc.Format = tests[i].format;
@@ -4837,6 +4843,12 @@ void test_large_texel_buffer_view(void)
         reset_command_list(context.list, context.allocator);
 
         transition_resource_state(context.list, feedback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        if (tests[i].element_count > (1 << D3D12_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP))
+        {
+            vkd3d_unmute_validation_message("09427");
+            vkd3d_unmute_validation_message("09428");
+        }
     }
 
     ID3D12PipelineState_Release(srv_pso);

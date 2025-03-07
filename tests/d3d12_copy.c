@@ -860,6 +860,9 @@ void test_copy_texture_bc_rgba(void)
     rgba_region.pResource = rgba_texture;
     rgba_region.SubresourceIndex = 0;
 
+    vkd3d_mute_validation_message("00150", "See VVL issue 1946");
+    vkd3d_mute_validation_message("00151", "See VVL issue 1946");
+
     for (i = 0; i < 3; i++)
     {
         memset(&bc_region, 0, sizeof(bc_region));
@@ -879,6 +882,9 @@ void test_copy_texture_bc_rgba(void)
     }
 
     transition_resource_state(context.list, bc_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    vkd3d_unmute_validation_message("00150");
+    vkd3d_unmute_validation_message("00151");
 
     for (i = 0; i < 3; i++)
     {
