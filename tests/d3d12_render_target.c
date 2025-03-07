@@ -690,11 +690,13 @@ void test_multisample_rendering(void)
     ID3D12PipelineState_Release(ms_pipeline_state);
 
     /* Single-sampled PSO on multisampled RT. Behaviour is not well
-     * defined here, just test that doing this does not crash. */
+     * defined here, but happens to work on native. */
     pso_desc.SampleDesc.Count = 1;
+    vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_SAMPLE_COUNT_MISMATCH, TRUE);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&ms_pipeline_state);
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_SAMPLE_COUNT_MISMATCH, FALSE);
 
     reset_command_list(command_list, context.allocator);
 

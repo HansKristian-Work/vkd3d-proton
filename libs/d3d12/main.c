@@ -58,10 +58,8 @@ static const struct
     const char *vuid;
     const char *explanation;
 } ignored_validation_ids[] = {
-    { "09461", "See VVL issue 9600" },
     { "07791", "Unimplementable requirement to not overlap memory due to how we need to place RTAS" },
     { "03608", "See VVL issue 9613" },
-    { "08740", "See VVL issue 9601" },
 };
 
 static bool load_d3d12core_module(const char *module_name)

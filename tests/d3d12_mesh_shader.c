@@ -135,7 +135,6 @@ void test_mesh_shader_create_pipeline(void)
     ms_only_pipeline_desc.root_signature = root_signature_subobject;
     ms_only_pipeline_desc.root_signature.root_signature = root_signature;
     ms_only_pipeline_desc.ms = ms_subobject;
-
     hr = create_pipeline_state_from_stream(device2, &ms_only_pipeline_desc, &pipeline_state);
     ok(SUCCEEDED(hr), "Failed to create pipeline, hr %#x.\n", hr);
     ID3D12PipelineState_Release(pipeline_state);
@@ -480,8 +479,9 @@ void test_mesh_shader_rendering(void)
     /* Test SV_CullPrimitive */
     pipeline_desc.ms = ms_cull_primitive_subobject;
     pipeline_desc.ps = ps_culling_subobject;
-
+    vkd3d_mute_validation_message("08737", "See VVL issue 9615, waiting for VVL to pull in latest spirv-val");
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
+    vkd3d_unmute_validation_message("08737");
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
 
     reset_command_list(context.list, context.allocator);

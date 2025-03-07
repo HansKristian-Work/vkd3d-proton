@@ -1224,6 +1224,14 @@ void test_shader_sm62_denorm(void)
     root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    if (is_nvidia_device(context.device))
+    {
+        vkd3d_mute_validation_message("06297",
+                "We intentionally ignore what NV driver reports here since it doesn't match reality.");
+        vkd3d_mute_validation_message("06300",
+                "We intentionally ignore what NV driver reports here since it doesn't match reality.");
+    }
+
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
         vkd3d_test_set_context("Test %u", i);
@@ -1247,6 +1255,12 @@ void test_shader_sm62_denorm(void)
         ID3D12PipelineState_Release(pso);
         release_resource_readback(&rb);
         reset_command_list(context.list, context.allocator);
+    }
+
+    if (is_nvidia_device(context.device))
+    {
+        vkd3d_unmute_validation_message("06297");
+        vkd3d_unmute_validation_message("06300");
     }
 
     vkd3d_test_set_context(NULL);
@@ -2415,6 +2429,12 @@ static void test_denorm_behavior(bool use_dxil)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    if (is_nvidia_device(context.device))
+    {
+        vkd3d_mute_validation_message("06297", "Ignoring denorm props on NV.");
+        vkd3d_mute_validation_message("06300", "Ignoring denorm props on NV.");
+    }
+
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
         const D3D12_SHADER_BYTECODE *cs = use_dxil ? tests[i].cs_dxil : tests[i].cs_dxbc;
@@ -2472,6 +2492,12 @@ static void test_denorm_behavior(bool use_dxil)
         reset_command_list(context.list, context.allocator);
     }
     vkd3d_test_set_context(NULL);
+
+    if (is_nvidia_device(context.device))
+    {
+        vkd3d_unmute_validation_message("06297");
+        vkd3d_unmute_validation_message("06300");
+    }
 
     destroy_test_context(&context);
 }
