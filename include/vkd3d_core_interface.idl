@@ -35,3 +35,27 @@ interface IVKD3DCoreInterface
     HRESULT GetInterface(REFCLSID rcslid, REFIID iid, void** debug);
 }
 cpp_quote("DEFINE_GUID(CLSID_VKD3DCore,       0xed53efad, 0xda21, 0x4d96, 0xa1, 0xbc, 0xe7, 0x34, 0xe0, 0x78, 0x87, 0x9c );")
+
+typedef enum VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR
+{
+    VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_SAMPLE_COUNT_MISMATCH = 0x0,
+    VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_COUNT,
+} VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR;
+
+[
+    uuid(7eef8448-81b3-4437-962a-188a7fdbd925),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface IVKD3DDebugControlInterface
+{
+    HRESULT SetRunningUnderTest();
+    HRESULT SetExplodeOnValidationError(BOOL enable);
+    HRESULT MuteValidationGlobal();
+    HRESULT UnmuteValidationGlobal();
+    HRESULT MuteValidationMessageID(const char *vuid, const char *explanation);
+    HRESULT UnmuteValidationMessageID(const char *vuid);
+    HRESULT SetOutOfSpecTestBehavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR behavior, BOOL enable);
+}
+cpp_quote("DEFINE_GUID(CLSID_VKD3DDebugControl,   0xca062def, 0x49e9, 0x4e2b, 0x80, 0x5d, 0x81, 0x79, 0xd0, 0xa7, 0x9b, 0x3b );")

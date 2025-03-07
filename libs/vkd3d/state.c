@@ -4106,12 +4106,15 @@ void vkd3d_fragment_output_pipeline_free(struct hash_map_entry *entry, void *use
     VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
 }
 
+bool vkd3d_debug_control_has_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR behavior);
+
 static bool d3d12_graphics_pipeline_needs_dynamic_rasterization_samples(const struct d3d12_graphics_pipeline_state *graphics)
 {
     /* Ignore the case where the pipeline is compiled for a single sample since Vulkan drivers are robust against that. */
     if (graphics->rs_desc.rasterizerDiscardEnable ||
             (graphics->ms_desc.rasterizationSamples == VK_SAMPLE_COUNT_1_BIT &&
-            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA)))
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA) &&
+            !vkd3d_debug_control_has_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_SAMPLE_COUNT_MISMATCH)))
         return false;
 
     return graphics->rtv_active_mask || graphics->dsv_format ||
