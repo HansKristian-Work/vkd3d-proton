@@ -1296,6 +1296,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         if (!device->memory_info.has_gpu_upload_heap)
         {
             ERR("Trying to allocate memory on GPU_UPLOAD_HEAP which is not supported on current device.\n");
+            VK_CALL(vkDestroyBuffer(device->vk_device, allocation->resource.vk_buffer, NULL));
             return E_INVALIDARG;
         }
 
