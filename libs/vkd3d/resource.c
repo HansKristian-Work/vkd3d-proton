@@ -2044,6 +2044,8 @@ static bool d3d12_resource_get_mapped_memory_range(struct d3d12_resource *resour
         vk_mapped_range->size = range->End - range->Begin;
     }
 
+    vkd3d_mapped_memory_range_align(device, vk_mapped_range, resource->mem.device_allocation.size);
+
     return true;
 }
 
@@ -2267,6 +2269,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     mapped_range.offset = resource->mem.offset + subresource_layout->offset;
     mapped_range.size = (extent.depth - 1) * subresource_layout->depth_pitch +
       extent.height * subresource_layout->row_pitch;
+    vkd3d_mapped_memory_range_align(device, &mapped_range, resource->mem.device_allocation.size);
     VK_CALL(vkFlushMappedMemoryRanges(device->vk_device, 1, &mapped_range));
 
     return vkd3d_memory_transfer_queue_write_subresource(&device->memory_transfers,
@@ -2347,6 +2350,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
     mapped_range.offset = resource->mem.offset + subresource_layout->offset;
     mapped_range.size = (src_box->back - src_box->front - 1) * subresource_layout->depth_pitch +
       (src_box->bottom - src_box->top) * subresource_layout->row_pitch;
+    vkd3d_mapped_memory_range_align(device, &mapped_range, resource->mem.device_allocation.size);
     VK_CALL(vkInvalidateMappedMemoryRanges(device->vk_device, 1, &mapped_range));
 
     vkd3d_format_copy_data(format, src_data, subresource_layout->row_pitch,

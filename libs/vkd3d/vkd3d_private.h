@@ -6218,4 +6218,13 @@ static inline const void *vk_find_pnext(const void *pnext, VkStructureType sType
     return base_in;
 }
 
+static inline void vkd3d_mapped_memory_range_align(const struct d3d12_device *device, VkMappedMemoryRange *range, VkDeviceSize size)
+{
+    size_t atom_size = device->device_info.properties2.properties.limits.nonCoherentAtomSize;
+    range->size += range->offset & (atom_size - 1);
+    range->offset &= ~(VkDeviceSize)(atom_size - 1);
+    range->size = align64(range->size, atom_size);
+    range->size = min(range->size, size - range->offset);
+}
+
 #endif  /* __VKD3D_PRIVATE_H */

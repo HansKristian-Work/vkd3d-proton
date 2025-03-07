@@ -499,6 +499,7 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
         mapped_range.memory = allocation->device_allocation.vk_memory;
         mapped_range.offset = allocation->offset;
         mapped_range.size = allocation->resource.size;
+        vkd3d_mapped_memory_range_align(device, &mapped_range, allocation->device_allocation.size);
 
         /* Probably faster than doing this on the GPU
          * and having to worry about synchronization */
