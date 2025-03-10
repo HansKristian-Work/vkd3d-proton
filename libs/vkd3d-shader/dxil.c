@@ -564,7 +564,9 @@ static const struct vkd3d_quirk_to_dxil_mapping
     { VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM, DXIL_SPV_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM },
 };
 
-static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter, uint32_t quirks)
+static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
+        const struct vkd3d_shader_interface_info *shader_interface_info,
+        uint32_t quirks)
 {
     unsigned int i;
 
@@ -579,9 +581,489 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter, uint32
         }
     }
 
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_LOOP)
+    {
+        struct dxil_spv_option_branch_control helper = { { DXIL_SPV_OPTION_BRANCH_CONTROL } };
+        helper.force_loop = DXIL_SPV_TRUE;
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support BRANCH_CONTROL.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (quirks & VKD3D_SHADER_QUIRK_INVARIANT_POSITION)
+    {
+        const dxil_spv_option_invariant_position helper =
+                { { DXIL_SPV_OPTION_INVARIANT_POSITION }, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support INVARIANT_POSITION.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1)
+    {
+        const dxil_spv_option_force_subgroup_size helper =
+                { { DXIL_SPV_OPTION_FORCE_SUBGROUP_SIZE }, 1, DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support FORCE_SUBGROUP_SIZE_1.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (quirks & VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS)
+    {
+        const dxil_spv_option_sample_grad_optimization_control helper =
+                { { DXIL_SPV_OPTION_SAMPLE_GRAD_OPTIMIZATION_CONTROL }, DXIL_SPV_TRUE, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support SAMPLE_GRAD_OPTIMIZATION_CONTROL.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if ((quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
+            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    {
+        /* Checking for RAW_VA_ALIAS_DESCRIPTOR_BUFFER is technically not needed,
+         * but only RADV is affected here and NV miscompiles shaders if you only query OpArrayLength
+         * from a descriptor buffer SSBO. */
+        struct dxil_spv_option_descriptor_heap_robustness helper = { { DXIL_SPV_OPTION_DESCRIPTOR_HEAP_ROBUSTNESS },
+                DXIL_SPV_TRUE };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support DESCRIPTOR_HEAP_ROBUSTNESS.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
     return true;
 }
 
+static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
+        const struct vkd3d_shader_interface_info *shader_interface_info,
+        const struct vkd3d_shader_compile_arguments *compiler_args,
+        uint32_t quirks, vkd3d_shader_hash_t hash, const char *export, bool bda)
+{
+    dxil_spv_option_compute_shader_derivatives compute_shader_derivatives = {{ DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES }};
+    dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
+    unsigned int i, j;
+
+    if (!vkd3d_dxil_converter_set_quirks(converter, shader_interface_info, quirks))
+    {
+        ERR("dxil-spirv does not support SHADER_QUIRK.\n");
+        return VKD3D_ERROR_NOT_IMPLEMENTED;
+    }
+
+    {
+        const struct dxil_spv_option_ssbo_alignment helper =
+                { { DXIL_SPV_OPTION_SSBO_ALIGNMENT }, shader_interface_info->min_ssbo_alignment };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support SSBO_ALIGNMENT.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER)
+    {
+        const struct dxil_spv_option_root_constant_inline_uniform_block helper =
+                { { DXIL_SPV_OPTION_ROOT_CONSTANT_INLINE_UNIFORM_BLOCK },
+                        shader_interface_info->push_constant_ubo_binding->set,
+                        shader_interface_info->push_constant_ubo_binding->binding,
+                        DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support PUSH_CONSTANTS_AS_UNIFORM_BUFFER.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER)
+    {
+        static const struct dxil_spv_option_bindless_cbv_ssbo_emulation helper =
+                { { DXIL_SPV_OPTION_BINDLESS_CBV_SSBO_EMULATION },
+                    DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_CBV_AS_STORAGE_BUFFER.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (bda)
+    {
+        const struct dxil_spv_option_physical_storage_buffer helper =
+                { { DXIL_SPV_OPTION_PHYSICAL_STORAGE_BUFFER }, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
+    {
+        const struct dxil_spv_option_bindless_typed_buffer_offsets helper =
+                { { DXIL_SPV_OPTION_BINDLESS_TYPED_BUFFER_OFFSETS },
+                    DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_TYPED_BUFFER_OFFSETS.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER)
+    {
+        struct dxil_spv_option_descriptor_qa helper;
+        helper.base.type = DXIL_SPV_OPTION_DESCRIPTOR_QA;
+        helper.enabled = DXIL_SPV_TRUE;
+        helper.version = DXIL_SPV_DESCRIPTOR_QA_INTERFACE_VERSION;
+        helper.shader_hash = hash;
+        helper.global_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
+        helper.global_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
+        helper.heap_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
+        helper.heap_binding = shader_interface_info->descriptor_qa_control_binding->binding;
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support DESCRIPTOR_QA_BUFFER.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+    else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER)
+    {
+        struct dxil_spv_option_instruction_instrumentation helper;
+        helper.base.type = DXIL_SPV_OPTION_INSTRUCTION_INSTRUMENTATION;
+        helper.enabled = DXIL_SPV_TRUE;
+        helper.version = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INTERFACE_VERSION;
+        helper.shader_hash = hash;
+        helper.payload_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
+        helper.payload_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
+        helper.control_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
+        helper.control_binding = shader_interface_info->descriptor_qa_control_binding->binding;
+        helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXTERNALLY_VISIBLE_WRITE_NAN_INF;
+        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL)
+            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FULL_NAN_INF;
+        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FLUSH_NAN)
+            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FLUSH_NAN_TO_ZERO;
+        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME)
+            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXPECT_ASSUME;
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support INSTRUCTION_INSTRUMENTATION.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+#endif
+
+    {
+        const struct dxil_spv_option_sbt_descriptor_size_log2 helper =
+                { { DXIL_SPV_OPTION_SBT_DESCRIPTOR_SIZE_LOG2 },
+                        vkd3d_bitmask_tzcnt32(shader_interface_info->descriptor_size_cbv_srv_uav),
+                        vkd3d_bitmask_tzcnt32(shader_interface_info->descriptor_size_sampler) };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support SBT_DESCRIPTOR_SIZE_LOG2.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER)
+    {
+        const struct dxil_spv_option_physical_address_descriptor_indexing helper =
+                { { DXIL_SPV_OPTION_PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING },
+                    shader_interface_info->descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress),
+                    0 };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    {
+        const struct dxil_spv_option_bindless_offset_buffer_layout helper =
+                { { DXIL_SPV_OPTION_BINDLESS_OFFSET_BUFFER_LAYOUT },
+                    0, 1, 2 };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_OFFSET_BUFFER_LAYOUT.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    {
+        bool force_nocontract =
+                (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ||
+                ((quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS) &&
+                shader_interface_info->stage == VK_SHADER_STAGE_VERTEX_BIT);
+
+        const struct dxil_spv_option_precise_control helper =
+                { { DXIL_SPV_OPTION_PRECISE_CONTROL },
+                    force_nocontract ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
+                    DXIL_SPV_FALSE };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support PRECISE_CONTROL.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    {
+        char buffer[1024];
+        const struct dxil_spv_option_shader_source_file helper =
+                { { DXIL_SPV_OPTION_SHADER_SOURCE_FILE }, buffer };
+
+        if (export)
+            snprintf(buffer, sizeof(buffer), "%016"PRIx64".%s.dxil", hash, export);
+        else
+            sprintf(buffer, "%016"PRIx64".dxil", hash);
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
+    }
+
+    {
+        const struct dxil_spv_option_precise_control helper =
+                { { DXIL_SPV_OPTION_PRECISE_CONTROL },
+                    (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
+                    DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support PRECISE_CONTROL.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    {
+        const struct dxil_spv_option_subgroup_properties helper =
+                { { DXIL_SPV_OPTION_SUBGROUP_PROPERTIES },
+                        compiler_args->min_subgroup_size,
+                        compiler_args->max_subgroup_size };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support SUBGROUP_PROPERTIES.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (compiler_args)
+    {
+        for (i = 0; i < compiler_args->target_extension_count; i++)
+        {
+            if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION)
+            {
+                static const dxil_spv_option_shader_demote_to_helper helper =
+                        { { DXIL_SPV_OPTION_SHADER_DEMOTE_TO_HELPER }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    WARN("dxil-spirv does not support DEMOTE_TO_HELPER. Slower path will be used.\n");
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT)
+            {
+                static const dxil_spv_option_typed_uav_read_without_format helper =
+                        { { DXIL_SPV_OPTION_TYPED_UAV_READ_WITHOUT_FORMAT }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support TYPED_UAV_READ_WITHOUT_FORMAT.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT)
+            {
+                static const dxil_spv_option_shader_i8_dot helper =
+                        { { DXIL_SPV_OPTION_SHADER_I8_DOT }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support SHADER_I8_DOT.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT)
+            {
+                dxil_spv_option_scalar_block_layout helper =
+                        { { DXIL_SPV_OPTION_SCALAR_BLOCK_LAYOUT }, DXIL_SPV_TRUE };
+
+                for (j = 0; j < compiler_args->target_extension_count; j++)
+                {
+                    if (compiler_args->target_extensions[j] ==
+                            VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS)
+                    {
+                        helper.supports_per_component_robustness = DXIL_SPV_TRUE;
+                        break;
+                    }
+                }
+
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support SCALAR_BLOCK_LAYOUT.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_BARYCENTRIC_KHR)
+            {
+                static const dxil_spv_option_barycentric_khr helper =
+                        { { DXIL_SPV_OPTION_BARYCENTRIC_KHR }, DXIL_SPV_TRUE };
+
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support BARYCENTRIC_KHR.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_NV)
+            {
+                compute_shader_derivatives.supports_nv = DXIL_SPV_TRUE;
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_KHR)
+            {
+                compute_shader_derivatives.supports_khr = DXIL_SPV_TRUE;
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING)
+            {
+                /* Only relevant for ray tracing pipelines. Ray query requires support for PrimitiveCulling feature,
+                 * and the SPIR-V capability is implicitly enabled. */
+                static const dxil_spv_option_shader_ray_tracing_primitive_culling helper =
+                        { { DXIL_SPV_OPTION_SHADER_RAY_TRACING_PRIMITIVE_CULLING }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support RAY_TRACING_PRIMITIVE_CULLING.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
+            {
+                if (!(quirks & VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT))
+                {
+                    static const dxil_spv_option_min_precision_native_16bit helper =
+                            { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
+
+                    if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                    {
+                        ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
+                        return VKD3D_ERROR_NOT_IMPLEMENTED;
+                    }
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
+                denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
+                denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV)
+            {
+                static const dxil_spv_option_subgroup_partitioned_nv helper =
+                        { { DXIL_SPV_OPTION_SUBGROUP_PARTITIONED_NV }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support SUBGROUP_PARTITIONED_NV.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_QUAD_CONTROL_RECONVERGENCE)
+            {
+                dxil_spv_option_quad_control_reconvergence helper = { { DXIL_SPV_OPTION_QUAD_CONTROL_RECONVERGENCE } };
+                helper.supports_maximal_reconvergence = DXIL_SPV_TRUE;
+                helper.supports_quad_control = DXIL_SPV_TRUE;
+
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support QUAD_CONTROL_RECONVERGENCE.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_RAW_ACCESS_CHAINS_NV)
+            {
+                static const dxil_spv_option_raw_access_chains_nv chain = {
+                        { DXIL_SPV_OPTION_RAW_ACCESS_CHAINS_NV }, DXIL_SPV_TRUE };
+
+                if (dxil_spv_converter_add_option(converter, &chain.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support RAW_ACCESS_CHAINS_NV.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+        }
+
+        if (compiler_args->driver_version)
+        {
+            const dxil_spv_option_driver_version version = {
+                    { DXIL_SPV_OPTION_DRIVER_VERSION },
+                    compiler_args->driver_id, compiler_args->driver_version };
+
+            if (dxil_spv_converter_add_option(converter, &version.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support DRIVER_VERSION.\n");
+                return VKD3D_ERROR_NOT_IMPLEMENTED;
+            }
+        }
+        if (compiler_args->dual_source_blending)
+        {
+            static const dxil_spv_option_dual_source_blending helper =
+                    { { DXIL_SPV_OPTION_DUAL_SOURCE_BLENDING }, DXIL_SPV_TRUE };
+            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support DUAL_SOURCE_BLENDING.\n");
+                return VKD3D_ERROR_NOT_IMPLEMENTED;
+            }
+        }
+
+        if (compiler_args->output_swizzle_count != 0)
+        {
+            const dxil_spv_option_output_swizzle helper =
+                    { { DXIL_SPV_OPTION_OUTPUT_SWIZZLE }, compiler_args->output_swizzles, compiler_args->output_swizzle_count };
+            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support OUTPUT_SWIZZLE.\n");
+                return VKD3D_ERROR_NOT_IMPLEMENTED;
+            }
+        }
+
+        for (i = 0; i < compiler_args->parameter_count; i++)
+        {
+            const struct vkd3d_shader_parameter *argument = &compiler_args->parameters[i];
+            if (argument->name == VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT)
+            {
+                bool spec_constant = argument->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT;
+                const dxil_spv_option_rasterizer_sample_count helper =
+                        { { DXIL_SPV_OPTION_RASTERIZER_SAMPLE_COUNT },
+                            spec_constant ? argument->specialization_constant.id : argument->immediate_constant.u32,
+                            spec_constant ? DXIL_SPV_TRUE : DXIL_SPV_FALSE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support RASTERIZER_SAMPLE_COUNT.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+        }
+    }
+
+    /* For legacy reasons, COMPUTE_SHADER_DERIVATIVES_NV is default true in dxil-spirv,
+     * so we have to override it to false as needed. */
+    if (dxil_spv_converter_add_option(converter, &compute_shader_derivatives.base) != DXIL_SPV_SUCCESS)
+    {
+        ERR("dxil-spirv does not support COMPUTE_SHADER_DERIVATIVES.\n");
+        return VKD3D_ERROR_NOT_IMPLEMENTED;
+    }
+
+    if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
+    {
+        ERR("dxil-spirv does not support DENORM_PRESERVE_SUPPORT.\n");
+        return VKD3D_ERROR_NOT_IMPLEMENTED;
+    }
+
+    return VKD3D_OK;
+}
 
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
@@ -589,8 +1071,6 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
-    dxil_spv_option_compute_shader_derivatives compute_shader_derivatives = {{ DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES }};
-    dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
     uint32_t wave_size_min, wave_size_max, wave_size_preferred;
     struct vkd3d_dxil_remap_userdata remap_userdata;
     unsigned int raw_va_binding_count = 0;
@@ -601,7 +1081,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     dxil_spv_compiled_spirv compiled;
     unsigned int heuristic_wave_size;
     dxil_spv_shader_stage stage;
-    unsigned int i, j, max_size;
+    unsigned int i, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
     uint32_t quirks;
@@ -684,466 +1164,9 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         root_constant_words = num_root_descriptors * 2;
     root_constant_words -= num_root_descriptors * 2;
 
-    {
-        const struct dxil_spv_option_ssbo_alignment helper =
-                { { DXIL_SPV_OPTION_SSBO_ALIGNMENT }, shader_interface_info->min_ssbo_alignment };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SSBO_ALIGNMENT.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER)
-    {
-        const struct dxil_spv_option_root_constant_inline_uniform_block helper =
-                { { DXIL_SPV_OPTION_ROOT_CONSTANT_INLINE_UNIFORM_BLOCK },
-                  shader_interface_info->push_constant_ubo_binding->set,
-                  shader_interface_info->push_constant_ubo_binding->binding,
-                  DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support PUSH_CONSTANTS_AS_UNIFORM_BUFFER.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER)
-    {
-        static const struct dxil_spv_option_bindless_cbv_ssbo_emulation helper =
-                { { DXIL_SPV_OPTION_BINDLESS_CBV_SSBO_EMULATION },
-                  DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support BINDLESS_CBV_AS_STORAGE_BUFFER.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    {
-        const struct dxil_spv_option_physical_storage_buffer helper =
-                { { DXIL_SPV_OPTION_PHYSICAL_STORAGE_BUFFER },
-                  raw_va_binding_count || num_root_descriptors ? DXIL_SPV_TRUE : DXIL_SPV_FALSE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
-    {
-        const struct dxil_spv_option_bindless_typed_buffer_offsets helper =
-                { { DXIL_SPV_OPTION_BINDLESS_TYPED_BUFFER_OFFSETS },
-                  DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support BINDLESS_TYPED_BUFFER_OFFSETS.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER)
-    {
-        struct dxil_spv_option_descriptor_qa helper;
-        helper.base.type = DXIL_SPV_OPTION_DESCRIPTOR_QA;
-        helper.enabled = DXIL_SPV_TRUE;
-        helper.version = DXIL_SPV_DESCRIPTOR_QA_INTERFACE_VERSION;
-        helper.shader_hash = hash;
-        helper.global_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
-        helper.global_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
-        helper.heap_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
-        helper.heap_binding = shader_interface_info->descriptor_qa_control_binding->binding;
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support DESCRIPTOR_QA_BUFFER.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-    else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER)
-    {
-        struct dxil_spv_option_instruction_instrumentation helper;
-        helper.base.type = DXIL_SPV_OPTION_INSTRUCTION_INSTRUMENTATION;
-        helper.enabled = DXIL_SPV_TRUE;
-        helper.version = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INTERFACE_VERSION;
-        helper.shader_hash = hash;
-        helper.payload_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
-        helper.payload_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
-        helper.control_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
-        helper.control_binding = shader_interface_info->descriptor_qa_control_binding->binding;
-        helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXTERNALLY_VISIBLE_WRITE_NAN_INF;
-        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FULL_NAN_INF;
-        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FLUSH_NAN)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FLUSH_NAN_TO_ZERO;
-        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXPECT_ASSUME;
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support INSTRUCTION_INSTRUMENTATION.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-#endif
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER)
-    {
-        const struct dxil_spv_option_physical_address_descriptor_indexing helper =
-                { { DXIL_SPV_OPTION_PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING },
-                    shader_interface_info->descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress),
-                    0 };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    {
-        const struct dxil_spv_option_bindless_offset_buffer_layout helper =
-                { { DXIL_SPV_OPTION_BINDLESS_OFFSET_BUFFER_LAYOUT },
-                  0, 1, 2 };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support BINDLESS_OFFSET_BUFFER_LAYOUT.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    {
-        char buffer[16 + 5 + 1];
-        const struct dxil_spv_option_shader_source_file helper =
-                { { DXIL_SPV_OPTION_SHADER_SOURCE_FILE }, buffer };
-
-        sprintf(buffer, "%016"PRIx64".dxil", spirv->meta.hash);
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-            WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
-    }
-
-    {
-        bool force_nocontract =
-                (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ||
-                ((quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS) &&
-                shader_interface_info->stage == VK_SHADER_STAGE_VERTEX_BIT);
-
-        const struct dxil_spv_option_precise_control helper =
-                { { DXIL_SPV_OPTION_PRECISE_CONTROL },
-                        force_nocontract ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
-                        DXIL_SPV_FALSE };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            WARN("dxil-spirv does not support PRECISE_CONTROL.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    {
-        const struct dxil_spv_option_subgroup_properties helper =
-                { { DXIL_SPV_OPTION_SUBGROUP_PROPERTIES },
-                        compiler_args->min_subgroup_size,
-                        compiler_args->max_subgroup_size };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            WARN("dxil-spirv does not support SUBGROUP_PROPERTIES.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_FORCE_LOOP)
-    {
-        struct dxil_spv_option_branch_control helper = { { DXIL_SPV_OPTION_BRANCH_CONTROL } };
-        helper.force_loop = DXIL_SPV_TRUE;
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            WARN("dxil-spirv does not support BRANCH_CONTROL.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if ((quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
-            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
-    {
-        /* Checking for RAW_VA_ALIAS_DESCRIPTOR_BUFFER is technically not needed,
-         * but only RADV is affected here and NV miscompiles shaders if you only query OpArrayLength
-         * from a descriptor buffer SSBO. */
-        struct dxil_spv_option_descriptor_heap_robustness helper = { { DXIL_SPV_OPTION_DESCRIPTOR_HEAP_ROBUSTNESS },
-                DXIL_SPV_TRUE };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            WARN("dxil-spirv does not support DESCRIPTOR_HEAP_ROBUSTNESS.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (compiler_args)
-    {
-        for (i = 0; i < compiler_args->target_extension_count; i++)
-        {
-            if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION)
-            {
-                static const dxil_spv_option_shader_demote_to_helper helper =
-                        { { DXIL_SPV_OPTION_SHADER_DEMOTE_TO_HELPER }, DXIL_SPV_TRUE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    WARN("dxil-spirv does not support DEMOTE_TO_HELPER. Slower path will be used.\n");
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT)
-            {
-                static const dxil_spv_option_typed_uav_read_without_format helper =
-                        { { DXIL_SPV_OPTION_TYPED_UAV_READ_WITHOUT_FORMAT }, DXIL_SPV_TRUE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support TYPED_UAV_READ_WITHOUT_FORMAT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT)
-            {
-                static const dxil_spv_option_shader_i8_dot helper =
-                        { { DXIL_SPV_OPTION_SHADER_I8_DOT }, DXIL_SPV_TRUE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support SHADER_I8_DOT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT)
-            {
-                dxil_spv_option_scalar_block_layout helper =
-                        { { DXIL_SPV_OPTION_SCALAR_BLOCK_LAYOUT }, DXIL_SPV_TRUE };
-
-                for (j = 0; j < compiler_args->target_extension_count; j++)
-                {
-                    if (compiler_args->target_extensions[j] ==
-                            VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS)
-                    {
-                        helper.supports_per_component_robustness = DXIL_SPV_TRUE;
-                        break;
-                    }
-                }
-
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support SCALAR_BLOCK_LAYOUT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_BARYCENTRIC_KHR)
-            {
-                static const dxil_spv_option_barycentric_khr helper =
-                        { { DXIL_SPV_OPTION_BARYCENTRIC_KHR }, DXIL_SPV_TRUE };
-
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support BARYCENTRIC_KHR.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_NV)
-            {
-                compute_shader_derivatives.supports_nv = DXIL_SPV_TRUE;
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_KHR)
-            {
-                compute_shader_derivatives.supports_khr = DXIL_SPV_TRUE;
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
-            {
-                if (!(quirks & VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT))
-                {
-                    static const dxil_spv_option_min_precision_native_16bit helper =
-                            { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
-
-                    if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                    {
-                        ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
-                        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                        goto end;
-                    }
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
-                denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
-                denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV)
-            {
-                static const dxil_spv_option_subgroup_partitioned_nv helper =
-                        { { DXIL_SPV_OPTION_SUBGROUP_PARTITIONED_NV }, DXIL_SPV_TRUE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support SUBGROUP_PARTITIONED_NV.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_QUAD_CONTROL_RECONVERGENCE)
-            {
-                dxil_spv_option_quad_control_reconvergence helper = { { DXIL_SPV_OPTION_QUAD_CONTROL_RECONVERGENCE } };
-                helper.supports_maximal_reconvergence = DXIL_SPV_TRUE;
-                helper.supports_quad_control = DXIL_SPV_TRUE;
-
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support QUAD_CONTROL_RECONVERGENCE.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_RAW_ACCESS_CHAINS_NV)
-            {
-                static const dxil_spv_option_raw_access_chains_nv chain = {
-                        { DXIL_SPV_OPTION_RAW_ACCESS_CHAINS_NV }, DXIL_SPV_TRUE };
-
-                if (dxil_spv_converter_add_option(converter, &chain.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support RAW_ACCESS_CHAINS_NV.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-        }
-
-        if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support DENORM_PRESERVE_SUPPORT.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-
-        if (compiler_args->dual_source_blending)
-        {
-            static const dxil_spv_option_dual_source_blending helper =
-                    { { DXIL_SPV_OPTION_DUAL_SOURCE_BLENDING }, DXIL_SPV_TRUE };
-            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-            {
-                ERR("dxil-spirv does not support DUAL_SOURCE_BLENDING.\n");
-                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                goto end;
-            }
-        }
-
-        if (compiler_args->output_swizzle_count != 0)
-        {
-            const dxil_spv_option_output_swizzle helper =
-                    { { DXIL_SPV_OPTION_OUTPUT_SWIZZLE }, compiler_args->output_swizzles, compiler_args->output_swizzle_count };
-            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-            {
-                ERR("dxil-spirv does not support OUTPUT_SWIZZLE.\n");
-                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                goto end;
-            }
-        }
-
-        if (compiler_args->driver_version)
-        {
-            const dxil_spv_option_driver_version version = {
-                    { DXIL_SPV_OPTION_DRIVER_VERSION },
-                    compiler_args->driver_id, compiler_args->driver_version };
-
-            if (dxil_spv_converter_add_option(converter, &version.base) != DXIL_SPV_SUCCESS)
-            {
-                ERR("dxil-spirv does not support DRIVER_VERSION.\n");
-                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                goto end;
-            }
-        }
-
-        for (i = 0; i < compiler_args->parameter_count; i++)
-        {
-            const struct vkd3d_shader_parameter *argument = &compiler_args->parameters[i];
-            if (argument->name == VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT)
-            {
-                bool spec_constant = argument->type == VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT;
-                const dxil_spv_option_rasterizer_sample_count helper =
-                        { { DXIL_SPV_OPTION_RASTERIZER_SAMPLE_COUNT },
-                          spec_constant ? argument->specialization_constant.id : argument->immediate_constant.u32,
-                          spec_constant ? DXIL_SPV_TRUE : DXIL_SPV_FALSE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support RASTERIZER_SAMPLE_COUNT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-        }
-    }
-
-    /* For legacy reasons, COMPUTE_SHADER_DERIVATIVES_NV is default true in dxil-spirv,
-     * so we have to override it to false as needed. */
-    if (dxil_spv_converter_add_option(converter, &compute_shader_derivatives.base) != DXIL_SPV_SUCCESS)
-    {
-        ERR("dxil-spirv does not support COMPUTE_SHADER_DERIVATIVES.\n");
-        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+    if ((ret = vkd3d_dxil_converter_set_options(converter, shader_interface_info, compiler_args, quirks,
+            spirv->meta.hash, NULL, raw_va_binding_count || num_root_descriptors)))
         goto end;
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_INVARIANT_POSITION)
-    {
-        const dxil_spv_option_invariant_position helper =
-                { { DXIL_SPV_OPTION_INVARIANT_POSITION }, DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support INVARIANT_POSITION.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1)
-    {
-        const dxil_spv_option_force_subgroup_size helper =
-                { { DXIL_SPV_OPTION_FORCE_SUBGROUP_SIZE }, 1, DXIL_SPV_FALSE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support FORCE_SUBGROUP_SIZE_1.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS)
-    {
-        const dxil_spv_option_sample_grad_optimization_control helper =
-                { { DXIL_SPV_OPTION_SAMPLE_GRAD_OPTIMIZATION_CONTROL }, DXIL_SPV_TRUE, DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SAMPLE_GRAD_OPTIMIZATION_CONTROL.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (!vkd3d_dxil_converter_set_quirks(converter, quirks))
-    {
-        ERR("dxil-spirv does not support SHADER_QUIRK.\n");
-        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-        goto end;
-    }
 
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = NULL;
@@ -1250,7 +1273,6 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
-    dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
     const struct vkd3d_shader_push_constant_buffer *record_constant_buffer;
     const struct vkd3d_shader_resource_binding *resource_binding;
     const struct vkd3d_shader_root_parameter *root_parameter;
@@ -1422,356 +1444,9 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         root_constant_words = num_root_descriptors * 2;
     root_constant_words -= num_root_descriptors * 2;
 
-    {
-        const struct dxil_spv_option_ssbo_alignment helper =
-                { { DXIL_SPV_OPTION_SSBO_ALIGNMENT }, shader_interface_info->min_ssbo_alignment };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SSBO_ALIGNMENT.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER)
-    {
-        const struct dxil_spv_option_root_constant_inline_uniform_block helper =
-                { { DXIL_SPV_OPTION_ROOT_CONSTANT_INLINE_UNIFORM_BLOCK },
-                  shader_interface_info->push_constant_ubo_binding->set,
-                  shader_interface_info->push_constant_ubo_binding->binding,
-                  DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support PUSH_CONSTANTS_AS_UNIFORM_BUFFER.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER)
-    {
-        static const struct dxil_spv_option_bindless_cbv_ssbo_emulation helper =
-                { { DXIL_SPV_OPTION_BINDLESS_CBV_SSBO_EMULATION },
-                  DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support BINDLESS_CBV_AS_STORAGE_BUFFER.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    /* BDA is mandatory for RT. */
-    {
-        const struct dxil_spv_option_physical_storage_buffer helper =
-                { { DXIL_SPV_OPTION_PHYSICAL_STORAGE_BUFFER }, DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
-    {
-        const struct dxil_spv_option_bindless_typed_buffer_offsets helper =
-                { { DXIL_SPV_OPTION_BINDLESS_TYPED_BUFFER_OFFSETS },
-                  DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support BINDLESS_TYPED_BUFFER_OFFSETS.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER)
-    {
-        struct dxil_spv_option_descriptor_qa helper;
-        helper.base.type = DXIL_SPV_OPTION_DESCRIPTOR_QA;
-        helper.enabled = DXIL_SPV_TRUE;
-        helper.version = DXIL_SPV_DESCRIPTOR_QA_INTERFACE_VERSION;
-        helper.shader_hash = hash;
-        helper.global_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
-        helper.global_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
-        helper.heap_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
-        helper.heap_binding = shader_interface_info->descriptor_qa_control_binding->binding;
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support DESCRIPTOR_QA_BUFFER.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-    else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER)
-    {
-        struct dxil_spv_option_instruction_instrumentation helper;
-        helper.base.type = DXIL_SPV_OPTION_INSTRUCTION_INSTRUMENTATION;
-        helper.enabled = DXIL_SPV_TRUE;
-        helper.version = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INTERFACE_VERSION;
-        helper.shader_hash = hash;
-        helper.payload_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
-        helper.payload_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
-        helper.control_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
-        helper.control_binding = shader_interface_info->descriptor_qa_control_binding->binding;
-        helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXTERNALLY_VISIBLE_WRITE_NAN_INF;
-        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FULL_NAN_INF;
-        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FLUSH_NAN)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FLUSH_NAN_TO_ZERO;
-        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXPECT_ASSUME;
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support INSTRUCTION_INSTRUMENTATION.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-#endif
-
-    {
-        const struct dxil_spv_option_sbt_descriptor_size_log2 helper =
-                { { DXIL_SPV_OPTION_SBT_DESCRIPTOR_SIZE_LOG2 },
-                    vkd3d_bitmask_tzcnt32(shader_interface_info->descriptor_size_cbv_srv_uav),
-                    vkd3d_bitmask_tzcnt32(shader_interface_info->descriptor_size_sampler) };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support SBT_DESCRIPTOR_SIZE_LOG2.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER)
-    {
-        const struct dxil_spv_option_physical_address_descriptor_indexing helper =
-                { { DXIL_SPV_OPTION_PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING },
-                    shader_interface_info->descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress),
-                    0 };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    {
-        const struct dxil_spv_option_bindless_offset_buffer_layout helper =
-                { { DXIL_SPV_OPTION_BINDLESS_OFFSET_BUFFER_LAYOUT },
-                  0, 1, 2 };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support BINDLESS_OFFSET_BUFFER_LAYOUT.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    {
-        char buffer[1024];
-        const struct dxil_spv_option_shader_source_file helper =
-                { { DXIL_SPV_OPTION_SHADER_SOURCE_FILE }, buffer };
-
-        snprintf(buffer, sizeof(buffer), "%016"PRIx64".%s.dxil", spirv->meta.hash, export);
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-            WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
-    }
-
-    {
-        const struct dxil_spv_option_precise_control helper =
-                { { DXIL_SPV_OPTION_PRECISE_CONTROL },
-                        (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
-                        DXIL_SPV_FALSE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            WARN("dxil-spirv does not support PRECISE_CONTROL.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    {
-        const struct dxil_spv_option_subgroup_properties helper =
-                { { DXIL_SPV_OPTION_SUBGROUP_PROPERTIES },
-                        compiler_args->min_subgroup_size,
-                        compiler_args->max_subgroup_size };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            WARN("dxil-spirv does not support SUBGROUP_PROPERTIES.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (quirks & VKD3D_SHADER_QUIRK_FORCE_LOOP)
-    {
-        struct dxil_spv_option_branch_control helper = { { DXIL_SPV_OPTION_BRANCH_CONTROL } };
-        helper.force_loop = DXIL_SPV_TRUE;
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            WARN("dxil-spirv does not support BRANCH_CONTROL.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if ((quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
-            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
-    {
-        /* Checking for RAW_VA_ALIAS_DESCRIPTOR_BUFFER is technically not needed,
-         * but only RADV is affected here and NV miscompiles shaders if you only query OpArrayLength
-         * from a descriptor buffer SSBO. */
-        struct dxil_spv_option_descriptor_heap_robustness helper = { { DXIL_SPV_OPTION_DESCRIPTOR_HEAP_ROBUSTNESS },
-                DXIL_SPV_TRUE };
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            WARN("dxil-spirv does not support DESCRIPTOR_HEAP_ROBUSTNESS.\n");
-            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-            goto end;
-        }
-    }
-
-    if (!vkd3d_dxil_converter_set_quirks(converter, quirks))
-    {
-        ERR("dxil-spirv does not support SHADER_QUIRK.\n");
-        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+    if ((ret = vkd3d_dxil_converter_set_options(converter, shader_interface_info, compiler_args, quirks,
+            spirv->meta.hash, export, true)))
         goto end;
-    }
-
-    if (compiler_args)
-    {
-        for (i = 0; i < compiler_args->target_extension_count; i++)
-        {
-            if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT)
-            {
-                static const dxil_spv_option_typed_uav_read_without_format helper =
-                        { { DXIL_SPV_OPTION_TYPED_UAV_READ_WITHOUT_FORMAT }, DXIL_SPV_TRUE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support TYPED_UAV_READ_WITHOUT_FORMAT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT)
-            {
-                static const dxil_spv_option_shader_i8_dot helper =
-                        { { DXIL_SPV_OPTION_SHADER_I8_DOT }, DXIL_SPV_TRUE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support SHADER_I8_DOT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT)
-            {
-                dxil_spv_option_scalar_block_layout helper =
-                        { { DXIL_SPV_OPTION_SCALAR_BLOCK_LAYOUT }, DXIL_SPV_TRUE };
-
-                for (j = 0; j < compiler_args->target_extension_count; j++)
-                {
-                    if (compiler_args->target_extensions[j] ==
-                            VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS)
-                    {
-                        helper.supports_per_component_robustness = DXIL_SPV_TRUE;
-                        break;
-                    }
-                }
-
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support SCALAR_BLOCK_LAYOUT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING)
-            {
-                /* Only relevant for ray tracing pipelines. Ray query requires support for PrimitiveCulling feature,
-                 * and the SPIR-V capability is implicitly enabled. */
-                static const dxil_spv_option_shader_ray_tracing_primitive_culling helper =
-                        { { DXIL_SPV_OPTION_SHADER_RAY_TRACING_PRIMITIVE_CULLING }, DXIL_SPV_TRUE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support RAY_TRACING_PRIMITIVE_CULLING.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
-            {
-                if (!(quirks & VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT))
-                {
-                    static const dxil_spv_option_min_precision_native_16bit helper =
-                            { {DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
-
-                    if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                    {
-                        ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
-                        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                        goto end;
-                    }
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
-                denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
-                denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV)
-            {
-                static const dxil_spv_option_subgroup_partitioned_nv helper =
-                        { { DXIL_SPV_OPTION_SUBGROUP_PARTITIONED_NV }, DXIL_SPV_TRUE };
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support SUBGROUP_PARTITIONED_NV.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_RAW_ACCESS_CHAINS_NV)
-            {
-                static const dxil_spv_option_raw_access_chains_nv chain = {
-                        { DXIL_SPV_OPTION_RAW_ACCESS_CHAINS_NV }, DXIL_SPV_TRUE };
-
-                if (dxil_spv_converter_add_option(converter, &chain.base) != DXIL_SPV_SUCCESS)
-                {
-                    ERR("dxil-spirv does not support RAW_ACCESS_CHAINS_NV.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
-                }
-            }
-        }
-
-        if (compiler_args->driver_version)
-        {
-            const dxil_spv_option_driver_version version = {
-                    { DXIL_SPV_OPTION_DRIVER_VERSION },
-                    compiler_args->driver_id, compiler_args->driver_version };
-
-            if (dxil_spv_converter_add_option(converter, &version.base) != DXIL_SPV_SUCCESS)
-            {
-                ERR("dxil-spirv does not support DRIVER_VERSION.\n");
-                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                goto end;
-            }
-        }
-    }
-
-    if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
-    {
-        ERR("dxil-spirv does not support DENORM_PRESERVE_SUPPORT.\n");
-        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-        goto end;
-    }
 
     dxil_spv_converter_set_entry_point(converter, export);
 
