@@ -12248,7 +12248,7 @@ static VkClearColorValue vkd3d_fixup_clear_uav_swizzle(struct d3d12_device *devi
     if (clear_format->dxgi_format == DXGI_FORMAT_A8_UNORM && clear_format->vk_format != VK_FORMAT_A8_UNORM_KHR)
     {
         VkClearColorValue result;
-        result.uint32[0] = color.uint32[3];
+        result.float32[0] = color.float32[3];
         return result;
     }
 
@@ -12277,7 +12277,7 @@ static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *d
             return result;
 
         case DXGI_FORMAT_A8_UNORM:
-            result.uint32[0] = color.uint32[3];
+            result.float32[3] = (float)(color.uint32[3] & 0xff) / 255.0f;
             return result;
 
         default:
@@ -12457,6 +12457,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         }
 
         color = vkd3d_fixup_clear_uav_uint_color(list->device, clear_format->dxgi_format, color);
+        color = vkd3d_fixup_clear_uav_swizzle(list->device, clear_format, color);
         vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
 
         if (!vkd3d_clear_uav_synthesize_buffer_view(list, resource_impl, &args, uint_format, &inline_view))
@@ -12470,6 +12471,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         const struct vkd3d_view *base_view = metadata.view->info.image.view;
         uint_format = vkd3d_clear_uav_find_uint_format(list->device, clear_format->dxgi_format);
         color = vkd3d_fixup_clear_uav_uint_color(list->device, clear_format->dxgi_format, color);
+        color = vkd3d_fixup_clear_uav_swizzle(list->device, clear_format, color);
 
         if (!uint_format)
         {
