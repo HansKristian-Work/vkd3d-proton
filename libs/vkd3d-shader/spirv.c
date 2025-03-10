@@ -226,6 +226,14 @@ struct vkd3d_spirv_builder
     size_t capabilities_size;
     size_t capability_count;
 
+    struct
+    {
+        uint32_t id;
+        SpvDecoration decoration;
+    } *decorations;
+    size_t decorations_size;
+    size_t decorations_count;
+
     uint32_t ext_instr_set_glsl_450;
     uint32_t invocation_count;
     SpvExecutionModel execution_model;
@@ -878,10 +886,31 @@ static void vkd3d_spirv_build_op_member_name(struct vkd3d_spirv_builder *builder
     vkd3d_spirv_build_string(stream, name, name_size);
 }
 
+static bool vkd3d_spirv_register_decoration(struct vkd3d_spirv_builder *builder,
+        uint32_t target_id, SpvDecoration decoration)
+{
+    size_t i;
+
+    for (i = 0; i < builder->decorations_count; i++)
+        if (builder->decorations[i].id == target_id && builder->decorations[i].decoration == decoration)
+            return false;
+
+    vkd3d_array_reserve((void **)&builder->decorations, &builder->decorations_size,
+            builder->decorations_count + 1, sizeof(*builder->decorations));
+
+    builder->decorations[builder->decorations_count].id = target_id;
+    builder->decorations[builder->decorations_count].decoration = decoration;
+    builder->decorations_count++;
+    return true;
+}
+
 static void vkd3d_spirv_build_op_decorate(struct vkd3d_spirv_builder *builder,
         uint32_t target_id, SpvDecoration decoration,
         uint32_t *literals, uint32_t literal_count)
 {
+    if (!literal_count && !vkd3d_spirv_register_decoration(builder, target_id, decoration))
+        return;
+
     vkd3d_spirv_build_op2v(&builder->annotation_stream,
             SpvOpDecorate, target_id, decoration, literals, literal_count);
 }
@@ -1829,6 +1858,7 @@ static void vkd3d_spirv_builder_free(struct vkd3d_spirv_builder *builder)
     rb_destroy(&builder->declarations, vkd3d_spirv_declaration_free, NULL);
 
     vkd3d_free(builder->capabilities);
+    vkd3d_free(builder->decorations);
     vkd3d_free(builder->iface);
 }
 
