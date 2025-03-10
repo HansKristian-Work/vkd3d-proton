@@ -415,7 +415,6 @@ void test_nop_tessellation_shaders(void)
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
@@ -456,7 +455,6 @@ void test_nop_tessellation_shaders(void)
         context.pipeline_state = NULL;
     }
     vkd3d_test_set_context(NULL);
-    vkd3d_unmute_validation_message("08737");
 
     destroy_test_context(&context);
 }
@@ -1073,8 +1071,6 @@ static void test_quad_tessellation(bool use_dxil)
         constant.inside_tess_factors[i] = 1.0f;
 
     pso_desc.HS = hs_quad_ccw;
-    if (!use_dxil)
-        vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
@@ -1116,8 +1112,6 @@ static void test_quad_tessellation(bool use_dxil)
     pso_desc.HS = hs_quad_cw;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    if (!use_dxil)
-        vkd3d_unmute_validation_message("08737");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
@@ -1379,10 +1373,8 @@ void test_tessellation_dcl_index_range(void)
     pso_desc.HS = hs;
     pso_desc.DS = ds;
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    vkd3d_unmute_validation_message("08737");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     vb = create_upload_buffer(device, sizeof(quad), quad);
@@ -1732,12 +1724,8 @@ static void test_hull_shader_control_point_phase(bool use_dxil)
     pso_desc.HS = hs;
     pso_desc.DS = ds;
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    if (!use_dxil)
-        vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    if (!use_dxil)
-        vkd3d_unmute_validation_message("08737");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
@@ -1983,10 +1971,8 @@ void test_hull_shader_vertex_input_patch_constant_phase(void)
     pso_desc.DS = ds;
     pso_desc.PS = ps;
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    vkd3d_unmute_validation_message("08737");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
@@ -2525,12 +2511,8 @@ static void test_hull_shader_fork_phase(bool use_dxil)
     pso_desc.DS = ds;
     pso_desc.PS = ps;
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    if (!use_dxil)
-        vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    if (!use_dxil)
-        vkd3d_unmute_validation_message("08737");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
@@ -3302,12 +3284,8 @@ static void test_line_tessellation(bool use_dxil)
     pso_desc.StreamOutput.pBufferStrides = strides;
     pso_desc.StreamOutput.NumStrides = ARRAY_SIZE(strides);
     pso_desc.StreamOutput.RasterizedStream = D3D12_SO_NO_RASTERIZED_STREAM;
-    if (!use_dxil)
-        vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    if (!use_dxil)
-        vkd3d_unmute_validation_message("08737");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
@@ -3685,10 +3663,8 @@ void test_tessellation_primitive_id(void)
     pso_desc.DS = ds;
     pso_desc.PS = ps;
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    vkd3d_unmute_validation_message("08737");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
