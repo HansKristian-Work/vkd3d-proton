@@ -3136,9 +3136,7 @@ void test_execute_indirect_state_tier_11(void)
         hr = ID3D12Device_CreateCommandSignature(context.device, &cs_desc, context.root_signature,
             &IID_ID3D12CommandSignature, (void **)&command_signature[MESH]);
         ok(SUCCEEDED(hr), "Failed to create command signature, hr %x.\n", hr);
-        vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2377");
         hr = create_pipeline_state_from_stream(device2, &ms_only_pipeline_desc, &psos[MESH]);
-        vkd3d_unmute_validation_message("08737");
         ok(SUCCEEDED(hr), "Failed to create mesh PSO, hr #%x.\n", hr);
         ID3D12Device2_Release(device2);
     }
