@@ -785,6 +785,8 @@ static const struct vkd3d_shader_quirk_hash rebirth_hashes[] = {
     /* GenerateMassiveEnvironmentBatchedNodesCS(). Missing barrier after a CS based clear.
      * Exactly same bug as before, but then it was ComputeBatchedMeshletOffsetsCS(). */
     { 0xe6cb9c843fa1bd18, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
+    /* 1.003 update. Hash changed, but didn't fix the bug. */
+    { 0xf047c7f2f4f32111, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info rebirth_quirks = {
