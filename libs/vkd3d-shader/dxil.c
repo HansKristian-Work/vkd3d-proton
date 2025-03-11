@@ -651,7 +651,7 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
 {
     dxil_spv_option_compute_shader_derivatives compute_shader_derivatives = {{ DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES }};
     dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
-    unsigned int i, j;
+    unsigned int i, j, max_tess_factor;
 
     if (!vkd3d_dxil_converter_set_quirks(converter, shader_interface_info, quirks))
     {
@@ -1060,6 +1060,17 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
     {
         ERR("dxil-spirv does not support DENORM_PRESERVE_SUPPORT.\n");
         return VKD3D_ERROR_NOT_IMPLEMENTED;
+    }
+
+    if ((max_tess_factor = vkd3d_shader_quirk_to_tess_factor_limit(quirks)))
+    {
+        const dxil_spv_option_max_tess_factor helper =
+                { { DXIL_SPV_OPTION_MAX_TESS_FACTOR }, max_tess_factor };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support MAX_TESS_FACTOR.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
     }
 
     return VKD3D_OK;

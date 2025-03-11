@@ -912,6 +912,22 @@ static inline unsigned int vkd3d_compact_swizzle(unsigned int swizzle, unsigned 
     return compacted_swizzle;
 }
 
+static inline unsigned int vkd3d_shader_quirk_to_tess_factor_limit(uint32_t quirks)
+{
+    if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4)
+        return 4;
+    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8)
+        return 8;
+    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12)
+        return 12;
+    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16)
+        return 16;
+    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_32)
+        return 32;
+
+    return 0;
+}
+
 #define VKD3D_DXBC_MAX_SOURCE_COUNT 6
 #define VKD3D_DXBC_HEADER_SIZE (8 * sizeof(uint32_t))
 

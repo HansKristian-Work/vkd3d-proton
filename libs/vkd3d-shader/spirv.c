@@ -32,22 +32,6 @@
 #include "vkd3d_descriptor_qa_data.h"
 #endif
 
-static unsigned int vkd3d_shader_quirk_to_tess_factor_limit(uint32_t quirks)
-{
-    if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4)
-        return 4;
-    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8)
-        return 8;
-    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12)
-        return 12;
-    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16)
-        return 16;
-    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_32)
-        return 32;
-
-    return 0;
-}
-
 static bool vkd3d_sysval_semantic_is_tessellation_factor(enum vkd3d_sysval_semantic sysval)
 {
     switch (sysval)
