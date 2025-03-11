@@ -671,7 +671,7 @@ static const struct vkd3d_shader_quirk_info borderlands3_quirks = {
 };
 
 /* Terrain is rendered with extreme tessellation factors. Limit it to something more reasonable. */
-static const struct vkd3d_shader_quirk_info wolong_quirks = {
+static const struct vkd3d_shader_quirk_info team_ninja_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8,
 };
 
@@ -801,7 +801,9 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Borderlands 3 (397540) */
     { VKD3D_STRING_COMPARE_EXACT, "Borderlands3.exe", &borderlands3_quirks },
     /* Wo Long: Fallen Dynasty (2285240) */
-    { VKD3D_STRING_COMPARE_EXACT, "WoLong.exe", &wolong_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "WoLong.exe", &team_ninja_quirks },
+    /* Rise of the Ronin (1340990) */
+    { VKD3D_STRING_COMPARE_EXACT, "Ronin.exe", &team_ninja_quirks },
     /* Resident Evil 2 (883710) */
     { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re_quirks },
     /* Resident Evil 7 (418370) */
