@@ -742,12 +742,8 @@ static void test_clip_distance(bool use_dxil)
 
     /* geometry shader */
     pso_desc.GS = gs;
-    if (!use_dxil)
-        vkd3d_mute_validation_message("08743", "See vkd3d-proton issue 2379");
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
-    if (!use_dxil)
-        vkd3d_unmute_validation_message("08743");
     ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
 
     check_clip_distance(&context, pso, vbv, vb[1], vs_cb, gs_cb);
