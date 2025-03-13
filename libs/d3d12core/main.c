@@ -746,10 +746,10 @@ static uint32_t vkd3d_debug_control_explode_on_error;
 static uint32_t vkd3d_debug_control_out_of_spec_behavior[VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_COUNT];
 static uint32_t vkd3d_debug_control_mute_validation_global_counter;
 
-static struct
+static struct vkd3d_debug_control_muted_vuid
 {
-    const char *vuid;
-    const char *explanation;
+    char vuid[8];
+    char explanation[248];
 } vkd3d_debug_control_muted_vuids[32];
 static unsigned int vkd3d_debug_control_muted_vuid_count;
 
@@ -772,6 +772,7 @@ bool vkd3d_debug_control_has_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_O
 
 bool vkd3d_debug_control_mute_message_id(const char *vuid)
 {
+    const struct vkd3d_debug_control_muted_vuid *entry;
     bool ret = false;
     unsigned int i;
     if (vkd3d_atomic_uint32_load_explicit(&vkd3d_debug_control_mute_validation_global_counter, vkd3d_memory_order_relaxed))
@@ -780,11 +781,13 @@ bool vkd3d_debug_control_mute_message_id(const char *vuid)
     pthread_mutex_lock(&vkd3d_debug_control_lock);
     for (i = 0; i < vkd3d_debug_control_muted_vuid_count && !ret; i++)
     {
-        if (strstr(vuid, vkd3d_debug_control_muted_vuids[i].vuid))
+        entry = &vkd3d_debug_control_muted_vuids[i];
+
+        if (strstr(vuid, entry->vuid))
         {
             ret = true;
-            if (vkd3d_debug_control_muted_vuids[i].explanation)
-                INFO("Muted %s: %s\n", vuid, vkd3d_debug_control_muted_vuids[i].explanation);
+            if (entry->explanation[0])
+                INFO("Muted %s: %s\n", vuid, entry->explanation);
             else
                 WARN("Muted %s.\n", vuid);
         }
@@ -828,6 +831,7 @@ static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_UnmuteValidationGlobal(IVKD
 static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_MuteValidationMessageID(
         IVKD3DDebugControlInterface *iface, const char *vuid, const char *explanation)
 {
+    struct vkd3d_debug_control_muted_vuid *entry;
     HRESULT hr = S_OK;
     unsigned int i;
     (void)iface;
@@ -836,9 +840,13 @@ static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_MuteValidationMessageID(
 
     for (i = 0; i < vkd3d_debug_control_muted_vuid_count; i++)
     {
-        if (strcmp(vkd3d_debug_control_muted_vuids[i].vuid, vuid) == 0)
+        entry = &vkd3d_debug_control_muted_vuids[i];
+
+        /* Ignore duplicates, it is possible for apps to initialize d3d12
+         * multiple times while keeping d3d12core loaded. */
+        if (!strncmp(entry->vuid, vuid, ARRAY_SIZE(entry->vuid)))
         {
-            hr = E_INVALIDARG;
+            hr = S_FALSE;
             goto out;
         }
     }
@@ -849,9 +857,12 @@ static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_MuteValidationMessageID(
         goto out;
     }
 
-    vkd3d_debug_control_muted_vuids[vkd3d_debug_control_muted_vuid_count].vuid = vuid;
-    vkd3d_debug_control_muted_vuids[vkd3d_debug_control_muted_vuid_count].explanation = explanation;
-    vkd3d_debug_control_muted_vuid_count++;
+    entry = &vkd3d_debug_control_muted_vuids[vkd3d_debug_control_muted_vuid_count++];
+    strncpy(entry->vuid, vuid, ARRAY_SIZE(entry->vuid) - 1u);
+
+    if (explanation)
+        strncpy(entry->explanation, explanation, ARRAY_SIZE(entry->explanation) - 1u);
+
 out:
     pthread_mutex_unlock(&vkd3d_debug_control_lock);
     return hr;
@@ -860,6 +871,7 @@ out:
 static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_UnmuteValidationMessageID(
         IVKD3DDebugControlInterface *iface, const char *vuid)
 {
+    struct vkd3d_debug_control_muted_vuid *entry, *last;
     unsigned int i;
     (void)iface;
 
@@ -867,9 +879,15 @@ static HRESULT STDMETHODCALLTYPE vkd3d_debug_control_UnmuteValidationMessageID(
 
     for (i = 0; i < vkd3d_debug_control_muted_vuid_count; i++)
     {
-        if (strcmp(vkd3d_debug_control_muted_vuids[i].vuid, vuid) == 0)
+        entry = &vkd3d_debug_control_muted_vuids[i];
+
+        if (strncmp(entry->vuid, vuid, ARRAY_SIZE(entry->vuid)) == 0)
         {
-            vkd3d_debug_control_muted_vuids[i] = vkd3d_debug_control_muted_vuids[--vkd3d_debug_control_muted_vuid_count];
+            last = &vkd3d_debug_control_muted_vuids[--vkd3d_debug_control_muted_vuid_count];
+
+            memcpy(entry, last, sizeof(*last));
+            memset(last, 0, sizeof(*last));
+
             pthread_mutex_unlock(&vkd3d_debug_control_lock);
             return S_OK;
         }
