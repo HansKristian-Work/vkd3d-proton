@@ -4476,6 +4476,7 @@ void test_gs_topology_mismatch(bool dxil)
     unsigned int i, j;
 
 #include "shaders/pso/headers/vs_topology.h"
+#include "shaders/pso/headers/hs_topology_point.h"
 #include "shaders/pso/headers/hs_topology_line.h"
 #include "shaders/pso/headers/hs_topology_triangle.h"
 #include "shaders/pso/headers/ds_topology_line.h"
@@ -4519,6 +4520,8 @@ void test_gs_topology_mismatch(bool dxil)
     }
     tess_shaders[] =
     {
+        { D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT,    &hs_topology_point_dxbc,        &hs_topology_point_dxil,
+                                                  &ds_topology_triangle_dxbc,     &ds_topology_triangle_dxil },
         { D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,     &hs_topology_line_dxbc,         &hs_topology_line_dxil,
                                                   &ds_topology_line_dxbc,         &ds_topology_line_dxil },
         { D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, &hs_topology_triangle_dxbc,     &hs_topology_triangle_dxil,
