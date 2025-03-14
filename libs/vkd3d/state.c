@@ -4372,6 +4372,9 @@ static bool d3d12_pipeline_state_validate_gs_input_toplogy(struct d3d12_pipeline
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
 
+    if (geometry_meta & VKD3D_SHADER_META_FLAG_POINT_MODE_TESSELLATION)
+        return gs_meta->gs_input_topology == VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+
     switch (gs_meta->gs_input_topology)
     {
         case VK_PRIMITIVE_TOPOLOGY_POINT_LIST:
@@ -4454,10 +4457,14 @@ static HRESULT d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_s
         }
 
         /* The last active geometry stage determines the output topology */
-        if (graphics->stages[i].stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT ||
+        if (graphics->stages[i].stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT ||
                 graphics->stages[i].stage == VK_SHADER_STAGE_GEOMETRY_BIT ||
                 graphics->stages[i].stage == VK_SHADER_STAGE_MESH_BIT_EXT)
             geometry_meta = graphics->code[i].meta.flags;
+
+        /* Retain point mode override tessellation control shader */
+        if (graphics->stages[i].stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
+            geometry_meta = graphics->code[i].meta.flags | (geometry_meta & VKD3D_SHADER_META_FLAG_POINT_MODE_TESSELLATION);
 
         /* Need to disable AToC if the fragment shader exports sample mask */
         if (graphics->stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT &&
@@ -4465,12 +4472,15 @@ static HRESULT d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_s
             graphics->ms_desc.alphaToCoverageEnable = VK_FALSE;
     }
 
-    if ((geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES) &&
-            graphics->rs_desc.polygonMode == VK_POLYGON_MODE_LINE)
-        geometry_meta = VKD3D_SHADER_META_FLAG_EMITS_LINES;
+    if (!(geometry_meta & VKD3D_SHADER_META_FLAG_POINT_MODE_TESSELLATION))
+    {
+        if ((geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES) &&
+                graphics->rs_desc.polygonMode == VK_POLYGON_MODE_LINE)
+            geometry_meta = VKD3D_SHADER_META_FLAG_EMITS_LINES;
 
-    if ((geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_LINES) && device->vk_info.EXT_line_rasterization)
-        vk_prepend_struct(&graphics->rs_desc, &graphics->rs_line_info);
+        if ((geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_LINES) && device->vk_info.EXT_line_rasterization)
+            vk_prepend_struct(&graphics->rs_desc, &graphics->rs_line_info);
+    }
 
     return S_OK;
 }
