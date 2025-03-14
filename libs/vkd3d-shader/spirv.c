@@ -12248,6 +12248,10 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     meta |= VKD3D_SHADER_META_FLAG_USES_DEPTH_STENCIL_WRITE;
                     break;
 
+                case SpvExecutionModePointMode:
+                    meta |= VKD3D_SHADER_META_FLAG_POINT_MODE_TESSELLATION;
+                    break;
+
                 default:
                     break;
             }
