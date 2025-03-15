@@ -1560,3 +1560,114 @@ void test_divergent_buffer_index_varying(void)
     ID3D12Resource_Release(cbv);
     destroy_test_context(&context);
 }
+
+void test_resource_heap_out_of_bounds(void)
+{
+#if 1
+    /* NV behavior is to mask the index by (1 << 20) - 1, which can read unexpected descriptors as it wraps around.
+     * AMD behavior is like RADV, a non-robust load from raw BDA. I observed that it ends up reading random-looking data. */
+    skip("Skipping unstable, exploratory test which demonstrates that neither NV nor AMD deal with OOB heap in a deterministic way.\n");
+    return;
+#else
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_ROOT_PARAMETER root_parameters[3];
+    ID3D12DescriptorHeap *resource_heap;
+    ID3D12Resource *heap_index_buffer;
+    D3D12_DESCRIPTOR_RANGE desc_range;
+    ID3D12Resource *output_buffer;
+    ID3D12Resource *input_buffer;
+    struct resource_readback rb;
+    struct test_context context;
+    unsigned int i;
+
+#include "shaders/bindless/headers/resource_heap_out_of_bounds.h"
+
+    /* Try to break drivers. POT is to try to suss out any u32 overflows in addr computation. */
+    static const uint32_t heap_indices[32] = {
+        0, 1, 2, 3, 4, 5, 6, 7,
+        8, 9, 10, 11, 100, 1000, 10000, 100000,
+        10000000, 10000000, UINT32_MAX, 1 << 19, 1 << 20, 1000001, (1 << 20) + 1,
+        1u << 23, 1u << 24, 1u << 25, 1u << 26, 1u << 27, 1u << 28, 1u << 29,
+    };
+
+    static const uint32_t input_data[12] = { 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200 };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    heap_index_buffer = create_upload_buffer(context.device, sizeof(heap_indices), heap_indices);
+    input_buffer = create_upload_buffer(context.device, sizeof(input_data), input_data);
+    output_buffer = create_default_buffer(context.device, 256 * 2 * sizeof(uint32_t),
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    resource_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 12);
+
+    for (i = 0; i < ARRAY_SIZE(input_data); i++)
+    {
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Format = DXGI_FORMAT_UNKNOWN;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Buffer.FirstElement = i;
+        srv_desc.Buffer.NumElements = 1;
+        srv_desc.Buffer.StructureByteStride = 4;
+        ID3D12Device_CreateShaderResourceView(context.device, input_buffer, &srv_desc, get_cpu_descriptor_handle(&context, resource_heap, i));
+    }
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.Flags =
+        D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    memset(root_parameters, 0, sizeof(root_parameters));
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[2].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[2].DescriptorTable.pDescriptorRanges = &desc_range;
+    desc_range.BaseShaderRegister = 0;
+    desc_range.NumDescriptors = UINT32_MAX;
+    desc_range.OffsetInDescriptorsFromTableStart = 0;
+    desc_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range.RegisterSpace = 1;
+
+    create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, resource_heap_out_of_bounds_dxil);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &resource_heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output_buffer));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(heap_index_buffer));
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(resource_heap));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 32, 1, 1);
+
+    transition_resource_state(context.list, output_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output_buffer, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 256; i++)
+    {
+        uint32_t expected_group;
+        uint32_t expected_nuri;
+        uint32_t value_group;
+        uint32_t value_nuri;
+
+        expected_group = heap_indices[i / 8] < ARRAY_SIZE(input_data) ? input_data[heap_indices[i / 8]] : 0;
+        expected_nuri = heap_indices[i & 31] < ARRAY_SIZE(input_data) ? input_data[heap_indices[i & 31]] : 0;
+
+        value_nuri = get_readback_uint(&rb, 2 * i + 0, 0, 0);
+        value_group = get_readback_uint(&rb, 2 * i + 1, 0, 0);
+        ok(expected_group == value_group, "Group output %u (%u, heap index 0x%x): Expected %u, got %u\n", i, i / 8, heap_indices[i / 8], expected_group, value_group);
+        ok(expected_nuri == value_nuri, "NURI output %u (%u, heap index 0x%x): Expected %u, got %u\n", i, i & 31, heap_indices[i & 31], expected_nuri, value_nuri);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(resource_heap);
+    ID3D12Resource_Release(heap_index_buffer);
+    ID3D12Resource_Release(output_buffer);
+    ID3D12Resource_Release(input_buffer);
+    destroy_test_context(&context);
+#endif
+}
