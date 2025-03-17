@@ -675,6 +675,11 @@ static const struct vkd3d_shader_quirk_info team_ninja_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8,
 };
 
+/* More over-tessellated terrain, but base geometry is more coarse */
+static const struct vkd3d_shader_quirk_info atelier_yumia_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16,
+};
+
 /* The subgroup check in CACAO shader is botched and does not handle Wave64 properly.
  * Just pretend the subgroup size is non-sensical to use the normal FFX CACAO code path. */
 static const struct vkd3d_shader_quirk_hash re_hashes[] = {
@@ -833,6 +838,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe", &starfield_quirks },
     /* FFVII Rebirth (2909400). */
     { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe", &rebirth_quirks },
+    /* Atelier Yumia (3123410) */
+    { VKD3D_STRING_COMPARE_EXACT, "Atelier_Yumia.exe", &atelier_yumia_quirks },
     /* Monster Hunter Wilds (2246340).
      * As a follow-up for SKIP_NULL_SPARSE, it seems possible that application
      * can end up loading bogus bindless indices from pages which should have been NULL.
