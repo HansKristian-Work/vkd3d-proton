@@ -751,18 +751,31 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
             helper.payload_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
             helper.control_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
             helper.control_binding = shader_interface_info->descriptor_qa_control_binding->binding;
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXTERNALLY_VISIBLE_WRITE_NAN_INF;
+            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INT_MAX;
+
             if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL)
                 helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FULL_NAN_INF;
             else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FLUSH_NAN)
                 helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FLUSH_NAN_TO_ZERO;
             else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME)
                 helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXPECT_ASSUME;
-
-            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC)
+                helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_BUFFER_SYNCHRONIZATION_VALIDATION;
+            else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC_COMPUTE)
             {
-                ERR("dxil-spirv does not support INSTRUCTION_INSTRUMENTATION.\n");
-                return VKD3D_ERROR_NOT_IMPLEMENTED;
+                if (shader_interface_info->stage == VK_SHADER_STAGE_COMPUTE_BIT)
+                    helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_BUFFER_SYNCHRONIZATION_VALIDATION;
+            }
+            else
+                helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXTERNALLY_VISIBLE_WRITE_NAN_INF;
+
+            if (helper.type != DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INT_MAX)
+            {
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support INSTRUCTION_INSTRUMENTATION.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
             }
         }
     }

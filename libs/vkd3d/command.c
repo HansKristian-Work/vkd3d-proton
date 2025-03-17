@@ -7409,6 +7409,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
 
 static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_list *list)
 {
+    vkd3d_descriptor_debug_sync_validation_barrier(list->device->descriptor_qa_global_info,
+            list->device, list->cmd.vk_command_buffer);
+
     if ((list->current_compute_meta_flags & (VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
             VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH |
             VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH)) || list->cmd.clear_uav_pending)
@@ -7497,6 +7500,9 @@ static void d3d12_command_list_check_compute_barrier(struct d3d12_command_list *
         VKD3D_BREADCRUMB_COMMAND(BARRIER);
         d3d12_command_list_debug_mark_label(list, "ForcePostBarrier", 1.0f, 1.0f, 0.0f, 1.0f);
     }
+
+    vkd3d_descriptor_debug_sync_validation_barrier(list->device->descriptor_qa_global_info,
+            list->device, list->cmd.vk_command_buffer);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_iface *iface,
@@ -10320,6 +10326,17 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
     {
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &batch->vk_memory_barrier;
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+        /* Somewhat crude approximation. TODO: Refine as required. */
+        if ((batch->vk_memory_barrier.srcAccessMask & VK_ACCESS_2_SHADER_WRITE_BIT) ||
+                (batch->vk_memory_barrier.dstAccessMask &
+                        (VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_UNIFORM_READ_BIT)))
+        {
+            vkd3d_descriptor_debug_clear_bloom_filter(list->device->descriptor_qa_global_info,
+                    list->device, list->cmd.vk_command_buffer);
+        }
+#endif
     }
 
     if (dep_info.imageMemoryBarrierCount || dep_info.memoryBarrierCount)
@@ -18930,7 +18947,7 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     pool->barriers_count = 0;
     pool->query_heaps_count = 0;
 
-    if (!count)
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS) && !count)
     {
         *vk_cmd_buffer = VK_NULL_HANDLE;
         return;
@@ -18963,7 +18980,8 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
         }
     }
 
-    if (!pool->barriers_count && !pool->query_heaps_count)
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS) &&
+            !pool->barriers_count && !pool->query_heaps_count)
     {
         *vk_cmd_buffer = VK_NULL_HANDLE;
         return;
@@ -18987,7 +19005,11 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     dep_info.imageMemoryBarrierCount = pool->barriers_count;
     dep_info.pImageMemoryBarriers = pool->barriers;
 
-    VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
+    /* Every ExecuteCommandLists is an implicit barrier, so flush the bloom filter automatically. */
+    vkd3d_descriptor_debug_clear_bloom_filter(device->descriptor_qa_global_info, device, pool->cmd[command_index]);
+
+    if (pool->barriers_count)
+        VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
 
     for (i = 0; i < pool->query_heaps_count; i++)
         d3d12_command_queue_init_query_heap(device, pool->cmd[command_index], pool->query_heaps[i]);
