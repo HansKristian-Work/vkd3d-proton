@@ -116,6 +116,10 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
                     (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_FLUSH_NAN;
                 else if (strcmp(end_ptr, "expect-assume") == 0)
                     (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_EXPECT_ASSUME;
+                else if (strcmp(end_ptr, "sync") == 0)
+                    (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC;
+                else if (strcmp(end_ptr, "sync-compute") == 0)
+                    (*ranges)[new_count].flags = VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC_COMPUTE;
                 else
                     end_ptr = "N/A";
 
