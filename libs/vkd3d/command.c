@@ -7417,6 +7417,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
             VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH)) || list->cmd.clear_uav_pending)
     {
         const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VKD3D_UNUSED uint32_t cookie;
         VkMemoryBarrier2 vk_barrier;
         VkDependencyInfo dep_info;
 
@@ -7462,6 +7463,11 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
                 VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH |
                 VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH);
         list->cmd.clear_uav_pending = false;
+
+        cookie = vkd3d_descriptor_debug_clear_bloom_filter(list->device->descriptor_qa_global_info,
+                list->device, list->cmd.vk_command_buffer);
+        VKD3D_BREADCRUMB_AUX32(cookie);
+        VKD3D_BREADCRUMB_COMMAND(SYNC_VAL_CLEAR);
     }
 }
 
@@ -7480,6 +7486,7 @@ static void d3d12_command_list_check_compute_barrier(struct d3d12_command_list *
     if (force_barrier)
     {
         const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VKD3D_UNUSED uint32_t cookie;
         VkMemoryBarrier2 vk_barrier;
         VkDependencyInfo dep_info;
 
@@ -7499,6 +7506,11 @@ static void d3d12_command_list_check_compute_barrier(struct d3d12_command_list *
         VKD3D_BREADCRUMB_TAG("ForceBarrier");
         VKD3D_BREADCRUMB_COMMAND(BARRIER);
         d3d12_command_list_debug_mark_label(list, "ForcePostBarrier", 1.0f, 1.0f, 0.0f, 1.0f);
+
+        cookie = vkd3d_descriptor_debug_clear_bloom_filter(list->device->descriptor_qa_global_info,
+                list->device, list->cmd.vk_command_buffer);
+        VKD3D_BREADCRUMB_AUX32(cookie);
+        VKD3D_BREADCRUMB_COMMAND(SYNC_VAL_CLEAR);
     }
 
     vkd3d_descriptor_debug_sync_validation_barrier(list->device->descriptor_qa_global_info,
