@@ -32,6 +32,7 @@
 #include "vkd3d_debug.h"
 #include "vkd3d_threads.h"
 #include "vkd3d_core_interface.h"
+#include "vkd3d_platform.h"
 
 #include "debug.h"
 
@@ -278,6 +279,38 @@ static uint32_t parse_extension_list(char *extension_str, char **extension_list)
 }
 #endif
 
+static void passthrough_environment(void)
+{
+#ifdef _WIN32
+    char env[256];
+    if (vkd3d_get_env_var("VKD3D_UNIX_ENV", env, sizeof(env)))
+    {
+        const char *value;
+        HMODULE ntdll;
+        char *tok;
+
+        tok = strchr(env, '=');
+        if (!tok)
+            return;
+        *tok = '\0';
+
+        value = tok + 1;
+
+        ntdll = GetModuleHandleA("ntdll.dll");
+        if (ntdll)
+        {
+            NTSTATUS (WINAPI *func)(const char *, const char *) = (void *)GetProcAddress(ntdll, "__wine_set_unix_env");
+            if (func)
+            {
+                INFO("Forwarding env-var \"%s=%s\" to Linux.\n", env, value);
+                func(env, value);
+                SetEnvironmentVariableA(env, value);
+            }
+        }
+    }
+#endif
+}
+
 static void load_modules_once(void)
 {
 #ifdef _WIN32
@@ -324,6 +357,8 @@ static void load_modules_once(void)
         vulkan_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(vulkan_module, "vkGetInstanceProcAddr");
 #endif
     }
+
+    passthrough_environment();
 }
 
 static bool load_modules(void)
