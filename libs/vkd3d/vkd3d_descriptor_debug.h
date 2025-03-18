@@ -39,7 +39,7 @@ static inline VkDeviceAddress vkd3d_descriptor_debug_encode_buffer_va(VkDeviceAd
 void vkd3d_descriptor_debug_sync_validation_barrier(
         struct vkd3d_descriptor_qa_global_info *global_info,
         struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer);
-void vkd3d_descriptor_debug_clear_bloom_filter(
+uint32_t vkd3d_descriptor_debug_clear_bloom_filter(
         struct vkd3d_descriptor_qa_global_info *global_info,
         struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer);
 
@@ -119,7 +119,7 @@ VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
 #define vkd3d_descriptor_debug_heap_info_size(num_descriptors) 0
 #define vkd3d_descriptor_debug_get_shader_interface_flags(global_info, code, size) 0
 #define vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer) ((void)0)
-#define vkd3d_descriptor_debug_clear_bloom_filter(global_info, device, vk_cmd_buffer) ((void)0)
+#define vkd3d_descriptor_debug_clear_bloom_filter(global_info, device, vk_cmd_buffer) (0)
 #endif
 
 #endif

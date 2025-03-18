@@ -55,6 +55,8 @@ struct vkd3d_descriptor_qa_global_info
     size_t qa_range_size;
     size_t qa_range_count;
 
+    uint32_t sync_val_cookie_atomic;
+
     bool needs_sync_validation;
 };
 
@@ -202,26 +204,37 @@ void vkd3d_descriptor_debug_sync_validation_barrier(
     VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep));
 }
 
-void vkd3d_descriptor_debug_clear_bloom_filter(
+uint32_t vkd3d_descriptor_debug_clear_bloom_filter(
         struct vkd3d_descriptor_qa_global_info *global_info,
         struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer)
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     uint32_t control_size;
+    uint32_t sync_cookie;
 
     if (!global_info || !global_info->needs_sync_validation)
-        return;
+        return 0;
 
     vk_procs = &device->vk_procs;
 
     /* Fully barrier everything. */
     vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer);
     control_size = (global_info->num_cookies / 16) * sizeof(uint32_t);
-    /* This can get rather expensive, but whatever it takes to catch impossible sync bugs ... */
+    /* This can get rather expensive, but whatever it takes to catch impossible sync bugs ...
+     * Don't clear the last two values of the control buffer which hold misc cookie data that we don't need to clear. */
     VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
             global_info->control_descriptor.buffer, control_size,
-            global_info->control_descriptor.range - control_size, 0));
+            global_info->control_descriptor.range - control_size - 2 * sizeof(uint32_t), 0));
+
+    sync_cookie = vkd3d_atomic_uint32_increment(&global_info->sync_val_cookie_atomic, vkd3d_memory_order_relaxed);
+
+    /* Update the dispatch counter. */
+    VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
+            global_info->control_descriptor.buffer, global_info->control_descriptor.range - 2 * sizeof(uint32_t),
+            sizeof(uint32_t), sync_cookie));
+
     vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer);
+    return sync_cookie;
 }
 
 static void *vkd3d_descriptor_debug_qa_check_instruction(void *userdata)
@@ -347,8 +360,8 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         struct vkd3d_descriptor_qa_global_info **out_global_info,
         struct d3d12_device *device)
 {
-    const uint32_t bloom_buffer_size = 64 * 1024 * 1024 + sizeof(uint64_t);
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const uint32_t bloom_buffer_size = 64 * 1024 * 1024;
     struct vkd3d_descriptor_qa_global_info *global_info;
     VkMemoryPropertyFlags memory_properties;
     const uint32_t num_payloads = 4096;
@@ -448,6 +461,11 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
             ERR("Sync validation is enabled, but SINGLE_QUEUE is not. Cannot use sync validation properly!\n");
         }
     }
+
+    /* The last two u32s of the control buffer are reserved for:
+     * - A unique dispatch counter used to correlate with breadcrumbs
+     * - An atomic counter for InvocationID locking in sync-val. */
+    buffer_desc.Width += 2 * sizeof(uint32_t);
 
     if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc,
             "qa-control", &global_info->vk_control_buffer)))
