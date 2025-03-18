@@ -401,7 +401,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
             VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    memory_props = vkd3d_debug_buffer_memory_properties(device, memory_props);
+    memory_props = vkd3d_debug_buffer_memory_properties(device, memory_props, false);
 #endif
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->host_buffer,
@@ -421,7 +421,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    memory_props = vkd3d_debug_buffer_memory_properties(device, memory_props);
+    memory_props = vkd3d_debug_buffer_memory_properties(device, memory_props, false);
 #endif
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->device_atomic_buffer,
