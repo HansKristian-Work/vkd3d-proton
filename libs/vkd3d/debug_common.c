@@ -136,9 +136,12 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
     *range_count = new_count;
 }
 
-VkMemoryPropertyFlags vkd3d_debug_buffer_memory_properties(struct d3d12_device *device, VkMemoryPropertyFlags flags)
+VkMemoryPropertyFlags vkd3d_debug_buffer_memory_properties(struct d3d12_device *device,
+        VkMemoryPropertyFlags flags, bool high_throughput)
 {
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    /* For high-throughput scenarios like sync-val, we absolutely cannot demote to host visible,
+     * or we risk 0.00001 fps. */
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && !high_throughput)
     {
         /* Expect crashes since we won't have time to flush caches.
          * We use coherent in the debug_channel.h header, but not necessarily guaranteed to be coherent with

@@ -400,9 +400,27 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         return hr;
     }
 
+    vkd3d_descriptor_debug_parse_shader_ranges(global_info, VKD3D_SHADER_HASH_RANGE_KIND_QA);
+
+    /* If we need sync validation, we need to add an augmented buffer that lives after the fault feedback atomics.
+     * The shader is responsible for figuring this out based on a POT + POT addressing scheme.
+     * E.g. if the feedback atomics have size 0x1000 and the bloom buffer has size 0x1000000,
+     * we expect a buffer size of 0x1001000. Using findLSB and findMSB we can partition as appropriate.
+     * We also add one 64-bit entry to serve as the entry for getting a "unique" ID per invocation,
+     * so the effective size is 0x1001001 in this case. */
+    needs_sync_val = false;
+    for (i = 0; i < global_info->qa_range_count && !needs_sync_val; i++)
+    {
+        if (global_info->qa_ranges[i].flags &
+                (VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC | VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC_COMPUTE))
+        {
+            needs_sync_val = true;
+        }
+    }
+
     memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties, needs_sync_val);
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
@@ -430,24 +448,6 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
      * We'll eat the insanely slow readback cost on CPU. */
     heap_info.Type = D3D12_HEAP_TYPE_DEFAULT;
     buffer_desc.Width = (num_payloads / 16) * sizeof(uint32_t);
-
-    vkd3d_descriptor_debug_parse_shader_ranges(global_info, VKD3D_SHADER_HASH_RANGE_KIND_QA);
-
-    /* If we need sync validation, we need to add an augmented buffer that lives after the fault feedback atomics.
-     * The shader is responsible for figuring this out based on a POT + POT addressing scheme.
-     * E.g. if the feedback atomics have size 0x1000 and the bloom buffer has size 0x1000000,
-     * we expect a buffer size of 0x1001000. Using findLSB and findMSB we can partition as appropriate.
-     * We also add one 64-bit entry to serve as the entry for getting a "unique" ID per invocation,
-     * so the effective size is 0x1001001 in this case. */
-    needs_sync_val = false;
-    for (i = 0; i < global_info->qa_range_count && !needs_sync_val; i++)
-    {
-        if (global_info->qa_ranges[i].flags &
-                (VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC | VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC_COMPUTE))
-        {
-            needs_sync_val = true;
-        }
-    }
 
     if (needs_sync_val)
     {
@@ -478,7 +478,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties, needs_sync_val);
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_control_buffer,
@@ -635,7 +635,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
 
     memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties, false);
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
