@@ -65,8 +65,8 @@ void main()
             dst_indirect_count_va.count = max_draws;
     }
 
-    if (debug_tag != 0u && gl_WorkGroupID.x == 0)
-        DEBUG_CHANNEL_MSG_UNIFORM(int(max_draws), int(gl_NumWorkGroups.x));
+    if (debug_tag != 0u && gl_GlobalInvocationID.x == 0)
+        DEBUG_CHANNEL_MSG(int(max_draws), int(gl_NumWorkGroups.x));
 
     if (draw_id < max_draws)
     {
