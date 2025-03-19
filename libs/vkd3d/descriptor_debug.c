@@ -268,9 +268,10 @@ static void *vkd3d_descriptor_debug_qa_check_instruction(void *userdata)
                 while (word)
                 {
                     payload_index = i * 16 + (vkd3d_bitmask_iter32(&word) - 16);
-                    ERR("QA: non-normal value || shader %016"PRIx64", inst %u, value #%x.\n",
+                    ERR("QA: non-normal value || shader %016"PRIx64", inst %u, value #%x / %u.\n",
                             payload_data[payload_index].hash,
                             payload_data[payload_index].instruction,
+                            payload_data[payload_index].value,
                             payload_data[payload_index].value);
                 }
 
