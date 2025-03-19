@@ -361,12 +361,12 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    const uint32_t bloom_buffer_size = 64 * 1024 * 1024;
     struct vkd3d_descriptor_qa_global_info *global_info;
     VkMemoryPropertyFlags memory_properties;
     const uint32_t num_payloads = 4096;
     D3D12_RESOURCE_DESC1 buffer_desc;
     D3D12_HEAP_PROPERTIES heap_info;
+    uint32_t bloom_buffer_size = 0;
     D3D12_HEAP_FLAGS heap_flags;
     bool needs_sync_val;
     unsigned int i;
@@ -414,6 +414,8 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         if (global_info->qa_ranges[i].flags &
                 (VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC | VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC_COMPUTE))
         {
+            bloom_buffer_size = 1u << vkd3d_env_var_as_uint("VKD3D_BLOOM_BUFFER_SIZE_LOG2", 24);
+            INFO("Using bloom buffer size of %u bytes.\n", bloom_buffer_size);
             needs_sync_val = true;
         }
     }
