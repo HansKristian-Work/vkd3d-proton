@@ -28,6 +28,21 @@
 #define VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS 1
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+static inline VkDeviceAddress vkd3d_descriptor_debug_encode_buffer_va(VkDeviceAddress va, uint32_t elem_size)
+{
+    /* Assume that only lower 48 bits of VA are meaningful. Encode metadata in upper 16 bits.
+     * This is currently only useful for texel buffer stride. */
+    return (va & ((1ull << 48) - 1)) | ((uint64_t)elem_size << 48);
+}
+
+/* For sync-validation */
+void vkd3d_descriptor_debug_sync_validation_barrier(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer);
+uint32_t vkd3d_descriptor_debug_clear_bloom_filter(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer);
+
 HRESULT vkd3d_descriptor_debug_alloc_global_info(
         struct vkd3d_descriptor_qa_global_info **global_info,
         unsigned int num_cookies,
@@ -103,6 +118,8 @@ VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
 #define vkd3d_descriptor_debug_copy_descriptor(dst_heap, dst_heap_cookie, dst_offset, src_heap, src_heap_cookie, src_offset, cookie) ((void)0)
 #define vkd3d_descriptor_debug_heap_info_size(num_descriptors) 0
 #define vkd3d_descriptor_debug_get_shader_interface_flags(global_info, code, size) 0
+#define vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer) ((void)0)
+#define vkd3d_descriptor_debug_clear_bloom_filter(global_info, device, vk_cmd_buffer) (0)
 #endif
 
 #endif

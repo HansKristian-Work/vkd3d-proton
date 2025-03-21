@@ -39,7 +39,13 @@
 static RENDERDOC_API_1_0_0 *renderdoc_api;
 static vkd3d_shader_hash_t renderdoc_capture_shader_hash;
 
-static uint32_t *renderdoc_capture_counts;
+struct vkd3d_renderdoc_capture_range
+{
+    uint32_t lo;
+    uint32_t hi;
+};
+
+static struct vkd3d_renderdoc_capture_range *renderdoc_capture_counts;
 static size_t renderdoc_capture_counts_count;
 static bool vkd3d_renderdoc_is_active;
 static bool vkd3d_renderdoc_global_capture;
@@ -72,7 +78,16 @@ static void vkd3d_renderdoc_init_capture_count_list(const char *env)
                 sizeof(*renderdoc_capture_counts));
 
         INFO("Enabling automatic RenderDoc capture of submit #%u.\n", count);
-        renderdoc_capture_counts[renderdoc_capture_counts_count++] = count;
+        renderdoc_capture_counts[renderdoc_capture_counts_count].lo = count;
+        renderdoc_capture_counts[renderdoc_capture_counts_count].hi = count;
+
+        if (*endp == '-')
+        {
+            count = strtoul(endp + 1, &endp, 0);
+            renderdoc_capture_counts[renderdoc_capture_counts_count].hi = count;
+        }
+
+        renderdoc_capture_counts_count++;
 
         if (*endp == ',')
             env = endp + 1;
@@ -92,7 +107,7 @@ static bool vkd3d_renderdoc_enable_submit_counter(uint32_t counter)
 
     /* TODO: Can be smarter about this if we have to. */
     for (i = 0; i < renderdoc_capture_counts_count; i++)
-        if (renderdoc_capture_counts[i] == counter)
+        if (renderdoc_capture_counts[i].lo <= counter && counter <= renderdoc_capture_counts[i].hi)
             return true;
 
     return false;
@@ -136,8 +151,8 @@ static void vkd3d_renderdoc_init_once(void)
         vkd3d_renderdoc_init_capture_count_list(counts);
     else
     {
-        static uint32_t zero_count;
-        renderdoc_capture_counts = &zero_count;
+        static struct vkd3d_renderdoc_capture_range default_range;
+        renderdoc_capture_counts = &default_range;
         renderdoc_capture_counts_count = 1;
     }
 

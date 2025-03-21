@@ -719,47 +719,64 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
     }
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER)
+    if (shader_interface_info->descriptor_qa_control_binding &&
+            shader_interface_info->descriptor_qa_payload_binding)
     {
-        struct dxil_spv_option_descriptor_qa helper;
-        helper.base.type = DXIL_SPV_OPTION_DESCRIPTOR_QA;
-        helper.enabled = DXIL_SPV_TRUE;
-        helper.version = DXIL_SPV_DESCRIPTOR_QA_INTERFACE_VERSION;
-        helper.shader_hash = hash;
-        helper.global_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
-        helper.global_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
-        helper.heap_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
-        helper.heap_binding = shader_interface_info->descriptor_qa_control_binding->binding;
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER)
         {
-            ERR("dxil-spirv does not support DESCRIPTOR_QA_BUFFER.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
+            struct dxil_spv_option_descriptor_qa helper;
+            helper.base.type = DXIL_SPV_OPTION_DESCRIPTOR_QA;
+            helper.enabled = DXIL_SPV_TRUE;
+            helper.version = DXIL_SPV_DESCRIPTOR_QA_INTERFACE_VERSION;
+            helper.shader_hash = hash;
+            helper.global_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
+            helper.global_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
+            helper.heap_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
+            helper.heap_binding = shader_interface_info->descriptor_qa_control_binding->binding;
+
+            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support DESCRIPTOR_QA_BUFFER.\n");
+                return VKD3D_ERROR_NOT_IMPLEMENTED;
+            }
         }
-    }
-    else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER)
-    {
-        struct dxil_spv_option_instruction_instrumentation helper;
-        helper.base.type = DXIL_SPV_OPTION_INSTRUCTION_INSTRUMENTATION;
-        helper.enabled = DXIL_SPV_TRUE;
-        helper.version = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INTERFACE_VERSION;
-        helper.shader_hash = hash;
-        helper.payload_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
-        helper.payload_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
-        helper.control_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
-        helper.control_binding = shader_interface_info->descriptor_qa_control_binding->binding;
-        helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXTERNALLY_VISIBLE_WRITE_NAN_INF;
-        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FULL_NAN_INF;
-        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FLUSH_NAN)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FLUSH_NAN_TO_ZERO;
-        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME)
-            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXPECT_ASSUME;
-
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER)
         {
-            ERR("dxil-spirv does not support INSTRUCTION_INSTRUMENTATION.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
+            struct dxil_spv_option_instruction_instrumentation helper;
+            helper.base.type = DXIL_SPV_OPTION_INSTRUCTION_INSTRUMENTATION;
+            helper.enabled = DXIL_SPV_TRUE;
+            helper.version = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INTERFACE_VERSION;
+            helper.shader_hash = hash;
+            helper.payload_desc_set = shader_interface_info->descriptor_qa_payload_binding->set;
+            helper.payload_binding = shader_interface_info->descriptor_qa_payload_binding->binding;
+            helper.control_desc_set = shader_interface_info->descriptor_qa_control_binding->set;
+            helper.control_binding = shader_interface_info->descriptor_qa_control_binding->binding;
+            helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INT_MAX;
+
+            if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FULL)
+                helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FULL_NAN_INF;
+            else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_FLUSH_NAN)
+                helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_FLUSH_NAN_TO_ZERO;
+            else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME)
+                helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXPECT_ASSUME;
+            else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC)
+                helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_BUFFER_SYNCHRONIZATION_VALIDATION;
+            else if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC_COMPUTE)
+            {
+                if (shader_interface_info->stage == VK_SHADER_STAGE_COMPUTE_BIT)
+                    helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_BUFFER_SYNCHRONIZATION_VALIDATION;
+            }
+            else
+                helper.type = DXIL_SPV_INSTRUCTION_INSTRUMENTATION_TYPE_EXTERNALLY_VISIBLE_WRITE_NAN_INF;
+
+            if (helper.type != DXIL_SPV_INSTRUCTION_INSTRUMENTATION_INT_MAX)
+            {
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support INSTRUCTION_INSTRUMENTATION.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
         }
     }
 #endif

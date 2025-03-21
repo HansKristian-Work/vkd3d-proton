@@ -3592,7 +3592,8 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_WORKGRAPH_META,
     VKD3D_BREADCRUMB_COMMAND_WORKGRAPH_NODE,
     VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV,
-    VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_COPY
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_COPY,
+    VKD3D_BREADCRUMB_COMMAND_SYNC_VAL_CLEAR
 };
 
 #if defined(VKD3D_ENABLE_BREADCRUMBS) || defined(VKD3D_ENABLE_DESCRIPTOR_QA)
@@ -3603,7 +3604,9 @@ enum vkd3d_shader_hash_range_qa_flags
     VKD3D_SHADER_HASH_RANGE_QA_FLAG_DISALLOW = 1 << 1,
     VKD3D_SHADER_HASH_RANGE_QA_FLAG_FULL_QA = 1 << 2,
     VKD3D_SHADER_HASH_RANGE_QA_FLAG_FLUSH_NAN = 1 << 3,
-    VKD3D_SHADER_HASH_RANGE_QA_FLAG_EXPECT_ASSUME = 1 << 4
+    VKD3D_SHADER_HASH_RANGE_QA_FLAG_EXPECT_ASSUME = 1 << 4,
+    VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC = 1 << 5,
+    VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC_COMPUTE = 1 << 6
 };
 
 struct vkd3d_shader_hash_range
@@ -3622,7 +3625,8 @@ enum vkd3d_shader_hash_range_kind
 void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **ranges,
         size_t *range_size, size_t *range_count, enum vkd3d_shader_hash_range_kind kind);
 
-VkMemoryPropertyFlags vkd3d_debug_buffer_memory_properties(struct d3d12_device *device, VkMemoryPropertyFlags flags);
+VkMemoryPropertyFlags vkd3d_debug_buffer_memory_properties(struct d3d12_device *device,
+        VkMemoryPropertyFlags flags, bool high_throughput);
 #endif
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS

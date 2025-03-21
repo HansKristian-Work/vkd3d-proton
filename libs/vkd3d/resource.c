@@ -5350,6 +5350,17 @@ void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
     else
         d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    {
+        /* We may want to peek at the buffer's raw VA when doing instrumentation. */
+        VkDeviceAddress *counter_addresses = d.heap->raw_va_aux_buffer.host_ptr;
+        counter_addresses[d.offset] =
+                vkd3d_descriptor_debug_encode_buffer_va(d.view->info.buffer.va, sizeof(uint32_t));
+        d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_QA_TYPE_RAW_VA_BIT;
+    }
+#endif
+
     if (vk_write_count)
         VK_CALL(vkUpdateDescriptorSets(device->vk_device, vk_write_count, vk_writes, 0, NULL));
 
@@ -5770,6 +5781,18 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
 
     if (mutable_uses_single_descriptor)
         d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    {
+        /* We may want to peek at the buffer's raw VA when doing instrumentation. */
+        VkDeviceAddress *counter_addresses = d.heap->raw_va_aux_buffer.host_ptr;
+        uint32_t elem_size;
+        elem_size = desc->Format ? vkd3d_get_format(device, desc->Format, false)->byte_count : sizeof(uint32_t);
+        counter_addresses[d.offset] = vkd3d_descriptor_debug_encode_buffer_va(d.view->info.buffer.va, elem_size);
+        d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_QA_TYPE_RAW_VA_BIT;
+    }
+#endif
 
     vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, resource ? resource->res.cookie : 0);
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
@@ -6488,6 +6511,17 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         /* This is used to denote that a counter descriptor is present, irrespective of underlying descriptor type. */
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_RAW_VA_BIT;
     }
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    {
+        /* We may want to peek at the buffer's raw VA when doing instrumentation.
+         * UAV counted resources do not get instrumentation, so the aliasing should not be a problem in practice. */
+        uint32_t elem_size;
+        elem_size = desc->Format ? vkd3d_get_format(device, desc->Format, false)->byte_count : sizeof(uint32_t);
+        uav_counter_address = vkd3d_descriptor_debug_encode_buffer_va(d.view->info.buffer.va, elem_size);
+        d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_QA_TYPE_RAW_VA_BIT;
+    }
+#endif
 
     counter_addresses = d.heap->raw_va_aux_buffer.host_ptr;
     descriptor_index = d.offset;

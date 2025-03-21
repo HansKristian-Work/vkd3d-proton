@@ -54,6 +54,10 @@ struct vkd3d_descriptor_qa_global_info
     struct vkd3d_shader_hash_range *qa_ranges;
     size_t qa_range_size;
     size_t qa_range_count;
+
+    uint32_t sync_val_cookie_atomic;
+
+    bool needs_sync_validation;
 };
 
 static const char *debug_descriptor_type(vkd3d_descriptor_qa_flags type_flags)
@@ -169,6 +173,70 @@ static void vkd3d_descriptor_debug_unset_live_status_bit(
     }
 }
 
+void vkd3d_descriptor_debug_sync_validation_barrier(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep;
+
+    if (!global_info || !global_info->needs_sync_validation)
+        return;
+
+    vk_procs = &device->vk_procs;
+
+    memset(&dep, 0, sizeof(dep));
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &vk_barrier;
+
+    /* Fully serialize dispatches. This makes it easier to catch sync bugs
+     * since we're guaranteed that a racing read/write in subsequent dispatch will
+     * observe hazards. */
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep));
+}
+
+uint32_t vkd3d_descriptor_debug_clear_bloom_filter(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    uint32_t control_size;
+    uint32_t sync_cookie;
+
+    if (!global_info || !global_info->needs_sync_validation)
+        return 0;
+
+    vk_procs = &device->vk_procs;
+
+    /* Fully barrier everything. */
+    vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer);
+    control_size = (global_info->num_cookies / 16) * sizeof(uint32_t);
+    /* This can get rather expensive, but whatever it takes to catch impossible sync bugs ...
+     * Don't clear the last two values of the control buffer which hold misc cookie data that we don't need to clear. */
+    VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
+            global_info->control_descriptor.buffer, control_size,
+            global_info->control_descriptor.range - control_size - 2 * sizeof(uint32_t), 0));
+
+    sync_cookie = vkd3d_atomic_uint32_increment(&global_info->sync_val_cookie_atomic, vkd3d_memory_order_relaxed);
+
+    /* Update the dispatch counter. */
+    VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
+            global_info->control_descriptor.buffer, global_info->control_descriptor.range - 2 * sizeof(uint32_t),
+            sizeof(uint32_t), sync_cookie));
+
+    vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer);
+    return sync_cookie;
+}
+
 static void *vkd3d_descriptor_debug_qa_check_instruction(void *userdata)
 {
     struct vkd3d_descriptor_qa_global_info *global_info = userdata;
@@ -200,9 +268,10 @@ static void *vkd3d_descriptor_debug_qa_check_instruction(void *userdata)
                 while (word)
                 {
                     payload_index = i * 16 + (vkd3d_bitmask_iter32(&word) - 16);
-                    ERR("QA: non-normal value || shader %016"PRIx64", inst %u, value #%x.\n",
+                    ERR("QA: non-normal value || shader %016"PRIx64", inst %u, value #%x / %u.\n",
                             payload_data[payload_index].hash,
                             payload_data[payload_index].instruction,
+                            payload_data[payload_index].value,
                             payload_data[payload_index].value);
                 }
 
@@ -298,7 +367,10 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
     const uint32_t num_payloads = 4096;
     D3D12_RESOURCE_DESC1 buffer_desc;
     D3D12_HEAP_PROPERTIES heap_info;
+    uint32_t bloom_buffer_size = 0;
     D3D12_HEAP_FLAGS heap_flags;
+    bool needs_sync_val;
+    unsigned int i;
     VkResult vr;
     HRESULT hr;
 
@@ -329,9 +401,29 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         return hr;
     }
 
+    vkd3d_descriptor_debug_parse_shader_ranges(global_info, VKD3D_SHADER_HASH_RANGE_KIND_QA);
+
+    /* If we need sync validation, we need to add an augmented buffer that lives after the fault feedback atomics.
+     * The shader is responsible for figuring this out based on a POT + POT addressing scheme.
+     * E.g. if the feedback atomics have size 0x1000 and the bloom buffer has size 0x1000000,
+     * we expect a buffer size of 0x1001000. Using findLSB and findMSB we can partition as appropriate.
+     * We also add one 64-bit entry to serve as the entry for getting a "unique" ID per invocation,
+     * so the effective size is 0x1001001 in this case. */
+    needs_sync_val = false;
+    for (i = 0; i < global_info->qa_range_count && !needs_sync_val; i++)
+    {
+        if (global_info->qa_ranges[i].flags &
+                (VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC | VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC_COMPUTE))
+        {
+            bloom_buffer_size = 1u << vkd3d_env_var_as_uint("VKD3D_BLOOM_BUFFER_SIZE_LOG2", 24);
+            INFO("Using bloom buffer size of %u bytes.\n", bloom_buffer_size);
+            needs_sync_val = true;
+        }
+    }
+
     memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties, needs_sync_val);
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
@@ -360,6 +452,24 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
     heap_info.Type = D3D12_HEAP_TYPE_DEFAULT;
     buffer_desc.Width = (num_payloads / 16) * sizeof(uint32_t);
 
+    if (needs_sync_val)
+    {
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SINGLE_QUEUE)
+        {
+            buffer_desc.Width += bloom_buffer_size;
+            global_info->needs_sync_validation = true;
+        }
+        else
+        {
+            ERR("Sync validation is enabled, but SINGLE_QUEUE is not. Cannot use sync validation properly!\n");
+        }
+    }
+
+    /* The last two u32s of the control buffer are reserved for:
+     * - A unique dispatch counter used to correlate with breadcrumbs
+     * - An atomic counter for InvocationID locking in sync-val. */
+    buffer_desc.Width += 2 * sizeof(uint32_t);
+
     if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc,
             "qa-control", &global_info->vk_control_buffer)))
     {
@@ -371,7 +481,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties, needs_sync_val);
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_control_buffer,
@@ -405,8 +515,6 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return E_OUTOFMEMORY;
     }
-
-    vkd3d_descriptor_debug_parse_shader_ranges(global_info, VKD3D_SHADER_HASH_RANGE_KIND_QA);
 
     *out_global_info = global_info;
     return S_OK;
@@ -466,6 +574,16 @@ uint32_t vkd3d_descriptor_debug_get_shader_interface_flags(
             flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME |
                     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
         }
+        else if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC)
+        {
+            flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC |
+                    VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
+        }
+        else if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_SYNC_COMPUTE)
+        {
+            flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC_COMPUTE |
+                    VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
+        }
         else if (flags & VKD3D_SHADER_HASH_RANGE_QA_FLAG_ALLOW)
             flags = VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER;
     }
@@ -520,7 +638,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
 
     memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties);
+    memory_properties = vkd3d_debug_buffer_memory_properties(device, memory_properties, false);
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
