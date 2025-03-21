@@ -951,9 +951,19 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         uint32_t candidate_alignment = desc->Alignment ?
                 desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
-        /* Only consider alignments that are <= to the requested alignment. */
-        while (candidate_alignment && !(candidate_alignment & supported_alignment))
-            candidate_alignment >>= 1;
+        if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+        {
+            /* Only consider alignments that are <= to the requested alignment. */
+            while (candidate_alignment && !(candidate_alignment & supported_alignment))
+                candidate_alignment >>= 1;
+        }
+        else
+        {
+            /* For non-render target resources, always use the smallest supported alignment in order
+             * to support certain aliasing edge cases that are technically undefined behaviour in
+             * D3D12, but happen to work on native drivers anyway. */
+            candidate_alignment = supported_alignment & -supported_alignment;
+        }
 
         alignment_control->sType = VK_STRUCTURE_TYPE_IMAGE_ALIGNMENT_CONTROL_CREATE_INFO_MESA;
         alignment_control->pNext = NULL;
