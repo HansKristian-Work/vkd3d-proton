@@ -624,6 +624,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * No upload HVV as a performance opt since it's very CPU intensive, and there's no obvious GPU uplift from this. */
     { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterWilds.exe",
         VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
+    /* Wreckfest 2 (1203190). Aliases block-compressed textures with color images on the
+     * same heap and expects image data to be interpreted consistently. */
+    { VKD3D_STRING_COMPARE_EXACT, "Wreckfest2.exe", VKD3D_CONFIG_FLAG_PLACED_TEXTURE_ALIASING, 0 },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
      * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
