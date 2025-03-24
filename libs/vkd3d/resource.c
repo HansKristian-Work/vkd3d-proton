@@ -951,6 +951,19 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         uint32_t candidate_alignment = desc->Alignment ?
                 desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PLACED_TEXTURE_ALIASING) &&
+                resource && (resource->flags & VKD3D_RESOURCE_PLACED) &&
+                (candidate_alignment > D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT) &&
+                !(desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) &&
+                (format->block_byte_count * format->byte_count == 8u || format->block_byte_count * format->byte_count == 16u))
+        {
+            /* Try to use consistent alignment for BC textures and 8- or 16-byte color
+             * formats so that aliased textures can interpret the data consistently.
+             * This is undefined behaviour in D3D12, but works on native drivers. */
+            if (supported_alignment & (2u * D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT - 1u))
+                candidate_alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+        }
+
         /* Only consider alignments that are <= to the requested alignment. */
         while (candidate_alignment && !(candidate_alignment & supported_alignment))
             candidate_alignment >>= 1;
