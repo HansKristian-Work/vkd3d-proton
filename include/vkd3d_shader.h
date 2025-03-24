@@ -465,7 +465,8 @@ enum vkd3d_shader_quirk
     VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS = (1 << 20),
 
     /* Works around cases where app is relying on coherency between threads in a workgroup,
-     * but forgets to use Device memory barriers properly. */
+     * but forgets to use Device memory barriers properly.
+     * Only applies to shaders that use at least one device memory barrier already. */
     VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY = (1 << 21),
 
     /* Extremely specific workaround for cubemap importance sampling pass.
@@ -479,7 +480,11 @@ enum vkd3d_shader_quirk
 
     /* Do more aggressive analysis of when nonuniform may be missing from shaders.
      * Not done by default since it's overly conservative. */
-    VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM = (1 << 24)
+    VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM = (1 << 24),
+
+    /* A harder version of FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY.
+     * Applies to all uses of barrier(), regardless. */
+    VKD3D_SHADER_QUIRK_PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER = (1 << 25)
 };
 
 struct vkd3d_shader_quirk_hash
