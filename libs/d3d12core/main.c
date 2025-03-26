@@ -277,13 +277,11 @@ static uint32_t parse_extension_list(char *extension_str, char **extension_list)
     }
     return count;
 }
-#endif
 
-static void passthrough_environment(void)
+static void passthrough_unix_environment(const char *env_name)
 {
-#ifdef _WIN32
     char env[256];
-    if (vkd3d_get_env_var("VKD3D_UNIX_ENV", env, sizeof(env)))
+    if (vkd3d_get_env_var(env_name, env, sizeof(env)))
     {
         const char *value;
         HMODULE ntdll;
@@ -306,10 +304,14 @@ static void passthrough_environment(void)
                 func(env, value);
                 SetEnvironmentVariableA(env, value);
             }
+            else
+                ERR("Could not find __wine_set_unix_env in ntdll. Not running in Proton?\n");
         }
+        else
+            ERR("Could not find ntdll?!\n");
     }
-#endif
 }
+#endif
 
 static void load_modules_once(void)
 {
@@ -357,8 +359,6 @@ static void load_modules_once(void)
         vulkan_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(vulkan_module, "vkGetInstanceProcAddr");
 #endif
     }
-
-    passthrough_environment();
 }
 
 static bool load_modules(void)
@@ -631,6 +631,8 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDevice(d3d12core_interface *cor
         WARN("Failed to get adapter desc, hr %#x.\n", hr);
         goto out_release_adapter;
     }
+
+    passthrough_unix_environment("VKD3D_UNIX_ENV");
 #else
     /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
     if (adapter)
@@ -674,6 +676,7 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDevice(d3d12core_interface *cor
     vkd3d_instance_decref(instance);
 
 #ifdef _WIN32
+    passthrough_unix_environment("VKD3D_UNIX_POST_ENV");
     if (device_create_info.device_extensions != device_extensions)
         vkd3d_free((void *)device_create_info.device_extensions);
     vkd3d_free(openvr_extensions);
