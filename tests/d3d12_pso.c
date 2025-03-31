@@ -4575,10 +4575,21 @@ void test_gs_topology_mismatch(bool dxil)
 
         for (j = 0; j < ARRAY_SIZE(geometry_shaders); j++)
         {
+            bool vvl_bug;
             vkd3d_test_set_context("Test %u,%u", i, j);
             pso_desc.GS = dxil ? *geometry_shaders[j].dxil : *geometry_shaders[j].dxbc;
 
+            vvl_bug = tess_shaders[i].topology == D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT &&
+                    geometry_shaders[j].topology == D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+
+            if (vvl_bug)
+                vkd3d_mute_validation_message("00739", "See VVL issue 9821");
+
             hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+
+            if (vvl_bug)
+                vkd3d_unmute_validation_message("00739");
+
             expected = (geometry_shaders[j].topology == tess_shaders[i].topology &&
                     !geometry_shaders[j].uses_adjacency) ? S_OK : E_INVALIDARG;
 
