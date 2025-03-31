@@ -2641,6 +2641,9 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     physical_device_info->vulkan_1_3_features.privateData = VK_FALSE;
     physical_device_info->vulkan_1_3_features.textureCompressionASTC_HDR = VK_FALSE;
 
+    if (!physical_device_info->fragment_shading_rate_features.primitiveFragmentShadingRate)
+        physical_device_info->mesh_shader_features.primitiveFragmentShadingRateMeshShader = VK_FALSE;
+
     descriptor_buffer = &physical_device_info->descriptor_buffer_features;
     descriptor_buffer->descriptorBufferCaptureReplay = VK_FALSE;
     descriptor_buffer->descriptorBufferImageLayoutIgnored = VK_FALSE;
