@@ -395,11 +395,13 @@ static inline unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
     {
+        case DXGI_FORMAT_R32G32B32A32_TYPELESS:
         case DXGI_FORMAT_R32G32B32A32_FLOAT:
         case DXGI_FORMAT_R32G32B32A32_UINT:
         case DXGI_FORMAT_R32G32B32A32_SINT:
             return 16;
         case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:
         case DXGI_FORMAT_R32G32_UINT:
         case DXGI_FORMAT_R32G32_SINT:
         case DXGI_FORMAT_R32G32_FLOAT:
@@ -410,6 +412,7 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R32_UINT:
         case DXGI_FORMAT_R32_SINT:
+        case DXGI_FORMAT_R16G16_TYPELESS:
         case DXGI_FORMAT_R16G16_FLOAT:
         case DXGI_FORMAT_R16G16_UNORM:
         case DXGI_FORMAT_R16G16_UINT:
