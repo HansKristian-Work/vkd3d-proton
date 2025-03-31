@@ -2130,14 +2130,52 @@ void test_suballocate_small_textures_size(void)
                      * It is unknown what native does here. */
                     is_bugged_thin = is_radv && is_thin && levels >= 4;
 
-                    /* This assumes tight packing without compression metadata.
-                     * Generally compression is not allowed for placed non-RTV/DSV in D3D12. */
-                    expected_size = (config->width * config->height * config->bpp) / 8;
+                    if (is_adreno_device(device))
+                    {
+                        /* Adreno has layout rules because of which the required memory size
+                         * can't necessarily be captured in some conservative estimate. The
+                         * calculation below should provide the exact required size, but doesn't
+                         * address specific things we don't hit here (e.g. 3D textures and UBWC). */
+                        unsigned int block_size, pitchalign, layer_size, l;
 
-                    /* Be a bit conservative and allow 2x overflow for mipmaps. Tuned so native implementations pass. */
-                    if (levels > 1)
-                        expected_size = 2 * expected_size;
-                    expected_size *= layers;
+                        block_size = format_size(tests[i].format);
+                        pitchalign = block_size * 64;
+                        if (block_size == 2)
+                            pitchalign *= 2;
+
+                        /* Stride for each level is calculated based on the number of horizontal blocks
+                         * and aligned to the required pitch alignment. Number of vertical blocks is
+                         * aligned to 16 for levels that use tiled mode, and aligned to 4 for the last
+                         * level due to hardware access. */
+                        layer_size = 0;
+                        for (l = 0; l < levels; ++l)
+                        {
+                            unsigned int nblocksx, nblocksy;
+
+                            nblocksx = max((config->width / format_block_width(tests[i].format)) >> l, 1);
+                            nblocksy = max((config->height / format_block_height(tests[i].format)) >> l, 1);
+                            if ((config->width >> l) >= 16)
+                                nblocksy = align(nblocksy, 16);
+                            if ((l + 1) == levels)
+                                nblocksy = align(nblocksy, 4);
+
+                            layer_size += align(nblocksx * block_size, pitchalign) * nblocksy;
+                        }
+
+                        /* Specific alignment is required for layer size of any non-3D texture. */
+                        expected_size = align(layer_size, 4096) * layers;
+                    }
+                    else
+                    {
+                        /* This assumes tight packing without compression metadata.
+                         * Generally compression is not allowed for placed non-RTV/DSV in D3D12. */
+                        expected_size = (config->width * config->height * config->bpp) / 8;
+
+                        /* Be a bit conservative and allow 2x overflow for mipmaps. Tuned so native implementations pass. */
+                        if (levels > 1)
+                            expected_size = 2 * expected_size;
+                        expected_size *= layers;
+                    }
 
                     vkd3d_test_set_context("Test %u: fmt #%x, bpp %u, width %u, height %u, levels %u, layers %u",
                             i, tests[i].format, config->bpp,
