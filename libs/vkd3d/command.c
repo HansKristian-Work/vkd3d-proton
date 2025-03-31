@@ -16681,7 +16681,8 @@ static VkPipelineStageFlags2 vk_stage_flags_from_d3d12_barrier(struct d3d12_comm
     {
         stages |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         /* Only add special pipeline stages when required by access masks. */
-        if (access == D3D12_BARRIER_ACCESS_COMMON || (access & D3D12_BARRIER_ACCESS_SHADING_RATE_SOURCE))
+        if (list->device->device_info.fragment_shading_rate_features.attachmentFragmentShadingRate &&
+                (access == D3D12_BARRIER_ACCESS_COMMON || (access & D3D12_BARRIER_ACCESS_SHADING_RATE_SOURCE)))
             stages |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
     }
 
