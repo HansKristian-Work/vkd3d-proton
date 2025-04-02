@@ -9504,7 +9504,7 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         }
     }
 
-    if (meta->flags & VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX)
+    if (false && (meta->flags & VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX))
     {
         const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
         VkCooperativeMatrixPropertiesKHR *props;

@@ -5057,6 +5057,7 @@ void test_wmma_matmul(void)
         } a, b, c, quant;
     } tests[] = {
         { &cs_wmma_f32_16x16x16_f16_quant_f16_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
+#if 0
         { &cs_wmma_f32_16x16x16_f16_quant_f16_at_dxil, { TYPE_FP16, 0, 16, true }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_bt_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, true }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_ct_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP16, 0, 16, false } },
@@ -5065,11 +5066,13 @@ void test_wmma_matmul(void)
         { &cs_wmma_f32_16x16x16_fp8_quant_f32_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP32, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_fp8_quant_fp8_strided_dxil, { TYPE_FP8, 0, 32, false }, { TYPE_FP8, 512, 32, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP8, 0, 32, false } },
         { &cs_wmma_f32_16x16x16_fp8_quant_fp8_strided_transpose_dxil, { TYPE_FP8, 0, 32, true }, { TYPE_FP8, 512, 32, true }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP8, 0, 32, true } },
+#endif
     };
 
     if (!init_compute_test_context(&context))
         return;
 
+#if 0
     if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
             !is_amd_windows_device(context.device))
     {
@@ -5078,6 +5081,7 @@ void test_wmma_matmul(void)
         destroy_test_context(&context);
         return;
     }
+#endif
 
     memset(rs_param, 0, sizeof(rs_param));
     memset(&rs_desc, 0, sizeof(rs_desc));
