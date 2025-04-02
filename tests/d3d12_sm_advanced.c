@@ -5003,6 +5003,23 @@ static float quant_fp8(float value)
     return fp8_to_float(float_to_fp8(value));
 }
 
+static ID3D12PipelineState *create_wmma_pso(ID3D12Device *device, ID3D12RootSignature *rs, D3D12_SHADER_BYTECODE code)
+{
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
+    ID3D12PipelineState *pipeline_state = NULL;
+    HRESULT hr;
+
+    memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
+    pipeline_state_desc.pRootSignature = rs;
+    pipeline_state_desc.CS = code;
+    pipeline_state_desc.NodeMask = 0;
+    pipeline_state_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+    hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    todo ok(SUCCEEDED(hr), "Failed to create compute pipeline state, hr %#x.\n", hr);
+    return pipeline_state;
+}
+
 void test_wmma_matmul(void)
 {
     uint8_t input_data[16 * 16 * 2 * sizeof(uint16_t) + 16 * 16 * sizeof(uint32_t)];
@@ -5053,7 +5070,8 @@ void test_wmma_matmul(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_amd_windows_device(context.device))
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5083,8 +5101,7 @@ void test_wmma_matmul(void)
         float C[16][16];
 
         vkd3d_test_set_context("Test %u", test_index);
-        pso = create_compute_pipeline_state(context.device, context.root_signature, *tests[test_index].dxil);
-        todo ok(pso, "Failed to create PSO.\n");
+        pso = create_wmma_pso(context.device, context.root_signature, *tests[test_index].dxil);
         if (!pso)
             continue;
 
