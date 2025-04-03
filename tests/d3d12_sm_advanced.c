@@ -5199,7 +5199,8 @@ void test_wmma_fp8_fp32_conversions(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_amd_windows_device(context.device))
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
