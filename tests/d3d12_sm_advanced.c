@@ -4890,16 +4890,21 @@ static uint16_t float_to_half(float v)
     e = ((i >> 23) & 0x000000ff) - (127 - 15);
     m = i & 0x007fffff;
 
-    /* This doesn't do RTE correctly. */
-
     if (e <= 0)
     {
+        int round_up;
+        int shamt;
+
         if (e < -10)
             return (uint16_t)s;
 
-        m = (m | 0x00800000) >> (1 - e);
+        shamt = 1 - e;
 
-        if (m & 0x00001000)
+        round_up = m & ((1 << shamt) - 1);
+        m = (m | 0x00800000) >> shamt;
+        round_up |= m & 0x2fff;
+
+        if ((m & 0x00001000) && round_up)
             m += 0x00002000;
 
         return (uint16_t)(s | (m >> 13));
@@ -4916,7 +4921,10 @@ static uint16_t float_to_half(float v)
     }
     else
     {
-        if (m & 0x00001000)
+        int round_up;
+        round_up = m & 0x2fff;
+
+        if ((m & 0x00001000) && round_up)
         {
             m += 0x00002000;
 
@@ -5003,6 +5011,11 @@ static float quant_fp8(float value)
     return fp8_to_float(float_to_fp8(value));
 }
 
+static float quant_fp16(float value)
+{
+    return half_to_float(float_to_half(value));
+}
+
 static ID3D12PipelineState *create_wmma_pso(ID3D12Device *device, ID3D12RootSignature *rs, D3D12_SHADER_BYTECODE code)
 {
     D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
@@ -5040,10 +5053,11 @@ void test_wmma_matmul(void)
 #include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_f16_bt.h"
 #include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_f16_ct.h"
 #include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_f16_ot.h"
-#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_fp8.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f16.h"
 #include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f32.h"
-#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_fp8_strided.h"
-#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_fp8_strided_transpose.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f16_strided.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f16_strided_transpose.h"
 
     static const struct
     {
@@ -5061,10 +5075,11 @@ void test_wmma_matmul(void)
         { &cs_wmma_f32_16x16x16_f16_quant_f16_bt_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, true }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_ct_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_ot_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, true } },
-        { &cs_wmma_f32_16x16x16_fp8_quant_fp8_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP8, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_fp8_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP32, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_fp8_quant_f16_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_fp8_quant_f32_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP32, 0, 16, false } },
-        { &cs_wmma_f32_16x16x16_fp8_quant_fp8_strided_dxil, { TYPE_FP8, 0, 32, false }, { TYPE_FP8, 512, 32, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP8, 0, 32, false } },
-        { &cs_wmma_f32_16x16x16_fp8_quant_fp8_strided_transpose_dxil, { TYPE_FP8, 0, 32, true }, { TYPE_FP8, 512, 32, true }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP8, 0, 32, true } },
+        { &cs_wmma_f32_16x16x16_fp8_quant_f16_strided_dxil, { TYPE_FP8, 0, 32, false }, { TYPE_FP8, 512, 32, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 32, false } },
+        { &cs_wmma_f32_16x16x16_fp8_quant_f16_strided_transpose_dxil, { TYPE_FP8, 0, 32, true }, { TYPE_FP8, 512, 32, true }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP16, 0, 32, true } },
     };
 
     if (!init_compute_test_context(&context))
@@ -5156,6 +5171,8 @@ void test_wmma_matmul(void)
 
                 if (tests[test_index].quant.type == TYPE_FP8)
                     expected = quant_fp8(expected);
+                if (tests[test_index].quant.type == TYPE_FP16)
+                    expected = quant_fp16(expected);
 
                 if (tests[test_index].quant.type == TYPE_FP32 && !tests[test_index].quant.transpose)
                     v = get_readback_float(&rb, j * elem_stride + i, 0);
@@ -5220,8 +5237,7 @@ void test_wmma_fp8_fp32_conversions(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
-    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_wmma_fp8_fp32_conversions_dxil);
-    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_fp8_fp32_conversions_dxil);
     if (!context.pipeline_state)
     {
         destroy_test_context(&context);
@@ -5255,7 +5271,7 @@ void test_wmma_fp8_fp32_conversions(void)
     destroy_test_context(&context);
 }
 
-void test_wmma_fp32_fp8_conversions(void)
+void test_wmma_fp16_fp8_conversions(void)
 {
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_ROOT_PARAMETER rs_param[2];
@@ -5264,12 +5280,13 @@ void test_wmma_fp32_fp8_conversions(void)
     ID3D12Resource *output;
     unsigned int i;
 
-#include "shaders/sm_advanced/headers/cs_wmma_fp32_fp8_conversions.h"
+#include "shaders/sm_advanced/headers/cs_wmma_fp16_fp8_conversions.h"
 
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_amd_windows_device(context.device))
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5289,7 +5306,7 @@ void test_wmma_fp32_fp8_conversions(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
-    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_wmma_fp32_fp8_conversions_dxil);
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_fp16_fp8_conversions_dxil);
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
@@ -5348,7 +5365,8 @@ void test_wmma_matrix_length(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_amd_windows_device(context.device))
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5368,7 +5386,7 @@ void test_wmma_matrix_length(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
-    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_wmma_matrix_length_dxil);
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_matrix_length_dxil);
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
@@ -5426,7 +5444,8 @@ void test_wmma_extract_insert(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_amd_windows_device(context.device))
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5448,7 +5467,7 @@ void test_wmma_extract_insert(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
-    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_wmma_extract_insert_dxil);
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_extract_insert_dxil);
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
@@ -5513,7 +5532,8 @@ void test_wmma_lds_transpose(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_amd_windows_device(context.device))
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5535,7 +5555,7 @@ void test_wmma_lds_transpose(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
-    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_wmma_lds_transpose_dxil);
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_lds_transpose_dxil);
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
