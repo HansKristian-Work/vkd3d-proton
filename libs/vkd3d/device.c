@@ -9510,6 +9510,8 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         VkCooperativeMatrixPropertiesKHR *props;
         bool supports_f32_16x16x16_f16 = false;
         bool supports_f16_16x16x16_f16 = false;
+        bool supports_u8_a = false;
+        bool supports_u8_b = false;
         uint32_t i, count;
 
         /* There are no sub-capabilities (yet at least).
@@ -9537,6 +9539,11 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         {
             const VkCooperativeMatrixPropertiesKHR *fmt = &props[i];
 
+            if (fmt->AType == VK_COMPONENT_TYPE_UINT8_KHR)
+                supports_u8_a = true;
+            if (fmt->BType == VK_COMPONENT_TYPE_UINT8_KHR)
+                supports_u8_b = true;
+
             if (fmt->KSize != 16 || fmt->MSize != 16 || fmt->NSize != 16 || fmt->scope != VK_SCOPE_SUBGROUP_KHR)
                 continue;
 
@@ -9550,9 +9557,7 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         }
 
         vkd3d_free(props);
-        if (!supports_f16_16x16x16_f16 || !supports_f32_16x16x16_f16 ||
-                !device->device_info.vulkan_1_2_features.shaderInt8 ||
-                !device->device_info.features2.features.shaderInt16)
+        if (!supports_f16_16x16x16_f16 || !supports_f32_16x16x16_f16 || !supports_u8_a || !supports_u8_b)
         {
             ERR("Missing sufficient features to expose WMMA.\n");
             return false;
