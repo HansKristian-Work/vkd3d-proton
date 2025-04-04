@@ -151,7 +151,7 @@ static const uint WaveMatrixModifier_IndexMemTypeMask    = 0x3;
 // For wave32 and FP32, we need up to 8 values to store a 16x16 matrix.
 struct WMMA_Matrix
 {
-	uint4 v0, v1;
+	uint v[8];
 };
 
 uint Code(uint opcode, uint opcodePhase, uint immediateData)
@@ -184,36 +184,36 @@ uint MatrixIO(uint channel, uint reg, uint type)
 WMMA_Matrix WMMA_MatMulAcc(WaveMatrixOpcode op, WMMA_Matrix A, WMMA_Matrix B, WMMA_Matrix C)
 {
 	// A matrix
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 0, WaveMatrixRegType_A_TempReg), A.v0.x, A.v0.y);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 0, WaveMatrixRegType_A_TempReg), A.v0.z, A.v0.w);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 1, WaveMatrixRegType_A_TempReg), A.v1.x, A.v1.y);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 1, WaveMatrixRegType_A_TempReg), A.v1.z, A.v1.w);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 0, WaveMatrixRegType_A_TempReg), A.v[0], A.v[1]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 0, WaveMatrixRegType_A_TempReg), A.v[2], A.v[3]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 1, WaveMatrixRegType_A_TempReg), A.v[4], A.v[5]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 1, WaveMatrixRegType_A_TempReg), A.v[6], A.v[7]);
 
 	// B matrix
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 0, WaveMatrixRegType_B_TempReg), B.v0.x, B.v0.y);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 0, WaveMatrixRegType_B_TempReg), B.v0.z, B.v0.w);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 1, WaveMatrixRegType_B_TempReg), B.v1.x, B.v1.y);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 1, WaveMatrixRegType_B_TempReg), B.v1.z, B.v1.w);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 0, WaveMatrixRegType_B_TempReg), B.v[0], B.v[1]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 0, WaveMatrixRegType_B_TempReg), B.v[2], B.v[3]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 1, WaveMatrixRegType_B_TempReg), B.v[4], B.v[5]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 1, WaveMatrixRegType_B_TempReg), B.v[6], B.v[7]);
 
 	// C matrix
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 0, WaveMatrixRegType_Accumulator_TempReg), C.v0.x, C.v0.y);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 0, WaveMatrixRegType_Accumulator_TempReg), C.v0.z, C.v0.w);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 1, WaveMatrixRegType_Accumulator_TempReg), C.v1.x, C.v1.y);
-	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 1, WaveMatrixRegType_Accumulator_TempReg), C.v1.z, C.v1.w);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 0, WaveMatrixRegType_Accumulator_TempReg), C.v[0], C.v[1]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 0, WaveMatrixRegType_Accumulator_TempReg), C.v[2], C.v[3]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(0, 1, WaveMatrixRegType_Accumulator_TempReg), C.v[4], C.v[5]);
+	AGSMagic(WaveMatrixMulAcc, 0, MatrixIO(1, 1, WaveMatrixRegType_Accumulator_TempReg), C.v[6], C.v[7]);
 
 	// Configure type
 	AGSMagic(WaveMatrixMulAcc, 1, int(op) << int(WaveMatrixOpcode_OpsShift), 0, 0);
 
 	// Read output
 	WMMA_Matrix ret;
-	ret.v0.x = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.y = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.z = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.w = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.x = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.y = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.z = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.w = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[0] = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[1] = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[2] = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[3] = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[4] = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[5] = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[6] = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[7] = AGSMagic(WaveMatrixMulAcc, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
 	return ret;
 }
 
@@ -238,14 +238,14 @@ WMMA_Matrix WMMA_Load(WMMA_Type type, ByteAddressBuffer BAB, uint offset, uint s
 	uint hook = BAB.Load(doorbell);
 	AGSMagic(WaveMatrixUavLoad, 1, type.code, hook, 0);
 	WMMA_Matrix ret;
-	ret.v0.x = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.y = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.z = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.w = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.x = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.y = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.z = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.w = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[0] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[1] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[2] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[3] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[4] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[5] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[6] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[7] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
 	return ret;
 }
 
@@ -255,14 +255,14 @@ WMMA_Matrix WMMA_Load(WMMA_Type type, RWByteAddressBuffer BAB, uint offset, uint
 	uint hook = BAB.Load(doorbell);
 	AGSMagic(WaveMatrixUavLoad, 1, type.code, hook, 0);
 	WMMA_Matrix ret;
-	ret.v0.x = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.y = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.z = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.w = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.x = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.y = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.z = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.w = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[0] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[1] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[2] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[3] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[4] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[5] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[6] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[7] = AGSMagic(WaveMatrixUavLoad, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
 	return ret;
 }
 
@@ -270,10 +270,10 @@ void WMMA_Store(WMMA_Type type, RWByteAddressBuffer BAB, uint offset, uint strid
 {
 	uint doorbell = AGSMagic(WaveMatrixUavStore, 0, 0, offset, stride);
 	uint hook = BAB.Load(doorbell);
-	AGSMagic(WaveMatrixUavStore, 1, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), m.v0.x, m.v0.y);
-	AGSMagic(WaveMatrixUavStore, 1, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), m.v0.z, m.v0.w);
-	AGSMagic(WaveMatrixUavStore, 1, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), m.v1.x, m.v1.y);
-	AGSMagic(WaveMatrixUavStore, 1, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), m.v1.z, m.v1.w);
+	AGSMagic(WaveMatrixUavStore, 1, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), m.v[0], m.v[1]);
+	AGSMagic(WaveMatrixUavStore, 1, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), m.v[2], m.v[3]);
+	AGSMagic(WaveMatrixUavStore, 1, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), m.v[4], m.v[5]);
+	AGSMagic(WaveMatrixUavStore, 1, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), m.v[6], m.v[7]);
 	AGSMagic(WaveMatrixUavStore, 2, type.code, hook, 0);
 }
 
@@ -286,14 +286,14 @@ WMMA_Matrix WMMA_LoadLDS(WMMA_Type type, uint offset, uint stride)
 	InterlockedAdd(LDS[doorbell], 0, hook);
 	AGSMagic(WaveMatrixLdsLoad, 1, type.code, hook, 0);
 	WMMA_Matrix ret;
-	ret.v0.x = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.y = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.z = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.w = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.x = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.y = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.z = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.w = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[0] = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[1] = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[2] = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[3] = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[4] = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[5] = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[6] = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[7] = AGSMagic(WaveMatrixLdsLoad, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
 	return ret;
 }
 
@@ -302,30 +302,30 @@ void WMMA_StoreLDS(WMMA_Type type, uint offset, uint stride, WMMA_Matrix m)
 	uint doorbell = AGSMagic(WaveMatrixLdsStore, 0, 0, offset, stride);
 	uint hook;
 	InterlockedAdd(LDS[doorbell], 0, hook);
-	AGSMagic(WaveMatrixLdsStore, 1, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), m.v0.x, m.v0.y);
-	AGSMagic(WaveMatrixLdsStore, 1, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), m.v0.z, m.v0.w);
-	AGSMagic(WaveMatrixLdsStore, 1, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), m.v1.x, m.v1.y);
-	AGSMagic(WaveMatrixLdsStore, 1, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), m.v1.z, m.v1.w);
+	AGSMagic(WaveMatrixLdsStore, 1, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), m.v[0], m.v[1]);
+	AGSMagic(WaveMatrixLdsStore, 1, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), m.v[2], m.v[3]);
+	AGSMagic(WaveMatrixLdsStore, 1, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), m.v[4], m.v[5]);
+	AGSMagic(WaveMatrixLdsStore, 1, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), m.v[6], m.v[7]);
 	AGSMagic(WaveMatrixLdsStore, 2, type.code, hook, 0);
 }
 
 WMMA_Matrix WMMA_Convert(WMMA_Type intype, WMMA_Type outtype, WMMA_Matrix m)
 {
 	AGSMagic(WaveMatrixCopy, 0, 0, 0, 0);
-	AGSMagic(WaveMatrixCopy, 0, MatrixIO(0, 0, 0), m.v0.x, m.v0.y);
-	AGSMagic(WaveMatrixCopy, 0, MatrixIO(1, 0, 0), m.v0.z, m.v0.w);
-	AGSMagic(WaveMatrixCopy, 0, MatrixIO(0, 1, 0), m.v1.x, m.v1.y);
-	AGSMagic(WaveMatrixCopy, 0, MatrixIO(1, 1, 0), m.v1.z, m.v1.w);
+	AGSMagic(WaveMatrixCopy, 0, MatrixIO(0, 0, 0), m.v[0], m.v[1]);
+	AGSMagic(WaveMatrixCopy, 0, MatrixIO(1, 0, 0), m.v[2], m.v[3]);
+	AGSMagic(WaveMatrixCopy, 0, MatrixIO(0, 1, 0), m.v[4], m.v[5]);
+	AGSMagic(WaveMatrixCopy, 0, MatrixIO(1, 1, 0), m.v[6], m.v[7]);
 	AGSMagic(WaveMatrixCopy, 1, intype.code, outtype.code, 0);
 	WMMA_Matrix ret;
-	ret.v0.x = AGSMagic(WaveMatrixCopy, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.y = AGSMagic(WaveMatrixCopy, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.z = AGSMagic(WaveMatrixCopy, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.w = AGSMagic(WaveMatrixCopy, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.x = AGSMagic(WaveMatrixCopy, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.y = AGSMagic(WaveMatrixCopy, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.z = AGSMagic(WaveMatrixCopy, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.w = AGSMagic(WaveMatrixCopy, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[0] = AGSMagic(WaveMatrixCopy, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[1] = AGSMagic(WaveMatrixCopy, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[2] = AGSMagic(WaveMatrixCopy, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[3] = AGSMagic(WaveMatrixCopy, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[4] = AGSMagic(WaveMatrixCopy, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[5] = AGSMagic(WaveMatrixCopy, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[6] = AGSMagic(WaveMatrixCopy, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[7] = AGSMagic(WaveMatrixCopy, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
 	return ret;
 }
 
@@ -336,29 +336,29 @@ uint WMMA_MatrixLength(WMMA_Type type)
 
 uint WMMA_MatrixElementExtract(WMMA_Type type, WMMA_Matrix m, uint elem)
 {
-	AGSMagic(WaveMatrixElementExtract, 0, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), m.v0.x, m.v0.y);
-	AGSMagic(WaveMatrixElementExtract, 0, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), m.v0.z, m.v0.w);
-	AGSMagic(WaveMatrixElementExtract, 0, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), m.v1.x, m.v1.y);
-	AGSMagic(WaveMatrixElementExtract, 0, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), m.v1.z, m.v1.w);
+	AGSMagic(WaveMatrixElementExtract, 0, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), m.v[0], m.v[1]);
+	AGSMagic(WaveMatrixElementExtract, 0, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), m.v[2], m.v[3]);
+	AGSMagic(WaveMatrixElementExtract, 0, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), m.v[4], m.v[5]);
+	AGSMagic(WaveMatrixElementExtract, 0, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), m.v[6], m.v[7]);
 	return AGSMagic(WaveMatrixElementExtract, 1, type.code, elem, 0); 
 }
 
 WMMA_Matrix WMMA_MatrixElementFill(WMMA_Type type, WMMA_Matrix m, uint index, uint data)
 {
-	AGSMagic(WaveMatrixElementFill, 0, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), m.v0.x, m.v0.y);
-	AGSMagic(WaveMatrixElementFill, 0, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), m.v0.z, m.v0.w);
-	AGSMagic(WaveMatrixElementFill, 0, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), m.v1.x, m.v1.y);
-	AGSMagic(WaveMatrixElementFill, 0, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), m.v1.z, m.v1.w);
+	AGSMagic(WaveMatrixElementFill, 0, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), m.v[0], m.v[1]);
+	AGSMagic(WaveMatrixElementFill, 0, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), m.v[2], m.v[3]);
+	AGSMagic(WaveMatrixElementFill, 0, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), m.v[4], m.v[5]);
+	AGSMagic(WaveMatrixElementFill, 0, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), m.v[6], m.v[7]);
 	AGSMagic(WaveMatrixElementFill, 1, type.code, index, data);
 	WMMA_Matrix ret;
-	ret.v0.x = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.y = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.z = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.w = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.x = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.y = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.z = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.w = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[0] = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[1] = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[2] = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[3] = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[4] = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[5] = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[6] = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[7] = AGSMagic(WaveMatrixElementFill, 2, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
 	return ret;
 }
 
@@ -366,14 +366,14 @@ WMMA_Matrix WMMA_MatrixFill(WMMA_Type type, uint value)
 {
 	AGSMagic(WaveMatrixFill, 0, type.code, value, 0);
 	WMMA_Matrix ret;
-	ret.v0.x = AGSMagic(WaveMatrixFill, 1, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.y = AGSMagic(WaveMatrixFill, 1, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.z = AGSMagic(WaveMatrixFill, 1, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v0.w = AGSMagic(WaveMatrixFill, 1, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.x = AGSMagic(WaveMatrixFill, 1, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.y = AGSMagic(WaveMatrixFill, 1, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.z = AGSMagic(WaveMatrixFill, 1, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
-	ret.v1.w = AGSMagic(WaveMatrixFill, 1, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[0] = AGSMagic(WaveMatrixFill, 1, MatrixIO(0, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[1] = AGSMagic(WaveMatrixFill, 1, MatrixIO(1, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[2] = AGSMagic(WaveMatrixFill, 1, MatrixIO(2, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[3] = AGSMagic(WaveMatrixFill, 1, MatrixIO(3, 0, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[4] = AGSMagic(WaveMatrixFill, 1, MatrixIO(0, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[5] = AGSMagic(WaveMatrixFill, 1, MatrixIO(1, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[6] = AGSMagic(WaveMatrixFill, 1, MatrixIO(2, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
+	ret.v[7] = AGSMagic(WaveMatrixFill, 1, MatrixIO(3, 1, WaveMatrixRegType_RetVal_Reg), 0, 0);
 	return ret;
 }
 
