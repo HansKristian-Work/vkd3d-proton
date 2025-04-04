@@ -5058,6 +5058,7 @@ void test_wmma_matmul(void)
 #include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f32.h"
 #include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f16_strided.h"
 #include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f16_strided_transpose.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_fp8.h"
 
     static const struct
     {
@@ -5070,6 +5071,7 @@ void test_wmma_matmul(void)
             bool transpose;
         } a, b, c, quant;
     } tests[] = {
+        { &cs_wmma_f32_16x16x16_f16_quant_fp8_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, true }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP8, 0, 16, true } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_at_dxil, { TYPE_FP16, 0, 16, true }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_bt_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, true }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
