@@ -5599,3 +5599,85 @@ void test_wmma_lds_transpose(void)
 
     destroy_test_context(&context);
 }
+
+void test_wmma_copy_transpose(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    uint16_t input_data[16 * 16];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+
+#include "shaders/sm_advanced/headers/cs_wmma_copy_transpose_fp16.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_copy_transpose_fp16_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 16 * 16 * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    for (i = 0; i < 256; i++)
+        input_data[i] = float_to_half(i);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (j = 0; j < 16; j++)
+    {
+        for (i = 0; i < 16; i++)
+        {
+            float value = get_readback_float(&rb, i * 16 + j, 0);
+            float expected = i * 16 + j;
+            for (k = 0; k < 16; k++)
+                expected += (j + k * 16) * (i * 16 + k);
+            ok(value == expected, "Row %u, Col %u: Expected %f, got %f\n", j, i, expected, value);
+        }
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+
+    destroy_test_context(&context);
+}
