@@ -3,7 +3,6 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
-#extension GL_KHR_shader_subgroup_ballot : enable
 
 #define VK_MEMORY_DECOMPRESSION_METHOD_GDEFLATE_1_0_BIT_NV (uint64_t(1))
 
