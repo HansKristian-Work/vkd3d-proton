@@ -1890,7 +1890,8 @@ static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, 
             NULL, false, NULL, &dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline)))
         return hresult_from_vk_result(vr);
 
-    if (device->device_info.vulkan_1_2_features.storageBuffer8BitAccess &&
+    if (!d3d12_device_use_nv_memory_decompression(device) &&
+            device->device_info.vulkan_1_2_features.storageBuffer8BitAccess &&
             device->device_info.features2.features.shaderInt16 &&
             device->device_info.features2.features.shaderInt64 &&
             !(gdeflate_subgroup_ops & ~device->device_info.vulkan_1_1_properties.subgroupSupportedOperations))

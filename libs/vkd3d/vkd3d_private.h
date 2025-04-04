@@ -5739,6 +5739,12 @@ bool vkd3d_enumerate_meta_command_parameters(struct d3d12_device *device, REFGUI
 HRESULT d3d12_meta_command_create(struct d3d12_device *device, REFGUID guid,
         const void *parameters, size_t parameter_size, struct d3d12_meta_command **meta_command);
 
+static inline bool d3d12_device_use_nv_memory_decompression(struct d3d12_device *device)
+{
+    return device->device_info.memory_decompression_features.memoryDecompression &&
+            (device->device_info.memory_decompression_properties.decompressionMethods & VK_MEMORY_DECOMPRESSION_METHOD_GDEFLATE_1_0_BIT_NV);
+}
+
 /* utils */
 struct vkd3d_format_footprint
 {
