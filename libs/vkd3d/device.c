@@ -2712,13 +2712,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     }
 
     /* Disable unused Vulkan features. The following features need to remain enabled
-     * for DXVK in order to support D3D11on12: hostQueryReset, vulkanMemoryModel. */
+     * for DXVK in order to support D3D11on12: hostQueryReset, vulkanMemoryModel.
+     * We need storageBuffer8BitAccess for DStorage fallback. */
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
 
     physical_device_info->vulkan_1_1_features.protectedMemory = VK_FALSE;
     physical_device_info->vulkan_1_1_features.samplerYcbcrConversion = VK_FALSE;
 
-    physical_device_info->vulkan_1_2_features.storageBuffer8BitAccess = VK_FALSE;
     physical_device_info->vulkan_1_2_features.uniformAndStorageBuffer8BitAccess = VK_FALSE;
     physical_device_info->vulkan_1_2_features.storagePushConstant8 = VK_FALSE;
     physical_device_info->vulkan_1_2_features.shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;

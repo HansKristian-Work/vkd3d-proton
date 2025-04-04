@@ -157,7 +157,11 @@ static bool vkd3d_check_meta_command_support(struct d3d12_device *device, REFGUI
 {
     if (!memcmp(command_id, &IID_META_COMMAND_DSTORAGE, sizeof(*command_id)))
     {
-        return device->meta_ops.dstorage.vk_emit_nv_memory_decompression_regions_pipeline != VK_NULL_HANDLE;
+        if (!device->meta_ops.dstorage.vk_emit_nv_memory_decompression_regions_pipeline)
+            return false;
+
+        return d3d12_device_use_nv_memory_decompression(device) ||
+                device->meta_ops.dstorage.vk_gdeflate_pipeline;
     }
 
     return false;
@@ -385,6 +389,7 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_meta_ops *meta_ops = &list->device->meta_ops;
     uint32_t workgroup_data_offset, workgroup_count, scratch_offset;
+    struct vkd3d_dstorage_decompress_args gdeflate_args;
     const struct vkd3d_unique_resource *scratch_buffer;
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
@@ -399,6 +404,8 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
             parameters->scratch_buffer_va, parameters->scratch_buffer_size,
             parameters->status_buffer_va, parameters->status_buffer_size,
             parameters->stream_count);
+
+    d3d12_command_list_debug_mark_begin_region(list, "DStorage");
 
     scratch_buffer = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, parameters->scratch_buffer_va);
     assert(scratch_buffer);
@@ -478,11 +485,34 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
 
+    if (!d3d12_device_use_nv_memory_decompression(list->device))
+    {
+        vk_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.dstAccessMask |= VK_ACCESS_2_SHADER_READ_BIT;
+    }
+
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-    VK_CALL(vkCmdDecompressMemoryIndirectCountNV(list->cmd.vk_command_buffer,
-            push_args.scratch_va + offsetof(struct d3d12_meta_command_dstorage_scratch_header, regions),
-            push_args.scratch_va, sizeof(VkDecompressMemoryRegionNV)));
+    if (d3d12_device_use_nv_memory_decompression(list->device))
+    {
+        VK_CALL(vkCmdDecompressMemoryIndirectCountNV(list->cmd.vk_command_buffer,
+                push_args.scratch_va + offsetof(struct d3d12_meta_command_dstorage_scratch_header, regions),
+                push_args.scratch_va, sizeof(VkDecompressMemoryRegionNV)));
+    }
+    else
+    {
+        memset(&gdeflate_args, 0, sizeof(gdeflate_args));
+        gdeflate_args.region_va = parameters->scratch_buffer_va;
+
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE, list->device->meta_ops.dstorage.vk_gdeflate_pipeline));
+
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, meta_ops->dstorage.vk_gdeflate_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(gdeflate_args), &gdeflate_args));
+
+        VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, scratch_buffer->vk_buffer,
+                scratch_offset + offsetof(struct d3d12_meta_command_dstorage_scratch_header, region_count)));
+    }
 
     /* DirectStorage does not query expected resource states from the implementation, so
      * all buffers must end up in the equivalent of D3D12_RESOURCE_STATE_UNORDERED_ACCESS. */
@@ -492,6 +522,8 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
 
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+    d3d12_command_list_debug_mark_end_region(list);
 
     VKD3D_BREADCRUMB_TAG("[Control VA + Size, Input VA + Size, Output VA + Size, Scratch VA + Size, StreamCount]");
     VKD3D_BREADCRUMB_AUX64(parameters->control_buffer_va);
