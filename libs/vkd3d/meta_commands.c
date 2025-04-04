@@ -157,9 +157,7 @@ static bool vkd3d_check_meta_command_support(struct d3d12_device *device, REFGUI
 {
     if (!memcmp(command_id, &IID_META_COMMAND_DSTORAGE, sizeof(*command_id)))
     {
-        return device->device_info.memory_decompression_features.memoryDecompression &&
-                (device->device_info.memory_decompression_properties.decompressionMethods & VK_MEMORY_DECOMPRESSION_METHOD_GDEFLATE_1_0_BIT_NV) &&
-                (device->meta_ops.dstorage.vk_emit_nv_memory_decompression_regions_pipeline);
+        return device->meta_ops.dstorage.vk_emit_nv_memory_decompression_regions_pipeline != VK_NULL_HANDLE;
     }
 
     return false;
