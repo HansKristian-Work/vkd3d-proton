@@ -447,3 +447,4 @@ decl_test(test_wmma_matrix_length);
 decl_test(test_wmma_extract_insert);
 decl_test(test_wmma_lds_transpose);
 decl_test(test_wmma_copy_transpose);
+decl_test(test_wmma_alloca);
