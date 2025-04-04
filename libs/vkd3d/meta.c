@@ -1858,8 +1858,7 @@ static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, 
     VkPushConstantRange push_range;
     VkResult vr;
 
-    if (!device->device_info.features2.features.shaderInt64 ||
-            !(device->device_info.vulkan_1_1_properties.subgroupSupportedOperations & VK_SUBGROUP_FEATURE_BALLOT_BIT))
+    if (!device->device_info.features2.features.shaderInt64)
         return S_OK;
 
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
