@@ -1855,14 +1855,21 @@ static void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops
 
 static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, struct d3d12_device *device)
 {
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo required_size;
     VkPushConstantRange push_range;
+    bool force_wave32;
     VkResult vr;
+
+    static const VkSubgroupFeatureFlags gdeflate_subgroup_ops =
+            VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT |
+            VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT |
+            VK_SUBGROUP_FEATURE_SHUFFLE_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT;
 
     if (!device->device_info.features2.features.shaderInt64)
         return S_OK;
 
+    memset(&push_range, 0, sizeof(push_range));
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.offset = 0;
     push_range.size = sizeof(struct vkd3d_dstorage_emit_nv_memory_decompression_regions_args);
 
     if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1, &push_range,
@@ -1883,6 +1890,35 @@ static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, 
             NULL, false, NULL, &dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline)))
         return hresult_from_vk_result(vr);
 
+    if (device->device_info.vulkan_1_2_features.storageBuffer8BitAccess &&
+            device->device_info.features2.features.shaderInt16 &&
+            device->device_info.features2.features.shaderInt64 &&
+            !(gdeflate_subgroup_ops & ~device->device_info.vulkan_1_1_properties.subgroupSupportedOperations))
+    {
+        memset(&push_range, 0, sizeof(push_range));
+        push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        push_range.size = sizeof(struct vkd3d_dstorage_decompress_args);
+
+        if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1, &push_range,
+                &dstorage_ops->vk_gdeflate_layout)))
+            return hresult_from_vk_result(vr);
+
+        memset(&required_size, 0, sizeof(required_size));
+        required_size.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO;
+        required_size.requiredSubgroupSize = 32;
+
+        /* If wave32 is supported and if the maximum subgroup size is larger than 32, explicitly
+         * force wave32 in order to get full subgroup guarantees. This also works around an issue
+         * where RADV would report a subgroup size of 64. */
+        force_wave32 = device->device_info.vulkan_1_3_properties.minSubgroupSize <= 32u &&
+                device->device_info.vulkan_1_3_properties.maxSubgroupSize > 32u;
+
+        if ((vr = vkd3d_meta_create_compute_pipeline(device,
+                sizeof(cs_gdeflate), cs_gdeflate, dstorage_ops->vk_gdeflate_layout,
+                NULL, false, force_wave32 ? &required_size : NULL, &dstorage_ops->vk_gdeflate_pipeline)))
+            return hresult_from_vk_result(vr);
+    }
+
     return S_OK;
 }
 
@@ -1892,8 +1928,10 @@ static void vkd3d_dstorage_ops_cleanup(struct vkd3d_dstorage_ops *dstorage_ops, 
 
     VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_regions_pipeline, NULL));
     VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_gdeflate_pipeline, NULL));
 
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_regions_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, dstorage_ops->vk_gdeflate_layout, NULL));
 }
 
 static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_resolve_ops *sampler_feedback_ops,

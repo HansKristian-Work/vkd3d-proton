@@ -4455,11 +4455,19 @@ struct vkd3d_dstorage_emit_nv_memory_decompression_regions_args
     uint32_t stream_index;
 };
 
+struct vkd3d_dstorage_decompress_args
+{
+    VkDeviceAddress region_va;
+};
+
 struct vkd3d_dstorage_ops
 {
     VkPipelineLayout vk_emit_nv_memory_decompression_regions_layout;
     VkPipeline vk_emit_nv_memory_decompression_regions_pipeline;
     VkPipeline vk_emit_nv_memory_decompression_workgroups_pipeline;
+
+    VkPipelineLayout vk_gdeflate_layout;
+    VkPipeline vk_gdeflate_pipeline;
 };
 
 struct vkd3d_meta_ops_common

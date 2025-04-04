@@ -80,5 +80,6 @@ enum vkd3d_meta_copy_mode
 #include <cs_workgraph_distribute_payload_offsets.h>
 #include <cs_workgraph_complete_compaction.h>
 #include <cs_workgraph_setup_gpu_input.h>
+#include <cs_gdeflate.h>
 
 #endif  /* __VKD3D_SPV_SHADERS_H */
