@@ -4,6 +4,7 @@ RWByteAddressBuffer MAGIC : register(u0, space2147420894);
 #include "wmma_ags.h"
 
 [numthreads(32, 1, 1)]
+[WaveSize(32)]
 void main()
 {
 	WMMA_Type TypeA = WMMA_MakeType(WaveMatrixDataFormat_F16, WaveMatrixType_A, WaveMatrixShape_16X16, false);
