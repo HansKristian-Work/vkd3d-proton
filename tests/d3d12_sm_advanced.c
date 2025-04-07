@@ -4809,3 +4809,1060 @@ void test_sm67_helper_lane_only_wave_ops(void)
         ID3D12PipelineState_Release(psos[i]);
     destroy_test_context(&context);
 }
+
+/* Crude implementation of FLOAT8E4M3FN: https://asawicki.info/articles/fp8_tables.php. Just here to assist in writing tests. */
+
+static uint8_t float_to_fp8(float v)
+{
+    union
+    {
+        float f32;
+        int32_t s32;
+    } u;
+    int i, s, e, m;
+
+    /* There is no inf. Clamp to range. Ignore NaN. */
+    if (v < -448.0f)
+        v = -448.0f;
+    else if (v > 448.0f)
+        v = 448.0f;
+
+    u.f32 = v;
+    i = u.s32;
+    s = (i >> 24) & 0x80;
+    e = ((i >> 23) & 0x000000ff) - (127 - 7);
+    m = i & 0x007fffff;
+
+    if (e <= 0)
+    {
+        int round_up;
+        int shamt;
+
+        if (e < -3)
+            return (uint8_t)s;
+
+        shamt = 1 - e;
+
+        round_up = m & ((1 << shamt) - 1);
+        m = (m | 0x800000) >> shamt;
+        round_up |= m & 0x17ffff;
+
+        if ((m & 0x80000) && round_up)
+            m += 0x100000;
+
+        m >>= 20;
+
+        return (uint8_t)(s | m);
+    }
+    else
+    {
+        int round_up;
+
+        round_up = m & 0x17ffff;
+
+        if ((m & 0x080000) && round_up)
+        {
+            m += 0x100000;
+
+            if (m & 0x800000)
+            {
+                m = 0;
+                e += 1;
+            }
+        }
+
+        return (uint16_t)(s | (e << 3) | (m >> 20));
+    }
+}
+
+static uint16_t float_to_half(float v)
+{
+    union
+    {
+        float f32;
+        int32_t s32;
+    } u;
+    int i, s, e, m;
+
+    u.f32 = v;
+    i = u.s32;
+    s = (i >> 16) & 0x00008000;
+    e = ((i >> 23) & 0x000000ff) - (127 - 15);
+    m = i & 0x007fffff;
+
+    if (e <= 0)
+    {
+        int round_up;
+        int shamt;
+
+        if (e < -10)
+            return (uint16_t)s;
+
+        shamt = 1 - e;
+
+        round_up = m & ((1 << shamt) - 1);
+        m = (m | 0x00800000) >> shamt;
+        round_up |= m & 0x2fff;
+
+        if ((m & 0x00001000) && round_up)
+            m += 0x00002000;
+
+        return (uint16_t)(s | (m >> 13));
+    }
+    else if (e == 0xff - (127 - 15))
+    {
+        if (m == 0)
+            return (uint16_t)(s | 0x7c00);
+        else
+        {
+            m >>= 13;
+            return (uint16_t)(s | 0x7c00 | m | (m == 0));
+        }
+    }
+    else
+    {
+        int round_up;
+        round_up = m & 0x2fff;
+
+        if ((m & 0x00001000) && round_up)
+        {
+            m += 0x00002000;
+
+            if (m & 0x00800000)
+            {
+                m = 0;
+                e += 1;
+            }
+        }
+
+        if (e > 30)
+            return (uint16_t)(s | 0x7c00);
+
+        return (uint16_t)(s | (e << 10) | (m >> 13));
+    }
+}
+
+static float half_to_float(uint16_t u16_value)
+{
+    /* Based on the GLM implementation. */
+    int s = (u16_value >> 15) & 0x1;
+    int e = (u16_value >> 10) & 0x1f;
+    int m = (u16_value >> 0) & 0x3ff;
+
+    union
+    {
+        float f32;
+        uint32_t u32;
+    } u;
+
+    if (e == 0)
+    {
+        if (m == 0)
+        {
+            u.u32 = (uint32_t)s << 31;
+            return u.f32;
+        }
+        else
+        {
+            while ((m & 0x400) == 0)
+            {
+                m <<= 1;
+                e--;
+            }
+
+            e++;
+            m &= ~0x400;
+        }
+    }
+    else if (e == 31)
+    {
+        if (m == 0)
+        {
+            u.u32 = ((uint32_t)s << 31) | 0x7f800000u;
+            return u.f32;
+        }
+        else
+        {
+            u.u32 = ((uint32_t)s << 31) | 0x7f800000u | (m << 13);
+            return u.f32;
+        }
+    }
+
+    e += 127 - 15;
+    m <<= 13;
+    u.u32 = ((uint32_t)s << 31) | (e << 23) | m;
+    return u.f32;
+}
+
+static float fp8_to_float(uint8_t u8_value)
+{
+    int s, e, m, fp16;
+    s = (u8_value >> 7) & 0x1;
+    e = (u8_value >> 3) & 0xf;
+    m = (u8_value >> 0) & 0x7;
+
+    /* Deal with denorms properly by translating FP8 denorm to FP16 denorm, then scale the exponent. */
+    fp16 = (s << 15) | (e << 10) | (m << 7);
+    return half_to_float(fp16) * 256.0f;
+}
+
+static float quant_fp8(float value)
+{
+    return fp8_to_float(float_to_fp8(value));
+}
+
+static float quant_fp16(float value)
+{
+    return half_to_float(float_to_half(value));
+}
+
+static float quant_fp16_fp8(float value)
+{
+    /* dxil-spirv implements it like this, which isn't 100% theoretically correct in RTE. */
+    return quant_fp8(quant_fp16(value));
+}
+
+static ID3D12PipelineState *create_wmma_pso(ID3D12Device *device, ID3D12RootSignature *rs, D3D12_SHADER_BYTECODE code)
+{
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
+    ID3D12PipelineState *pipeline_state = NULL;
+    HRESULT hr;
+
+    memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
+    pipeline_state_desc.pRootSignature = rs;
+    pipeline_state_desc.CS = code;
+    pipeline_state_desc.NodeMask = 0;
+    pipeline_state_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+    hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    todo ok(SUCCEEDED(hr), "Failed to create compute pipeline state, hr %#x.\n", hr);
+    return pipeline_state;
+}
+
+void test_wmma_matmul(void)
+{
+    uint8_t input_data[16 * 16 * 2 * sizeof(uint16_t) + 16 * 16 * sizeof(uint32_t)];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    unsigned int test_index;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+
+    enum matrix_type { TYPE_FP8, TYPE_FP16, TYPE_FP32 };
+
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_f16.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_f16_at.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_f16_bt.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_f16_ct.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_f16_ot.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f16.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f32.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f16_strided.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_fp8_quant_f16_strided_transpose.h"
+#include "shaders/sm_advanced/headers/cs_wmma_f32_16x16x16_f16_quant_fp8.h"
+
+    static const struct
+    {
+        const D3D12_SHADER_BYTECODE *dxil;
+        struct
+        {
+            enum matrix_type type;
+            uint32_t offset;
+            uint32_t element_stride;
+            bool transpose;
+        } a, b, c, quant;
+    } tests[] = {
+        { &cs_wmma_f32_16x16x16_f16_quant_fp8_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, true }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP8, 0, 16, true } },
+        { &cs_wmma_f32_16x16x16_f16_quant_f16_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_f16_quant_f16_at_dxil, { TYPE_FP16, 0, 16, true }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_f16_quant_f16_bt_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, true }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_f16_quant_f16_ct_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP16, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_f16_quant_f16_ot_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, true } },
+        { &cs_wmma_f32_16x16x16_fp8_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP32, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_fp8_quant_f16_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP16, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_fp8_quant_f32_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP32, 0, 16, false } },
+        { &cs_wmma_f32_16x16x16_fp8_quant_f16_strided_dxil, { TYPE_FP8, 0, 32, false }, { TYPE_FP8, 512, 32, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 32, false } },
+        { &cs_wmma_f32_16x16x16_fp8_quant_f16_strided_transpose_dxil, { TYPE_FP8, 0, 32, true }, { TYPE_FP8, 512, 32, true }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP16, 0, 32, true } },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    for (test_index = 0; test_index < ARRAY_SIZE(tests); test_index++)
+    {
+        unsigned int elem_stride = tests[test_index].quant.element_stride;
+        float A[16][16];
+        float B[16][16];
+        float C[16][16];
+
+        vkd3d_test_set_context("Test %u", test_index);
+        pso = create_wmma_pso(context.device, context.root_signature, *tests[test_index].dxil);
+        if (!pso)
+            continue;
+
+        for (j = 0; j < 16; j++)
+        {
+            for (i = 0; i < 16; i++)
+            {
+                A[j][i] = (float)((int)i - 30) / 16.0f;
+                B[j][i] = (float)((int)i - 50) / 16.0f;
+                C[j][i] = (float)((int)i - 100) / 16.0f;
+
+                if (tests[test_index].a.type == TYPE_FP8)
+                    A[j][i] = quant_fp8(A[j][i]);
+                if (tests[test_index].b.type == TYPE_FP8)
+                    B[j][i] = quant_fp8(A[j][i]);
+                if (tests[test_index].c.type == TYPE_FP8)
+                    C[j][i] = quant_fp8(C[j][i]);
+
+#define WRITE_MATRIX_VALUE(offset, elem_stride, value, type, transpose) \
+            if (type == TYPE_FP32 && !transpose) { memcpy(input_data + offset + sizeof(float) * (j * (elem_stride) + i), &(value), sizeof(float)); } \
+            else if (type == TYPE_FP32) { memcpy(input_data + offset + sizeof(float) * (i * (elem_stride) + j), &(value), sizeof(float)); } \
+            else if (type == TYPE_FP16 && !transpose) { uint16_t hv = float_to_half(value); memcpy(input_data + offset + sizeof(uint16_t) * (j * (elem_stride) + i), &hv, sizeof(uint16_t)); } \
+            else if (type == TYPE_FP16) { uint16_t hv = float_to_half(value); memcpy(input_data + offset + sizeof(uint16_t) * (i * (elem_stride) + j), &(hv), sizeof(uint16_t)); } \
+            else if (type == TYPE_FP8 && !transpose) { uint8_t hv = float_to_fp8(value); memcpy(input_data + offset + sizeof(uint8_t) * (j * (elem_stride) + i), &hv, sizeof(uint8_t)); } \
+            else { uint8_t hv = float_to_fp8(value); memcpy(input_data + offset + sizeof(uint8_t) * (i * (elem_stride) + j), &(hv), sizeof(uint8_t)); }
+
+                WRITE_MATRIX_VALUE(tests[test_index].a.offset, tests[test_index].a.element_stride, A[j][i], tests[test_index].a.type, tests[test_index].a.transpose);
+                WRITE_MATRIX_VALUE(tests[test_index].b.offset, tests[test_index].b.element_stride, B[j][i], tests[test_index].b.type, tests[test_index].b.transpose);
+                WRITE_MATRIX_VALUE(tests[test_index].c.offset, tests[test_index].c.element_stride, C[j][i], tests[test_index].c.type, tests[test_index].c.transpose);
+            }
+        }
+
+        output = create_default_buffer(context.device, 16 * 16 * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+        input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+        ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+        for (j = 0; j < 16; j++)
+        {
+            for (i = 0; i < 16; i++)
+            {
+                float expected = C[j][i], v = 0.0f;
+                bool is_todo;
+
+                for (k = 0; k < 16; k++)
+                    expected += A[j][k] * B[k][i];
+
+                if (tests[test_index].quant.type == TYPE_FP8)
+                    expected = quant_fp8(expected);
+                if (tests[test_index].quant.type == TYPE_FP16)
+                    expected = quant_fp16(expected);
+
+                if (tests[test_index].quant.type == TYPE_FP32 && !tests[test_index].quant.transpose)
+                    v = get_readback_float(&rb, j * elem_stride + i, 0);
+                else if (tests[test_index].quant.type == TYPE_FP32)
+                    v = get_readback_float(&rb, i * elem_stride + j, 0);
+                else if (tests[test_index].quant.type == TYPE_FP16 && !tests[test_index].quant.transpose)
+                    v = half_to_float(get_readback_uint16(&rb, j * elem_stride + i, 0));
+                else if (tests[test_index].quant.type == TYPE_FP16)
+                    v = half_to_float(get_readback_uint16(&rb, i * elem_stride + j, 0));
+                else if (tests[test_index].quant.type == TYPE_FP8 && !tests[test_index].quant.transpose)
+                    v = fp8_to_float(get_readback_uint8(&rb, j * elem_stride + i, 0));
+                else
+                    v = fp8_to_float(get_readback_uint8(&rb, i * elem_stride + j, 0));
+
+                /* NV doesn't like U8 accumulator. Not exposed by implementation. */
+                is_todo = is_nvidia_device(context.device) && test_index == 0;
+                todo_if(is_todo) ok(expected == v, "row %u, column %u, expected %f, got %f\n", j, i, expected, v);
+            }
+        }
+
+        reset_command_list(context.list, context.allocator);
+        ID3D12Resource_Release(input);
+        ID3D12Resource_Release(output);
+        ID3D12PipelineState_Release(pso);
+        release_resource_readback(&rb);
+    }
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
+
+void test_wmma_fp8_fp32_conversions(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_wmma_fp8_fp32_conversions.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_fp8_fp32_conversions_dxil);
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 16 * 16 * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 256, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 16 * 16; i++)
+    {
+        float value, expected;
+        value = get_readback_float(&rb, i, 0);
+        expected = fp8_to_float(i);
+        /* NaN isn't super relevant for us. */
+        bug_if(i == 0xff || i == 0x7f) ok(value == expected, "FP8 -> FP32 [0x%x]: Expected %f, got %f\n", i, expected, value);
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
+
+void test_wmma_fp32_fp8_conversions(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_wmma_fp32_fp8_conversions.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_fp32_fp8_conversions_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    /* Test a bit beyond FP8 range to check clamping behavior. */
+#define FP16_CLAMP 0x5f42
+#define FP16_448 0x5f00
+
+    output = create_default_buffer(context.device, FP16_CLAMP * sizeof(uint32_t) * 2, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, FP16_CLAMP, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* Test every possible FP16 value in this range. */
+    for (i = 0; i < FP16_CLAMP; i++)
+    {
+        uint8_t value_pos, value_neg;
+        uint8_t expected_pos, expected_neg;
+        value_pos = get_readback_uint(&rb, 2 * i, 0, 0);
+        value_neg = get_readback_uint(&rb, 2 * i + 1, 0, 0);
+        expected_pos = float_to_fp8(half_to_float(i));
+        expected_neg = float_to_fp8(-half_to_float(i));
+
+        ok(value_pos == expected_pos, "+FP32 -> FP8 [0x%x (%f / 512.0)]: Expected 0x%x, got 0x%x\n", i, half_to_float(i) * 512.0f, expected_pos, value_pos);
+        ok(value_neg == expected_neg, "-FP32 -> FP8 [0x%x (%f / 512.0)]: Expected 0x%x, got 0x%x\n", i | 0x8000, -half_to_float(i) * 512.0f, expected_neg, value_neg);
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
+
+void test_wmma_matrix_length(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_wmma_matrix_length.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_matrix_length_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, sizeof(uint32_t) * 10, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* For Wave32 and 16x16, there must be 8 elements per lane.
+     * Somewhat surprisingly, it seems like FP8 has 2 elements? Maybe it's tightly packed u32. */
+    for (i = 0; i < 10; i++)
+    {
+        static const uint32_t expected[] = { 8, 8, 8, 2, 2, 8, 8, 8, 2, 2 };
+        ok(expected[i] == get_readback_uint(&rb, i, 0, 0), "%u: Expected %u, got %u\n", i, expected[i], get_readback_uint(&rb, i, 0, 0));
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
+
+static int cmp_8bit(const void *a_, const void *b_)
+{
+    const uint8_t *a = a_;
+    const uint8_t *b = b_;
+    return *a - *b;
+}
+
+void test_wmma_extract_insert(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    uint8_t input_data[16 * 16];
+    struct resource_readback rb;
+    struct test_context context;
+    uint8_t sorted[16 * 16];
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_wmma_extract_insert.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_extract_insert_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 16 * 16 + 16 * 16 * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    for (i = 0; i < 256; i++)
+        input_data[i] = i;
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 256; i++)
+    {
+        uint8_t value = get_readback_uint8(&rb, i, 0);
+        uint8_t expected = i;
+        if (!(i & 1))
+            expected ^= 0xff;
+        ok(value == expected, "Value %u: Expected 0x%x, got 0x%x\n", i, expected, value);
+    }
+
+    for (i = 0; i < 256; i++)
+        sorted[i] = get_readback_uint8(&rb, 256 + i, 0);
+
+    qsort(sorted, 256, 1, cmp_8bit);
+
+    /* The mapping for threads is not well defined. */
+    for (i = 0; i < 256; i++)
+        ok(sorted[i] == i, "Extracted value %u: Expected 0x%x, got 0x%x\n", i, i, sorted[i]);
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+
+    destroy_test_context(&context);
+}
+
+void test_wmma_lds_transpose(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    uint16_t input_data[16 * 16];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+
+#include "shaders/sm_advanced/headers/cs_wmma_lds_transpose.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_lds_transpose_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 16 * 16 * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    for (i = 0; i < 256; i++)
+        input_data[i] = float_to_half(i);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (j = 0; j < 16; j++)
+    {
+        for (i = 0; i < 16; i++)
+        {
+            float value = get_readback_float(&rb, j * 16 + i, 0);
+            float expected = 0.0f;
+            for (k = 0; k < 16; k++)
+                expected += (j + 16 * k) * (i + 16 * k);
+            ok(value == expected, "Row %u, Col %u: Expected %f, got %f\n", j, i, expected, value);
+        }
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+
+    destroy_test_context(&context);
+}
+
+void test_wmma_lds_layout(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_wmma_lds_layout.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_lds_layout_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 16 * 16 * sizeof(float) * 2, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 16 * 16; i++)
+    {
+        float value = get_readback_float(&rb, i, 0);
+        ok(value == 1.0f, "value %u: Expected %f, got %f\n", i, 1.0f, value);
+    }
+
+    for (i = 0; i < 16 * 16; i++)
+    {
+        float value = fp8_to_float(get_readback_uint8(&rb, 1024 + i, 0));
+        ok(value == fp8_to_float(0x40), "value %u: Expected %f, got %f\n", i, fp8_to_float(0x40), value);
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+
+    destroy_test_context(&context);
+}
+
+void test_wmma_copy_transpose(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    uint16_t input_data[16 * 16];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+
+#include "shaders/sm_advanced/headers/cs_wmma_copy_transpose_fp16.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+            !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_copy_transpose_fp16_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 16 * 16 * sizeof(float) * 3, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    for (i = 0; i < 256; i++)
+        input_data[i] = float_to_half(i / 64.0f);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (j = 0; j < 16; j++)
+    {
+        for (i = 0; i < 16; i++)
+        {
+            float value_fp32, value_fp8, value_roundtrip_fp32, expected;
+            bool is_todo;
+            value_fp32 = get_readback_float(&rb, i * 16 + j, 0);
+            value_fp8 = fp8_to_float(get_readback_uint8(&rb, 1024 + i * 16 + j, 0));
+            value_roundtrip_fp32 = get_readback_float(&rb, 512 + i * 16 + j, 0);
+
+            /* Testing unsupported U8 accumulator behavior. */
+            is_todo = is_nvidia_device(context.device);
+
+            expected = (i * 16 + j) / 64.0f;
+            for (k = 0; k < 16; k++)
+                expected += (j + k * 16) * (i * 16 + k) / (64.0f * 64.0f);
+
+            todo_if(is_todo)
+            ok(value_fp32 == expected, "FP32: Row %u, Col %u: Expected %f, got %f\n", j, i, expected, value_fp32);
+
+            todo_if(is_todo)
+            ok(value_fp8 == quant_fp8(expected) || value_fp8 == quant_fp16_fp8(expected),
+                    "FP8: Row %u, Col %u: Expected %f (rounded from %f), got %f\n",
+                    j, i, quant_fp8(expected), expected, value_fp8);
+
+            todo_if(is_todo)
+            ok(value_roundtrip_fp32 == quant_fp8(expected) || value_fp8 == quant_fp16_fp8(expected),
+                    "FP8 -> FP32: Row %u, Col %u: Expected %f (rounded from %f), got %f\n",
+                    j, i, quant_fp8(expected), expected, value_roundtrip_fp32);
+        }
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+
+    destroy_test_context(&context);
+}
+
+void test_wmma_alloca(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    uint16_t input_data[2][16][32];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+
+#include "shaders/sm_advanced/headers/cs_wmma_alloca.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
+        !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_alloca_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 16 * 16 * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    for (k = 0; k < 2; k++)
+        for (j = 0; j < 16; j++)
+            for (i = 0; i < 32; i++)
+                input_data[k][j][i] = float_to_half(32 * j + i + k);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (j = 0; j < 16; j++)
+    {
+        for (i = 0; i < 16; i++)
+        {
+            float value = get_readback_float(&rb, i * 16 + j, 0);
+            float expected = 0.0f;
+            for (k = 0; k < 32; k++)
+                expected += (j * 32 + k) * (i * 32 + k + 1);
+            expected *= 2.0f;
+            ok(value == expected, "Row %u, Col %u: Expected %f, got %f\n", j, i, expected, value);
+        }
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+
+    destroy_test_context(&context);
+}
