@@ -83,6 +83,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_SHADER_QUAD_CONTROL, KHR_shader_quad_control),
     VK_EXTENSION(KHR_COMPUTE_SHADER_DERIVATIVES, KHR_compute_shader_derivatives),
     VK_EXTENSION(KHR_CALIBRATED_TIMESTAMPS, KHR_calibrated_timestamps),
+    VK_EXTENSION(KHR_COOPERATIVE_MATRIX, KHR_cooperative_matrix),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -2095,6 +2096,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->optical_flow_nv_features);
     }
 
+    if (vulkan_info->KHR_cooperative_matrix)
+    {
+        info->cooperative_matrix_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
+        info->cooperative_matrix_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+        vk_prepend_struct(&info->features2, &info->cooperative_matrix_features);
+        vk_prepend_struct(&info->properties2, &info->cooperative_matrix_properties);
+    }
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
@@ -2559,6 +2568,78 @@ static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
     return S_OK;
 }
 
+static bool vkd3d_supports_minimum_coopmat_caps(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkCooperativeMatrixPropertiesKHR *props;
+    bool supports_f32_16x16x16_f16 = false;
+    bool supports_f16_16x16x16_f16 = false;
+    bool supports_u8_a = false;
+    bool supports_u8_b = false;
+    bool supports_u8_c = false;
+    uint32_t i, count;
+
+    /* There are no sub-capabilities (yet at least).
+     * Validate that we support everything that dxil-spirv can emit. */
+    if (VK_CALL(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(
+            device->vk_physical_device, &count, NULL)) != VK_SUCCESS)
+    {
+        ERR("Failed to query cooperative matrix properties.\n");
+        return false;
+    }
+
+    props = vkd3d_calloc(count, sizeof(*props));
+    for (i = 0; i < count; i++)
+        props[i].sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+
+    if (VK_CALL(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(
+            device->vk_physical_device, &count, props)) != VK_SUCCESS)
+    {
+        ERR("Failed to query cooperative matrix properties.\n");
+        vkd3d_free(props);
+        return false;
+    }
+
+    for (i = 0; i < count; i++)
+    {
+        const VkCooperativeMatrixPropertiesKHR *fmt = &props[i];
+
+        if (fmt->AType == VK_COMPONENT_TYPE_UINT8_KHR)
+            supports_u8_a = true;
+        if (fmt->BType == VK_COMPONENT_TYPE_UINT8_KHR)
+            supports_u8_b = true;
+        if (fmt->CType == VK_COMPONENT_TYPE_UINT8_KHR)
+            supports_u8_c = true;
+
+        if (fmt->KSize != 16 || fmt->MSize != 16 || fmt->NSize != 16 || fmt->scope != VK_SCOPE_SUBGROUP_KHR)
+            continue;
+
+        if (fmt->AType == VK_COMPONENT_TYPE_FLOAT16_KHR && fmt->BType == VK_COMPONENT_TYPE_FLOAT16_KHR)
+        {
+            if (fmt->CType == VK_COMPONENT_TYPE_FLOAT32_KHR)
+                supports_f32_16x16x16_f16 = true;
+            else if (fmt->CType == VK_COMPONENT_TYPE_FLOAT16_KHR)
+                supports_f16_16x16x16_f16 = true;
+        }
+    }
+
+    vkd3d_free(props);
+
+    if (!supports_f16_16x16x16_f16 || !supports_f32_16x16x16_f16 || !supports_u8_a || !supports_u8_b)
+    {
+        WARN("Missing sufficient features to expose WMMA.\n");
+        return false;
+    }
+
+    if (!supports_u8_c)
+    {
+        WARN("8-bit Accumulator type not exposed, but assuming it works anyway. "
+             "This is required for FSR4 and happens to work in practice on AMD GPUs.\n");
+    }
+
+    return true;
+}
+
 static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info,
         struct vkd3d_physical_device_info *physical_device_info)
@@ -2781,6 +2862,16 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     {
         ERR("Push descriptors are not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
+    }
+
+    if (physical_device_info->cooperative_matrix_features.cooperativeMatrix)
+    {
+        if (!vkd3d_supports_minimum_coopmat_caps(device))
+        {
+            physical_device_info->cooperative_matrix_features.cooperativeMatrix = VK_FALSE;
+            physical_device_info->cooperative_matrix_features.cooperativeMatrixRobustBufferAccess = VK_FALSE;
+            vulkan_info->KHR_cooperative_matrix = false;
+        }
     }
 
     return S_OK;
@@ -9604,6 +9695,15 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
                     meta->cs_wave_size_min, meta->cs_wave_size_max,
                     info->vulkan_1_3_properties.minSubgroupSize,
                     info->vulkan_1_3_properties.maxSubgroupSize);
+            return false;
+        }
+    }
+
+    if (meta->flags & VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX)
+    {
+        if (!device->device_info.cooperative_matrix_features.cooperativeMatrix)
+        {
+            ERR("Missing sufficient features to expose WMMA.\n");
             return false;
         }
     }
