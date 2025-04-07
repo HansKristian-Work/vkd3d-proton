@@ -2303,6 +2303,11 @@ void test_multisample_resolve_strongly_typed(void)
 
         transition_resource_state(context.list, resolve_dst, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
+        /* Under certain conditions resolves will happen through renderpass attachments.
+         * In that case Adreno drivers will ignore sRGB as the resolve format, which is
+         * allowed but should be worked around. */
+        todo_if(is_adreno_device(context.device) && tests[i].resolve_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB &&
+                (tests[i].resolve_format != tests[i].src_format || tests[i].resolve_format != tests[i].dst_format))
         check_sub_resource_uint(resolve_dst, 0, context.queue, context.list, tests[i].expected, 1);
         reset_command_list(context.list, context.allocator);
 
