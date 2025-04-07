@@ -139,6 +139,7 @@ struct vkd3d_vulkan_info
     bool KHR_shader_quad_control;
     bool KHR_compute_shader_derivatives;
     bool KHR_calibrated_timestamps;
+    bool KHR_cooperative_matrix;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -4700,6 +4701,7 @@ struct vkd3d_physical_device_info
     VkDriverId layer_driver_id;
     VkPhysicalDeviceLineRasterizationPropertiesEXT line_rasterization_properties;
     VkPhysicalDeviceComputeShaderDerivativesPropertiesKHR compute_shader_derivatives_properties_khr;
+    VkPhysicalDeviceCooperativeMatrixPropertiesKHR cooperative_matrix_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -4759,6 +4761,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceImageAlignmentControlPropertiesMESA image_alignment_control_properties;
     VkPhysicalDeviceDepthBiasControlFeaturesEXT depth_bias_control_features;
     VkPhysicalDeviceOpticalFlowFeaturesNV optical_flow_nv_features;
+    VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

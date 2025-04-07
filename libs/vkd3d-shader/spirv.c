@@ -12191,6 +12191,12 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     meta |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS;
                     break;
 
+                case SpvCapabilityCooperativeMatrixKHR:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX;
+                    /* Semi-correct, since we use subgroup scope. We need this for wave size fixups. */
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS;
+                    break;
+
                 default:
                     break;
             }
