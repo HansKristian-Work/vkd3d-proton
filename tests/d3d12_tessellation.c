@@ -2711,10 +2711,10 @@ void test_tessellation_read_tesslevel(void)
     pso_desc.StreamOutput.pBufferStrides = &stride;
     pso_desc.StreamOutput.NumStrides = 1;
     pso_desc.StreamOutput.RasterizedStream = D3D12_SO_NO_RASTERIZED_STREAM;
-    vkd3d_mute_validation_message("08737", "See vkd3d-proton issue 2378");
+    vkd3d_mute_validation_message("09658", "See vkd3d-proton issue 2378");
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    vkd3d_unmute_validation_message("08737");
+    vkd3d_unmute_validation_message("09658");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     so_buffer = create_default_buffer(context.device, 4096,

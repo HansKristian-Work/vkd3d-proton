@@ -479,9 +479,9 @@ void test_mesh_shader_rendering(void)
     /* Test SV_CullPrimitive */
     pipeline_desc.ms = ms_cull_primitive_subobject;
     pipeline_desc.ps = ps_culling_subobject;
-    vkd3d_mute_validation_message("08737", "See VVL issue 9615, waiting for VVL to pull in latest spirv-val");
+    vkd3d_mute_validation_message("07036", "See VVL issue 9615, blocked on bugged spirv-tools");
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    vkd3d_unmute_validation_message("08737");
+    vkd3d_unmute_validation_message("07036");
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
 
     reset_command_list(context.list, context.allocator);
