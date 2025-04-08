@@ -1841,6 +1841,8 @@ static inline bool vkd3d_driver_implicitly_clears(struct d3d12_device *device)
         case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
         case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
         case VK_DRIVER_ID_MESA_TURNIP:
+        case VK_DRIVER_ID_AMD_PROPRIETARY:
+        case VK_DRIVER_ID_AMD_OPEN_SOURCE:
             return true;
 
         default:
