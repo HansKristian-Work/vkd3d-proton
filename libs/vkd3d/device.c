@@ -9510,61 +9510,68 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
 
     if (meta->flags & VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX)
     {
-        const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
-        VkCooperativeMatrixPropertiesKHR *props;
-        bool supports_f32_16x16x16_f16 = false;
-        bool supports_f16_16x16x16_f16 = false;
-        bool supports_u8_a = false;
-        bool supports_u8_b = false;
-        uint32_t i, count;
-
-        /* There are no sub-capabilities (yet at least).
-         * Validate that we support everything that dxil-spirv can emit. */
-        if (VK_CALL(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(
-                device->vk_physical_device, &count, NULL)) != VK_SUCCESS)
+        if (device->device_info.cooperative_matrix_features.cooperativeMatrix)
         {
-            ERR("Failed to query cooperative matrix properties.\n");
-            return false;
-        }
+            const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+            VkCooperativeMatrixPropertiesKHR *props;
+            bool supports_f32_16x16x16_f16 = false;
+            bool supports_f16_16x16x16_f16 = false;
+            bool supports_u8_a = false;
+            bool supports_u8_b = false;
+            uint32_t i, count;
 
-        props = vkd3d_calloc(count, sizeof(*props));
-        for (i = 0; i < count; i++)
-            props[i].sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
-
-        if (VK_CALL(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(
-                device->vk_physical_device, &count, props)) != VK_SUCCESS)
-        {
-            ERR("Failed to query cooperative matrix properties.\n");
-            vkd3d_free(props);
-            return false;
-        }
-
-        for (i = 0; i < count; i++)
-        {
-            const VkCooperativeMatrixPropertiesKHR *fmt = &props[i];
-
-            if (fmt->AType == VK_COMPONENT_TYPE_UINT8_KHR)
-                supports_u8_a = true;
-            if (fmt->BType == VK_COMPONENT_TYPE_UINT8_KHR)
-                supports_u8_b = true;
-
-            if (fmt->KSize != 16 || fmt->MSize != 16 || fmt->NSize != 16 || fmt->scope != VK_SCOPE_SUBGROUP_KHR)
-                continue;
-
-            if (fmt->AType == VK_COMPONENT_TYPE_FLOAT16_KHR && fmt->BType == VK_COMPONENT_TYPE_FLOAT16_KHR)
+            /* There are no sub-capabilities (yet at least).
+             * Validate that we support everything that dxil-spirv can emit. */
+            if (VK_CALL(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(
+                    device->vk_physical_device, &count, NULL)) != VK_SUCCESS)
             {
-                if (fmt->CType == VK_COMPONENT_TYPE_FLOAT32_KHR)
-                    supports_f32_16x16x16_f16 = true;
-                else if (fmt->CType == VK_COMPONENT_TYPE_FLOAT16_KHR)
-                    supports_f16_16x16x16_f16 = true;
+                ERR("Failed to query cooperative matrix properties.\n");
+                return false;
+            }
+
+            props = vkd3d_calloc(count, sizeof(*props));
+            for (i = 0; i < count; i++)
+                props[i].sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+
+            if (VK_CALL(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(
+                    device->vk_physical_device, &count, props)) != VK_SUCCESS)
+            {
+                ERR("Failed to query cooperative matrix properties.\n");
+                vkd3d_free(props);
+                return false;
+            }
+
+            for (i = 0; i < count; i++)
+            {
+                const VkCooperativeMatrixPropertiesKHR *fmt = &props[i];
+
+                if (fmt->AType == VK_COMPONENT_TYPE_UINT8_KHR)
+                    supports_u8_a = true;
+                if (fmt->BType == VK_COMPONENT_TYPE_UINT8_KHR)
+                    supports_u8_b = true;
+
+                if (fmt->KSize != 16 || fmt->MSize != 16 || fmt->NSize != 16 || fmt->scope != VK_SCOPE_SUBGROUP_KHR)
+                    continue;
+
+                if (fmt->AType == VK_COMPONENT_TYPE_FLOAT16_KHR && fmt->BType == VK_COMPONENT_TYPE_FLOAT16_KHR)
+                {
+                    if (fmt->CType == VK_COMPONENT_TYPE_FLOAT32_KHR)
+                        supports_f32_16x16x16_f16 = true;
+                    else if (fmt->CType == VK_COMPONENT_TYPE_FLOAT16_KHR)
+                        supports_f16_16x16x16_f16 = true;
+                }
+            }
+
+            vkd3d_free(props);
+            if (!supports_f16_16x16x16_f16 || !supports_f32_16x16x16_f16 || !supports_u8_a || !supports_u8_b)
+            {
+                ERR("Missing sufficient features to expose WMMA.\n");
+                return false;
             }
         }
-
-        vkd3d_free(props);
-        if (!supports_f16_16x16x16_f16 || !supports_f32_16x16x16_f16 || !supports_u8_a || !supports_u8_b)
+        else
         {
-            ERR("Missing sufficient features to expose WMMA.\n");
-            return false;
+            INFO("Allowing cooperative matrices to go through despite not being supported. RDoc workaround for now.\n");
         }
     }
 
