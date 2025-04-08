@@ -5093,8 +5093,7 @@ void test_wmma_matmul(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
-            !is_amd_windows_device(context.device))
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5228,8 +5227,7 @@ void test_wmma_fp8_fp32_conversions(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
-            !is_amd_windows_device(context.device))
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5297,8 +5295,7 @@ void test_wmma_fp32_fp8_conversions(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
-            !is_amd_windows_device(context.device))
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5376,8 +5373,7 @@ void test_wmma_matrix_length(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
-            !is_amd_windows_device(context.device))
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5455,8 +5451,7 @@ void test_wmma_extract_insert(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
-            !is_amd_windows_device(context.device))
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5543,8 +5538,7 @@ void test_wmma_lds_transpose(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
-            !is_amd_windows_device(context.device))
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5696,8 +5690,7 @@ void test_wmma_copy_transpose(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
-            !is_amd_windows_device(context.device))
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
@@ -5798,8 +5791,7 @@ void test_wmma_alloca(void)
     if (!init_compute_test_context(&context))
         return;
 
-    if (!is_vk_device_extension_supported(context.device, "VK_KHR_cooperative_matrix") &&
-        !is_amd_windows_device(context.device))
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
