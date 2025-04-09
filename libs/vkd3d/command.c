@@ -12300,6 +12300,13 @@ static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *d
                     | ((color.uint32[2] & 0x3FF) << 22);
             return result;
 
+        case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
+            result.uint32[0] = (color.uint32[0] & 0x1FF)
+                    | ((color.uint32[1] & 0x1FF) << 9)
+                    | ((color.uint32[2] & 0x1FF) << 18)
+                    | ((color.uint32[3] & 0x1F) << 27);
+            return result;
+
         case DXGI_FORMAT_B8G8R8A8_UNORM:
         case DXGI_FORMAT_B8G8R8X8_UNORM:
             result.uint32[0] = color.uint32[2];
