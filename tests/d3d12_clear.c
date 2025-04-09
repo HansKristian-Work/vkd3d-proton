@@ -694,6 +694,7 @@ void test_clear_unordered_access_view_image(void)
                 {1,          0, 0, 0}, 1},
         {DXGI_FORMAT_R32_FLOAT,       1, 1, 0, 0, 1, 2, {{1, 2, 3, 4}, {5, 6, 7, 8}},
                 {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+
         /* Test uint clears with formats. */
         {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00020001},
         {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {0x12345, 0, 0, 0}, 0x00002345},
@@ -704,6 +705,7 @@ void test_clear_unordered_access_view_image(void)
         {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x04030201},
         {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {{0}}, {0,       0, 0, 0}, 0x00000000},
         {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00c01001},
+        {DXGI_FORMAT_R9G9B9E5_SHAREDEXP, 1, 1, 0, 0, 1, 0, {{0}}, {1,    2, 3, 4}, 0x200c0401},
         /* Test float clears with formats. */
         {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {{0}},
                 {0x3f000080 /* 0.5f + unorm16 epsilon */, 0x3f800000 /* 1.0f */, 0, 0}, 0xffff8000, true},
