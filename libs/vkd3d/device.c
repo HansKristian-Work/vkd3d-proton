@@ -5225,14 +5225,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 if (in_args->unknown2 == 1)
                 {
                     out_args->unknown0 = 1;
-                    /* Limit stream count to something reasonable. Given that we have a hard limit
-                     * on the number of tiles we can process in one call, we should make it unlikely
-                     * for applications to hit that upper limit even if they try. */
+                    /* Limit stream count to something reasonable. Given that we have a hard limit on the
+                     * number of tiles we can process in one call when using the NV_memory_decompression
+                     * path, we should make it unlikely for applications to hit that upper limit. */
                     out_args->max_stream_count = min(256u, in_args->stream_count);
-                    /* Reserve data for the indirect tile count, then the memory region for
-                     * each tile, and finally a compute workgroup count for each stream. */
-                    out_args->scratch_size = sizeof(struct d3d12_meta_command_dstorage_scratch_header) +
-                            sizeof(VkDispatchIndirectCommand) * out_args->max_stream_count;
+                    /* Reserve one set of dispatch parameters per stream. */
+                    out_args->scratch_size = sizeof(VkDispatchIndirectCommand) * out_args->max_stream_count;
+
+                    if (d3d12_device_use_nv_memory_decompression(device))
+                    {
+                        /* Additionally reserve storage for per-tile memory regions */
+                        out_args->scratch_size += sizeof(struct d3d12_meta_command_dstorage_scratch_header);
+                    }
                 }
 
                 return S_OK;

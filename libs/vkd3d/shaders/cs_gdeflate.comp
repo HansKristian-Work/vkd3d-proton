@@ -26,7 +26,9 @@
  * - Merged different files into one to simplify build system integration;
  * - Require uint16 / uint64 support;
  * - Require Vulkan memory model;
- * - Changed wave ops to better work with arbitrary subgroup sizes.
+ * - Changed wave ops to better work with arbitrary subgroup sizes;
+ * - Changed entry point to consume the DirectStorage metadata format directly,
+ *   rather than maintaining compatibility to VK_NV_memory_decompression metadata.
  *
  * Author: Philip Rebohle <philip.rebohle@tu-dortmund.de>
  */
@@ -46,8 +48,9 @@
 #extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types : require
 
-layout(local_size_x = 32u) in;
+#define GDEFLATE_TILE_SIZE (65536u)
 
+layout(local_size_x = 32u) in;
 
 /* Output buffer */
 layout(buffer_reference, buffer_reference_align = 4)
@@ -65,31 +68,51 @@ readonly buffer tile_data_t
 };
 
 
-/* NV_memory_decompression regions */
-struct memory_region_t {
-    tile_data_t     src_buffer;
-    output_data_t   dst_buffer;
-    uint64_t        compressed_size;
-    uint64_t        decompressed_size;
-    uint64_t        decompression_method;
+/* Control buffer */
+struct stream_offsets_t
+{
+    uint32_t src_offset;
+    uint32_t dst_offset;
 };
+
 
 layout(buffer_reference, scalar)
-readonly buffer memory_regions_t
+readonly buffer control_buffer_t
 {
-    u32vec3         region_count;
-    uint32_t        reserved;
-    memory_region_t memory_regions[];
+    uint32_t stream_count;
+    stream_offsets_t streams[];
 };
 
-memory_region_t g_region;
+
+layout(buffer_reference, scalar)
+readonly buffer tile_stream_t
+{
+    uint32_t dword0;
+    uint32_t dword1;
+    uint32_t last_compressed_size;
+    uint32_t tile_offsets[];
+};
+
+
+struct memory_region_t
+{
+    tile_data_t     src_buffer;
+    output_data_t   dst_buffer;
+    uint32_t        compressed_size;
+}
+g_region;
 
 
 /* Shader parameters */
 layout(push_constant)
 uniform push_t
 {
-    memory_regions_t regions;
+    control_buffer_t control_buffer;
+    uint64_t src_buffer;
+    uint64_t dst_buffer;
+    uint64_t scratch_buffer; /* unused */
+    uint32_t stream_count;
+    uint32_t stream_index;
 };
 
 
@@ -265,7 +288,7 @@ uint32_t add_inclusive_clustered(uint32_t value, uint32_t cluster_size)
         /* Trivial case */
         return subgroupInclusiveAdd(value);
     }
-    else if (gl_SubgroupSize < cluster_size && gl_SubgroupSize * gl_SubgroupSize >= cluster_size)
+    else if (gl_SubgroupSize < cluster_size && gl_SubgroupSize >= cluster_size / gl_SubgroupSize)
     {
         /* Special case for wave8 or wave16 to only use one shared memory round-trip */
         uint32_t cluster_subgroup_count = cluster_size / gl_SubgroupSize;
@@ -370,15 +393,13 @@ void bit_reader_refill_impl(uint32_t offset)
 }
 
 
-void bit_reader_init(uint32_t base)
+void bit_reader_init()
 {
-    base /= 4u;
-
     g_bit_reader.buf = 0ul;
-    g_bit_reader.base = base + gl_WorkGroupSize.x;
+    g_bit_reader.base = gl_WorkGroupSize.x;
     g_bit_reader.cnt = 0u;
 
-    bit_reader_refill_impl(base + tid());
+    bit_reader_refill_impl(tid());
 }
 
 
@@ -984,10 +1005,10 @@ uint32_t fixed_code_lengths()
 
 
 /* This is main entry point for tile decompressor */
-void decode_tile(uint32_t src_offset)
+void decode_tile()
 {
     /* Init bit reader */
-    bit_reader_init(src_offset);
+    bit_reader_init();
 
     uint32_t out_dst = 0u;
 
@@ -1047,7 +1068,32 @@ void decode_tile(uint32_t src_offset)
 
 void main()
 {
-    g_region = regions.memory_regions[gl_WorkGroupID.x];
+    stream_offsets_t stream_offsets = control_buffer.streams[stream_index];
+    tile_stream_t tile_stream = tile_stream_t(src_buffer + stream_offsets.src_offset);
 
-    decode_tile(0u);
+    uint32_t tile_count = bitfieldExtract(tile_stream.dword0, 16, 16);
+    uint32_t tile_index = gl_WorkGroupID.x;
+
+    /* Compresed data is stored right after the metadata structure */
+    uint32_t metadata_size = 8u + tile_count * 4u;
+
+    /* Offset of first tile is implicitly 0 and not stored */
+    uint32_t src_offset = 0u;
+
+    if (tile_index > 0u)
+        src_offset = tile_stream.tile_offsets[tile_index - 1u];
+
+    /* Decompressed size for all but the last tile is 64k */
+    uint32_t dst_offset = GDEFLATE_TILE_SIZE * tile_index;
+
+    /* Compressed size can be inferred from tile offsets */
+    g_region.dst_buffer = output_data_t(dst_buffer + stream_offsets.dst_offset + dst_offset);
+    g_region.src_buffer = tile_data_t(src_buffer + stream_offsets.src_offset + metadata_size + src_offset);
+
+    if (tile_index + 1u < tile_count)
+        g_region.compressed_size = tile_stream.tile_offsets[tile_index] - src_offset;
+    else
+        g_region.compressed_size = tile_stream.last_compressed_size;
+
+    decode_tile();
 }
