@@ -1870,23 +1870,23 @@ static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, 
 
     memset(&push_range, 0, sizeof(push_range));
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    push_range.size = sizeof(struct vkd3d_dstorage_emit_nv_memory_decompression_regions_args);
+    push_range.size = sizeof(struct vkd3d_dstorage_decompress_args);
 
     if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1, &push_range,
-            &dstorage_ops->vk_emit_nv_memory_decompression_regions_layout)))
+            &dstorage_ops->vk_dstorage_layout)))
         return hresult_from_vk_result(vr);
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
             sizeof(cs_emit_nv_memory_decompression_regions),
             cs_emit_nv_memory_decompression_regions,
-            dstorage_ops->vk_emit_nv_memory_decompression_regions_layout,
+            dstorage_ops->vk_dstorage_layout,
             NULL, false, NULL, &dstorage_ops->vk_emit_nv_memory_decompression_regions_pipeline)))
         return hresult_from_vk_result(vr);
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
             sizeof(cs_emit_nv_memory_decompression_workgroups),
             cs_emit_nv_memory_decompression_workgroups,
-            dstorage_ops->vk_emit_nv_memory_decompression_regions_layout,
+            dstorage_ops->vk_dstorage_layout,
             NULL, false, NULL, &dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline)))
         return hresult_from_vk_result(vr);
 
@@ -1896,12 +1896,9 @@ static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, 
             device->device_info.features2.features.shaderInt64 &&
             !(gdeflate_subgroup_ops & ~device->device_info.vulkan_1_1_properties.subgroupSupportedOperations))
     {
-        memset(&push_range, 0, sizeof(push_range));
-        push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        push_range.size = sizeof(struct vkd3d_dstorage_decompress_args);
-
-        if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1, &push_range,
-                &dstorage_ops->vk_gdeflate_layout)))
+        if ((vr = vkd3d_meta_create_compute_pipeline(device,
+                sizeof(cs_gdeflate_prepare), cs_gdeflate_prepare, dstorage_ops->vk_dstorage_layout,
+                NULL, false, NULL, &dstorage_ops->vk_gdeflate_prepare_pipeline)))
             return hresult_from_vk_result(vr);
 
         memset(&required_size, 0, sizeof(required_size));
@@ -1915,7 +1912,7 @@ static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, 
                 device->device_info.vulkan_1_3_properties.maxSubgroupSize > 32u;
 
         if ((vr = vkd3d_meta_create_compute_pipeline(device,
-                sizeof(cs_gdeflate), cs_gdeflate, dstorage_ops->vk_gdeflate_layout,
+                sizeof(cs_gdeflate), cs_gdeflate, dstorage_ops->vk_dstorage_layout,
                 NULL, false, force_wave32 ? &required_size : NULL, &dstorage_ops->vk_gdeflate_pipeline)))
             return hresult_from_vk_result(vr);
     }
@@ -1929,10 +1926,11 @@ static void vkd3d_dstorage_ops_cleanup(struct vkd3d_dstorage_ops *dstorage_ops, 
 
     VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_regions_pipeline, NULL));
     VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline, NULL));
+
+    VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_gdeflate_prepare_pipeline, NULL));
     VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_gdeflate_pipeline, NULL));
 
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_regions_layout, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, dstorage_ops->vk_gdeflate_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, dstorage_ops->vk_dstorage_layout, NULL));
 }
 
 static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_resolve_ops *sampler_feedback_ops,
