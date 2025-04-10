@@ -376,6 +376,9 @@ VK_DEVICE_EXT_PFN(vkSetLatencyMarkerNV)
 VK_DEVICE_EXT_PFN(vkGetLatencyTimingsNV)
 VK_DEVICE_EXT_PFN(vkQueueNotifyOutOfBandNV)
 
+/* VK_KHR_cooperative_matrix */
+VK_INSTANCE_PFN(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
