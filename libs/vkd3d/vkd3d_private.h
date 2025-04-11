@@ -6208,6 +6208,7 @@ HANDLE vkd3d_open_kmt_handle(HANDLE kmt_handle);
 #define VKD3D_VENDOR_ID_NVIDIA 0x10DE
 #define VKD3D_VENDOR_ID_AMD 0x1002
 #define VKD3D_VENDOR_ID_INTEL 0x8086
+#define VKD3D_VENDOR_ID_QUALCOMM 0x5143
 
 #define VKD3D_DRIVER_VERSION_MAJOR_NV(v) ((v) >> 22)
 #define VKD3D_DRIVER_VERSION_MINOR_NV(v) (((v) >> 14) & 0xff)
