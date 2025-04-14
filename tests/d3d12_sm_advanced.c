@@ -5039,6 +5039,14 @@ static ID3D12PipelineState *create_wmma_pso(ID3D12Device *device, ID3D12RootSign
     return pipeline_state;
 }
 
+static float randomize_fp8(void)
+{
+    /* Don't allow too small numbers since it may be impossible to express the result accurately in FP32. */
+    uint8_t fp8_value = (rand() % 0x3f) + 0x40;
+    fp8_value |= (rand() & 1) << 7;
+    return fp8_to_float(fp8_value);
+}
+
 void test_wmma_matmul(void)
 {
     uint8_t input_data[16 * 16 * 2 * sizeof(uint16_t) + 16 * 16 * sizeof(uint32_t)];
@@ -5136,9 +5144,9 @@ void test_wmma_matmul(void)
                 C[j][i] = (float)((int)(i + j % 11) - 100) / 16.0f;
 
                 if (tests[test_index].a.type == TYPE_FP8)
-                    A[j][i] = quant_fp8(A[j][i]);
+                    A[j][i] = randomize_fp8();
                 if (tests[test_index].b.type == TYPE_FP8)
-                    B[j][i] = quant_fp8(A[j][i]);
+                    B[j][i] = randomize_fp8();
                 if (tests[test_index].c.type == TYPE_FP8)
                     C[j][i] = quant_fp8(C[j][i]);
 
