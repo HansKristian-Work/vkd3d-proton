@@ -5173,15 +5173,28 @@ void test_wmma_matmul(void)
             for (i = 0; i < 16; i++)
             {
                 float expected = C[j][i], v = 0.0f;
+                float expected_full_fp;
+                float expected_alt;
                 bool is_todo;
 
                 for (k = 0; k < 16; k++)
                     expected += A[j][k] * B[k][i];
 
+                expected_full_fp = expected;
+                expected_alt = expected;
+
                 if (tests[test_index].quant.type == TYPE_FP8)
+                {
+                    /* Emulation path doesn't have a dedicated FP32 -> FP8 RTE path,
+                     * so double quant it is. */
+                    expected_alt = quant_fp16_fp8(expected);
                     expected = quant_fp8(expected);
-                if (tests[test_index].quant.type == TYPE_FP16)
+                }
+                else if (tests[test_index].quant.type == TYPE_FP16)
+                {
                     expected = quant_fp16(expected);
+                    expected_alt = expected;
+                }
 
                 if (tests[test_index].quant.type == TYPE_FP32 && !tests[test_index].quant.transpose)
                     v = get_readback_float(&rb, j * elem_stride + i, 0);
@@ -5198,7 +5211,9 @@ void test_wmma_matmul(void)
 
                 /* NV doesn't like U8 accumulator. Not exposed by implementation. */
                 is_todo = is_nvidia_device(context.device) && test_index == 0;
-                todo_if(is_todo) ok(expected == v, "row %u, column %u, expected %f, got %f\n", j, i, expected, v);
+                todo_if(is_todo) ok(expected == v || expected_alt == v,
+                        "row %u, column %u, expected %f (unrounded %f), got %f\n",
+                        j, i, expected, expected_full_fp, v);
             }
         }
 
