@@ -5085,13 +5085,13 @@ void test_wmma_matmul(void)
             bool transpose;
         } a, b, c, quant;
     } tests[] = {
+        { &cs_wmma_f32_16x16x16_fp8_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, true }, { TYPE_FP32, 512, 16, true }, { TYPE_FP32, 0, 16, true } },
         { &cs_wmma_f32_16x16x16_f16_quant_fp8_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, true }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP8, 0, 16, true } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_at_dxil, { TYPE_FP16, 0, 16, true }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_bt_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, true }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_ct_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, true }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_f16_quant_f16_ot_dxil, { TYPE_FP16, 0, 16, false }, { TYPE_FP16, 512, 16, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 16, true } },
-        { &cs_wmma_f32_16x16x16_fp8_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP32, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_fp8_quant_f16_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP16, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_fp8_quant_f32_dxil, { TYPE_FP8, 0, 16, false }, { TYPE_FP8, 256, 16, false }, { TYPE_FP32, 512, 16, false }, { TYPE_FP32, 0, 16, false } },
         { &cs_wmma_f32_16x16x16_fp8_quant_f16_strided_dxil, { TYPE_FP8, 0, 32, false }, { TYPE_FP8, 512, 32, false }, { TYPE_FP32, 1024, 16, false }, { TYPE_FP16, 0, 32, false } },
@@ -5218,7 +5218,7 @@ void test_wmma_matmul(void)
                     v = fp8_to_float(get_readback_uint8(&rb, i * elem_stride + j, 0));
 
                 /* NV doesn't like U8 accumulator. Not exposed by implementation. */
-                is_todo = is_nvidia_device(context.device) && test_index == 0;
+                is_todo = is_nvidia_device(context.device) && test_index == 1;
                 todo_if(is_todo) ok(expected == v || expected_alt == v,
                         "row %u, column %u, expected %f (unrounded %f), got %f\n",
                         j, i, expected, expected_full_fp, v);
