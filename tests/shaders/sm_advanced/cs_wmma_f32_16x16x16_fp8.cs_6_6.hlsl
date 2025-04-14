@@ -9,8 +9,8 @@ RWByteAddressBuffer MAGIC : register(u0, space2147420894);
 void main(uint thr : SV_GroupIndex, uint gid : SV_GroupID)
 {
 	WMMA_Type TypeA = WMMA_MakeType(WaveMatrixDataFormat_FP8, WaveMatrixType_A, WaveMatrixShape_16X16, false);
-	WMMA_Type TypeB = WMMA_MakeType(WaveMatrixDataFormat_FP8, WaveMatrixType_B, WaveMatrixShape_16X16, false);
-	WMMA_Type TypeC = WMMA_MakeType(WaveMatrixDataFormat_F32, WaveMatrixType_Accumulator, WaveMatrixShape_16X16, false);
+	WMMA_Type TypeB = WMMA_MakeType(WaveMatrixDataFormat_FP8, WaveMatrixType_B, WaveMatrixShape_16X16, true);
+	WMMA_Type TypeC = WMMA_MakeType(WaveMatrixDataFormat_F32, WaveMatrixType_Accumulator, WaveMatrixShape_16X16, true);
 
 	WMMA_Matrix A = WMMA_Load(TypeA, Inputs, 0, 16);
 	WMMA_Matrix B = WMMA_Load(TypeB, Inputs, 256, 16);
