@@ -5131,9 +5131,9 @@ void test_wmma_matmul(void)
         {
             for (i = 0; i < 16; i++)
             {
-                A[j][i] = (float)((int)i - 30) / 16.0f;
-                B[j][i] = (float)((int)i - 50) / 16.0f;
-                C[j][i] = (float)((int)i - 100) / 16.0f;
+                A[j][i] = (float)((int)(i + j % 9) - 30) / 16.0f;
+                B[j][i] = (float)((int)(i + j % 13) - 50) / 16.0f;
+                C[j][i] = (float)((int)(i + j % 11) - 100) / 16.0f;
 
                 if (tests[test_index].a.type == TYPE_FP8)
                     A[j][i] = quant_fp8(A[j][i]);
