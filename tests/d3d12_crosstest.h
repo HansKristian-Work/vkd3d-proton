@@ -584,6 +584,11 @@ static inline bool is_vk_device_extension_supported(ID3D12Device *device, const 
 {
     return false;
 }
+
+static inline bool is_vkd3d_proton_device(ID3D12Device *device)
+{
+    return false;
+}
 #else
 
 static ID3D12Device *create_device(void)
@@ -664,6 +669,16 @@ err:
         ID3D12DXVKInteropDevice_Release(dxvk_device);
     free(exts);
     return supported;
+}
+
+static inline bool is_vkd3d_proton_device(ID3D12Device *device)
+{
+    ID3D12DXVKInteropDevice *dxvk_device = NULL;
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12DXVKInteropDevice, (void **)&dxvk_device)))
+        return false;
+    ID3D12DXVKInteropDevice_Release(dxvk_device);
+    return true;
 }
 
 static inline void init_adapter_info(void)
