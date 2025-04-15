@@ -5039,12 +5039,21 @@ static ID3D12PipelineState *create_wmma_pso(ID3D12Device *device, ID3D12RootSign
     return pipeline_state;
 }
 
-static float randomize_fp8(void)
+static uint8_t randomize_fp8_range(uint8_t base, uint8_t range, bool sign)
 {
-    /* Don't allow too small numbers since it may be impossible to express the result accurately in FP32. */
-    uint8_t fp8_value = (rand() % 0x3f) + 0x40;
-    fp8_value |= (rand() & 1) << 7;
-    return fp8_to_float(fp8_value);
+    uint8_t fp8_value;
+    assert(base + range <= 0x7f);
+    fp8_value = (rand() % range) + base;
+    if (sign)
+        fp8_value |= (rand() & 1) << 7;
+    return fp8_value;
+}
+
+static float randomize_fp8_float(void)
+{
+    /* Don't allow too large range since it may be impossible to express
+     * the matmul result accurately in FP32. */
+    return fp8_to_float(randomize_fp8_range(0x30, 0x3f, true));
 }
 
 void test_wmma_matmul(void)
@@ -5144,9 +5153,9 @@ void test_wmma_matmul(void)
                 C[j][i] = (float)((int)(i + j % 11) - 100) / 16.0f;
 
                 if (tests[test_index].a.type == TYPE_FP8)
-                    A[j][i] = randomize_fp8();
+                    A[j][i] = randomize_fp8_float();
                 if (tests[test_index].b.type == TYPE_FP8)
-                    B[j][i] = randomize_fp8();
+                    B[j][i] = randomize_fp8_float();
                 if (tests[test_index].c.type == TYPE_FP8)
                     C[j][i] = quant_fp8(C[j][i]);
 
@@ -5232,6 +5241,150 @@ void test_wmma_matmul(void)
         release_resource_readback(&rb);
     }
     vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
+
+void test_wmma_multi_matmul(void)
+{
+    uint8_t xyz_reference_fp16_quant[16][16];
+    uint8_t yz_reference_fp16_quant[16][16];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    uint8_t input_data[16 * 16 * 3];
+    uint8_t xyz_reference[16][16];
+    uint8_t yz_reference[16][16];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+
+#include "shaders/sm_advanced/headers/cs_wmma_multi_matmul.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_nvidia_device(context.device))
+    {
+        skip("This test relies on AMD implementation details.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_multi_matmul_dxil);
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    srand(1234);
+
+    for (i = 0; i < 16 * 16; i++)
+    {
+        input_data[0 + i] = randomize_fp8_range(0x20, 0x28, true);
+        input_data[256 + i] = randomize_fp8_range(0x20, 0x28, true);
+        input_data[512 + i] = randomize_fp8_range(0x20, 0x28, true);
+    }
+
+    output = create_default_buffer(context.device, 16 * 16, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* Compute reference for fp8(Y * Z) */
+    for (j = 0; j < 16; j++)
+    {
+        for (i = 0; i < 16; i++)
+        {
+            float res = 0.0f;
+            for (k = 0; k < 16; k++)
+            {
+                /* Y is row-major, Z is col-major. */
+                uint8_t y = input_data[256 + k + 16 * j];
+                uint8_t z = input_data[512 + k + 16 * i];
+                res += fp8_to_float(y) * fp8_to_float(z);
+            }
+
+            /* Ensure we're not just testing inf clamped values. */
+            ok(fabsf(res) <= 448.0f, "res %f is out of range.\n", res);
+            yz_reference[j][i] = float_to_fp8(res);
+            yz_reference_fp16_quant[j][i] = float_to_fp8(quant_fp16(res));
+        }
+    }
+
+    /* Then compute X * Y * Z */
+    for (j = 0; j < 16; j++)
+    {
+        for (i = 0; i < 16; i++)
+        {
+            float res_fp16_quant = 0.0f;
+            float res = 0.0f;
+
+            for (k = 0; k < 16; k++)
+            {
+                /* Y is row-major, Z is col-major. */
+                uint8_t x = input_data[k + 16 * j];
+                uint8_t yz = yz_reference[k][i];
+                res += fp8_to_float(x) * fp8_to_float(yz);
+                res_fp16_quant += fp8_to_float(x) * fp8_to_float(yz_reference_fp16_quant[k][i]);
+            }
+
+            /* Ensure we're not just testing inf clamped values. */
+            ok(fabsf(res) <= 448.0f, "res %f is out of range.\n", res);
+            xyz_reference[j][i] = float_to_fp8(res);
+            xyz_reference_fp16_quant[j][i] = float_to_fp8(quant_fp16(res_fp16_quant));
+        }
+    }
+
+    for (j = 0; j < 16; j++)
+    {
+        for (i = 0; i < 16; i++)
+        {
+            /* Column-major output. */
+            uint8_t expected_alt = xyz_reference_fp16_quant[j][i];
+            uint8_t expected = xyz_reference[j][i];
+            uint8_t value;
+
+            value = get_readback_uint8(&rb, j + i * 16, 0);
+            ok(value == expected || value == expected_alt,
+                    "row %u, col %u: Expected 0x%02x, got 0x%02x\n", j, i, expected, value);
+        }
+    }
+
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
 
     destroy_test_context(&context);
 }
