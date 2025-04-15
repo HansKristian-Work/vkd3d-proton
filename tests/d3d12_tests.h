@@ -458,3 +458,4 @@ decl_test(test_wmma_lds_transpose);
 decl_test(test_wmma_lds_layout);
 decl_test(test_wmma_copy_transpose);
 decl_test(test_wmma_alloca);
+decl_test(test_wmma_multi_matmul);
