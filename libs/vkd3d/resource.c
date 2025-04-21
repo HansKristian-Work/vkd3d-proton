@@ -417,6 +417,12 @@ static bool d3d12_device_prefers_general_depth_stencil(const struct d3d12_device
         /* NVIDIA doesn't really care about layouts for the most part. */
         return true;
     }
+    else if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_TURNIP ||
+             device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY)
+    {
+        /* Adreno hardware ignores layouts */
+        return true;
+    }
     else if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
     {
         /* RADV can use TC-compat HTILE without too much issues on Polaris and later.
