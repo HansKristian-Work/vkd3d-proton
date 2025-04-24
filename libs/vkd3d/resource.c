@@ -4689,7 +4689,7 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
 
 static void vkd3d_get_metadata_buffer_view_for_resource(struct d3d12_device *device,
         struct d3d12_resource *resource, DXGI_FORMAT view_format,
-        unsigned int offset, unsigned int size, unsigned int structure_stride,
+        VkDeviceSize offset, VkDeviceSize size, VkDeviceSize structure_stride,
         struct vkd3d_descriptor_metadata_buffer_view *view)
 {
     VkDeviceSize element_size;
@@ -4710,7 +4710,7 @@ static void vkd3d_get_metadata_buffer_view_for_resource(struct d3d12_device *dev
 
 static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
         struct d3d12_resource *resource, DXGI_FORMAT view_format,
-        unsigned int offset, unsigned int size, unsigned int structure_stride,
+        VkDeviceSize offset, VkDeviceSize size, VkDeviceSize structure_stride,
         unsigned int flags, struct vkd3d_view **view)
 {
     const struct vkd3d_format *format;
