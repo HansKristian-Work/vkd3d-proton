@@ -170,10 +170,12 @@ void test_nop_tessellation_shaders(void)
     destroy_test_context(&context);
 }
 
-static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology)
+static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology, bool wrong_input_count)
 {
 #include "shaders/tessellation/headers/quad_tess_vs.h"
 #include "shaders/tessellation/headers/quad_tess_hs_ccw.h"
+#include "shaders/tessellation/headers/quad_tess_hs_ccw_overcount_input.h"
+#include "shaders/tessellation/headers/quad_tess_hs_cw_undercount_input.h"
 #include "shaders/tessellation/headers/quad_tess_hs_cw.h"
 #include "shaders/tessellation/headers/quad_tess_ds.h"
 
@@ -291,6 +293,10 @@ static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology)
     pso_desc.VS = use_dxil ? quad_tess_vs_dxil : quad_tess_vs_dxbc;
     pso_desc.HS = use_dxil ? quad_tess_hs_cw_dxil : quad_tess_hs_cw_dxbc;
     pso_desc.DS = use_dxil ? quad_tess_ds_dxil : quad_tess_ds_dxbc;
+
+    if (wrong_input_count)
+        pso_desc.HS = use_dxil ? quad_tess_hs_cw_undercount_input_dxil : quad_tess_hs_cw_undercount_input_dxbc;
+
     pso_desc.StreamOutput.NumEntries = ARRAY_SIZE(so_declaration);
     pso_desc.StreamOutput.pSODeclaration = so_declaration;
     pso_desc.StreamOutput.pBufferStrides = strides;
@@ -330,7 +336,10 @@ static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology)
     for (i = 0; i < ARRAY_SIZE(constant.inside_tess_factors); ++i)
         constant.inside_tess_factors[i] = 1.0f;
 
-    pso_desc.HS = use_dxil ? quad_tess_hs_ccw_dxil : quad_tess_hs_ccw_dxbc;
+    if (wrong_input_count)
+        pso_desc.HS = use_dxil ? quad_tess_hs_ccw_overcount_input_dxil : quad_tess_hs_ccw_overcount_input_dxbc;
+    else
+        pso_desc.HS = use_dxil ? quad_tess_hs_ccw_dxil : quad_tess_hs_ccw_dxbc;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
@@ -463,22 +472,32 @@ static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology)
 
 void test_quad_tessellation_dxbc(void)
 {
-    test_quad_tessellation(false, false);
+    test_quad_tessellation(false, false, false);
 }
 
 void test_quad_tessellation_dxil(void)
 {
-    test_quad_tessellation(true, false);
+    test_quad_tessellation(true, false, false);
 }
 
 void test_quad_tessellation_wrong_pso_topology_dxbc(void)
 {
-    test_quad_tessellation(false, true);
+    test_quad_tessellation(false, true, false);
 }
 
 void test_quad_tessellation_wrong_pso_topology_dxil(void)
 {
-    test_quad_tessellation(true, true);
+    test_quad_tessellation(true, true, false);
+}
+
+void test_quad_tessellation_wrong_input_count_dxbc(void)
+{
+    test_quad_tessellation(false, false, true);
+}
+
+void test_quad_tessellation_wrong_input_count_dxil(void)
+{
+    test_quad_tessellation(true, false, true);
 }
 
 void test_tessellation_dcl_index_range(void)
