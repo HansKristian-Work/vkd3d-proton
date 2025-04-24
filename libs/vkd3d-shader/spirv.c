@@ -4803,6 +4803,10 @@ static void vkd3d_dxbc_get_clip_cull_input_index_and_size(const struct vkd3d_sha
     *count = component_count;
 }
 
+/* The Hull shader input count is actually meaningless and on API side it's the topology count
+ * that actually matters. glslang emits 32-sized arrays here always. */
+#define VKD3D_HULL_SHADER_MAX_CONTROL_POINTS 32
+
 static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_dst_param *dst, enum vkd3d_shader_input_sysval_semantic sysval,
         enum vkd3d_shader_interpolation_mode interpolation_mode)
@@ -4847,6 +4851,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
 
     is_patch_constant = reg->type == VKD3DSPR_PATCHCONST;
     shader_signature = is_patch_constant ? compiler->patch_constant_signature : compiler->input_signature;
+
+    if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL && !is_patch_constant && array_size)
+        array_size = VKD3D_HULL_SHADER_MAX_CONTROL_POINTS;
 
     if (!(signature_element = vkd3d_find_signature_element_for_reg(shader_signature,
             NULL, reg_idx, dst->write_mask)))
@@ -8012,12 +8019,12 @@ static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dx
                 input_component_count = input_builtin->component_count;
 
                 input_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler,
-                        input_builtin, SpvStorageClassInput, compiler->input_control_point_count, 0);
+                        input_builtin, SpvStorageClassInput, VKD3D_HULL_SHADER_MAX_CONTROL_POINTS, 0);
             }
             else
             {
                 input_id = vkd3d_dxbc_compiler_get_io_variable(compiler, SpvStorageClassInput,
-                        input->register_index, compiler->input_control_point_count, VKD3DSIM_NONE,
+                        input->register_index, VKD3D_HULL_SHADER_MAX_CONTROL_POINTS, VKD3DSIM_NONE,
                         false, &input_component_count, &input_component_type);
             }
 
