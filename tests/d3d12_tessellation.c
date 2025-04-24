@@ -124,7 +124,9 @@ void test_nop_tessellation_shaders(void)
     pso_desc.DS = nop_ds_dxbc;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    /* Runtime used to fail this, but it "just works" now :|. */
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ID3D12PipelineState_Release(context.pipeline_state);
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
