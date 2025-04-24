@@ -8128,6 +8128,15 @@ uint32_t d3d12_device_get_max_descriptor_heap_size(struct d3d12_device *device, 
     }
 }
 
+static bool d3d12_device_supports_16bit_shader_ops(struct d3d12_device *device)
+{
+    return device->device_info.vulkan_1_2_features.shaderFloat16 &&
+            device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
+            device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16 &&
+            device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE &&
+            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
+}
+
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -8148,7 +8157,8 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 
     options->OutputMergerLogicOp = features->logicOp;
     /* Ignored in DXBC, but properly supported in DXIL if device supports 16-bit ops */
-    options->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT;
+    options->MinPrecisionSupport = d3d12_device_supports_16bit_shader_ops(device)
+            ? D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT : D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
     options->TiledResourcesTier = d3d12_device_determine_tiled_resources_tier(device);
     options->ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
     options->PSSpecifiedStencilRefSupported = vk_info->EXT_shader_stencil_export;
@@ -8248,11 +8258,7 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
      * If we cannot use SSBOs, we cannot use 16-bit raw buffers, which is a requirement for this feature. */
 
     /* FP16 and FP64 must preserve denorms. Only FP32 can change, so we can accept both 32_BIT_INDEPENDENCY_ONLY and ALL. */
-    options4->Native16BitShaderOpsSupported = device->device_info.vulkan_1_2_features.shaderFloat16 &&
-            device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
-            device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16 &&
-            device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE &&
-            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
+    options4->Native16BitShaderOpsSupported = d3d12_device_supports_16bit_shader_ops(device);
 }
 
 static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
