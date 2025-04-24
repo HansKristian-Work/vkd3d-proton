@@ -502,7 +502,7 @@ void test_quad_tessellation_wrong_input_count_dxil(void)
     test_quad_tessellation(true, false, true);
 }
 
-void test_tessellation_dcl_index_range(void)
+static void test_tessellation_dcl_index_range(bool use_dxil)
 {
 #include "shaders/tessellation/headers/dcl_index_range_vs.h"
 #include "shaders/tessellation/headers/dcl_index_range_hs.h"
@@ -544,11 +544,20 @@ void test_tessellation_dcl_index_range(void)
     input_layout.pInputElementDescs = layout_desc;
     input_layout.NumElements = ARRAY_SIZE(layout_desc);
 
-    init_pipeline_state_desc(&pso_desc, context.root_signature,
+    if (use_dxil)
+    {
+        init_pipeline_state_desc_dxil(&pso_desc, context.root_signature,
             context.render_target_desc.Format, NULL, NULL, &input_layout);
-    pso_desc.VS = dcl_index_range_vs_dxbc;
-    pso_desc.HS = dcl_index_range_hs_dxbc;
-    pso_desc.DS = dcl_index_range_ds_dxbc;
+    }
+    else
+    {
+        init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, NULL, &input_layout);
+    }
+
+    pso_desc.VS = use_dxil ? dcl_index_range_vs_dxil : dcl_index_range_vs_dxbc;
+    pso_desc.HS = use_dxil ? dcl_index_range_hs_dxil : dcl_index_range_hs_dxbc;
+    pso_desc.DS = use_dxil ? dcl_index_range_ds_dxil : dcl_index_range_ds_dxbc;
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
@@ -577,6 +586,16 @@ void test_tessellation_dcl_index_range(void)
 
     ID3D12Resource_Release(vb);
     destroy_test_context(&context);
+}
+
+void test_tessellation_dcl_index_range_dxbc(void)
+{
+    test_tessellation_dcl_index_range(false);
+}
+
+void test_tessellation_dcl_index_range_dxil(void)
+{
+    test_tessellation_dcl_index_range(true);
 }
 
 static void test_hull_shader_control_point_phase(bool use_dxil)
