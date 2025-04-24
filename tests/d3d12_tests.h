@@ -177,6 +177,8 @@ decl_test(test_ps_layer_dxil);
 decl_test(test_nop_tessellation_shaders);
 decl_test(test_quad_tessellation_dxbc);
 decl_test(test_quad_tessellation_dxil);
+decl_test(test_quad_tessellation_wrong_pso_topology_dxbc);
+decl_test(test_quad_tessellation_wrong_pso_topology_dxil);
 decl_test(test_tessellation_dcl_index_range);
 decl_test(test_hull_shader_vertex_input_patch_constant_phase);
 decl_test(test_hull_shader_control_point_phase_dxbc);
