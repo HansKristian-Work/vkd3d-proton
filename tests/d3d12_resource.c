@@ -4902,3 +4902,351 @@ void test_large_texel_buffer_view(void)
 
     destroy_test_context(&context);
 }
+
+void test_large_heap(void)
+{
+#define SECTION_SIZE    (1ull << 30)
+#define SECTION_COUNT   (6ull)
+#define TILE_SIZE       (65536ull)
+
+    UINT heap_tile_offsets[SECTION_COUNT], heap_tile_counts[SECTION_COUNT];
+    ID3D12Resource *readback_buffer, *tiled_buffer, *large_buffer;
+    D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
+    ID3D12Resource *placed_buffers[SECTION_COUNT];
+    D3D12_TILED_RESOURCE_COORDINATE tile_coord;
+    ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_RESOURCE_BARRIER aliasing_barrier;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_TILE_REGION_SIZE tile_size;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    UINT clear_value[4];
+    ID3D12Heap *heap;
+    unsigned int i;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&aliasing_barrier, 0, sizeof(aliasing_barrier));
+    aliasing_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.SizeInBytes = SECTION_SIZE * SECTION_COUNT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+    vkd3d_mute_validation_message("06409", "Global buffer may exceed max buffer size");
+
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+
+    vkd3d_unmute_validation_message("06409");
+
+    if (FAILED(hr))
+    {
+        skip("Failed to create large heap, hr %#x.\n", hr);
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = SECTION_COUNT * sizeof(uint32_t);
+    resource_desc.Height = 1u;
+    resource_desc.DepthOrArraySize = 1u;
+    resource_desc.MipLevels = 1u;
+    resource_desc.SampleDesc.Count = 1u;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&readback_buffer);
+    ok(hr == S_OK, "Failed to create committed buffer, hr %#x.\n", hr);
+
+    /* Create tiled buffer to test for aliasing issues */
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = SECTION_COUNT * TILE_SIZE;
+    resource_desc.Height = 1u;
+    resource_desc.DepthOrArraySize = 1u;
+    resource_desc.MipLevels = 1u;
+    resource_desc.SampleDesc.Count = 1u;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&tiled_buffer);
+    ok(hr == S_OK, "Failed to create tiled buffer, hr %#x.\n", hr);
+
+    memset(&tile_coord, 0, sizeof(tile_coord));
+    memset(&tile_size, 0, sizeof(tile_size));
+    tile_size.NumTiles = SECTION_COUNT;
+
+    for (i = 0; i < SECTION_COUNT; i++)
+    {
+        heap_tile_offsets[i] = (SECTION_SIZE / TILE_SIZE) * i;
+        heap_tile_counts[i] = 1u;
+    }
+
+    ID3D12CommandQueue_UpdateTileMappings(context.queue, tiled_buffer, 1, &tile_coord, &tile_size,
+            heap, SECTION_COUNT, NULL, heap_tile_offsets, heap_tile_counts, D3D12_TILE_MAPPING_FLAG_NONE);
+
+    /* Create placed buffers at large offsets */
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = SECTION_SIZE;
+    resource_desc.Height = 1u;
+    resource_desc.DepthOrArraySize = 1u;
+    resource_desc.MipLevels = 1u;
+    resource_desc.SampleDesc.Count = 1u;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    for (i = 0; i < SECTION_COUNT; i++)
+    {
+        hr = ID3D12Device_CreatePlacedResource(context.device, heap, SECTION_SIZE * i, &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL, &IID_ID3D12Resource, (void**)&placed_buffers[i]);
+        ok(hr == S_OK, "Failed to create placed buffer, hr %#x.\n", hr);
+    }
+
+    /* Create large placed buffer covering the entire heap */
+    resource_desc.Width = heap_desc.SizeInBytes;
+
+    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0, &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL, &IID_ID3D12Resource, (void**)&large_buffer);
+
+    if (FAILED(hr))
+    {
+        skip("Failed to create large buffer, hr %#x.\n", hr);
+        large_buffer = NULL;
+    }
+
+    memset(&descriptor_heap_desc, 0, sizeof(descriptor_heap_desc));
+    descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    descriptor_heap_desc.NumDescriptors = SECTION_COUNT;
+
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &descriptor_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&cpu_heap);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &descriptor_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&gpu_heap);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    /* Test writing data to the sparse buffer. Offsets will all be smmall, so if this
+     * goes wrong, this proves an issue with large offsets in UpdateTileMappings. */
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1u, &gpu_heap);
+
+    for (i = 0; i < SECTION_COUNT; i++)
+    {
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Format = DXGI_FORMAT_R32_UINT;
+        uav_desc.Buffer.FirstElement = (TILE_SIZE / sizeof(uint32_t)) * i;
+        uav_desc.Buffer.NumElements = TILE_SIZE / sizeof(uint32_t);
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, tiled_buffer, NULL, &uav_desc, get_cpu_descriptor_handle(&context, cpu_heap, i));
+        ID3D12Device_CreateUnorderedAccessView(context.device, tiled_buffer, NULL, &uav_desc, get_cpu_descriptor_handle(&context, gpu_heap, i));
+
+        memset(clear_value, 0, sizeof(clear_value));
+        clear_value[0] = i + 10u;
+
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                get_gpu_descriptor_handle(&context, gpu_heap, i),
+                get_cpu_descriptor_handle(&context, cpu_heap, i),
+                tiled_buffer, clear_value, 0, NULL);
+    }
+
+    transition_resource_state(context.list, tiled_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < SECTION_COUNT; i++)
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, i * sizeof(uint32_t), tiled_buffer, i * TILE_SIZE, sizeof(uint32_t));
+
+    transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < SECTION_COUNT; i++)
+    {
+        uint32_t got = get_readback_uint(&rb, i, 0, 0);
+        uint32_t expected = i + 10u;
+
+        ok(got == expected, "Got %u, expected %u at %u.\n", got, expected, i);
+    }
+
+    release_resource_readback(&rb);
+
+    /* Test copying data from the small placed buffers. */
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+    ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, 0, tiled_buffer, 0, sizeof(uint32_t) * SECTION_COUNT);
+
+    ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1, &aliasing_barrier);
+
+    for (i = 0; i < SECTION_COUNT; i++)
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, i * sizeof(uint32_t), placed_buffers[i], 0, sizeof(uint32_t));
+
+    ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1, &aliasing_barrier);
+
+    transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < SECTION_COUNT; i++)
+    {
+        uint32_t got = get_readback_uint(&rb, i, 0, 0);
+        uint32_t expected = i + 10u;
+
+        ok(got == expected, "Got %u, expected %u at %u.\n", got, expected, i);
+    }
+
+    release_resource_readback(&rb);
+
+    /* Test copying data from the large buffer. */
+    if (large_buffer)
+    {
+        reset_command_list(context.list, context.allocator);
+
+        transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, 0, tiled_buffer, 0, sizeof(uint32_t)* SECTION_COUNT);
+
+        ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1, &aliasing_barrier);
+
+        for (i = 0; i < SECTION_COUNT; i++)
+            ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, i * sizeof(uint32_t), large_buffer, (UINT64)i * SECTION_SIZE, sizeof(uint32_t));
+
+        ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1, &aliasing_barrier);
+
+        transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+        for (i = 0; i < SECTION_COUNT; i++)
+        {
+            uint32_t got = get_readback_uint(&rb, i, 0, 0);
+            uint32_t expected = i + 10u;
+
+            ok(got == expected, "Got %u, expected %u at %u.\n", got, expected, i);
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    /* Test creating UAVs for small placed buffers */
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+    ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, 0, tiled_buffer, 0, sizeof(uint32_t) * SECTION_COUNT);
+    ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1, &aliasing_barrier);
+
+    for (i = 0; i < SECTION_COUNT; i++)
+    {
+        transition_resource_state(context.list, placed_buffers[i], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Format = DXGI_FORMAT_R32_UINT;
+        uav_desc.Buffer.FirstElement = 0u;
+        uav_desc.Buffer.NumElements = TILE_SIZE / sizeof(uint32_t);
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, placed_buffers[i], NULL, &uav_desc, get_cpu_descriptor_handle(&context, cpu_heap, i));
+        ID3D12Device_CreateUnorderedAccessView(context.device, placed_buffers[i], NULL, &uav_desc, get_cpu_descriptor_handle(&context, gpu_heap, i));
+
+        memset(clear_value, 0, sizeof(clear_value));
+        clear_value[0] = i + 20u;
+
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+            get_gpu_descriptor_handle(&context, gpu_heap, i),
+            get_cpu_descriptor_handle(&context, cpu_heap, i),
+            placed_buffers[i], clear_value, 0, NULL);
+
+        transition_resource_state(context.list, placed_buffers[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+
+    for (i = 0; i < SECTION_COUNT; i++)
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, i * sizeof(uint32_t), placed_buffers[i], 0, sizeof(uint32_t));
+
+    transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < SECTION_COUNT; i++)
+    {
+        uint32_t got = get_readback_uint(&rb, i, 0, 0);
+        uint32_t expected = i + 20u;
+
+        ok(got == expected, "Got %u, expected %u at %u.\n", got, expected, i);
+    }
+
+    release_resource_readback(&rb);
+
+    /* Test creating UAVs at large offsets. AMD native reports DEVICE_LOST after UAV creation. */
+    if (large_buffer && !is_amd_windows_device(context.device))
+    {
+        reset_command_list(context.list, context.allocator);
+
+        transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, 0, tiled_buffer, 0, sizeof(uint32_t) * SECTION_COUNT);
+        ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1, &aliasing_barrier);
+
+        transition_resource_state(context.list, large_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        for (i = 0; i < SECTION_COUNT; i++)
+        {
+            memset(&uav_desc, 0, sizeof(uav_desc));
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav_desc.Format = DXGI_FORMAT_R32_UINT;
+            uav_desc.Buffer.FirstElement = i * (SECTION_SIZE / sizeof(uint32_t));
+            uav_desc.Buffer.NumElements = TILE_SIZE / sizeof(uint32_t);
+
+            ID3D12Device_CreateUnorderedAccessView(context.device, large_buffer, NULL, &uav_desc, get_cpu_descriptor_handle(&context, cpu_heap, i));
+            ID3D12Device_CreateUnorderedAccessView(context.device, large_buffer, NULL, &uav_desc, get_cpu_descriptor_handle(&context, gpu_heap, i));
+
+            memset(clear_value, 0, sizeof(clear_value));
+            clear_value[0] = i + 30u;
+
+            ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                get_gpu_descriptor_handle(&context, gpu_heap, i),
+                get_cpu_descriptor_handle(&context, cpu_heap, i),
+                large_buffer, clear_value, 0, NULL);
+        }
+
+        transition_resource_state(context.list, large_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        for (i = 0; i < SECTION_COUNT; i++)
+            ID3D12GraphicsCommandList_CopyBufferRegion(context.list, readback_buffer, i * sizeof(uint32_t), large_buffer, (UINT64)i * SECTION_SIZE, sizeof(uint32_t));
+
+        transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+        for (i = 0; i < SECTION_COUNT; i++)
+        {
+            uint32_t got = get_readback_uint(&rb, i, 0, 0);
+            uint32_t expected = i + 30u;
+
+            ok(got == expected, "Got %u, expected %u at %u.\n", got, expected, i);
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12DescriptorHeap_Release(gpu_heap);
+
+    for (i = 0; i < SECTION_COUNT; i++)
+        ID3D12Resource_Release(placed_buffers[i]);
+
+    ID3D12Resource_Release(tiled_buffer);
+    ID3D12Resource_Release(readback_buffer);
+
+    if (large_buffer)
+        ID3D12Resource_Release(large_buffer);
+
+    ID3D12Heap_Release(heap);
+
+    destroy_test_context(&context);
+
+#undef SECTION_SIZE
+#undef SECTION_COUNT
+#undef TILE_SIZE
+}
