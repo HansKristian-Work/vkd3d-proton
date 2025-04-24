@@ -6265,7 +6265,7 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
     {
         if (graphics->patch_vertex_count)
         {
-            WARN("Mismatch in tessellation control points, expected %u, but got %u, ignoring app topology and using shader.\n",
+            WARN("Mismatch in tessellation control points, expected %u, but got %u, ignoring shader topology and using app.\n",
                   graphics->patch_vertex_count,
                   dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1);
         }
