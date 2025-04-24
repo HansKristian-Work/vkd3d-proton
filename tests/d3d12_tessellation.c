@@ -170,7 +170,7 @@ void test_nop_tessellation_shaders(void)
     destroy_test_context(&context);
 }
 
-static void test_quad_tessellation(bool use_dxil)
+static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology)
 {
 #include "shaders/tessellation/headers/quad_tess_vs.h"
 #include "shaders/tessellation/headers/quad_tess_hs_ccw.h"
@@ -296,7 +296,14 @@ static void test_quad_tessellation(bool use_dxil)
     pso_desc.StreamOutput.pBufferStrides = strides;
     pso_desc.StreamOutput.NumStrides = ARRAY_SIZE(strides);
     pso_desc.StreamOutput.RasterizedStream = 0;
-    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+
+    if (!wrong_pso_topology)
+        pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    else
+    {
+        /* This seems to "just work" on native drivers, despite runtime validating it. */
+        pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    }
 
     vb = create_upload_buffer(device, sizeof(quad), quad);
 
@@ -456,12 +463,22 @@ static void test_quad_tessellation(bool use_dxil)
 
 void test_quad_tessellation_dxbc(void)
 {
-    test_quad_tessellation(false);
+    test_quad_tessellation(false, false);
 }
 
 void test_quad_tessellation_dxil(void)
 {
-    test_quad_tessellation(true);
+    test_quad_tessellation(true, false);
+}
+
+void test_quad_tessellation_wrong_pso_topology_dxbc(void)
+{
+    test_quad_tessellation(false, true);
+}
+
+void test_quad_tessellation_wrong_pso_topology_dxil(void)
+{
+    test_quad_tessellation(true, true);
 }
 
 void test_tessellation_dcl_index_range(void)
