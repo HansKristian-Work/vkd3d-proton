@@ -598,6 +598,104 @@ void test_tessellation_dcl_index_range_dxil(void)
     test_tessellation_dcl_index_range(true);
 }
 
+static void test_tessellation_dcl_index_range_complex(bool use_dxil)
+{
+#include "shaders/tessellation/headers/dcl_index_range_vs_complex.h"
+#include "shaders/tessellation/headers/dcl_index_range_hs_complex.h"
+#include "shaders/tessellation/headers/dcl_index_range_ds.h"
+
+    static const struct vec4 quad[] =
+    {
+        {-1.0f, -1.0f, 0.0f, 1.0f},
+        {-1.0f,  1.0f, 0.0f, 1.0f},
+        { 1.0f, -1.0f, 0.0f, 1.0f},
+        { 1.0f,  1.0f, 0.0f, 1.0f},
+    };
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    ID3D12Resource *vb;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.root_signature_flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.no_pipeline = true;
+    desc.rt_width = 64;
+    desc.rt_height = 64;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+
+    if (use_dxil)
+    {
+        init_pipeline_state_desc_dxil(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, NULL, &input_layout);
+    }
+    else
+    {
+        init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, NULL, &input_layout);
+    }
+
+    pso_desc.VS = use_dxil ? dcl_index_range_vs_complex_dxil : dcl_index_range_vs_complex_dxbc;
+    pso_desc.HS = use_dxil ? dcl_index_range_hs_complex_dxil : dcl_index_range_hs_complex_dxbc;
+    pso_desc.DS = use_dxil ? dcl_index_range_ds_dxil : dcl_index_range_ds_dxbc;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+
+    vb = create_upload_buffer(device, sizeof(quad), quad);
+
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(*quad);
+    vbv.SizeInBytes = sizeof(quad);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 4, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    todo_if(!use_dxil) check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
+
+    ID3D12Resource_Release(vb);
+    destroy_test_context(&context);
+}
+
+void test_tessellation_dcl_index_range_complex_dxbc(void)
+{
+    test_tessellation_dcl_index_range_complex(false);
+}
+
+void test_tessellation_dcl_index_range_complex_dxil(void)
+{
+    test_tessellation_dcl_index_range_complex(true);
+}
+
 static void test_hull_shader_control_point_phase(bool use_dxil)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
