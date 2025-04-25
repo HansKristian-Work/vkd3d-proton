@@ -5588,11 +5588,15 @@ void test_wmma_matrix_length(void)
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
 
     /* For Wave32 and 16x16, there must be 8 elements per lane.
-     * Somewhat surprisingly, it seems like FP8 has 2 elements? Maybe it's tightly packed u32. */
+     * Somewhat surprisingly, it seems like FP8 has 2 elements? Maybe it's tightly packed u32.
+     * RDNA3 pads A and B to double size. */
     for (i = 0; i < 10; i++)
     {
+        static const uint32_t expected_rdna3[] = { 16, 16, 8, 4, 4, 16, 16, 8, 4, 4 };
         static const uint32_t expected[] = { 8, 8, 8, 2, 2, 8, 8, 8, 2, 2 };
-        ok(expected[i] == get_readback_uint(&rb, i, 0, 0), "%u: Expected %u, got %u\n", i, expected[i], get_readback_uint(&rb, i, 0, 0));
+        ok(expected[i] == get_readback_uint(&rb, i, 0, 0) ||
+                expected_rdna3[i] == get_readback_uint(&rb, i, 0, 0),
+                "%u: Expected %u, got %u\n", i, expected[i], get_readback_uint(&rb, i, 0, 0));
     }
 
     reset_command_list(context.list, context.allocator);
