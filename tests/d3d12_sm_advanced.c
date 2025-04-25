@@ -5053,7 +5053,7 @@ static float randomize_fp8_float(void)
 {
     /* Don't allow too large range since it may be impossible to express
      * the matmul result accurately in FP32. */
-    return fp8_to_float(randomize_fp8_range(0x30, 0x3f, true));
+    return fp8_to_float(randomize_fp8_range(0x30, 0x3f, false));
 }
 
 void test_wmma_matmul(void)
