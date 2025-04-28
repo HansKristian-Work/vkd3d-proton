@@ -5140,7 +5140,11 @@ void test_wmma_matmul(void)
         float C[16][16];
 
         vkd3d_test_set_context("Test %u", test_index);
+        if (test_index == 1)
+            vkd3d_mute_validation_message("10163", "Currently just assuming that 8-bit Acc matrix works.");
         pso = create_wmma_pso(context.device, context.root_signature, *tests[test_index].dxil);
+        if (test_index == 1)
+            vkd3d_unmute_validation_message("10163");
         if (!pso)
             continue;
 
@@ -5294,7 +5298,10 @@ void test_wmma_multi_matmul(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    vkd3d_mute_validation_message("10163", "Currently just assuming that 8-bit Acc matrix works.");
     context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_multi_matmul_dxil);
+    vkd3d_unmute_validation_message("10163");
+
     if (!context.pipeline_state)
     {
         destroy_test_context(&context);
@@ -5491,7 +5498,9 @@ void test_wmma_fp32_fp8_conversions(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    vkd3d_mute_validation_message("10163", "Currently just assuming that 8-bit Acc matrix works.");
     context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_fp32_fp8_conversions_dxil);
+    vkd3d_unmute_validation_message("10163");
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
@@ -5892,7 +5901,9 @@ void test_wmma_copy_transpose(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    vkd3d_mute_validation_message("10163", "Currently just assuming that 8-bit Acc matrix works.");
     context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_copy_transpose_fp16_dxil);
+    vkd3d_unmute_validation_message("10163");
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
