@@ -886,6 +886,12 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             vkd3d_format_needs_extended_usage(format, image_info->usage))
         image_info->flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
 
+    /* https://learn.microsoft.com/en-us/windows/win32/direct3d12/memory-aliasing-and-data-inheritance#data-inheritance
+     * For exact same texture creation, aliasing is supposed to work as expected between optimally tiled resources,
+     * which maps 1:1 to VK_IMAGE_CREATE_ALIAS_BIT. */
+    if (!sparse_resource && (!resource || (resource->flags & VKD3D_RESOURCE_PLACED)))
+        image_info->flags |= VK_IMAGE_CREATE_ALIAS_BIT;
+
     if (sparse_resource)
     {
         VkSparseImageFormatProperties sparse_infos[2];
