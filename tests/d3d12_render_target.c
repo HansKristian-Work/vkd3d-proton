@@ -22,6 +22,126 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+void test_srgb_unorm_mismatch_usage_aliasing(void)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO unorm_alloc_info;
+    D3D12_RESOURCE_ALLOCATION_INFO srgb_alloc_info;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    static float white[] = { 1, 1, 1, 1 };
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *unorm;
+    ID3D12Resource *srgb;
+    D3D12_VIEWPORT vp;
+    unsigned int x, y;
+    ID3D12Heap *heap;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+#include "shaders/render_target/headers/srgb_unorm_mismatch_vs.h"
+#include "shaders/render_target/headers/srgb_unorm_mismatch_ps.h"
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+            &srgb_unorm_mismatch_vs_dxbc, &srgb_unorm_mismatch_ps_dxbc, NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x\n", hr);
+
+    /* Triages an AC: Shadows bug where these resources are aliased on top of a heap and game expects this to "just werk". */
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Width = 264;
+    resource_desc.Height = 264;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.MipLevels = 1;
+    resource_desc.DepthOrArraySize = 1;
+
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    unorm_alloc_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &resource_desc);
+
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    srgb_alloc_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &resource_desc);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Flags = D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.SizeInBytes = 64 * 1024 + max(unorm_alloc_info.SizeInBytes, srgb_alloc_info.SizeInBytes);
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", hr);
+
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 64 * 1024, &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL, &IID_ID3D12Resource, (void **)&unorm);
+    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", hr);
+
+    /* AC: Shadows does not add this UAV flag, but D3D12 has requirements about aliasing if all things match,
+     * and we should be using VK_IMAGE_CREATE_ALIAS_BIT for all placed resoures, which makes this test pass on RDNA4.
+     * This should work as expected on all GPUs more or less ... */
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 64 * 1024, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&srgb);
+    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", hr);
+
+    context.rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    context.rtv = get_cpu_rtv_handle(&context, context.rtv_heap, 0);
+    ID3D12Device_CreateRenderTargetView(context.device, srgb, NULL, context.rtv);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    set_viewport(&vp, 0, 0, resource_desc.Width, resource_desc.Height, 0, 1);
+    set_rect(&sci, 0, 0, resource_desc.Width, resource_desc.Height);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, srgb, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    /* Massive UB. This will only work if the layout of the image matches. */
+    vkd3d_mute_validation_message("09600", "Image layout tracking does not work across VK_IMAGE_CREATE_ALIAS_BIT.");
+    get_texture_readback_with_command_list(unorm, 0, &rb, context.queue, context.list);
+    vkd3d_unmute_validation_message("09600");
+
+    for (y = 0; y < resource_desc.Height; y++)
+    {
+        for (x = 0; x < resource_desc.Width; x++)
+        {
+            uint32_t readback, readback_x, readback_y;
+            readback = get_readback_uint(&rb, x, y, 0);
+            readback_x = (readback >> 0) & 0xff;
+            readback_y = (readback >> 8) & 0xff;
+
+            ok(readback_x == min(x, 255) && readback_y == min(y, 255), "%u, %u: Expected %u, %u, got %u, %u\n", x, y, min(x, 255), min(y, 255), readback_x, readback_y);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Heap_Release(heap);
+    ID3D12Resource_Release(srgb);
+    ID3D12Resource_Release(unorm);
+    destroy_test_context(&context);
+}
+
 void test_unbound_rtv_rendering(void)
 {
     static const struct vec4 red = { 1.0f, 0.0f, 0.0f, 1.0f };
