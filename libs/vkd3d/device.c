@@ -803,6 +803,16 @@ static const struct vkd3d_shader_quirk_info rebirth_quirks = {
     rebirth_hashes, ARRAY_SIZE(rebirth_hashes), 0,
 };
 
+/* Game misses a transition from color to resource before FSR3.
+ * The shader hash is FSR3-PREPARE-INPUTS. */
+static const struct vkd3d_shader_quirk_hash satisfactory_hashes[] = {
+    { 0x1bc3c90cfe16ad1e, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER },
+};
+
+static const struct vkd3d_shader_quirk_info satisfactory_quirks = {
+    satisfactory_hashes, ARRAY_SIZE(satisfactory_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -854,6 +864,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
      * but it's plausible enough to be caused by SKIP_NULL_SPARSE that we can justify this hack
      * until a proper fix is in place. */
     { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterWilds.exe", &heap_robustness_quirks },
+    /* Satisfactory (526870). */
+    { VKD3D_STRING_COMPARE_EXACT, "FactoryGameSteam-Win64-Shipping.exe", &satisfactory_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
