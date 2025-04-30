@@ -263,6 +263,12 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
     if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
         FIXME("Unsupported resource flags %#x.\n", desc->Flags);
 
+    if (desc->Width > device->device_info.vulkan_1_3_properties.maxBufferSize)
+    {
+        FIXME("Buffer size %"PRIu64" exceeds maxBufferSize of %"PRIu64".\n",
+                desc->Width, device->device_info.vulkan_1_3_properties.maxBufferSize);
+    }
+
     /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
     vkd3d_address_binding_tracker_mark_user_thread();
 
