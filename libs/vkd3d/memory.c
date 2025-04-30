@@ -343,10 +343,13 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         switch (transfer->op)
         {
             case VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION:
-                VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
-                        transfer->allocation->resource.vk_buffer,
-                        transfer->allocation->offset,
-                        transfer->allocation->resource.size, 0));
+                for (buffer_offset = 0u; buffer_offset < transfer->allocation->resource.size; buffer_offset += VKD3D_MAX_FILL_BUFFER_SIZE)
+                {
+                    VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
+                            transfer->allocation->resource.vk_buffer,
+                            transfer->allocation->offset + buffer_offset,
+                            min(transfer->allocation->resource.size - buffer_offset, VKD3D_MAX_FILL_BUFFER_SIZE), 0));
+                }
                 break;
 
             case VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE:
