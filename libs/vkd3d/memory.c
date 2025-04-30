@@ -816,11 +816,11 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         void *pNext, bool respect_budget, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkPhysicalDeviceMemoryProperties *memory_props = &device->memory_properties;
+    uint32_t type_mask, device_local_mask, candidate_mask, heap_index;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_memory_info *memory_info = &device->memory_info;
-    uint32_t type_mask, device_local_mask, candidate_mask;
+    VkDeviceSize *type_current, heap_size;
     VkMemoryAllocateInfo allocate_info;
-    VkDeviceSize *type_current;
     bool rebar_budget;
     VkResult vr;
 
@@ -894,7 +894,7 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
      */
 
     /* Budgets only apply to PCI-e BAR */
-    rebar_budget = !!(device->memory_info.rebar_budget_mask & (1u << allocate_info.memoryTypeIndex));
+    rebar_budget = !!(memory_info->rebar_budget_mask & (1u << allocate_info.memoryTypeIndex));
     if (rebar_budget)
     {
         if (respect_budget)
@@ -911,6 +911,31 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
                 return E_OUTOFMEMORY;
             }
         }
+    }
+
+    /* Don't create device-local allocations that are unlikely to fully fit into VRAM
+     * if a fallback to system memory is possible. On Nvidia, creating a device-local
+     * allocation larger than VRAM may succeed, but causes various problems and will
+     * end up in system memory anyway. */
+    if ((type_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && candidate_mask != device_local_mask)
+    {
+        heap_index = device->memory_properties.memoryTypes[allocate_info.memoryTypeIndex].heapIndex;
+
+        heap_size = device->memory_properties.memoryHeaps[heap_index].size;
+        heap_size -= heap_size / 8u;
+
+        if (allocate_info.allocationSize > heap_size)
+        {
+            ERR("Allocation size %"PRIu64" exceeds maximum allocation size on heap %u (%"PRIu64").\n", allocate_info.allocationSize, heap_index, heap_size);
+            return E_OUTOFMEMORY;
+        }
+    }
+
+    /* Not a hard limit, but may fail at a driver level */
+    if (allocate_info.allocationSize > device->device_info.vulkan_1_1_properties.maxMemoryAllocationSize)
+    {
+        WARN("Allocation size %"PRIu64" exceeds maxMemoryAllocationSize of %"PRIu64".\n",
+                allocate_info.allocationSize, device->device_info.vulkan_1_1_properties.maxMemoryAllocationSize);
     }
 
     /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
