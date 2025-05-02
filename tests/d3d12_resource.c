@@ -4945,10 +4945,12 @@ void test_large_heap(void)
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
     vkd3d_mute_validation_message("06409", "Global buffer may exceed max buffer size");
+    vkd3d_mute_validation_message("-maxMem", "Non VU related error reported which should be warning");
 
     hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
 
     vkd3d_unmute_validation_message("06409");
+    vkd3d_unmute_validation_message("-maxMem");
 
     if (FAILED(hr))
     {
