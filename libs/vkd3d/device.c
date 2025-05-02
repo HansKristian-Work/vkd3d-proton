@@ -9208,6 +9208,7 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
      * We may generate different SPIR-V based on the bindless state flags.
      * The bindless states are affected by various flags. */
     unsigned int i;
+    char env[64];
     uint64_t key;
 
     key = hash_fnv1_init();
@@ -9261,6 +9262,12 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
     /* QA checks don't necessarily modify bindless flags, so have to check them separately. */
     hash_fnv1_iterate_u32(key, vkd3d_descriptor_debug_active_instruction_qa_checks());
     hash_fnv1_iterate_u32(key, vkd3d_descriptor_debug_active_descriptor_qa_checks());
+
+    if (vkd3d_get_env_var("DXIL_SPIRV_CONFIG", env, sizeof(env)))
+    {
+        INFO("Using DXIL_SPIRV_CONFIG = %s\n", env);
+        key = hash_fnv1_iterate_string(key, env);
+    }
 
     device->shader_interface_key = key;
 }
