@@ -1029,6 +1029,7 @@ struct vkd3d_format_compatibility_list
     unsigned int format_count;
     VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
     DXGI_FORMAT uint_format;
+    DXGI_FORMAT typeless_format;
 };
 
 /* ID3D12Resource */
