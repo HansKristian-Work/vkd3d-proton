@@ -4206,6 +4206,46 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
     return true;
 }
 
+static DXGI_FORMAT d3d12_device_get_typeless_format(struct d3d12_device *device, DXGI_FORMAT format)
+{
+    if (format < device->format_compatibility_list_count)
+        return device->format_compatibility_lists[format].typeless_format;
+
+    return DXGI_FORMAT_UNKNOWN;
+}
+
+static UINT d3d12_device_get_format_displayable_features(struct d3d12_device *device, DXGI_FORMAT format)
+{
+    DXGI_FORMAT typeless_format;
+    unsigned int i;
+    UINT flags;
+
+    /* Exhaustive list of all swapchain formats */
+    static const DXGI_FORMAT displayable_formats[] =
+    {
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+        DXGI_FORMAT_B8G8R8A8_UNORM,
+        DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
+        DXGI_FORMAT_R10G10B10A2_UNORM,
+        DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM,
+        DXGI_FORMAT_R16G16B16A16_FLOAT,
+    };
+
+    typeless_format = d3d12_device_get_typeless_format(device, format);
+    flags = 0u;
+
+    for (i = 0; i < ARRAY_SIZE(displayable_formats); i++)
+    {
+        if (displayable_formats[i] == format)
+            flags |= D3D12_FORMAT_SUPPORT1_DISPLAY;
+        else if (typeless_format && d3d12_device_get_typeless_format(device, displayable_formats[i]) == typeless_format)
+            flags |= D3D12_FORMAT_SUPPORT1_BACK_BUFFER_CAST;
+    }
+
+    return (flags & D3D12_FORMAT_SUPPORT1_DISPLAY) ? flags : 0u;
+}
+
 static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D12_FEATURE_DATA_FORMAT_SUPPORT *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -4273,6 +4313,8 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         if (format->dxgi_format < device->format_compatibility_list_count &&
                 device->format_compatibility_lists[format->dxgi_format].typeless_format)
             data->Support1 |= D3D12_FORMAT_SUPPORT1_CAST_WITHIN_BIT_LAYOUT;
+
+        data->Support1 |= d3d12_device_get_format_displayable_features(device, format->dxgi_format);
     }
     if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT)
     {
