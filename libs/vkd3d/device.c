@@ -8454,8 +8454,11 @@ static void d3d12_device_caps_init_feature_options13(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS13 *options13 = &device->d3d12_caps.options13;
 
+    options13->UnrestrictedBufferTextureCopyPitchSupported = TRUE;
     options13->InvertedViewportHeightFlipsYSupported = TRUE;
     options13->InvertedViewportDepthFlipsZSupported = TRUE;
+    options13->TextureCopyBetweenDimensionsSupported = TRUE;
+    options13->AlphaBlendFactorSupported = TRUE;
 }
 
 static void d3d12_device_caps_init_feature_options14(struct d3d12_device *device)
