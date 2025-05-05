@@ -4246,6 +4246,35 @@ static UINT d3d12_device_get_format_displayable_features(struct d3d12_device *de
     return (flags & D3D12_FORMAT_SUPPORT1_DISPLAY) ? flags : 0u;
 }
 
+static bool d3d12_format_is_streamout_compatible(DXGI_FORMAT format)
+{
+    unsigned int i;
+
+    static const DXGI_FORMAT so_formats[] =
+    {
+        DXGI_FORMAT_R32G32B32A32_UINT,
+        DXGI_FORMAT_R32G32B32A32_SINT,
+        DXGI_FORMAT_R32G32B32A32_FLOAT,
+        DXGI_FORMAT_R32G32B32_UINT,
+        DXGI_FORMAT_R32G32B32_SINT,
+        DXGI_FORMAT_R32G32B32_FLOAT,
+        DXGI_FORMAT_R32G32_UINT,
+        DXGI_FORMAT_R32G32_SINT,
+        DXGI_FORMAT_R32G32_FLOAT,
+        DXGI_FORMAT_R32_UINT,
+        DXGI_FORMAT_R32_SINT,
+        DXGI_FORMAT_R32_FLOAT,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(so_formats); i++)
+    {
+        if (so_formats[i] == format)
+            return true;
+    }
+
+    return false;
+}
+
 static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D12_FEATURE_DATA_FORMAT_SUPPORT *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -4298,6 +4327,10 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
     if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
+
+    if (d3d12_format_is_streamout_compatible(data->Format))
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_SO_BUFFER;
+
     if (image_features)
     {
         data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE2D;
