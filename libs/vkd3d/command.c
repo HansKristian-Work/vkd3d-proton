@@ -12291,6 +12291,7 @@ static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *d
         DXGI_FORMAT dxgi_format, VkClearColorValue color)
 {
     VkClearColorValue result = {0};
+    unsigned int i;
 
     switch (dxgi_format)
     {
@@ -12309,14 +12310,9 @@ static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *d
 
         case DXGI_FORMAT_B8G8R8A8_UNORM:
         case DXGI_FORMAT_B8G8R8X8_UNORM:
-            result.uint32[0] = color.uint32[2];
-            result.uint32[1] = color.uint32[1];
-            result.uint32[2] = color.uint32[0];
-            result.uint32[3] = color.uint32[3];
-            return result;
-
         case DXGI_FORMAT_A8_UNORM:
-            result.float32[3] = (float)(color.uint32[3] & 0xff) / 255.0f;
+            for (i = 0; i < 4; i++)
+                result.float32[i] = (float)(color.uint32[i] & 0xff) / 255.0f;
             return result;
 
         default:
