@@ -6316,14 +6316,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
             return E_INVALIDARG;
         }
 
+        memset(&desc, 0, sizeof(desc));
         desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Alignment = 0;
         desc.Width = metadata.Width;
         desc.Height = metadata.Height;
         desc.DepthOrArraySize = metadata.ArraySize;
         desc.MipLevels = metadata.MipLevels;
         desc.Format = metadata.Format;
         desc.SampleDesc = metadata.SampleDesc;
+
         switch (metadata.TextureLayout)
         {
             case D3D11_TEXTURE_LAYOUT_UNDEFINED: desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN; break;
@@ -6331,15 +6332,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
             case D3D11_TEXTURE_LAYOUT_64K_STANDARD_SWIZZLE: desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE; break;
             default: desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         }
-        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+
         if (metadata.BindFlags & D3D11_BIND_RENDER_TARGET)
             desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
         if (metadata.BindFlags & D3D11_BIND_DEPTH_STENCIL)
+        {
             desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+            if (!(metadata.BindFlags & D3D11_BIND_SHADER_RESOURCE))
+                desc.Flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+        }
+        else
+            desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+
         if (metadata.BindFlags & D3D11_BIND_UNORDERED_ACCESS)
             desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        if ((metadata.BindFlags & D3D11_BIND_DEPTH_STENCIL) && !(metadata.BindFlags & D3D11_BIND_SHADER_RESOURCE))
-            desc.Flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
         desc.SamplerFeedbackMipRegion.Width = 0;
         desc.SamplerFeedbackMipRegion.Height = 0;
         desc.SamplerFeedbackMipRegion.Depth = 0;
