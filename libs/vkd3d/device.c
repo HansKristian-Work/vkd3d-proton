@@ -4269,6 +4269,10 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         /* 3D depth-stencil images are not supported */
         if (format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
             data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE3D;
+
+        if (format->dxgi_format < device->format_compatibility_list_count &&
+                device->format_compatibility_lists[format->dxgi_format].typeless_format)
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_CAST_WITHIN_BIT_LAYOUT;
     }
     if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT)
     {
