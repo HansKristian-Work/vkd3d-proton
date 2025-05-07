@@ -3732,3 +3732,109 @@ void test_raytracing_mismatch_global_rs_link(void)
     ID3D12RootSignature_Release(rs_alt);
     destroy_raytracing_test_context(&context);
 }
+
+void test_raytracing_null_rtas(void)
+{
+    uint8_t sbt_data[D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 2];
+    struct raytracing_test_context context;
+    D3D12_SHADER_RESOURCE_VIEW_DESC desc;
+    ID3D12StateObjectProperties *props;
+    D3D12_DESCRIPTOR_RANGE rs_range[1];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    struct rt_pso_factory factory;
+    D3D12_DISPATCH_RAYS_DESC rays;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    const void *raygen_handle;
+    ID3D12StateObject *rtpso;
+    const void *miss_handle;
+    ID3D12Resource *output;
+    ID3D12Device *device;
+    ID3D12Resource *sbt;
+
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
+        return;
+
+    device = context.context.device;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(rs_range, 0, sizeof(rs_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].Descriptor.RegisterSpace = 0;
+    rs_params[0].Descriptor.ShaderRegister = 0;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].Descriptor.RegisterSpace = 0;
+    rs_params[1].Descriptor.ShaderRegister = 1;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_range);
+    rs_params[2].DescriptorTable.pDescriptorRanges = rs_range;
+    rs_range[0].NumDescriptors = 1;
+    rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+
+    create_root_signature(context.context.device, &rs_desc, &context.context.root_signature);
+
+    rt_pso_factory_init(&factory);
+    rt_pso_factory_add_dxil_library(&factory, get_misfire_lib(), 0, NULL);
+    rt_pso_factory_add_pipeline_config(&factory, 1);
+    rt_pso_factory_add_shader_config(&factory, 8, 8);
+    rt_pso_factory_add_global_root_signature(&factory, context.context.root_signature);
+    rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+    rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+
+    ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props);
+    miss_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"MissShader");
+    ok(!!miss_handle, "Failed to query miss handle.\n");
+    raygen_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"GenShader");
+    ok(!!raygen_handle, "Failed to query raygen handle.\n");
+    ID3D12StateObjectProperties_Release(props);
+
+    output = create_default_buffer(device, 2 * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 0, raygen_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 1, miss_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+    sbt = create_upload_buffer(device, sizeof(sbt_data), sbt_data);
+
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+    desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    desc.Format = DXGI_FORMAT_UNKNOWN;
+    desc.RaytracingAccelerationStructure.Location = 0;
+    ID3D12Device_CreateShaderResourceView(device, NULL, &desc, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.context.list, 1, &heap);
+    ID3D12GraphicsCommandList4_SetPipelineState1(context.list4, rtpso);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.context.list, context.context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output) + 0);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output) + 4);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.context.list, 2, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    memset(&rays, 0, sizeof(rays));
+    rays.Width = 1;
+    rays.Height = 1;
+    rays.Depth = 1;
+    rays.RayGenerationShaderRecord.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 0 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+    rays.RayGenerationShaderRecord.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+    rays.MissShaderTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 1 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+    rays.MissShaderTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+
+    ID3D12GraphicsCommandList4_DispatchRays(context.list4, &rays);
+    transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.context.queue, context.context.list);
+
+    ok(get_readback_uint(&rb, 0, 0, 0) == 1100, "Expected 1100, got %u\n", get_readback_uint(&rb, 0, 0, 0));
+    ok(get_readback_uint(&rb, 1, 0, 0) == 2200, "Expected 2200, got %u\n", get_readback_uint(&rb, 1, 0, 0));
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(sbt);
+    ID3D12Resource_Release(output);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12StateObject_Release(rtpso);
+    destroy_raytracing_test_context(&context);
+}
