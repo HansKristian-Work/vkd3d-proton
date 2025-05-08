@@ -396,6 +396,10 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
                 vkd3d_memory_transfer_queue_track_resource_locked(queue,
                         transfer->resource, queue->next_signal_value);
                 break;
+
+            case VKD3D_MEMORY_TRANSFER_OP_BUILD_NULL_RTAS:
+                vkd3d_build_null_rtas_va(queue->device, vk_cmd_buffer);
+                break;
         }
     }
 
@@ -538,6 +542,19 @@ HRESULT vkd3d_memory_transfer_queue_write_subresource(struct vkd3d_memory_transf
     transfer.subresource_idx = subresource_idx;
     transfer.offset = offset;
     transfer.extent = extent;
+
+    pthread_mutex_lock(&queue->mutex);
+    vkd3d_memory_transfer_queue_execute_transfer_locked(queue, &transfer);
+    pthread_mutex_unlock(&queue->mutex);
+    return S_OK;
+}
+
+HRESULT vkd3d_memory_transfer_queue_build_empty_rtas(struct vkd3d_memory_transfer_queue *queue)
+{
+    struct vkd3d_memory_transfer_info transfer;
+
+    memset(&transfer, 0, sizeof(transfer));
+    transfer.op = VKD3D_MEMORY_TRANSFER_OP_BUILD_NULL_RTAS;
 
     pthread_mutex_lock(&queue->mutex);
     vkd3d_memory_transfer_queue_execute_transfer_locked(queue, &transfer);
