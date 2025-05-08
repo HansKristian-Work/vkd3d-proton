@@ -3885,6 +3885,18 @@ static void d3d12_device_free_pipeline_libraries(struct d3d12_device *device)
     hash_map_free(&device->fragment_output_pipelines);
 }
 
+static void vkd3d_null_rtas_allocation_cleanup(
+        struct vkd3d_null_rtas_allocation *rtas, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    if (rtas->va)
+    {
+        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, rtas->rtas, NULL));
+        VK_CALL(vkDestroyBuffer(device->vk_device, rtas->buffer, NULL));
+        vkd3d_free_device_memory(device, &rtas->alloc);
+    }
+}
 
 static void d3d12_device_destroy(struct d3d12_device *device)
 {
@@ -3927,6 +3939,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
     d3d12_device_destroy_vkd3d_queues(device);
     VK_CALL(vkDestroySemaphore(device->vk_device, device->sparse_init_timeline, NULL));
+    vkd3d_null_rtas_allocation_cleanup(&device->null_rtas_allocation, device);
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
     vkd3d_memory_transfer_queue_cleanup(&device->memory_transfers);
     vkd3d_global_descriptor_buffer_cleanup(&device->global_descriptor_buffer, device);

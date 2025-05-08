@@ -5546,17 +5546,14 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
 
     if (desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)
     {
-        if (!desc->RaytracingAccelerationStructure.Location)
-        {
-            /* Clear out the entire thing to be more robust similar to null descriptor templates. */
-            d3d12_descriptor_heap_write_null_descriptor_template_embedded(device, desc_va,
-                    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
-        }
-        else
-        {
-            memcpy(d.payload, &desc->RaytracingAccelerationStructure.Location, sizeof(D3D12_GPU_VIRTUAL_ADDRESS));
-        }
-
+        D3D12_GPU_VIRTUAL_ADDRESS va = desc->RaytracingAccelerationStructure.Location;
+        /* NULL RTAS in D3D12 (and Vulkan for that matter) is supposed to force a trigger on miss shader.
+         * What implementation can do here is to build a dummy empty RTAS instead.
+         * When we move to proper RTAS descriptors, this fallback will go away, but for now we
+         * make this work by swapping out the null descriptor ourselves. */
+        if (!va)
+            va = vkd3d_get_null_rtas_va(device);
+        memcpy(d.payload, &va, sizeof(va));
         return;
     }
 
@@ -5639,14 +5636,14 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
 
     if (desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)
     {
-        if (!desc->RaytracingAccelerationStructure.Location)
-        {
-            /* There is no concrete descriptor to use here,
-             * so just write a SAMPLED_IMAGE to clear out mutable descriptor.
-             * What we really want to clear here is the raw VA. */
-            d3d12_descriptor_heap_write_null_descriptor_template(desc_va, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
-            return;
-        }
+        D3D12_GPU_VIRTUAL_ADDRESS va = desc->RaytracingAccelerationStructure.Location;
+
+        /* NULL RTAS in D3D12 (and Vulkan for that matter) is supposed to force a trigger on miss shader.
+         * What implementation can do here is to build a dummy empty RTAS instead.
+         * When we move to proper RTAS descriptors, this fallback will go away, but for now we
+         * make this work by swapping out the null descriptor ourselves. */
+        if (!va)
+            va = vkd3d_get_null_rtas_va(device);
 
         if (d3d12_device_supports_ray_tracing_tier_1_0(device))
         {
