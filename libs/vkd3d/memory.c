@@ -284,6 +284,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     VkImageSubresource vk_subresource;
     VkBufferImageCopy2 copy_region;
     VkCommandBuffer vk_cmd_buffer;
+    VkMemoryBarrier2 vk_barrier;
     VkDeviceSize buffer_offset;
     VkDependencyInfo dep_info;
     VkSubmitInfo2 submit_info;
@@ -333,8 +334,6 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep_info.imageMemoryBarrierCount = 1;
-    dep_info.pImageMemoryBarriers = &image_barrier;
 
     for (i = 0; i < queue->transfer_count; i++)
     {
@@ -342,13 +341,31 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
         switch (transfer->op)
         {
+            case VKD3D_MEMORY_TRANSFER_OP_DEBUG_FILL_ALLOCATION:
             case VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION:
                 for (buffer_offset = 0u; buffer_offset < transfer->vk_buffer_size; buffer_offset += VKD3D_MAX_FILL_BUFFER_SIZE)
                 {
                     VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
                             transfer->vk_buffer,
                             transfer->vk_buffer_offset + buffer_offset,
-                            min(transfer->vk_buffer_size - buffer_offset, VKD3D_MAX_FILL_BUFFER_SIZE), 0));
+                            min(transfer->vk_buffer_size - buffer_offset, VKD3D_MAX_FILL_BUFFER_SIZE),
+                            transfer->op == VKD3D_MEMORY_TRANSFER_OP_DEBUG_FILL_ALLOCATION ? transfer->fill_value : 0));
+                }
+
+                if (transfer->op == VKD3D_MEMORY_TRANSFER_OP_DEBUG_FILL_ALLOCATION)
+                {
+                    /* If a full allocation is debug-cleared followed by a normal zero-vram clear we need barrier. */
+                    dep_info.imageMemoryBarrierCount = 0;
+                    dep_info.memoryBarrierCount = 1;
+                    dep_info.pMemoryBarriers = &vk_barrier;
+
+                    memset(&vk_barrier, 0, sizeof(vk_barrier));
+                    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+                    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+                    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                    vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                    vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+                    VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_info));
                 }
                 break;
 
@@ -360,6 +377,9 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
                 if (need_transition && vk_image_memory_barrier_for_initial_transition(transfer->resource, &image_barrier))
                 {
+                    dep_info.memoryBarrierCount = 0;
+                    dep_info.imageMemoryBarrierCount = 1;
+                    dep_info.pImageMemoryBarriers = &image_barrier;
                     image_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
                     image_barrier.dstAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
@@ -489,8 +509,8 @@ static void vkd3d_memory_transfer_queue_execute_transfer_locked(struct vkd3d_mem
         vkd3d_memory_transfer_queue_flush_locked(queue);
 }
 
-static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_transfer_queue *queue,
-        struct vkd3d_memory_allocation *allocation)
+static void vkd3d_memory_transfer_queue_fill_allocation(struct vkd3d_memory_transfer_queue *queue,
+        struct vkd3d_memory_allocation *allocation, uint8_t value)
 {
     struct vkd3d_memory_transfer_info transfer;
 
@@ -510,7 +530,7 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
 
         /* Probably faster than doing this on the GPU
          * and having to worry about synchronization */
-        memset(allocation->cpu_address, 0, allocation->resource.size);
+        memset(allocation->cpu_address, value, allocation->resource.size);
 
         VK_CALL(vkFlushMappedMemoryRanges(device->vk_device, 1, &mapped_range));
     }
@@ -523,10 +543,13 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
             allocation->chunk->allocation.clear_semaphore_value = queue->next_signal_value;
 
         memset(&transfer, 0, sizeof(transfer));
-        transfer.op = VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION;
+        transfer.op = value != 0 ?
+                VKD3D_MEMORY_TRANSFER_OP_DEBUG_FILL_ALLOCATION :
+                VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION;
         transfer.vk_buffer = allocation->resource.vk_buffer;
         transfer.vk_buffer_offset = allocation->offset;
         transfer.vk_buffer_size = allocation->resource.size;
+        transfer.fill_value = value * 0x01010101u;
 
         vkd3d_memory_transfer_queue_execute_transfer_locked(queue, &transfer);
         pthread_mutex_unlock(&queue->mutex);
@@ -582,7 +605,8 @@ static void vkd3d_memory_transfer_queue_wait_allocation(struct vkd3d_memory_tran
 
     for (i = 0; i < queue->transfer_count; i++)
     {
-        if (queue->transfers[i].op == VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION &&
+        if ((queue->transfers[i].op == VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION ||
+                queue->transfers[i].op == VKD3D_MEMORY_TRANSFER_OP_DEBUG_FILL_ALLOCATION) &&
                 queue->transfers[i].vk_buffer == allocation->resource.vk_buffer &&
                 queue->transfers[i].vk_buffer_offset == allocation->offset &&
                 queue->transfers[i].vk_buffer_size == allocation->resource.size)
@@ -1467,6 +1491,13 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     vkd3d_descriptor_debug_register_allocation_cookie(device->descriptor_qa_global_info,
             allocation->resource.cookie, info);
 
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS) &&
+            (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER) &&
+            (info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
+    {
+        vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0xae);
+    }
+
     TRACE("Created allocation %p on memory type %u (%"PRIu64" bytes).\n",
             allocation, allocation->device_allocation.vk_memory_type, allocation->resource.size);
     return S_OK;
@@ -1939,7 +1970,9 @@ bool vkd3d_allocate_image_memory_prefers_dedicated(struct d3d12_device *device,
      * there is no need to allocate a GLOBAL_BUFFER.
      * However, since we have TIER_2 we always have a global buffer available if need be. */
     return requirements->size >= VKD3D_VA_BLOCK_SIZE &&
-            (vkd3d_driver_can_zero_clear_alloc(device, true) || (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED));
+            (vkd3d_driver_can_zero_clear_alloc(device, true) ||
+                    ((heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) &&
+                    !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS)));
 }
 
 static bool vkd3d_memory_info_allow_suballocate(struct d3d12_device *device,
@@ -2028,7 +2061,13 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     {
         vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
                 VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CLEAR_ALLOCATION, info->memory_requirements.size);
-        vkd3d_memory_transfer_queue_clear_allocation(&device->memory_transfers, allocation);
+        vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0);
+    }
+    else if (suballocate && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS) &&
+            (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER) &&
+            (info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
+    {
+        vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0xae);
     }
 
     return hr;
