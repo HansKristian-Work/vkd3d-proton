@@ -2903,6 +2903,15 @@ struct d3d12_command_list_sequence
     VkCommandBuffer vk_init_commands_post_indirect_barrier;
 
     struct d3d12_command_list_iteration_indirect_meta *indirect_meta;
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    /* Very simplified tracking for simple debug. We only care about execution barriers here,
+     * and we don't care about transitive barrier properties all that much.
+     * This is mostly here to detect if the game did anything meaningful with barriers at all. */
+    VkPipelineStageFlagBits2 stages_pending_execution;
+    VkPipelineStageFlagBits2 stages_synced;
+    VkPipeline last_active_pipeline;
+#endif
 };
 
 struct d3d12_command_list
@@ -3889,6 +3898,8 @@ static inline void vkd3d_breadcrumb_buffer_copy(
 #define VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(buffer_image) vkd3d_breadcrumb_buffer_image_copy(list, buffer_image)
 #define VKD3D_BREADCRUMB_IMAGE_COPY(image) vkd3d_breadcrumb_image_copy(list, image)
 #define VKD3D_BREADCRUMB_BUFFER_COPY(buffer) vkd3d_breadcrumb_buffer_copy(list, buffer)
+void d3d12_command_list_debug_mark_execution(struct d3d12_command_list *list, VkPipelineStageFlags2 stages);
+void d3d12_command_list_debug_mark_barrier(struct d3d12_command_list *list, const VkDependencyInfo *deps);
 #else
 #define VKD3D_BREADCRUMB_COMMAND(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
 #define VKD3D_BREADCRUMB_COMMAND_STATE(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
@@ -3905,6 +3916,8 @@ static inline void vkd3d_breadcrumb_buffer_copy(
 #define VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(buffer_image) ((void)(buffer_image))
 #define VKD3D_BREADCRUMB_IMAGE_COPY(image) ((void)(image))
 #define VKD3D_BREADCRUMB_BUFFER_COPY(buffer) ((void)(buffer))
+#define d3d12_command_list_debug_mark_execution(list, stages) ((void)(list)), ((void)(stages))
+#define d3d12_command_list_debug_mark_barrier(list, deps) ((void)(list)), ((void)(deps))
 #endif /* VKD3D_ENABLE_BREADCRUMBS */
 
 /* Bindless */
