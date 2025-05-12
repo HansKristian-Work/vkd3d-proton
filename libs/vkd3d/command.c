@@ -13634,7 +13634,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     VkPipeline current_pipeline;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
-    bool suspend_predication;
+    bool restart_predication;
     bool explicit_preprocess;
     bool require_ibo_update;
     bool require_patch;
@@ -13645,7 +13645,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     use_ext_dgc = list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands;
     require_custom_predication = false;
-    suspend_predication = false;
+    restart_predication = false;
     explicit_preprocess = false;
 
     if (list->predication.va)
@@ -13659,7 +13659,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             union vkd3d_predicate_command_direct_args args;
             enum vkd3d_predicate_command_type type;
             VkDeviceAddress count_va;
-            suspend_predication = list->predication.enabled_on_command_buffer;
+            restart_predication = list->predication.enabled_on_command_buffer;
 
             if (count_buffer)
             {
@@ -13671,6 +13671,13 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
                 count_va = 0;
                 type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT;
                 args.draw_count = max_command_count;
+            }
+
+            if (restart_predication)
+            {
+                /* Have to begin/end predication outside a render pass. */
+                d3d12_command_list_end_current_render_pass(list, true);
+                VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
             }
 
             d3d12_command_list_emit_predicated_command(list, type, count_va, &args, &predication_allocation);
@@ -13730,13 +13737,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         d3d12_command_list_consider_new_sequence(list);
         if (list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
             explicit_preprocess = true;
-    }
-
-    if (suspend_predication)
-    {
-        /* Have to begin/end predication outside a render pass. */
-        d3d12_command_list_end_current_render_pass(list, true);
-        VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
     }
 
     /* To build device generated commands, we need to know the pipeline we're going to render with. */
@@ -14165,7 +14165,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
      * Treat it as a meta shader. We need to nuke all state after running execute generated commands. */
     d3d12_command_list_invalidate_all_state(list);
 
-    if (suspend_predication)
+    if (restart_predication)
     {
         /* Have to begin/end predication outside a render pass. */
         d3d12_command_list_end_current_render_pass(list, true);
