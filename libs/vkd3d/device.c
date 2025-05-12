@@ -3554,7 +3554,8 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, e
             /* this flag cannot be used with the existing buffer heaps */
             alloc_info.explicit_global_buffer_usage =
                     VK_BUFFER_USAGE_2_PREPROCESS_BUFFER_BIT_EXT |
-                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                    VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
             /* Need this to override any type flags provided by heap properties.
              * BUFFER_USAGE_2_PREPROCESS_BUFFER implies 32-bit only types. */
