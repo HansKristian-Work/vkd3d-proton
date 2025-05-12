@@ -307,7 +307,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         for (i = 0; i < queue->transfer_count; i++)
         {
             if (queue->transfers[i].op == VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION)
-                INFO("Clearing allocation %zu: %"PRIu64".\n", i, queue->transfers[i].allocation->resource.size);
+                INFO("Clearing allocation %zu: %"PRIu64".\n", i, queue->transfers[i].vk_buffer_size);
         }
     }
 
@@ -343,12 +343,12 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         switch (transfer->op)
         {
             case VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION:
-                for (buffer_offset = 0u; buffer_offset < transfer->allocation->resource.size; buffer_offset += VKD3D_MAX_FILL_BUFFER_SIZE)
+                for (buffer_offset = 0u; buffer_offset < transfer->vk_buffer_size; buffer_offset += VKD3D_MAX_FILL_BUFFER_SIZE)
                 {
                     VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
-                            transfer->allocation->resource.vk_buffer,
-                            transfer->allocation->offset + buffer_offset,
-                            min(transfer->allocation->resource.size - buffer_offset, VKD3D_MAX_FILL_BUFFER_SIZE), 0));
+                            transfer->vk_buffer,
+                            transfer->vk_buffer_offset + buffer_offset,
+                            min(transfer->vk_buffer_size - buffer_offset, VKD3D_MAX_FILL_BUFFER_SIZE), 0));
                 }
                 break;
 
@@ -482,8 +482,8 @@ static void vkd3d_memory_transfer_queue_execute_transfer_locked(struct vkd3d_mem
 
     memcpy(&queue->transfers[queue->transfer_count++], transfer, sizeof(*transfer));
 
-    if (transfer->allocation)
-        queue->num_bytes_pending += transfer->allocation->resource.size;
+    if (transfer->vk_buffer)
+        queue->num_bytes_pending += transfer->vk_buffer_size;
 
     if (queue->num_bytes_pending >= VKD3D_MEMORY_TRANSFER_QUEUE_MAX_PENDING_BYTES)
         vkd3d_memory_transfer_queue_flush_locked(queue);
@@ -524,7 +524,9 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
 
         memset(&transfer, 0, sizeof(transfer));
         transfer.op = VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION;
-        transfer.allocation = allocation;
+        transfer.vk_buffer = allocation->resource.vk_buffer;
+        transfer.vk_buffer_offset = allocation->offset;
+        transfer.vk_buffer_size = allocation->resource.size;
 
         vkd3d_memory_transfer_queue_execute_transfer_locked(queue, &transfer);
         pthread_mutex_unlock(&queue->mutex);
@@ -581,7 +583,9 @@ static void vkd3d_memory_transfer_queue_wait_allocation(struct vkd3d_memory_tran
     for (i = 0; i < queue->transfer_count; i++)
     {
         if (queue->transfers[i].op == VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION &&
-                queue->transfers[i].allocation == allocation)
+                queue->transfers[i].vk_buffer == allocation->resource.vk_buffer &&
+                queue->transfers[i].vk_buffer_offset == allocation->offset &&
+                queue->transfers[i].vk_buffer_size == allocation->resource.size)
         {
             queue->transfers[i] = queue->transfers[--queue->transfer_count];
             queue->num_bytes_pending -= allocation->resource.size;
