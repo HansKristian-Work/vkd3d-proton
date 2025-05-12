@@ -834,7 +834,10 @@ enum vkd3d_memory_transfer_op
 struct vkd3d_memory_transfer_info
 {
     enum vkd3d_memory_transfer_op op;
-    struct vkd3d_memory_allocation *allocation;
+
+    VkBuffer vk_buffer;
+    VkDeviceSize vk_buffer_offset;
+    VkDeviceSize vk_buffer_size;
 
     struct d3d12_resource *resource;
     uint32_t subresource_idx;
