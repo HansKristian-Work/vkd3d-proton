@@ -829,7 +829,8 @@ enum vkd3d_memory_transfer_op
 {
     VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION,
     VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE,
-    VKD3D_MEMORY_TRANSFER_OP_BUILD_NULL_RTAS
+    VKD3D_MEMORY_TRANSFER_OP_BUILD_NULL_RTAS,
+    VKD3D_MEMORY_TRANSFER_OP_DEBUG_FILL_ALLOCATION
 };
 
 struct vkd3d_memory_transfer_info
@@ -844,6 +845,7 @@ struct vkd3d_memory_transfer_info
     uint32_t subresource_idx;
     VkOffset3D offset;
     VkExtent3D extent;
+    uint32_t fill_value;
 };
 
 struct vkd3d_memory_transfer_tracked_resource
