@@ -824,6 +824,14 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     image_info->tiling = format->vk_image_tiling;
     image_info->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
+    if (resource && (resource->flags & VKD3D_RESOURCE_COMMITTED) &&
+            device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory &&
+            !(heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
+    {
+        image_info->initialLayout = VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT;
+        resource->flags |= VKD3D_RESOURCE_ZERO_INITIALIZED;
+    }
+
     if (sparse_resource)
     {
         if (desc->Layout != D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE)

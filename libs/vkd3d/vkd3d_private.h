@@ -173,6 +173,7 @@ struct vkd3d_vulkan_info
     bool EXT_memory_budget;
     bool EXT_device_address_binding_report;
     bool EXT_depth_bias_control;
+    bool EXT_zero_initialize_device_memory;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -970,6 +971,7 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
     VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
     VKD3D_RESOURCE_GENERAL_LAYOUT         = (1u << 7),
+    VKD3D_RESOURCE_ZERO_INITIALIZED       = (1u << 8)
 };
 
 #define VKD3D_INVALID_TILE_INDEX (~0u)
@@ -4771,6 +4773,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDepthBiasControlFeaturesEXT depth_bias_control_features;
     VkPhysicalDeviceOpticalFlowFeaturesNV optical_flow_nv_features;
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features;
+    VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT zero_initialize_device_memory_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
