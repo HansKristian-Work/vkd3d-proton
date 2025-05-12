@@ -1318,6 +1318,19 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     flags_info.pNext = info->pNext;
     flags_info.flags = 0;
 
+    if (device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory &&
+            !(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
+    {
+        /* If kernel is broken, we'll take control and zerovram ourselves.
+         * We can only do this if there is a global buffer.
+         * The EXT remains enabled to give hint to driver we want to take control. */
+        bool should_fallback_clear = device->workarounds.amdgpu_broken_clearvram &&
+                (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER);
+
+        if (!should_fallback_clear)
+            flags_info.flags |= VK_MEMORY_ALLOCATE_ZERO_INITIALIZE_BIT_EXT;
+    }
+
     if (allocation->resource.vk_buffer && request_bda)
     {
         allocation->flags |= VKD3D_ALLOCATION_FLAG_GPU_ADDRESS;
@@ -1736,7 +1749,8 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
     alloc_info.memory_requirements.alignment = 0;
     alloc_info.memory_requirements.memoryTypeBits = type_mask;
     alloc_info.heap_properties = *heap_properties;
-    alloc_info.heap_flags = heap_flags;
+    /* sub-allocations are always explicitly cleared if needed on the outside. */
+    alloc_info.heap_flags = heap_flags | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
     alloc_info.flags = VKD3D_ALLOCATION_FLAG_NO_FALLBACK;
     alloc_info.optional_memory_properties = optional_properties;
     alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
@@ -1878,10 +1892,19 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
     return hr;
 }
 
-static inline bool vkd3d_driver_implicitly_clears(struct d3d12_device *device)
+static inline bool vkd3d_driver_can_zero_clear_alloc(struct d3d12_device *device, bool has_global_buffer)
 {
-    if (device->workarounds.amdgpu_broken_clearvram)
+    /* If the kernel is bugged, we need to clear ourselves anyway,
+     * however, when we enable the EXT it's a signal to RADV that it shouldn't add ZERO_VRAM on its own,
+     * so at least we can avoid double clears.
+     * We can only apply manual clears if we have a global buffer.
+     * Sometimes this is not possible, e.g. for images with dedicated allocation. */
+    if (has_global_buffer && device->workarounds.amdgpu_broken_clearvram)
         return false;
+
+    /* If this extension is turned on, assume we're in full control mode. */
+    if (device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory)
+        return true;
 
     switch (device->device_info.vulkan_1_2_properties.driverID)
     {
@@ -1913,9 +1936,10 @@ bool vkd3d_allocate_image_memory_prefers_dedicated(struct d3d12_device *device,
         return true;
 
     /* If we don't need to sub-allocate, and we don't need to clear any buffers
-     * there is no need to allocate a GLOBAL_BUFFER. */
+     * there is no need to allocate a GLOBAL_BUFFER.
+     * However, since we have TIER_2 we always have a global buffer available if need be. */
     return requirements->size >= VKD3D_VA_BLOCK_SIZE &&
-            (vkd3d_driver_implicitly_clears(device) || (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED));
+            (vkd3d_driver_can_zero_clear_alloc(device, true) || (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED));
 }
 
 static bool vkd3d_memory_info_allow_suballocate(struct d3d12_device *device,
@@ -1961,26 +1985,26 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
     struct vkd3d_allocate_memory_info tmp_info;
-    bool implementation_implicitly_clears;
-    bool needs_clear;
+    bool implementation_can_zero_clear_alloc;
+    bool needs_command_clear;
     bool suballocate;
     HRESULT hr;
 
     suballocate = vkd3d_memory_info_allow_suballocate(device, info);
 
     /* If we're allocating Vulkan memory directly,
-     * we can rely on the driver doing this for us.
-     * This is relying on implementation details.
-     * RADV definitely does this, and it seems like NV also does it.
-     * TODO: an extension for this would be nice. */
-    implementation_implicitly_clears = vkd3d_driver_implicitly_clears(device) && !suballocate;
+     * we can rely on the driver doing this for us, either by knowing implementation details, or using the EXT.
+     * Sub-allocations don't go via the driver, so we have to FillBuffer manually. */
+    implementation_can_zero_clear_alloc =
+            vkd3d_driver_can_zero_clear_alloc(device, !!(info->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)) &&
+                    !suballocate;
 
-    needs_clear = !implementation_implicitly_clears &&
+    needs_command_clear = !implementation_can_zero_clear_alloc &&
             !(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) &&
             !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR);
 
     if (!suballocate &&
-            !needs_clear &&
+            !needs_command_clear &&
             (info->heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
             (info->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER))
     {
@@ -2000,7 +2024,7 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     if (FAILED(hr))
         return hr;
 
-    if (needs_clear)
+    if (needs_command_clear)
     {
         vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
                 VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CLEAR_ALLOCATION, info->memory_requirements.size);
