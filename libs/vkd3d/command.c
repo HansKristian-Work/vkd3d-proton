@@ -14027,9 +14027,15 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     {
         d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
 
-        if (!use_ext_dgc)
+        if (use_ext_dgc)
         {
-            /* NV_dgc requires that state in recording command buffer matches, but EXT_dgc provides a state cmd. */
+            VK_CALL(vkCmdPreprocessGeneratedCommandsEXT(list->cmd.vk_init_commands_post_indirect_barrier,
+                    &generated_ext, list->cmd.vk_command_buffer));
+        }
+        else
+        {
+            /* With graphics NV_dgc, there are no requirements on bound state, except for pipeline. */
+            /* NV_dgcc however requires that state in recording command buffer matches, but EXT_dgc provides a state cmd. */
             VK_CALL(vkCmdBindPipeline(list->cmd.vk_init_commands_post_indirect_barrier,
                     signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
                             VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline));
@@ -14039,33 +14045,28 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
                 /* Compute is a bit more stringent, we have to bind all state. */
                 d3d12_command_list_update_descriptors_post_indirect_buffer(list);
             }
-        }
 
-        /* Predication state also has to match. Also useful to nop out explicit preprocess too. */
-        if (list->predication.enabled_on_command_buffer)
-        {
-            conditional_begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
-            conditional_begin_info.pNext = NULL;
-            conditional_begin_info.buffer = list->predication.vk_buffer;
-            conditional_begin_info.offset = list->predication.vk_buffer_offset;
-            conditional_begin_info.flags = 0;
-            VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_init_commands_post_indirect_barrier,
-                    &conditional_begin_info));
-        }
+            /* Predication state also has to match. Also useful to nop out explicit preprocess too.
+             * Assumption is that drivers will pull predication state from state command buffer on EXT,
+             * since states have to match. */
+            if (list->predication.enabled_on_command_buffer)
+            {
+                conditional_begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
+                conditional_begin_info.pNext = NULL;
+                conditional_begin_info.buffer = list->predication.vk_buffer;
+                conditional_begin_info.offset = list->predication.vk_buffer_offset;
+                conditional_begin_info.flags = 0;
+                VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_init_commands_post_indirect_barrier,
+                        &conditional_begin_info));
+            }
 
-        /* There are no requirements on bound state, except for pipeline. */
-        if (use_ext_dgc)
-        {
-            VK_CALL(vkCmdPreprocessGeneratedCommandsEXT(list->cmd.vk_init_commands_post_indirect_barrier,
-                    &generated_ext, list->cmd.vk_command_buffer));
-        }
-        else
             VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_init_commands_post_indirect_barrier, &generated_nv));
 
-        list->cmd.indirect_meta->need_preprocess_barrier = true;
+            if (list->predication.enabled_on_command_buffer)
+                VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_init_commands_post_indirect_barrier));
+        }
 
-        if (list->predication.enabled_on_command_buffer)
-            VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_init_commands_post_indirect_barrier));
+        list->cmd.indirect_meta->need_preprocess_barrier = true;
     }
 
     if (require_patch)
