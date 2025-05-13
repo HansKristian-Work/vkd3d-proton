@@ -13288,6 +13288,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
              * so we will need a fallback there where we read from the
              * predicate VA. INDIRECT_ACCESS barriers on Mesa imply SCACHE/VCACHE anyway, so this does not really hurt us. */
             if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                    !list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands &&
                     list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
             {
                 vk_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -13654,6 +13655,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
          * It does not work on RADV yet, so we'll fold predication in with our optimization work which
          * generates a predicate anyway. */
         if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                !list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands &&
                 list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
         {
             union vkd3d_predicate_command_direct_args args;
