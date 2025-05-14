@@ -534,7 +534,8 @@
                 "VK_KHR_maintenance5": 1,
                 "VK_KHR_maintenance6": 1,
                 "VK_KHR_maintenance7": 1,
-                "VK_EXT_depth_bias_control": 1
+                "VK_EXT_depth_bias_control": 1,
+                "VK_EXT_zero_initialize_device_memory" : 1
             },
             "features": {
                 "VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR": {
@@ -574,6 +575,9 @@
                 "VkPhysicalDeviceDepthBiasControlFeaturesEXT": {
                     "depthBiasControl": true,
                     "leastRepresentableValueForceUnormRepresentation": true
+                },
+                "VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT": {
+                    "zeroInitializeDeviceMemory": true
                 }
           }
         },
