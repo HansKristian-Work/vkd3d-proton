@@ -820,6 +820,9 @@ static inline ID3D12Resource *create_default_texture_(unsigned int line, ID3D12D
     return texture;
 }
 
+#define create_default_texture_dimension(device, dimension, width, height, depth_or_array_size, miplevel_count, format, flags, initial_state) \
+create_default_texture_(__LINE__, device, dimension, width, height, depth_or_array_size, miplevel_count, format, flags, initial_state)
+
 static inline ID3D12Resource *create_default_texture_enhanced_(unsigned int line, ID3D12Device *device,
         D3D12_RESOURCE_DIMENSION dimension, unsigned int width, unsigned int height,
         unsigned int depth_or_array_size, unsigned int miplevel_count, DXGI_FORMAT format,

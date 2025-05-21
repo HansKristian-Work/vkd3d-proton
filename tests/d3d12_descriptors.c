@@ -5470,3 +5470,405 @@ void test_sampler_rounding(void)
     ID3D12PipelineState_Release(pso_gather);
     destroy_test_context(&context);
 }
+
+void test_tex_array_reinterpretation(bool use_dxil, D3D12_RESOURCE_DIMENSION dim, bool uav)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_SUBRESOURCE_DATA subresource_data;
+    D3D12_DESCRIPTOR_RANGE rs_range[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    uint8_t image_data[256 * 128];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *resource;
+    ID3D12Resource *output;
+    unsigned int i, j;
+
+#include "shaders/descriptors/headers/tex2d_array_reinterpretation.h"
+#include "shaders/descriptors/headers/tex1d_array_reinterpretation.h"
+#include "shaders/descriptors/headers/rwtex2d_array_reinterpretation.h"
+#include "shaders/descriptors/headers/rwtex1d_array_reinterpretation.h"
+
+    struct output_info
+    {
+        uint32_t dimensions[2];
+        uint32_t array_dimensions[2];
+        uint32_t array_layers;
+        uint32_t levels;
+        uint32_t array_levels;
+        float sampled;
+        float array_sampled;
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 256);
+    resource = create_default_texture_dimension(context.device, dim,
+        256, dim == D3D12_RESOURCE_DIMENSION_TEXTURE2D ? 128 : 1,
+        16, 8, DXGI_FORMAT_R8_UNORM, uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE,
+        D3D12_RESOURCE_STATE_COMMON);
+    output = create_default_buffer(context.device, sizeof(struct output_info) * 256 * 16, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(rs_range, 0, sizeof(rs_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[0].DescriptorTable.pDescriptorRanges = &rs_range[0];
+
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[1].DescriptorTable.pDescriptorRanges = &rs_range[1];
+
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    rs_range[0].NumDescriptors = 64;
+    rs_range[0].BaseShaderRegister = 0;
+
+    if (uav)
+    {
+        rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        rs_range[0].RegisterSpace = 1;
+    }
+    else
+    {
+        rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        rs_range[0].RegisterSpace = 0;
+    }
+
+    rs_range[1].NumDescriptors = 64;
+    rs_range[1].BaseShaderRegister = 0;
+
+    if (uav)
+    {
+        rs_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        rs_range[1].RegisterSpace = 2;
+    }
+    else
+    {
+        rs_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        rs_range[1].RegisterSpace = 1;
+    }
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    if (uav)
+    {
+        if (dim == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        {
+            context.pipeline_state = create_compute_pipeline_state(
+                context.device, context.root_signature,
+                use_dxil ? rwtex2d_array_reinterpretation_dxil : rwtex2d_array_reinterpretation_dxbc);
+        }
+        else
+        {
+            context.pipeline_state = create_compute_pipeline_state(
+                context.device, context.root_signature,
+                use_dxil ? rwtex1d_array_reinterpretation_dxil : rwtex1d_array_reinterpretation_dxbc);
+        }
+    }
+    else
+    {
+        if (dim == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        {
+            context.pipeline_state = create_compute_pipeline_state(
+                context.device, context.root_signature,
+                use_dxil ? tex2d_array_reinterpretation_dxil : tex2d_array_reinterpretation_dxbc);
+        }
+        else
+        {
+            context.pipeline_state = create_compute_pipeline_state(
+                context.device, context.root_signature,
+                use_dxil ? tex1d_array_reinterpretation_dxil : tex1d_array_reinterpretation_dxbc);
+        }
+    }
+
+    subresource_data.pData = image_data;
+    subresource_data.RowPitch = 256;
+    subresource_data.SlicePitch = 256 * 128;
+
+    for (i = 0; i < 128; i++)
+    {
+        memset(image_data, i + 1, sizeof(image_data));
+        upload_texture_data_base(resource, &subresource_data, i, 1, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        memset(&uav_desc, 0, sizeof(uav_desc));
+
+        /* 22.3.12 Input Resource Declaration Statement in D3D11.3 functional spec states that:
+         *  The following describes which (created) resources are permitted to be
+            bound to the t# for each declaration resourceType:
+            declaration 'Buffer':              resource 'Buffer'
+            declaration 'Texture1D':           resource 'Texture1D' with array length == 1
+            declaration 'Texture1DArray':      resource 'Texture1D' with array length >= 1
+            declaration 'Texture2D[MS#]':      resource 'Texture2D' with array length == 1
+            declaration 'Texture2DArray[MS#]': resource 'Texture2D' with array length >= 1
+            declaration 'Texture3D':           resource 'Texture3D'
+            declartionn 'TextureCube':         resource 'TextureCube */
+
+        if (uav)
+        {
+            uav_desc.Format = DXGI_FORMAT_R8_UNORM;
+
+            if (dim == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+            {
+                if (i >= 8)
+                {
+                    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+                    uav_desc.Texture2DArray.MipSlice = i % 8;
+                    uav_desc.Texture2DArray.FirstArraySlice = i / 8;
+                    if (i >= 64)
+                    {
+                        /* This is not in spec, but will probably just work? */
+                        uav_desc.Texture2DArray.ArraySize = 16 - uav_desc.Texture2DArray.FirstArraySlice;
+                    }
+                    else
+                    {
+                        /* Accessing this as Texture2D should be in-spec on D3D. */
+                        uav_desc.Texture2DArray.ArraySize = 1;
+                    }
+                }
+                else
+                {
+                    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+                    uav_desc.Texture2D.MipSlice = i % 8;
+                }
+            }
+            else
+            {
+                if (i >= 8)
+                {
+                    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1DARRAY;
+                    uav_desc.Texture1DArray.MipSlice = i % 8;
+                    uav_desc.Texture1DArray.FirstArraySlice = i / 8;
+                    if (i >= 64)
+                    {
+                        /* This is not in spec, but will probably just work? */
+                        uav_desc.Texture1DArray.ArraySize = 16 - uav_desc.Texture1DArray.FirstArraySlice;
+                    }
+                    else
+                    {
+                        /* Accessing this as Texture2D should be in-spec on D3D. */
+                        uav_desc.Texture1DArray.ArraySize = 1;
+                    }
+                }
+                else
+                {
+                    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1D;
+                    uav_desc.Texture1D.MipSlice = i % 8;
+                }
+            }
+
+            /* Also test the null descriptor variant of that. */
+            ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, i));
+            ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, i + 128));
+        }
+        else
+        {
+            srv_desc.Format = DXGI_FORMAT_R8_UNORM;
+            srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+            if (dim == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+            {
+                if (i >= 8)
+                {
+                    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+                    srv_desc.Texture2DArray.MostDetailedMip = i % 8;
+                    srv_desc.Texture2DArray.MipLevels = 8 - srv_desc.Texture2D.MostDetailedMip;
+                    srv_desc.Texture2DArray.FirstArraySlice = i / 8;
+                    if (i >= 64)
+                    {
+                        /* This is not in spec, but will probably just work? */
+                        srv_desc.Texture2DArray.ArraySize = 16 - srv_desc.Texture2DArray.FirstArraySlice;
+                    }
+                    else
+                    {
+                        /* Accessing this as Texture2D should be in-spec on D3D. */
+                        srv_desc.Texture2DArray.ArraySize = 1;
+                    }
+                }
+                else
+                {
+                    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                    srv_desc.Texture2D.MostDetailedMip = i % 8;
+                    srv_desc.Texture2D.MipLevels = 8 - srv_desc.Texture2D.MostDetailedMip;
+                }
+            }
+            else
+            {
+                if (i >= 8)
+                {
+                    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1DARRAY;
+                    srv_desc.Texture1DArray.MostDetailedMip = i % 8;
+                    srv_desc.Texture1DArray.MipLevels = 8 - srv_desc.Texture1D.MostDetailedMip;
+                    srv_desc.Texture1DArray.FirstArraySlice = i / 8;
+                    if (i >= 64)
+                    {
+                        /* This is not in spec, but will probably just work? */
+                        srv_desc.Texture1DArray.ArraySize = 16 - srv_desc.Texture1DArray.FirstArraySlice;
+                    }
+                    else
+                    {
+                        /* Accessing this as Texture2D should be in-spec on D3D. */
+                        srv_desc.Texture1DArray.ArraySize = 1;
+                    }
+                }
+                else
+                {
+                    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D;
+                    srv_desc.Texture1D.MostDetailedMip = i % 8;
+                    srv_desc.Texture1D.MipLevels = 8 - srv_desc.Texture1D.MostDetailedMip;
+                }
+            }
+
+            /* Also test the null descriptor variant of that. */
+            ID3D12Device_CreateShaderResourceView(context.device, resource, &srv_desc, get_cpu_descriptor_handle(&context, heap, i));
+            ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_desc, get_cpu_descriptor_handle(&context, heap, i + 128));
+        }
+    }
+
+    if (uav)
+        transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    for (i = 0; i < 2; i++)
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, i, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 256, 1, 1);
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 256; i++)
+    {
+        for (j = 0; j < 16; j++)
+        {
+            struct output_info expected_info;
+            struct output_info actual_info;
+            uint32_t query_level = 0;
+
+            memset(&expected_info, 0, sizeof(expected_info));
+            memcpy(&actual_info, get_readback_data(&rb, i * 16 + j, 0, 0, sizeof(actual_info)), sizeof(actual_info));
+
+            if (i < 128)
+            {
+                uint32_t level, layer, view_layers, view_levels;
+                uint32_t sample_subresource;
+                uint32_t sample_layer;
+                uint32_t sample_level;
+
+                level = i % 8;
+                layer = i / 8;
+                view_layers = i >= 64 ? 16 - layer : 1;
+                view_levels = uav ? 1 : 8 - level;
+                query_level = level + (uav ? 0 : j);
+
+                /* Querying dimensions out of range returns 0 */
+                expected_info.dimensions[0] = query_level < 8 ? max(256 >> query_level, 1) : 0;
+                expected_info.dimensions[1] = query_level < 8 ? max(128 >> query_level, 1) : 0;
+
+                if (dim == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+                    expected_info.dimensions[1] = 0; /* Dummy value filled by shader. */
+
+                expected_info.array_dimensions[0] = expected_info.dimensions[0];
+                expected_info.array_dimensions[1] = expected_info.dimensions[1];
+                expected_info.array_layers = query_level < 8 ? view_layers : 0;
+                expected_info.levels = uav ? 0 : view_levels;
+                expected_info.array_levels = uav ? 0 : view_levels;
+
+                sample_layer = 0;
+                sample_level = uav ? 0 : j;
+                sample_subresource = (sample_layer + layer) * 8 + (sample_level + level);
+                expected_info.sampled = sample_layer < view_layers && sample_level < view_levels ? sample_subresource + 1 : 0;
+
+                if (uav)
+                {
+                    sample_layer = j;
+                    sample_level = 0;
+                }
+                else
+                {
+                    sample_layer = j % 4;
+                    sample_level = j / 4;
+                }
+                sample_subresource = (sample_layer + layer) * 8 + (sample_level + level);
+                expected_info.array_sampled = sample_layer < view_layers && sample_level < view_levels ? sample_subresource + 1 : 0;
+            }
+
+            bug_if(query_level >= 8 && is_amd_windows_device(context.device))
+            ok(memcmp(&actual_info, &expected_info, sizeof(expected_info)) == 0,
+                "Group %u, Thread %u:\n "
+                "expected\n\t(%u, %u) (%u, %u)\n\tlevels (%u, %u)\n\tsampled (%f, %f)\n\tlayers %u\n "
+                "got\n\t(%u, %u) (%u, %u)\n\tlevels (%u, %u)\n\tsampled (%f, %f)\n\tlayers %u\n\n", i, j,
+                expected_info.dimensions[0], expected_info.dimensions[1],
+                expected_info.array_dimensions[0], expected_info.array_dimensions[1],
+                expected_info.levels, expected_info.array_levels,
+                expected_info.sampled, expected_info.array_sampled,
+                expected_info.array_layers,
+                actual_info.dimensions[0], actual_info.dimensions[1],
+                actual_info.array_dimensions[0], actual_info.array_dimensions[1],
+                actual_info.levels, actual_info.array_levels,
+                actual_info.sampled, actual_info.array_sampled,
+                actual_info.array_layers);
+        }
+    }
+
+    ID3D12Resource_Release(resource);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+void test_tex2d_array_reinterpretation_sm51(void)
+{
+    test_tex_array_reinterpretation(false, D3D12_RESOURCE_DIMENSION_TEXTURE2D, false);
+}
+
+void test_tex2d_array_reinterpretation_dxil(void)
+{
+    test_tex_array_reinterpretation(true, D3D12_RESOURCE_DIMENSION_TEXTURE2D, false);
+}
+
+void test_tex1d_array_reinterpretation_sm51(void)
+{
+    test_tex_array_reinterpretation(false, D3D12_RESOURCE_DIMENSION_TEXTURE1D, false);
+}
+
+void test_tex1d_array_reinterpretation_dxil(void)
+{
+    test_tex_array_reinterpretation(true, D3D12_RESOURCE_DIMENSION_TEXTURE1D, false);
+}
+
+void test_rwtex2d_array_reinterpretation_sm51(void)
+{
+    test_tex_array_reinterpretation(false, D3D12_RESOURCE_DIMENSION_TEXTURE2D, true);
+}
+
+void test_rwtex2d_array_reinterpretation_dxil(void)
+{
+    test_tex_array_reinterpretation(true, D3D12_RESOURCE_DIMENSION_TEXTURE2D, true);
+}
+
+void test_rwtex1d_array_reinterpretation_sm51(void)
+{
+    test_tex_array_reinterpretation(false, D3D12_RESOURCE_DIMENSION_TEXTURE1D, true);
+}
+
+void test_rwtex1d_array_reinterpretation_dxil(void)
+{
+    test_tex_array_reinterpretation(true, D3D12_RESOURCE_DIMENSION_TEXTURE1D, true);
+}
