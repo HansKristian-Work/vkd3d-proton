@@ -5838,6 +5838,22 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         VK_CALL(vkUpdateDescriptorSets(device->vk_device, vk_write_count, vk_write, 0, NULL));
 }
 
+static void vkd3d_texture_view_desc_fixup(struct d3d12_device *device, struct vkd3d_texture_view_desc *desc)
+{
+    if (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
+    {
+        /* D3D allows some reinterpretation between Texture2D and Texture2DArray.
+         * Texture2D in shader can read a resource with 1 array layer,
+         * and Texture2DArray can read a Texture2D descriptor.
+         * NVIDIA does not correctly deal with Texture2DArray unless we always emit 2D_ARRAY views.
+         * Other implementations don't seem to care, so just emit the natural 2D view. */
+        if (desc->view_type == VK_IMAGE_VIEW_TYPE_1D)
+            desc->view_type = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+        if (desc->view_type == VK_IMAGE_VIEW_TYPE_2D)
+            desc->view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    }
+}
+
 static struct vkd3d_view *vkd3d_create_texture_uav_view(struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
@@ -5916,6 +5932,8 @@ static struct vkd3d_view *vkd3d_create_texture_uav_view(struct d3d12_device *dev
                 FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
         }
     }
+
+    vkd3d_texture_view_desc_fixup(device, &key.u.texture);
 
     return vkd3d_view_map_create_view(&resource->view_map, device, &key);
 }
@@ -6016,6 +6034,8 @@ static struct vkd3d_view *vkd3d_create_texture_srv_view(struct d3d12_device *dev
 
     if (key.u.texture.miplevel_count == VK_REMAINING_MIP_LEVELS)
         key.u.texture.miplevel_count = resource->desc.MipLevels - key.u.texture.miplevel_idx;
+
+    vkd3d_texture_view_desc_fixup(device, &key.u.texture);
 
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS) &&
             desc->ViewDimension != D3D12_SRV_DIMENSION_TEXTURE2DMS &&
