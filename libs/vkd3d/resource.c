@@ -5842,6 +5842,7 @@ static void vkd3d_texture_view_desc_fixup(struct d3d12_device *device, struct vk
 {
     if (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
     {
+        FIXME_ONCE("Remapping 2D to 2D_ARRAY. Needs Vulkan spec tightening to match D3D12 properly.\n");
         /* D3D allows some reinterpretation between Texture2D and Texture2DArray.
          * Texture2D in shader can read a resource with 1 array layer,
          * and Texture2DArray can read a Texture2D descriptor.
