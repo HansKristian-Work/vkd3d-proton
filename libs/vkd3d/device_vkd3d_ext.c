@@ -436,6 +436,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetAGSUAVSlot(d3d12_devi
     return E_NOTIMPL;
 }
 
+static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupported(d3d12_device_vkd3d_ext_iface *iface,
+        UINT32 op_code)
+{
+    TRACE("iface %p, op_code %"PRIu32".\n", iface, op_code);
+
+    switch (op_code)
+    {
+        default:
+            return FALSE;
+    }
+}
+
 CONST_VTBL struct ID3D12DeviceExt3Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
