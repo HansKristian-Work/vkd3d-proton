@@ -1147,6 +1147,19 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                 return VKD3D_ERROR_NOT_IMPLEMENTED;
             }
         }
+
+        if (compiler_args->nv_shader_extn_uav_slot != UINT32_MAX)
+        {
+            const dxil_spv_option_nvapi helper =
+                    { { DXIL_SPV_OPTION_NVAPI },
+                    DXIL_SPV_TRUE, compiler_args->nv_shader_extn_uav_slot, compiler_args->nv_shader_extn_uav_space };
+            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support NVAPI.\n");
+                return VKD3D_ERROR_NOT_IMPLEMENTED;
+            }
+        }
+
         if (compiler_args->dual_source_blending)
         {
             static const dxil_spv_option_dual_source_blending helper =

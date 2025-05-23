@@ -4722,6 +4722,8 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 
     vkd3d_free((void *)device->vk_info.extension_names);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
+    hash_map_free(&device->nv_shader_extns);
+    rwlock_destroy(&device->nv_shader_lock);
     rwlock_destroy(&device->fragment_output_lock);
     rwlock_destroy(&device->vertex_input_lock);
     pthread_mutex_destroy(&device->mutex);
@@ -10521,6 +10523,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     device->adapter_luid = create_info->adapter_luid;
     device->removed_reason = S_OK;
+    device->has_nv_shader_extns = false;
 
     device->vk_device = VK_NULL_HANDLE;
 
@@ -10551,8 +10554,14 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         goto out_free_vertex_input_lock;
     }
 
-    if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
+    if ((rc = rwlock_init(&device->nv_shader_lock)))
+    {
+        hr = hresult_from_errno(rc);
         goto out_free_fragment_output_lock;
+    }
+
+    if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
+        goto out_free_nv_shader_lock;
 
     if (FAILED(hr = vkd3d_private_store_init(&device->private_store)))
         goto out_free_vk_resources;
@@ -10631,6 +10640,11 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
             vkd3d_fragment_output_pipeline_desc_compare,
             sizeof(struct vkd3d_fragment_output_pipeline));
 
+    hash_map_init(&device->nv_shader_extns,
+            vkd3d_nv_shader_extn_entry_hash,
+            vkd3d_nv_shader_extn_entry_compare,
+            sizeof(struct vkd3d_nv_shader_extn_entry));
+
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
 
@@ -10697,6 +10711,8 @@ out_free_vk_resources:
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
 out_free_instance:
     vkd3d_instance_decref(device->vkd3d_instance);
+out_free_nv_shader_lock:
+    rwlock_destroy(&device->nv_shader_lock);
 out_free_fragment_output_lock:
     rwlock_destroy(&device->fragment_output_lock);
 out_free_vertex_input_lock:

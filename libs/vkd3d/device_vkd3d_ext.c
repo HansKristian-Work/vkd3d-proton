@@ -20,6 +20,53 @@
 
 #include "vkd3d_private.h"
 
+uint32_t vkd3d_nv_shader_extn_entry_hash(const void *key)
+{
+    return *(const unsigned int *)key;
+}
+
+bool vkd3d_nv_shader_extn_entry_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_nv_shader_extn_entry *extn = (const void*)entry;
+    const unsigned int *thread_id = key;
+    return *thread_id == extn->thread_id;
+}
+
+struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device *device)
+{
+    struct vkd3d_nv_shader_extn result = { UINT32_MAX, 0 };
+    struct vkd3d_nv_shader_extn_entry *entry;
+    unsigned int key;
+    int rc;
+
+    if (!device->has_nv_shader_extns)
+        return result;
+
+    key = vkd3d_get_current_thread_id();
+
+    if ((rc = rwlock_lock_read(&device->nv_shader_lock)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return result;
+    }
+
+    entry = (void*)hash_map_find(&device->nv_shader_extns, &key);
+
+    if (!entry || entry->extn.uav_slot == UINT32_MAX)
+    {
+        key = 0;
+        entry = (void*)hash_map_find(&device->nv_shader_extns, &key);
+    }
+
+    if (entry)
+        result = entry->extn;
+
+    if ((rc = rwlock_unlock_read(&device->nv_shader_lock)))
+        ERR("Failed to unlock mutex, rc %d.\n", rc);
+
+    return result;
+}
+
 static inline struct d3d12_device *d3d12_device_from_ID3D12DeviceExt(d3d12_device_vkd3d_ext_iface *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_device, ID3D12DeviceExt_iface);
@@ -446,6 +493,66 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupport
         default:
             return FALSE;
     }
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace(d3d12_device_vkd3d_ext_iface *iface,
+        UINT32 uav_slot, UINT32 uav_space, BOOL local_thread)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    unsigned int key = local_thread ? vkd3d_get_current_thread_id() : 0;
+    struct vkd3d_nv_shader_extn_entry extn, *entry;
+    int rc;
+
+    TRACE("iface %p, uav_slot %"PRIu32", uav_space %"PRIu32", local_thread %i.\n", iface, uav_slot, uav_space, local_thread);
+
+    device->has_nv_shader_extns = true;
+
+    if ((rc = rwlock_lock_read(&device->nv_shader_lock)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return E_FAIL;
+    }
+
+    entry = (void*)hash_map_find(&device->nv_shader_extns, &key);
+
+    if (entry)
+    {
+        entry->extn.uav_slot = uav_slot;
+        entry->extn.uav_space = uav_space;
+
+        if ((rc = rwlock_unlock_read(&device->nv_shader_lock)))
+        {
+            ERR("Failed to unlock mutex, rc %d.\n", rc);
+            return E_FAIL;
+        }
+
+        return S_OK;
+    }
+
+    if ((rc = rwlock_unlock_read(&device->nv_shader_lock)))
+    {
+        ERR("Failed to unlock mutex, rc %d.\n", rc);
+        return E_FAIL;
+    }
+
+    if ((rc = rwlock_lock_write(&device->nv_shader_lock)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return E_FAIL;
+    }
+
+    extn.thread_id = key;
+    entry = (void*)hash_map_insert(&device->nv_shader_extns, &key, &extn.entry);
+    entry->extn.uav_slot = uav_slot;
+    entry->extn.uav_space = uav_space;
+
+    if ((rc = rwlock_unlock_write(&device->nv_shader_lock)))
+    {
+        ERR("Failed to unlock mutex, rc %d.\n", rc);
+        return E_FAIL;
+    }
+
+    return S_OK;
 }
 
 CONST_VTBL struct ID3D12DeviceExt3Vtbl d3d12_device_vkd3d_ext_vtbl =

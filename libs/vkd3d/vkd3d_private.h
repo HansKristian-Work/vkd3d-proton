@@ -5478,6 +5478,23 @@ struct vkd3d_null_rtas_allocation
     spinlock_t lock;
 };
 
+struct vkd3d_nv_shader_extn
+{
+    uint32_t uav_slot;
+    uint32_t uav_space;
+};
+
+struct vkd3d_nv_shader_extn_entry
+{
+    struct hash_map_entry entry;
+    unsigned int thread_id;
+    struct vkd3d_nv_shader_extn extn;
+};
+
+uint32_t vkd3d_nv_shader_extn_entry_hash(const void *key);
+bool vkd3d_nv_shader_extn_entry_compare(const void *key, const struct hash_map_entry *entry);
+struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device *device);
+
 struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
@@ -5515,6 +5532,10 @@ struct d3d12_device
     IUnknown *parent;
     LUID adapter_luid;
     D3DKMT_HANDLE kmt_local;
+
+    bool has_nv_shader_extns;
+    struct hash_map nv_shader_extns;
+    rwlock_t nv_shader_lock;
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;

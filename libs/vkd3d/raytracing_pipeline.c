@@ -1880,6 +1880,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
         unsigned pipeline_variant_index,
         struct d3d12_rt_state_object_pipeline_data *data)
 {
+    struct vkd3d_nv_shader_extn nv_shader_extn = d3d12_device_get_nv_shader_extn(object->device);
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     struct vkd3d_shader_interface_local_info shader_interface_local_info;
     VkRayTracingPipelineInterfaceCreateInfoKHR interface_create_info;
@@ -1926,6 +1927,9 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
         compile_args.driver_id = object->device->device_info.vulkan_1_2_properties.driverID;
         compile_args.driver_version = object->device->device_info.properties2.properties.driverVersion;
     }
+
+    compile_args.nv_shader_extn_uav_slot = nv_shader_extn.uav_slot;
+    compile_args.nv_shader_extn_uav_space = nv_shader_extn.uav_space;
 
     memset(&shader_interface_info, 0, sizeof(shader_interface_info));
     shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
