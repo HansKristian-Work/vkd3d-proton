@@ -555,7 +555,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12DeviceExt3Vtbl d3d12_device_vkd3d_ext_vtbl =
+CONST_VTBL struct ID3D12DeviceExt4Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_vkd3d_ext_QueryInterface,
@@ -584,6 +584,10 @@ CONST_VTBL struct ID3D12DeviceExt3Vtbl d3d12_device_vkd3d_ext_vtbl =
     /* ID3D12DeviceExt3 methods */
     d3d12_device_vkd3d_ext_SupportsAGSExtension,
     d3d12_device_vkd3d_ext_SetAGSUAVSlot,
+
+    /* ID3D12DeviceExt4 methods */
+    d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupported,
+    d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace,
 };
 
 static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(d3d12_dxvk_interop_device_iface *iface)
