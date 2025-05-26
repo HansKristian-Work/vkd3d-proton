@@ -22,6 +22,95 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+void test_clear_depth_stencil_view_placed(void)
+{
+    static float clear_color[] = { 0.5f, 0.5f, 0.5f, 0.5f };
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info_res;
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info_ds;
+    D3D12_RESOURCE_DESC resource_desc_res;
+    D3D12_RESOURCE_DESC resource_desc_ds;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *dsvs;
+    ID3D12DescriptorHeap *rtvs;
+    ID3D12Resource *res = NULL;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *ds = NULL;
+    ID3D12Heap *heap;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&resource_desc_ds, 0, sizeof(resource_desc_ds));
+    resource_desc_ds.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    resource_desc_ds.Width = 7680;
+    resource_desc_ds.Height = 2160;
+    resource_desc_ds.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc_ds.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    resource_desc_ds.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc_ds.DepthOrArraySize = 1;
+    resource_desc_ds.MipLevels = 1;
+    resource_desc_ds.SampleDesc.Count = 1;
+
+    resource_desc_res = resource_desc_ds;
+    resource_desc_res.Format = DXGI_FORMAT_R32_FLOAT;
+    resource_desc_res.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    alloc_info_ds = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &resource_desc_ds);
+    alloc_info_res = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &resource_desc_res);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.SizeInBytes = alloc_info_ds.SizeInBytes + alloc_info_res.SizeInBytes + 0x3fc0000;
+    heap_desc.Flags = D3D12_HEAP_FLAG_DENY_BUFFERS;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    skip("DS requirements: 0x%x bytes, Color requirements: 0x%x bytes\n",
+            (unsigned int)alloc_info_ds.SizeInBytes,
+            (unsigned int)alloc_info_res.SizeInBytes);
+
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", hr);
+
+    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0x3fc0000, &resource_desc_ds, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            NULL, &IID_ID3D12Resource, (void **)&ds);
+    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x.\n", hr);
+
+    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0x3fc0000 + alloc_info_ds.SizeInBytes,
+            &resource_desc_res, D3D12_RESOURCE_STATE_RENDER_TARGET,
+            NULL, &IID_ID3D12Resource, (void **)&res);
+    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x.\n", hr);
+
+    rtvs = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    dsvs = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+
+    ID3D12Device_CreateRenderTargetView(context.device, res, NULL,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtvs));
+    ID3D12Device_CreateDepthStencilView(context.device, ds, NULL,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsvs));
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtvs), clear_color, 0, NULL);
+    transition_resource_state(context.list, res, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsvs), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+            0.0f, 0, 0, NULL);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_float(res, 0, context.queue, context.list, 0.5f, 0);
+
+    if (res)
+        ID3D12Resource_Release(res);
+    if (ds)
+        ID3D12Resource_Release(ds);
+    ID3D12Heap_Release(heap);
+    ID3D12DescriptorHeap_Release(rtvs);
+    ID3D12DescriptorHeap_Release(dsvs);
+    destroy_test_context(&context);
+}
+
 void test_clear_depth_stencil_view(void)
 {
     static const float expected_values[] = {0.5f, 0.1f, 0.1f, 0.6, 1.0f, 0.5f};
