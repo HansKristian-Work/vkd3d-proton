@@ -96,3 +96,17 @@ interface ID3D12DeviceExt1 : ID3D12DeviceExt
     HRESULT CreateResourceFromBorrowedHandle(const D3D12_RESOURCE_DESC1 *desc, UINT64 vk_handle, ID3D12Resource **resource);
     HRESULT GetVulkanQueueInfoEx(ID3D12CommandQueue *queue, VkQueue *vk_queue, UINT32 *vk_queue_index, UINT32 *vk_queue_flags, UINT32 *vk_queue_family);
 }
+
+[
+    uuid(e859c4ac-ba8f-41c4-8eac-1137fde6158d),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceExt2 : ID3D12DeviceExt1
+{
+    BOOL SupportsCubin64bit();
+    HRESULT CreateCubinComputeShaderExV2(D3D12_CREATE_CUBIN_SHADER_PARAMS *params);
+    HRESULT GetCudaMergedTextureSamplerObject(D3D12_GET_CUDA_MERGED_TEXTURE_SAMPLER_OBJECT_PARAMS *params);
+    HRESULT GetCudaIndependentDescriptorObject(D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_PARAMS *params);
+}
