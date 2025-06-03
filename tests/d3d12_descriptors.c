@@ -4585,6 +4585,7 @@ void test_undefined_descriptor_heap_mismatch_types(void)
     ID3D12Resource *tex[2];
     ID3D12Resource *output;
     float float_data[64];
+    bool radv_32b_layout;
     ID3D12Resource *buf;
     float float_value;
     unsigned int i, j;
@@ -4741,6 +4742,10 @@ void test_undefined_descriptor_heap_mismatch_types(void)
     upload_texture_data(tex[1], &subdata, 1, context.queue, context.list);
     reset_command_list(context.list, context.allocator);
 
+    radv_32b_layout = is_radv_device(context.device) &&
+            is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_buffer") &&
+            ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) == 32;
+
     for (j = 0; j < TYPE_COUNT; j++)
     {
         for (i = 0; i < TYPE_COUNT; i++)
@@ -4807,10 +4812,10 @@ void test_undefined_descriptor_heap_mismatch_types(void)
                     continue;
                 }
             }
-            else if (is_amd_vulkan_device(context.device) && !is_radv_device(context.device))
+            else if (is_amd_vulkan_device(context.device) && (!is_radv_device(context.device) || radv_32b_layout))
             {
                 /* For amdvlk/proprietary. Here we have 32 byte layout which has some failure cases
-                 * where we expect hangs. */
+                 * where we expect hangs. When RADV also moves to 32b layouts, we will have the same failure cases. */
                 if ((access_type == UAV_RAW_BUFFER || access_type == SRV_RAW_BUFFER || access_type == CBV) &&
                         (descriptor_type == SRV_TEX || descriptor_type == UAV_TEX))
                 {
