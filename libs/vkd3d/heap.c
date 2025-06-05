@@ -320,6 +320,16 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
         alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION;
     }
 
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS))
+    {
+        /* Unfortunately, we cannot trust CREATE_NOT_ZEROED to actually do anything.
+         * Stress tests on Windows suggest that it drivers always clear anyway.
+         * This suggests we have a lot of potential game bugs in the wild that will randomly be exposed
+         * if we try to skip clears.
+         * For render targets, we expect the transition away from UNDEFINED to deal with it. */
+        alloc_info.heap_desc.Flags &= ~D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+    }
+
     /* Buffers are far more sensitive to memory clears than images. */
     if ((alloc_info.heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
             (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_IMAGE_HEAP_CLEAR))

@@ -3779,6 +3779,16 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         allocate_info.heap_flags = heap_flags;
         allocate_info.explicit_global_buffer_usage = 0;
 
+        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS))
+        {
+            /* Unfortunately, we cannot trust CREATE_NOT_ZEROED to actually do anything.
+             * Stress tests on Windows suggest that it drivers always clear anyway.
+             * This suggests we have a lot of potential game bugs in the wild that will randomly be exposed
+             * if we try to skip clears.
+             * For render targets, we expect the transition away from UNDEFINED to deal with it. */
+            allocate_info.heap_flags &= ~D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+        }
+
         if (object->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         {
             assert(!(heap_flags & D3D12_HEAP_FLAG_SHARED));
@@ -3792,7 +3802,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             allocation = &object->mem;
         }
 
-        if (vkd3d_allocate_image_memory_prefers_dedicated(device, heap_flags, &allocate_info.memory_requirements))
+        if (vkd3d_allocate_image_memory_prefers_dedicated(device, allocate_info.heap_flags, &allocate_info.memory_requirements))
             dedicated_requirements.prefersDedicatedAllocation = VK_TRUE;
 
         if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
@@ -3910,11 +3920,12 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         allocate_info.heap_desc.Flags = heap_flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         allocate_info.vk_memory_priority = object->priority.residency_count ? vkd3d_convert_to_vk_prio(object->priority.d3d12priority) : 0.f;
 
-        /* Be very careful with suballocated buffers. */
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_ZERO_MEMORY_WORKAROUNDS_COMMITTED_BUFFER_UAV) &&
-                (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
-                desc->Width < VKD3D_VA_BLOCK_SIZE)
+        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS))
         {
+            /* Unfortunately, we cannot trust CREATE_NOT_ZEROED to actually do anything.
+             * Stress tests on Windows suggest that it drivers always clear anyway.
+             * This suggests we have a lot of potential game bugs in the wild that will randomly be exposed
+             * if we try to skip clears. */
             allocate_info.heap_desc.Flags &= ~D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
         }
 
