@@ -930,9 +930,10 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             if (sparse_infos[i].aspectMask & VK_IMAGE_ASPECT_METADATA_BIT)
                 continue;
 
-            if (vkd3d_sparse_image_may_have_mip_tail(desc, format, &sparse_infos[i]) && desc->DepthOrArraySize > 1 && desc->MipLevels > 1)
+            if (device->d3d12_caps.options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_4 &&
+                    vkd3d_sparse_image_may_have_mip_tail(desc, format, &sparse_infos[i]) && desc->DepthOrArraySize > 1 && desc->MipLevels > 1)
             {
-                WARN("Multiple array layers not supported for sparse images with mip tail.\n");
+                WARN("Sparse array images with mip tail require TILED_RESOURCES_TIER_4.\n");
                 return E_INVALIDARG;
             }
         }
