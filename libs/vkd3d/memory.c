@@ -2149,7 +2149,8 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     if (SUCCEEDED(hr) && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && !allocation->chunk)
     {
         char name_buffer[1024];
-        snprintf(name_buffer, sizeof(name_buffer), "Heap (cookie %"PRIu64")",
+        snprintf(name_buffer, sizeof(name_buffer), "Heap %s (cookie %"PRIu64")",
+                (info->heap_desc.Flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) ? "(not-zeroed)" : "(zeroed)",
                 allocation->resource.cookie);
         vkd3d_set_vk_object_name(device, (uint64_t)allocation->device_allocation.vk_memory,
                 VK_OBJECT_TYPE_DEVICE_MEMORY, name_buffer);
