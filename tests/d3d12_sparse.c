@@ -513,6 +513,7 @@ void test_update_tile_mappings_remap_stress(void)
 void test_update_tile_mappings(void)
 {
     D3D12_TILED_RESOURCE_COORDINATE region_offsets[8];
+    ID3D12PipelineState *check_texture_array_pipeline;
     ID3D12PipelineState *check_texture_3d_pipeline;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12PipelineState *clear_texture_pipeline;
@@ -549,6 +550,7 @@ void test_update_tile_mappings(void)
 
 #include "shaders/sparse/headers/update_tile_mappings.h"
 #include "shaders/sparse/headers/update_tile_mappings_texture.h"
+#include "shaders/sparse/headers/update_tile_mappings_texture_array.h"
 #include "shaders/sparse/headers/update_tile_mappings_texture_3d.h"
 #include "shaders/sparse/headers/update_tile_mappings_cs_clear.h"
 
@@ -624,11 +626,12 @@ void test_update_tile_mappings(void)
 
     clear_texture_pipeline = create_compute_pipeline_state(context.device, clear_root_signature, update_tile_mappings_cs_clear_dxbc);
     check_texture_pipeline = create_compute_pipeline_state(context.device, root_signature, update_tile_mappings_texture_dxbc);
+    check_texture_array_pipeline = create_compute_pipeline_state(context.device, root_signature, update_tile_mappings_texture_array_dxbc);
     check_texture_3d_pipeline = create_compute_pipeline_state(context.device, root_signature, update_tile_mappings_texture_3d_dxbc);
     check_buffer_pipeline = create_compute_pipeline_state(context.device, root_signature, update_tile_mappings_dxbc);
 
-    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 11);
-    gpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 11);
+    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 64);
+    gpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 64);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -1176,7 +1179,90 @@ void test_update_tile_mappings(void)
     }
     else
     {
-        skip("Tiles resources tier 3 not supported.\n");
+        skip("Tiled resources tier 3 not supported.\n");
+    }
+
+    if (options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_4)
+    {
+        /* Test 2D array image with mip tail */
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Alignment = 0;
+        resource_desc.Width = 256;
+        resource_desc.Height = 256;
+        resource_desc.DepthOrArraySize = 4;
+        resource_desc.MipLevels = 9;
+        resource_desc.Format = DXGI_FORMAT_R32_UINT;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.SampleDesc.Quality = 0;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&resource);
+        ok(hr == S_OK, "Failed to create reserved texture, hr %#x.\n", hr);
+
+        /* Map entire image */
+        tile_offsets[0] = 0;
+        ID3D12CommandQueue_UpdateTileMappings(context.queue, resource,
+            1, NULL, NULL, heap, 1, NULL, tile_offsets, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
+
+        srv_desc.Format = DXGI_FORMAT_R32_UINT;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.Texture2DArray.MostDetailedMip = 0;
+        srv_desc.Texture2DArray.MipLevels = resource_desc.MipLevels;
+        srv_desc.Texture2DArray.FirstArraySlice = 0;
+        srv_desc.Texture2DArray.ArraySize = resource_desc.DepthOrArraySize;
+        srv_desc.Texture2DArray.ResourceMinLODClamp = 0.0f;
+        srv_desc.Texture2DArray.PlaneSlice = 0;
+        ID3D12Device_CreateShaderResourceView(context.device, resource, &srv_desc, get_cpu_descriptor_handle(&context, gpu_heap, 0));
+
+        reset_command_list(context.list, context.allocator);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
+
+        for (i = 0; i < (unsigned int)(resource_desc.MipLevels * resource_desc.DepthOrArraySize); i++)
+        {
+            UINT clear_value[4] = {};
+            clear_value[0] = i;
+
+            uav_desc.Format = DXGI_FORMAT_R32_UINT;
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+            uav_desc.Texture2DArray.MipSlice = i % resource_desc.MipLevels;
+            uav_desc.Texture2DArray.FirstArraySlice = i / resource_desc.MipLevels;
+            uav_desc.Texture2DArray.ArraySize = 1;
+            uav_desc.Texture2DArray.PlaneSlice = 0;
+            ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav_desc, get_cpu_descriptor_handle(&context, cpu_heap, 1 + i));
+            ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav_desc, get_cpu_descriptor_handle(&context, gpu_heap, 1 + i));
+
+            ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                    get_gpu_descriptor_handle(&context, gpu_heap, 1 + i),
+                    get_cpu_descriptor_handle(&context, cpu_heap, 1 + i),
+                    resource, clear_value, 0, NULL);
+        }
+
+        transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, check_texture_array_pipeline);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, get_gpu_descriptor_handle(&context, gpu_heap, 0));
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, readback_va);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+        transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_buffer_readback_with_command_list(readback_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+        for (i = 0; i < (unsigned int)(resource_desc.MipLevels * resource_desc.DepthOrArraySize); i++)
+        {
+            set_box(&box, i, 0, 0, i + 1, 1, 1);
+            check_readback_data_uint(&rb, &box, i, 0);
+        }
+
+        release_resource_readback(&rb);
+        ID3D12Resource_Release(resource);
+    }
+    else
+    {
+        skip("Tiled resources tier 4 not supported.\n");
     }
 
     ID3D12Heap_Release(heap);
@@ -1186,6 +1272,7 @@ void test_update_tile_mappings(void)
     ID3D12Resource_Release(readback_buffer);
     ID3D12PipelineState_Release(clear_texture_pipeline);
     ID3D12PipelineState_Release(check_texture_3d_pipeline);
+    ID3D12PipelineState_Release(check_texture_array_pipeline);
     ID3D12PipelineState_Release(check_texture_pipeline);
     ID3D12PipelineState_Release(check_buffer_pipeline);
     ID3D12RootSignature_Release(clear_root_signature);
