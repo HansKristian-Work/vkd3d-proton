@@ -19589,9 +19589,9 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
             const struct vkd3d_sparse_memory_bind_range *bind = &bind_ranges[i];
 
             if (bind->tile_index < first_packed_tile)
-                image_bind_count += bind->tile_count;
+                image_bind_count += min(bind->tile_count, first_packed_tile - bind->tile_index);
             if (bind->tile_index + bind->tile_count > first_packed_tile)
-                opaque_bind_count++;
+                opaque_bind_count += bind->tile_index + bind->tile_count - first_packed_tile;
         }
 
         if (opaque_bind_count)
@@ -19645,7 +19645,22 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         {
             struct d3d12_sparse_tile *tile = &dst_resource->sparse.tiles[bind->tile_index];
 
-            if (d3d12_resource_is_texture(dst_resource) && bind->tile_index < first_packed_tile)
+            if (d3d12_resource_is_buffer(dst_resource))
+            {
+                const struct d3d12_sparse_tile *last_tile = &tile[bind->tile_count - 1];
+
+                VkSparseMemoryBind *vk_bind = &memory_binds[k++];
+                vk_bind->resourceOffset = tile->buffer.offset;
+                vk_bind->size = last_tile->buffer.offset
+                              + last_tile->buffer.length
+                              - vk_bind->resourceOffset;
+                vk_bind->memory = bind->vk_memory;
+                vk_bind->memoryOffset = bind->vk_offset;
+                vk_bind->flags = 0;
+
+                processed_tiles = bind->tile_count;
+            }
+            else if (bind->tile_index < first_packed_tile)
             {
                 const D3D12_SUBRESOURCE_TILING *tiling = &dst_resource->sparse.tilings[tile->image.subresource_index];
                 const uint32_t tile_count = tiling->WidthInTiles * tiling->HeightInTiles * tiling->DepthInTiles;
@@ -19682,18 +19697,14 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
             }
             else
             {
-                const struct d3d12_sparse_tile *last_tile = &tile[bind->tile_count - 1];
-
                 VkSparseMemoryBind *vk_bind = &memory_binds[k++];
                 vk_bind->resourceOffset = tile->buffer.offset;
-                vk_bind->size = last_tile->buffer.offset
-                              + last_tile->buffer.length
-                              - vk_bind->resourceOffset;
+                vk_bind->size = tile->buffer.length;
                 vk_bind->memory = bind->vk_memory;
                 vk_bind->memoryOffset = bind->vk_offset;
                 vk_bind->flags = 0;
 
-                processed_tiles = bind->tile_count;
+                processed_tiles = 1u;
             }
 
             for (j = 0; j < processed_tiles; j++)
