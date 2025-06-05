@@ -33,9 +33,9 @@ static uint32_t compute_tile_count(uint32_t resource_size, uint32_t mip, uint32_
 void test_get_resource_tiling(void)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
-    D3D12_SUBRESOURCE_TILING tilings_alt[16];
+    D3D12_SUBRESOURCE_TILING tilings_alt[64];
     D3D12_PACKED_MIP_INFO packed_mip_info;
-    D3D12_SUBRESOURCE_TILING tilings[16];
+    D3D12_SUBRESOURCE_TILING tilings[64];
     UINT num_resource_tiles, num_tilings;
     D3D12_RESOURCE_DESC resource_desc;
     struct test_context_desc desc;
@@ -138,6 +138,9 @@ void test_get_resource_tiling(void)
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_BC7_UNORM,           256,  512,  1,  9,  3,  9,  1,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_BC7_UNORM,           256, 1024,  1,  9,  6,  9,  1,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_BC7_UNORM,           256, 2048,  1,  9, 11,  9,  1,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+
+        /* Array images with full mip chain; now allowed with tier 4 */
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      512,  512,  4, 10, 88, 40,  3,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_4 },
     };
 
     memset(&desc, 0, sizeof(desc));

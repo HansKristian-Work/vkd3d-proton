@@ -1040,7 +1040,8 @@ void test_create_reserved_resource(void)
     hr = ID3D12Device_CreateReservedResource(device,
         &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
         &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == ((get_tiled_resources_tier(device) < D3D12_TILED_RESOURCES_TIER_4)
+            ? E_INVALIDARG : S_OK), "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
