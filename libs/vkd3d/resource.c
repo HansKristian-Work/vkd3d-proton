@@ -3355,6 +3355,7 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
         {
             unsigned int tile_index = i - sparse->packed_mips.StartTileIndexInOverallResource;
             unsigned int layer_index = 0;
+            unsigned int tile_offset;
 
             if ((!(vk_memory_requirements.formatProperties.flags & VK_SPARSE_IMAGE_FORMAT_SINGLE_MIPTAIL_BIT)) &&
                     resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
@@ -3365,9 +3366,11 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
                 tile_index %= tiles_per_layer;
             }
 
+            tile_offset = VKD3D_TILE_SIZE * tile_index;
+
             sparse->tiles[i].buffer.offset = vk_memory_requirements.imageMipTailOffset +
-                vk_memory_requirements.imageMipTailStride * layer_index + VKD3D_TILE_SIZE * tile_index;
-            sparse->tiles[i].buffer.length = VKD3D_TILE_SIZE;
+                vk_memory_requirements.imageMipTailStride * layer_index + tile_offset;
+            sparse->tiles[i].buffer.length = min(VKD3D_TILE_SIZE, vk_memory_requirements.imageMipTailSize - tile_offset);
         }
         else
         {
