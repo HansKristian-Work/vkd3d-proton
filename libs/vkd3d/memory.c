@@ -1495,7 +1495,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER) &&
             (info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
     {
-        vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0xae);
+        vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0xff);
     }
 
     TRACE("Created allocation %p on memory type %u (%"PRIu64" bytes).\n",
