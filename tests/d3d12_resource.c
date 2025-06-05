@@ -5252,3 +5252,113 @@ void test_large_heap(void)
 #undef SECTION_COUNT
 #undef TILE_SIZE
 }
+
+static void test_non_zeroed_behavior(bool placed)
+{
+    ID3D12Resource *resources[16 * 1024];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    ID3D12Heap *heaps[16 * 1024];
+    D3D12_RESOURCE_DESC res_desc;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *feedback;
+    uint64_t burned_vram = 0;
+    unsigned int num_heaps;
+    unsigned int heap_size;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/resource/headers/cs_non_zeroed.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_desc.pParameters = rs_param;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].Descriptor.ShaderRegister = 1;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_non_zeroed_dxbc);
+
+    feedback = create_default_buffer(context.device, sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    for (heap_size = 4 * 1024; heap_size <= 64 * 1024 * 1024; heap_size *= 2)
+    {
+        num_heaps = (1u << 31u) / heap_size;
+        num_heaps = min(ARRAY_SIZE(heaps), num_heaps);
+
+        memset(&heap_desc, 0, sizeof(heap_desc));
+        heap_desc.SizeInBytes = heap_size;
+        heap_desc.Flags = D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        memset(&res_desc, 0, sizeof(res_desc));
+        res_desc.Width = heap_size;
+        res_desc.Height = 1;
+        res_desc.DepthOrArraySize = 1;
+        res_desc.MipLevels = 1;
+        res_desc.SampleDesc.Count = 1;
+        res_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        res_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        res_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+        for (i = 0; i < num_heaps; i++)
+        {
+            if (placed)
+            {
+                hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heaps[i]);
+                ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", hr);
+                hr = ID3D12Device_CreatePlacedResource(context.device, heaps[i], 0, &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resources[i]);
+                ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", hr);
+            }
+            else
+            {
+                hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+                    &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resources[i]);
+                ok(SUCCEEDED(hr), "Failed to create committed resource, hr #%x\n", hr);
+            }
+
+            burned_vram += heap_size;
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(resources[i]));
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(feedback));
+            ID3D12GraphicsCommandList_Dispatch(context.list, heap_size / 4096, 1, 1);
+        }
+
+        transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(feedback, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        ok(get_readback_uint(&rb, 0, 0, 0) == 0, "heap_size %u: expected 0, got %x\n", heap_size, get_readback_uint(&rb, 0, 0, 0));
+        reset_command_list(context.list, context.allocator);
+        for (i = 0; i < num_heaps; i++)
+        {
+            if (placed)
+                ID3D12Heap_Release(heaps[i]);
+            ID3D12Resource_Release(resources[i]);
+        }
+        release_resource_readback(&rb);
+    }
+
+    skip("Burned through %.3f GB of VRAM\n", burned_vram * 1e-9);
+    ID3D12Resource_Release(feedback);
+    destroy_test_context(&context);
+}
+
+void test_heap_non_zeroed_behavior_stress(void)
+{
+    test_non_zeroed_behavior(true);
+}
+
+void test_committed_non_zeroed_behavior_stress(void)
+{
+    test_non_zeroed_behavior(false);
+}

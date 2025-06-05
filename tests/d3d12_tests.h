@@ -469,3 +469,5 @@ decl_test(test_rwtex2d_array_reinterpretation_sm51);
 decl_test(test_rwtex2d_array_reinterpretation_dxil);
 decl_test(test_rwtex1d_array_reinterpretation_sm51);
 decl_test(test_rwtex1d_array_reinterpretation_dxil);
+decl_test(test_heap_non_zeroed_behavior_stress);
+decl_test(test_committed_non_zeroed_behavior_stress);
