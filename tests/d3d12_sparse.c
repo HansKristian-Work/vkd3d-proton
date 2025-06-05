@@ -686,6 +686,7 @@ void test_update_tile_mappings(void)
     tile_offsets[0] = 0;
     ID3D12CommandQueue_UpdateTileMappings(context.queue, resource,
         1, NULL, NULL, heap, 1, NULL, tile_offsets, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
 
     for (i = 0; i < 64; i++)
     {
@@ -702,7 +703,6 @@ void test_update_tile_mappings(void)
     }
 
     transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
     ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(context.list, check_buffer_pipeline);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, get_gpu_descriptor_handle(&context, gpu_heap, 0));
@@ -904,6 +904,7 @@ void test_update_tile_mappings(void)
         1, NULL, NULL, heap, 1, NULL, tile_offsets, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
 
     reset_command_list(context.list, context.allocator);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
 
     for (i = 0, j = 0; i < resource_desc.MipLevels; i++)
     {
@@ -937,7 +938,6 @@ void test_update_tile_mappings(void)
 
     transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
     ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(context.list, check_texture_pipeline);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, get_gpu_descriptor_handle(&context, gpu_heap, 0));
