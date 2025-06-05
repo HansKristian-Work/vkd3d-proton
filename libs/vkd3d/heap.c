@@ -320,6 +320,14 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
         alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION;
     }
 
+    /* Very specific workaround targeted for a Proton stable update. */
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_IGNORE_NOT_ZEROED_DEDICATED_HEAP) &&
+            !(alloc_info.heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
+            desc->SizeInBytes >= VKD3D_VA_BLOCK_SIZE)
+    {
+        alloc_info.heap_desc.Flags &= ~D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+    }
+
     /* Buffers are far more sensitive to memory clears than images. */
     if ((alloc_info.heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
             (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_IMAGE_HEAP_CLEAR))
