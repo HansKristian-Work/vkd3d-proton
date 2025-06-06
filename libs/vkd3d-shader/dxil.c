@@ -1104,10 +1104,11 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     unsigned int raw_va_binding_count = 0;
     unsigned int num_root_descriptors = 0;
     unsigned int root_constant_words = 0;
+    unsigned int heuristic_min_wave_size;
+    unsigned int heuristic_max_wave_size;
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
-    unsigned int heuristic_wave_size;
     dxil_spv_shader_stage stage;
     unsigned int i, max_size;
     vkd3d_shader_hash_t hash;
@@ -1270,14 +1271,28 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     if (compiler_args->promote_wave_size_heuristics)
     {
-        dxil_spv_converter_get_compute_heuristic_max_wave_size(converter, &heuristic_wave_size);
-        if (quirks & VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32)
-            heuristic_wave_size = 32;
+        dxil_spv_converter_get_compute_heuristic_min_wave_size(converter, &heuristic_min_wave_size);
+        dxil_spv_converter_get_compute_heuristic_max_wave_size(converter, &heuristic_max_wave_size);
 
-        if (heuristic_wave_size && !wave_size_min &&
-                compiler_args->max_subgroup_size > heuristic_wave_size &&
-                compiler_args->min_subgroup_size <= heuristic_wave_size)
-            wave_size_preferred = heuristic_wave_size;
+        if (quirks & VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32)
+            heuristic_max_wave_size = 32;
+
+        if (!wave_size_min)
+        {
+            /* We don't expect min and max heuristics to have conflicting ideas. */
+            if (heuristic_max_wave_size &&
+                    compiler_args->max_subgroup_size > heuristic_max_wave_size &&
+                    compiler_args->min_subgroup_size <= heuristic_max_wave_size)
+            {
+                wave_size_preferred = heuristic_max_wave_size;
+            }
+            else if (heuristic_min_wave_size &&
+                    compiler_args->max_subgroup_size >= heuristic_min_wave_size &&
+                    compiler_args->min_subgroup_size < heuristic_min_wave_size)
+            {
+                wave_size_preferred = heuristic_min_wave_size;
+            }
+        }
     }
 
     spirv->meta.cs_wave_size_min = wave_size_min;
