@@ -12197,6 +12197,10 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     meta |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS;
                     break;
 
+                case SpvCapabilityFloat8CooperativeMatrixEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX_FP8;
+                    break;
+
                 default:
                     break;
             }
