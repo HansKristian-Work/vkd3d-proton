@@ -123,6 +123,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DEPTH_BIAS_CONTROL, EXT_depth_bias_control),
     VK_EXTENSION(EXT_ZERO_INITIALIZE_DEVICE_MEMORY, EXT_zero_initialize_device_memory),
     VK_EXTENSION_COND(EXT_OPACITY_MICROMAP, EXT_opacity_micromap, VKD3D_CONFIG_FLAG_DXR_1_2),
+    VK_EXTENSION(EXT_SHADER_FLOAT8, EXT_shader_float8),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -142,6 +143,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS_COMPUTE, NV_device_generated_commands_compute),
     VK_EXTENSION_VERSION(NV_LOW_LATENCY_2, NV_low_latency2, 2),
     VK_EXTENSION(NV_RAW_ACCESS_CHAINS, NV_raw_access_chains),
+    VK_EXTENSION(NV_COOPERATIVE_MATRIX_2, NV_cooperative_matrix2),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
     /* MESA extensions */
@@ -2128,6 +2130,20 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->opacity_micromap_features);
     }
 
+    if (vulkan_info->EXT_shader_float8)
+    {
+        info->shader_float8_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->shader_float8_features);
+    }
+
+    if (vulkan_info->NV_cooperative_matrix2)
+    {
+        info->cooperative_matrix2_features_nv.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_2_FEATURES_NV;
+        vk_prepend_struct(&info->features2, &info->cooperative_matrix2_features_nv);
+    }
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
@@ -2597,11 +2613,14 @@ static bool vkd3d_supports_minimum_coopmat_caps(struct d3d12_device *device)
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkCooperativeMatrixPropertiesKHR *props;
     bool supports_f32_16x16x16_f16 = false;
-    bool supports_f16_16x16x16_f16 = false;
-    bool supports_u8_a = false;
-    bool supports_u8_b = false;
-    bool supports_u8_c = false;
+    bool supports_f32_16x16x16_f8 = false;
+    bool supports_8bit_a = false;
+    bool supports_8bit_b = false;
+    bool supports_8bit_c = false;
     uint32_t i, count;
+    bool fp8;
+
+    fp8 = device->device_info.shader_float8_features.shaderFloat8CooperativeMatrix == VK_TRUE;
 
     /* There are no sub-capabilities (yet at least).
      * Validate that we support everything that dxil-spirv can emit. */
@@ -2628,34 +2647,59 @@ static bool vkd3d_supports_minimum_coopmat_caps(struct d3d12_device *device)
     {
         const VkCooperativeMatrixPropertiesKHR *fmt = &props[i];
 
-        if (fmt->AType == VK_COMPONENT_TYPE_UINT8_KHR)
-            supports_u8_a = true;
-        if (fmt->BType == VK_COMPONENT_TYPE_UINT8_KHR)
-            supports_u8_b = true;
-        if (fmt->CType == VK_COMPONENT_TYPE_UINT8_KHR)
-            supports_u8_c = true;
+        if (fp8)
+        {
+            if (fmt->AType == VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT)
+                supports_8bit_a = true;
+            if (fmt->BType == VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT)
+                supports_8bit_b = true;
+            if (fmt->CType == VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT)
+                supports_8bit_c = true;
+        }
+        else
+        {
+            /* In the fallback, we use u8 as an intermediate format. */
+            if (fmt->AType == VK_COMPONENT_TYPE_UINT8_KHR)
+                supports_8bit_a = true;
+            if (fmt->BType == VK_COMPONENT_TYPE_UINT8_KHR)
+                supports_8bit_b = true;
+            if (fmt->CType == VK_COMPONENT_TYPE_UINT8_KHR)
+                supports_8bit_c = true;
+        }
 
         if (fmt->KSize != 16 || fmt->MSize != 16 || fmt->NSize != 16 || fmt->scope != VK_SCOPE_SUBGROUP_KHR)
             continue;
 
-        if (fmt->AType == VK_COMPONENT_TYPE_FLOAT16_KHR && fmt->BType == VK_COMPONENT_TYPE_FLOAT16_KHR)
+        if (fmt->CType == VK_COMPONENT_TYPE_FLOAT32_KHR)
         {
-            if (fmt->CType == VK_COMPONENT_TYPE_FLOAT32_KHR)
-                supports_f32_16x16x16_f16 = true;
-            else if (fmt->CType == VK_COMPONENT_TYPE_FLOAT16_KHR)
-                supports_f16_16x16x16_f16 = true;
+            if (fmt->AType == VK_COMPONENT_TYPE_FLOAT16_KHR && fmt->BType == VK_COMPONENT_TYPE_FLOAT16_KHR)
+            {
+                if (fmt->CType == VK_COMPONENT_TYPE_FLOAT32_KHR)
+                    supports_f32_16x16x16_f16 = true;
+            }
+            else if (fmt->AType == VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT && fmt->BType == VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT)
+            {
+                if (fmt->CType == VK_COMPONENT_TYPE_FLOAT32_KHR)
+                    supports_f32_16x16x16_f8 = true;
+            }
         }
     }
 
     vkd3d_free(props);
 
-    if (!supports_f16_16x16x16_f16 || !supports_f32_16x16x16_f16 || !supports_u8_a || !supports_u8_b)
+    if (!supports_f32_16x16x16_f16 || !supports_8bit_a || !supports_8bit_b)
     {
         WARN("Missing sufficient features to expose WMMA.\n");
         return false;
     }
 
-    if (!supports_u8_c)
+    if (fp8 && !supports_f32_16x16x16_f8)
+    {
+        WARN("Missing sufficient features to expose WMMA.\n");
+        return false;
+    }
+
+    if (!supports_8bit_c)
     {
         WARN("8-bit Accumulator type not exposed, but assuming it works anyway. "
              "This is required for FSR4 and happens to work in practice on AMD GPUs.\n");
@@ -2894,7 +2938,18 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         {
             physical_device_info->cooperative_matrix_features.cooperativeMatrix = VK_FALSE;
             physical_device_info->cooperative_matrix_features.cooperativeMatrixRobustBufferAccess = VK_FALSE;
+            physical_device_info->shader_float8_features.shaderFloat8 = VK_FALSE;
+            physical_device_info->shader_float8_features.shaderFloat8CooperativeMatrix = VK_FALSE;
+            physical_device_info->cooperative_matrix2_features_nv.cooperativeMatrixBlockLoads = VK_FALSE;
+            physical_device_info->cooperative_matrix2_features_nv.cooperativeMatrixConversions = VK_FALSE;
+            physical_device_info->cooperative_matrix2_features_nv.cooperativeMatrixFlexibleDimensions = VK_FALSE;
+            physical_device_info->cooperative_matrix2_features_nv.cooperativeMatrixPerElementOperations = VK_FALSE;
+            physical_device_info->cooperative_matrix2_features_nv.cooperativeMatrixReductions = VK_FALSE;
+            physical_device_info->cooperative_matrix2_features_nv.cooperativeMatrixTensorAddressing = VK_FALSE;
+            physical_device_info->cooperative_matrix2_features_nv.cooperativeMatrixWorkgroupScope = VK_FALSE;
             vulkan_info->KHR_cooperative_matrix = false;
+            vulkan_info->EXT_shader_float8 = false;
+            vulkan_info->NV_cooperative_matrix2 = false;
         }
     }
 
@@ -9248,6 +9303,18 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_OPACITY_MICROMAP;
     }
+
+    if (device->device_info.shader_float8_features.shaderFloat8CooperativeMatrix)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_WMMA_FP8;
+    }
+
+    if (device->device_info.cooperative_matrix2_features_nv.cooperativeMatrixConversions)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_NV_COOPMAT2_CONVERSIONS;
+    }
 }
 
 static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
@@ -9759,6 +9826,15 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         if (!device->device_info.cooperative_matrix_features.cooperativeMatrix)
         {
             ERR("Missing sufficient features to expose WMMA.\n");
+            return false;
+        }
+    }
+
+    if (meta->flags & VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX_FP8)
+    {
+        if (!device->device_info.shader_float8_features.shaderFloat8CooperativeMatrix)
+        {
+            ERR("Missing sufficient features to expose WMMA FP8.\n");
             return false;
         }
     }
