@@ -730,6 +730,7 @@ void test_virtual_queries(void)
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds[1].dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds[0].dsv_handle);
+    vkd3d_mute_validation_message("01922", "See vkd3d-proton issue 2381");
     ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0);
     ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 1);
     ID3D12GraphicsCommandList_BeginQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 2);
@@ -753,6 +754,7 @@ void test_virtual_queries(void)
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
     ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[0], D3D12_QUERY_TYPE_BINARY_OCCLUSION, 3);
     ID3D12GraphicsCommandList_EndQuery(command_list, query_heaps[1], D3D12_QUERY_TYPE_OCCLUSION, 3);
+    vkd3d_unmute_validation_message("01922");
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 0, NULL, false, &ds[1].dsv_handle);
 

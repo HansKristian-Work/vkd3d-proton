@@ -294,7 +294,7 @@ void test_pipeline_library(void)
     /* Test deserializing a pipeline library */
     hr = ID3D12Device1_CreatePipelineLibrary(device1, serialized_data,
             serialized_size, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
-    ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", hr);
 
     /* Verify that PSO library must internally ref-count a unique PSO. */
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,

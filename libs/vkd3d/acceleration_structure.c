@@ -505,3 +505,130 @@ void vkd3d_acceleration_structure_copy(
     if (convert_copy_mode(mode, &info.mode))
         VK_CALL(vkCmdCopyAccelerationStructureKHR(list->cmd.vk_command_buffer, &info));
 }
+
+struct vkd3d_empty_rtas_build_info
+{
+    VkAccelerationStructureBuildGeometryInfoKHR build_info;
+    VkAccelerationStructureBuildSizesInfoKHR size_info;
+    VkAccelerationStructureGeometryKHR geom;
+};
+
+static void vkd3d_setup_empty_rtas_build(
+        struct d3d12_device *device,
+        struct vkd3d_empty_rtas_build_info *info)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint32_t count = 0;
+
+    /* Build an empty RTAS. */
+    memset(info, 0, sizeof(*info));
+    info->build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+    info->size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+    info->geom.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+    info->geom.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+    info->build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    info->build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+    info->build_info.geometryCount = 1;
+    info->build_info.pGeometries = &info->geom;
+    info->geom.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+
+    VK_CALL(vkGetAccelerationStructureBuildSizesKHR(device->vk_device,
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+            &info->build_info, &count, &info->size_info));
+}
+
+void vkd3d_build_null_rtas_va(struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const VkAccelerationStructureBuildRangeInfoKHR *ptr_range;
+    VkAccelerationStructureBuildRangeInfoKHR range;
+    struct vkd3d_empty_rtas_build_info info;
+
+    memset(&range, 0, sizeof(range));
+    vkd3d_setup_empty_rtas_build(device, &info);
+
+    info.build_info.scratchData.deviceAddress =
+            vkd3d_get_buffer_device_address(device, device->null_rtas_allocation.buffer) +
+                    align64(info.size_info.accelerationStructureSize,
+                            device->device_info.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment);
+    info.build_info.dstAccelerationStructure = device->null_rtas_allocation.rtas;
+
+    ptr_range = &range;
+    memset(&range, 0, sizeof(range));
+    VK_CALL(vkCmdBuildAccelerationStructuresKHR(vk_cmd_buffer, 1, &info.build_info, &ptr_range));
+}
+
+D3D12_GPU_VIRTUAL_ADDRESS vkd3d_get_null_rtas_va(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkAccelerationStructureDeviceAddressInfoKHR get_addr;
+    VkAccelerationStructureCreateInfoKHR rtas_info;
+    struct vkd3d_allocate_memory_info alloc_info;
+    struct vkd3d_empty_rtas_build_info info;
+    VkDeviceAddress va;
+    VkDeviceSize size;
+
+    va = vkd3d_atomic_uint64_load_explicit(&device->null_rtas_allocation.va, vkd3d_memory_order_acquire);
+
+    if (va || !d3d12_device_supports_ray_tracing_tier_1_0(device))
+        goto end;
+
+    /* Spinlock is weird here, but it avoids lots of ugly init code
+     * and we only expect to hit this path once. */
+    spinlock_acquire(&device->null_rtas_allocation.lock);
+
+    if ((va = device->null_rtas_allocation.va))
+        goto end_unlock;
+
+    vkd3d_setup_empty_rtas_build(device, &info);
+
+    memset(&alloc_info, 0, sizeof(alloc_info));
+
+    size = info.size_info.accelerationStructureSize;
+    size = align64(size, device->device_info.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment);
+    size += info.size_info.buildScratchSize;
+
+    if (FAILED(vkd3d_create_buffer_explicit_usage(device,
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            size, "null-rtas", &device->null_rtas_allocation.buffer)))
+    {
+        ERR("Failed to create null RTAS VkBuffer.\n");
+        goto end_unlock;
+    }
+
+    if (FAILED(vkd3d_allocate_internal_buffer_memory(device, device->null_rtas_allocation.buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device->null_rtas_allocation.alloc)))
+    {
+        ERR("Failed to allocate empty RTAS memory.\n");
+        goto end_unlock;
+    }
+
+    memset(&rtas_info, 0, sizeof(rtas_info));
+    rtas_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+    rtas_info.buffer = device->null_rtas_allocation.buffer;
+    rtas_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+    rtas_info.size = info.size_info.accelerationStructureSize;
+    if (VK_CALL(vkCreateAccelerationStructureKHR(device->vk_device, &rtas_info, NULL, &device->null_rtas_allocation.rtas)) != VK_SUCCESS)
+    {
+        ERR("Failed to create RTAS.\n");
+        goto end_unlock;
+    }
+
+    memset(&get_addr, 0, sizeof(get_addr));
+    get_addr.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+    get_addr.accelerationStructure = device->null_rtas_allocation.rtas;
+    va = VK_CALL(vkGetAccelerationStructureDeviceAddressKHR(device->vk_device, &get_addr));
+
+    /* Make sure that we flush any write to the memory init system before we broadcast the VA
+     * since a different thread could read the VA and submit work to GPU before we do the init work. */
+    vkd3d_memory_transfer_queue_build_empty_rtas(&device->memory_transfers);
+    vkd3d_atomic_uint64_store_explicit(&device->null_rtas_allocation.va, va, vkd3d_memory_order_release);
+
+end_unlock:
+    spinlock_release(&device->null_rtas_allocation.lock);
+
+end:
+    return va;
+}
+

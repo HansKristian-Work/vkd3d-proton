@@ -814,7 +814,7 @@ void test_shader_instructions_dxil(void)
             else if (tests[i].output_data[j] == UINT32_MAX)
             {
                 todo_if(tests[i].is_todo)
-                ok((value & 0x7fff) > 0x7c00, "Value %u mismatch: Expected NaN, got %x.\n", value);
+                ok((value & 0x7fff) > 0x7c00, "Value %u mismatch: Expected NaN, got %x.\n", j, value);
             }
             else
             {
@@ -2573,7 +2573,7 @@ void test_shader_instructions(void)
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
     };
     static struct named_shader ps_dmodifier = {"dmodifier", ps_dmodifier_code, sizeof(ps_dmodifier_code)};
-    static const struct
+    const struct
     {
         const struct named_shader *ps;
         struct
@@ -6892,11 +6892,13 @@ void test_resinfo(void)
         {&ps_2d, {32, 16, 1, 3, 1, 0}, 0, {32.0f, 16.0f, 3.0f, 0.0f}},
         {&ps_2d, {32, 16, 1, 3, 1, 0}, 1, {16.0f,  8.0f, 3.0f, 0.0f}},
         {&ps_2d, {32, 16, 1, 3, 1, 0}, 2, { 8.0f,  4.0f, 3.0f, 0.0f}},
+        {&ps_2d, {32, 16, 1, 1, 1, 0}, 2, { 0.0f,  0.0f, 1.0f, 0.0f}},
 
         {&ps_2d_array, {64, 64, 1, 1, 6, 0}, 0, {64.0f, 64.0f, 6.0f, 1.0f}},
         {&ps_2d_array, {32, 16, 1, 3, 9, 0}, 0, {32.0f, 16.0f, 9.0f, 3.0f}},
         {&ps_2d_array, {32, 16, 1, 3, 7, 0}, 1, {16.0f,  8.0f, 7.0f, 3.0f}},
         {&ps_2d_array, {32, 16, 1, 3, 3, 0}, 2, { 8.0f,  4.0f, 3.0f, 3.0f}},
+        {&ps_2d_array, {16, 16, 1, 1, 1, 0}, 1, { 0.0f,  0.0f, 0.0f, 1.0f}},
 
         {&ps_3d, {64, 64, 2, 1, 1, 0}, 0, {64.0f, 64.0f, 2.0f, 1.0f}},
         {&ps_3d, {64, 64, 2, 2, 1, 0}, 1, {32.0f, 32.0f, 1.0f, 2.0f}},
@@ -6907,16 +6909,19 @@ void test_resinfo(void)
         {&ps_3d, { 8,  8, 8, 4, 1, 0}, 1, { 4.0f,  4.0f, 4.0f, 4.0f}},
         {&ps_3d, { 8,  8, 8, 4, 1, 0}, 2, { 2.0f,  2.0f, 2.0f, 4.0f}},
         {&ps_3d, { 8,  8, 8, 4, 1, 0}, 3, { 1.0f,  1.0f, 1.0f, 4.0f}},
+        {&ps_3d, {16, 16, 16, 2, 1, 0}, 3, { 0.0f,  0.0f, 0.0f, 2.0f}},
 
         {&ps_cube, { 4,  4, 1, 1, 6, 1}, 0, { 4.0f,  4.0f, 1.0f, 0.0f}},
         {&ps_cube, {32, 32, 1, 1, 6, 1}, 0, {32.0f, 32.0f, 1.0f, 0.0f}},
         {&ps_cube, {32, 32, 1, 3, 6, 1}, 0, {32.0f, 32.0f, 3.0f, 0.0f}},
         {&ps_cube, {32, 32, 1, 3, 6, 1}, 1, {16.0f, 16.0f, 3.0f, 0.0f}},
         {&ps_cube, {32, 32, 1, 3, 6, 1}, 2, { 8.0f,  8.0f, 3.0f, 0.0f}},
+        {&ps_cube, {16, 16, 1, 1, 6, 1}, 6, { 0.0f,  0.0f, 1.0f, 0.0f}},
 
         {&ps_cube_array, { 4,  4, 1, 1, 12, 2}, 0, { 4.0f,  4.0f, 1.0f, 0.0f}},
         {&ps_cube_array, {32, 32, 1, 1, 12, 2}, 0, {32.0f, 32.0f, 1.0f, 0.0f}},
         {&ps_cube_array, {32, 32, 1, 3, 12, 2}, 0, {32.0f, 32.0f, 3.0f, 0.0f}},
+        {&ps_cube_array, {32, 32, 1, 3, 12, 2}, 4, { 0.0f,  0.0f, 3.0f, 0.0f}},
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -7022,6 +7027,7 @@ void test_resinfo(void)
             transition_resource_state(command_list, context.render_target,
                     D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
+            bug_if(test->miplevel >= test->texture_desc.miplevel_count && is_amd_windows_device(context.device))
             check_sub_resource_vec4(context.render_target, 0, queue, command_list, &test->expected_result, 0);
 
             reset_command_list(command_list, context.allocator);
@@ -14884,4 +14890,88 @@ void test_instruction_msad_dxil(void)
     ID3D12Resource_Release(output);
     release_resource_readback(&rb);
     destroy_test_context(&context);
+}
+
+static void test_varying_nointerpolation_mixed_type(bool use_dxil)
+{
+#include "shaders/shaders/headers/vs_varying_mixed.h"
+#include "shaders/shaders/headers/ps_varying_mixed.h"
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.rt_width = 1;
+    context_desc.rt_height = 1;
+    context_desc.rt_format = DXGI_FORMAT_R32G32_FLOAT;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param.Constants.Num32BitValues = 2;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    if (use_dxil)
+    {
+        init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, context_desc.rt_format, NULL,
+            vs_varying_mixed_code_dxil, sizeof(vs_varying_mixed_code_dxil),
+            ps_varying_mixed_code_dxil, sizeof(ps_varying_mixed_code_dxil));
+    }
+    else
+    {
+        init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, context_desc.rt_format, NULL,
+            vs_varying_mixed_code_dxbc, sizeof(vs_varying_mixed_code_dxbc),
+            ps_varying_mixed_code_dxbc, sizeof(ps_varying_mixed_code_dxbc));
+    }
+
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0, 8000, 0);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0, 10000, 1);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    set_viewport(&vp, 0, 0, 1, 1, 0, 1);
+    set_rect(&sci, 0, 0, 1, 1);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+
+    ok(8000.0f == get_readback_float(&rb, 0, 0), ".x: Expected %f, got %f\n", 8000.0f, get_readback_float(&rb, 0, 0));
+    ok(10000.0f == get_readback_float(&rb, 1, 0), ".y: Expected %f, got %f\n", 10000.0f, get_readback_float(&rb, 1, 0));
+
+    release_resource_readback(&rb);
+    destroy_test_context(&context);
+}
+
+void test_varying_nointerpolation_mixed_type_dxbc(void)
+{
+    test_varying_nointerpolation_mixed_type(false);
+}
+
+void test_varying_nointerpolation_mixed_type_dxil(void)
+{
+    test_varying_nointerpolation_mixed_type(true);
 }

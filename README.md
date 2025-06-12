@@ -47,6 +47,7 @@ The [Vulkan beta drivers](https://developer.nvidia.com/vulkan-driver) generally 
 driver fixes that we identify while getting games to work.
 The latest drivers (stable, beta or Vulkan beta tracks) are always preferred.
 If you're having problems, always try the latest drivers.
+At minimum, 535 series drivers are needed, which fixes a bunch of bugs.
 
 ### Intel
 
@@ -166,8 +167,13 @@ commas or semicolons.
    not use even if available.
  - `VKD3D_TEST_DEBUG` - enables additional debug messages in tests. Set to 0, 1
    or 2.
+ - `VKD3D_TEST_MATCH` - a match string. Only the tests whose names exactly match the
+   string will be run, e.g. `VKD3D_TEST_FILTER=clear_render_target` will only match
+   tests named 'clear_render_target'.
+   Useful for debugging or developing new tests.
  - `VKD3D_TEST_FILTER` - a filter string. Only the tests whose names matches the
-   filter string will be run, e.g. `VKD3D_TEST_FILTER=clear_render_target`.
+   filter string will be run, e.g. `VKD3D_TEST_FILTER=clear_render` will match
+   tests named 'clear_render_target' or 'target_clear_render'.
    Useful for debugging or developing new tests.
  - `VKD3D_TEST_EXCLUDE` - excludes tests of which the name is included in the string,
    e.g. `VKD3D_TEST_EXCLUDE=test_root_signature_priority,test_conservative_rasterization_dxil`.
@@ -177,6 +183,11 @@ commas or semicolons.
  - `VKD3D_TEST_BUG` - set to 0 to disable bug_if() conditions in tests.
  - `VKD3D_PROFILE_PATH` - If profiling is enabled in the build, a profiling block is
    emitted to `${VKD3D_PROFILE_PATH}.${pid}`.
+
+### Frame rate limit
+The `VKD3D_FRAME_RATE` environment variable can be used to limit the frame rate. A value of `0` uncaps the frame rate, while any positive value will limit rendering to the given number of frames per second.
+
+The `DXVK_FRAME_RATE` environment variable is also detected on VKD3D-Proton, so you may prefer to use that instead of having to remember two separate variables that do the same thing. `VKD3D_FRAME_RATE`, however, only applies to VKD3D (Direct3D 12) scenarios. If both variables are used, `VKD3D_FRAME_RATE` takes precedence.
 
 ## Shader cache
 

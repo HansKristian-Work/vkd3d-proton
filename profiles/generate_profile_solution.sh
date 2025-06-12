@@ -10,7 +10,7 @@ fi
 # Install Vulkan-Profiles to ~/.local prefix.
 
 python3 "${VULKAN_PROFILE_PREFIX}/share/vulkan/registry/gen_profiles_solution.py" \
-	--registry subprojects/Vulkan-Headers/registry/vk.xml \
+	--registry khronos/Vulkan-Headers/registry/vk.xml \
 	--input . \
 	--output-library-inc profiles/vulkan \
 	--output-library-src profiles/vulkan \

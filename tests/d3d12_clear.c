@@ -437,7 +437,6 @@ void test_clear_unordered_access_view_buffer(void)
         unsigned int values[4];
         unsigned int expected;
         bool is_float;
-        bool is_null_descriptor;
     }
     tests[] =
     {
@@ -447,8 +446,6 @@ void test_clear_unordered_access_view_buffer(void)
                 {0, 0, 0, 0}, 0},
         {DXGI_FORMAT_R32_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t),      0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {1, 0, 0, 0}, 1},
-        {DXGI_FORMAT_R32_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t),      0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {1, 0, 0, 0}, 0, false, true},
         {DXGI_FORMAT_R32_UINT, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {2, 0, 0, 0}, 2},
         {DXGI_FORMAT_R32_UINT, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
@@ -464,8 +461,6 @@ void test_clear_unordered_access_view_buffer(void)
                 {0, 0, 0, 0}, 0},
         {DXGI_FORMAT_R32_TYPELESS, { 0, BUFFER_SIZE / sizeof(uint32_t),      0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
                 {6, 0, 0, 0}, 6},
-        {DXGI_FORMAT_R32_TYPELESS, { 0, BUFFER_SIZE / sizeof(uint32_t),      0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
-                {6, 0, 0, 0}, 0, false, true},
         {DXGI_FORMAT_R32_TYPELESS, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
                 {7, 0, 0, 0}, 7},
         {DXGI_FORMAT_R32_TYPELESS, {64, BUFFER_SIZE / sizeof(uint32_t) - 64, 0, 0, D3D12_BUFFER_UAV_FLAG_RAW},
@@ -557,7 +552,7 @@ void test_clear_unordered_access_view_buffer(void)
                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
         for (j = 0; j < ARRAY_SIZE(clear_value); ++j)
-            clear_value[j] = tests[i].expected || tests[i].is_null_descriptor ? 0 : ~0u;
+            clear_value[j] = tests[i].expected ? 0 : ~0u;
 
         memset(&uav_desc, 0, sizeof(uav_desc));
         uav_desc.Format = DXGI_FORMAT_R32_UINT;
@@ -575,15 +570,6 @@ void test_clear_unordered_access_view_buffer(void)
                 get_cpu_descriptor_handle(&context, cpu_heap, 0));
         ID3D12Device_CreateUnorderedAccessView(device, buffer, NULL, &uav_desc,
                 get_cpu_descriptor_handle(&context, gpu_heap, 0));
-
-        if (tests[i].is_null_descriptor)
-        {
-            /* Test that we can clear out any knowledge about the existing descriptor. */
-            ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL, &uav_desc,
-                    get_cpu_descriptor_handle(&context, cpu_heap, 0));
-            ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL, &uav_desc,
-                    get_cpu_descriptor_handle(&context, gpu_heap, 0));
-        }
 
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
                 get_gpu_descriptor_handle(&context, gpu_heap, 1),
@@ -666,17 +652,14 @@ void test_clear_unordered_access_view_image(void)
         unsigned int values[4];
         unsigned int expected;
         bool is_float;
-        bool is_null_descriptor;
     }
     tests[] =
     {
         /* Test clearing a specific mip level. */
         {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {{0}}, {1,          0, 0, 0}, 1},
-        {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {{0}}, {1,          0, 0, 0}, 0, false, true},
         {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {{0}}, {1,          0, 0, 0}, 1},
         {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {{0}}, {0x3f000000, 0, 0, 0}, 0x3f000000, true},
         {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {{0}}, {0x3f000000, 0, 0, 0}, 0x3f000000, true},
-        {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {{0}}, {0x3f000000, 0, 0, 0}, 0, true, true},
         /* Test clearing specific array layers. */
         {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 0, IMAGE_SIZE, 0, {{0}}, {1, 0, 0, 0}, 1},
         {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 3, 2,          0, {{0}}, {1, 0, 0, 0}, 1},
@@ -694,6 +677,7 @@ void test_clear_unordered_access_view_image(void)
                 {1,          0, 0, 0}, 1},
         {DXGI_FORMAT_R32_FLOAT,       1, 1, 0, 0, 1, 2, {{1, 2, 3, 4}, {5, 6, 7, 8}},
                 {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+
         /* Test uint clears with formats. */
         {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00020001},
         {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {0x12345, 0, 0, 0}, 0x00002345},
@@ -704,6 +688,7 @@ void test_clear_unordered_access_view_image(void)
         {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x04030201},
         {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {{0}}, {0,       0, 0, 0}, 0x00000000},
         {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00c01001},
+        {DXGI_FORMAT_R9G9B9E5_SHAREDEXP, 1, 1, 0, 0, 1, 0, {{0}}, {1,    2, 3, 4}, 0x200c0401},
         /* Test float clears with formats. */
         {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {{0}},
                 {0x3f000080 /* 0.5f + unorm16 epsilon */, 0x3f800000 /* 1.0f */, 0, 0}, 0xffff8000, true},
@@ -841,19 +826,8 @@ void test_clear_unordered_access_view_image(void)
                         &uav_desc, get_cpu_descriptor_handle(&context, gpu_heap, j));
             }
 
-            if (tests[i].is_null_descriptor)
-            {
-                /* Test that we can clear out any knowledge about the existing descriptor. */
-                ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL,
-                        &uav_desc, get_cpu_descriptor_handle(&context, cpu_heap, 0));
-                ID3D12Device_CreateUnorderedAccessView(device, NULL, NULL,
-                        &uav_desc, get_cpu_descriptor_handle(&context, gpu_heap, 0));
-            }
-
             for (j = 0; j < 4; ++j)
-            {
-                clear_value[j] = tests[i].expected || tests[i].is_null_descriptor ? 0u : ~0u;
-            }
+                clear_value[j] = tests[i].expected ? 0u : ~0u;
 
             ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
                     get_gpu_descriptor_handle(&context, gpu_heap, 1),

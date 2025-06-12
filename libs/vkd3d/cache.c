@@ -181,7 +181,7 @@ VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
     return VK_CALL(vkCreatePipelineCache(device->vk_device, &info, NULL, cache));
 }
 
-#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',3)
+#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',4)
 
 enum vkd3d_pipeline_blob_chunk_type
 {
@@ -208,14 +208,14 @@ struct vkd3d_pipeline_blob_chunk
 {
     uint32_t type; /* vkd3d_pipeline_blob_chunk_type with extra data in upper bits. */
     uint32_t size; /* size of data. Does not include size of header. */
-    uint8_t data[]; /* struct vkd3d_pipeline_blob_chunk_*. */
+    uint8_t data[] vkd3d_counted_by(size); /* struct vkd3d_pipeline_blob_chunk_*. */
 };
 
 struct vkd3d_pipeline_blob_chunk_spirv
 {
     uint32_t decompressed_spirv_size;
     uint32_t compressed_spirv_size; /* Size of data[]. */
-    uint8_t data[];
+    uint8_t data[] vkd3d_counted_by(compressed_spirv_size);
 };
 
 struct vkd3d_pipeline_blob_chunk_link
@@ -1450,6 +1450,7 @@ static void d3d12_pipeline_library_cleanup(struct d3d12_pipeline_library *pipeli
     d3d12_pipeline_library_cleanup_map(&pipeline_library->driver_cache_map);
     d3d12_pipeline_library_cleanup_map(&pipeline_library->spirv_cache_map);
 
+    d3d_destruction_notifier_free(&pipeline_library->destruction_notifier);
     vkd3d_private_store_destroy(&pipeline_library->private_store);
     rwlock_destroy(&pipeline_library->mutex);
     rwlock_destroy(&pipeline_library->internal_hashmap_mutex);
@@ -1458,6 +1459,8 @@ static void d3d12_pipeline_library_cleanup(struct d3d12_pipeline_library *pipeli
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pipeline_library_iface *iface,
         REFIID riid, void **object)
 {
+    struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
     if (!object)
@@ -1471,6 +1474,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pip
     {
         ID3D12PipelineLibrary1_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&pipeline_library->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &pipeline_library->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -1511,6 +1521,8 @@ ULONG d3d12_pipeline_library_dec_public_ref(struct d3d12_pipeline_library *pipel
     TRACE("%p decreasing refcount to %u.\n", pipeline_library, refcount);
     if (!refcount)
     {
+        d3d_destruction_notifier_notify(&pipeline_library->destruction_notifier);
+
         d3d12_pipeline_library_dec_ref(pipeline_library);
         d3d12_device_release(device);
     }
@@ -1726,7 +1738,7 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
         {
             root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
             if (root_signature)
-                pipeline_cache_compat.root_signature_compat_hash = root_signature->compatibility_hash;
+                pipeline_cache_compat.root_signature_compat_hash = root_signature->pso_compatibility_hash;
         }
         else if (cached_state->root_signature_compat_hash_is_dxbc_derived)
         {
@@ -1953,6 +1965,7 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
     size_t name_offset;
     size_t blob_offset;
     uint64_t pso_size;
+    void *output_data;
 
     /* Stream archives are not serialized as a monolithic blob. */
     if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE)
@@ -1961,6 +1974,42 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
     required_size = d3d12_pipeline_library_get_serialized_size(pipeline_library);
     if (data_size < required_size)
         return E_INVALIDARG;
+
+    output_data = NULL;
+
+    if (pipeline_library->input_blob_length)
+    {
+        /* Check if we need a workaround.
+         * FF XVI unserializes a pipeline library with pointer A, but then re-serializes it back to pointer A.
+         * We read straight from pointer A when unserializing since the pointer has to remain alive.
+         * https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device1-createpipelinelibrary
+         * > The pointer provided as input to this method must remain valid for the lifetime of the object returned.
+         * > For efficiency reasons, the data is not copied.
+         * However, this game seems to rely on re-serialized data to remain bit-exact in same order,
+         * which our implementation does not guarantee, and we end up generating a corrupt name table.
+         * If there is memory overlap, serialize to a temp buffer instead.
+         * */
+        uintptr_t overlap_lo, overlap_hi;
+        uintptr_t output_lo, output_hi;
+        uintptr_t input_lo, input_hi;
+
+        input_lo = (uintptr_t)pipeline_library->input_blob;
+        input_hi = input_lo + pipeline_library->input_blob_length - 1;
+
+        output_lo = (uintptr_t)data;
+        output_hi = output_lo + data_size - 1;
+
+        overlap_lo = max(input_lo, output_lo);
+        overlap_hi = min(input_hi, output_hi);
+
+        if (overlap_lo <= overlap_hi)
+        {
+            WARN("Invalid API usage. Application attempts to serialize to memory owned by this pipeline library. Falling back.\n");
+            output_data = data;
+            data = vkd3d_malloc(required_size);
+            header = data;
+        }
+    }
 
     header->version = VKD3D_PIPELINE_LIBRARY_VERSION_TOC;
     header->vendor_id = device_properties->vendorID;
@@ -2018,6 +2067,12 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
             header->pipeline_count, pso_size,
             header->spirv_count, spirv_size,
             header->driver_cache_count, driver_cache_size);
+    }
+
+    if (output_data)
+    {
+        memcpy(output_data, data, required_size);
+        vkd3d_free(data);
     }
 
     return S_OK;
@@ -2329,6 +2384,10 @@ static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline
     uint32_t i;
     HRESULT hr;
 
+    /* For reference later when we serialize. Need a workaround. */
+    pipeline_library->input_blob = blob;
+    pipeline_library->input_blob_length = blob_length;
+
     /* Same logic as for pipeline blobs, indicate that the app needs
      * to rebuild the pipeline library in case vkd3d itself or the
      * underlying device/driver changed */
@@ -2518,6 +2577,7 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
     if (FAILED(hr = vkd3d_private_store_init(&pipeline_library->private_store)))
         goto cleanup_mutex;
 
+    d3d_destruction_notifier_init(&pipeline_library->destruction_notifier, (IUnknown*)&pipeline_library->ID3D12PipelineLibrary_iface);
     d3d12_device_add_ref(pipeline_library->device = device);
     return hr;
 
@@ -2541,6 +2601,8 @@ HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *b
 
     if (FAILED(hr = d3d12_pipeline_library_init(object, device, blob, blob_length, flags)))
     {
+        if (hr == E_OUTOFMEMORY)
+            ERR("d3d12_pipeline_library_init failed with E_OUTOFMEMORY. This is likely a symptom of corrupt blob.\n");
         vkd3d_free(object);
         return hr;
     }
@@ -2697,7 +2759,7 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
     }
 }
 
-static uint64_t vkd3d_pipeline_cache_compatibility_condense(const struct vkd3d_pipeline_cache_compatibility *compat)
+uint64_t vkd3d_pipeline_cache_compatibility_condense(const struct vkd3d_pipeline_cache_compatibility *compat)
 {
     unsigned int i;
     uint64_t h;
@@ -3146,7 +3208,9 @@ static void vkd3d_pipeline_library_disk_cache_initial_setup(struct vkd3d_pipelin
 HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_disk_cache *cache,
         struct d3d12_device *device)
 {
+    const char *app_name_str = NULL;
     char path_buf[VKD3D_PATH_MAX];
+    char app_name[VKD3D_PATH_MAX];
     VKD3D_UNUSED size_t i, n;
     const char *separator;
     const char *path;
@@ -3168,6 +3232,11 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
     {
         separator = &path[strlen(path) - 1];
         separator = (*separator == '/' || *separator == '\\') ? "" : "/";
+
+        /* If we're using explicit cache directory, multiple games are likely pointing to it,
+         * so split the caches up by name. */
+        if (vkd3d_get_program_name(app_name))
+            app_name_str = app_name;
     }
     else
         separator = "";
@@ -3180,21 +3249,31 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
      * Normally Wine accepts Unix style paths, but not here for whatever reason. */
 
     if (path && path[0] == '/')
-        snprintf(cache->read_path, sizeof(cache->read_path), "Z:\\%s%svkd3d-proton.cache", path + 1, separator);
+        snprintf(cache->read_path, sizeof(cache->read_path), "Z:\\%s%svkd3d-proton", path + 1, separator);
     else if (path)
-        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton.cache", path, separator);
+        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton", path, separator);
     else
-        strcpy(cache->read_path, "vkd3d-proton.cache");
+        strcpy(cache->read_path, "vkd3d-proton");
 
     for (i = 0, n = strlen(cache->read_path); i < n; i++)
         if (cache->read_path[i] == '/')
             cache->read_path[i] = '\\';
-    INFO("Remapping VKD3D_SHADER_CACHE to: %s.\n", cache->read_path);
 #else
     if (path)
-        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton.cache", path, separator);
+        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton", path, separator);
     else
-        strcpy(cache->read_path, "vkd3d-proton.cache");
+        strcpy(cache->read_path, "vkd3d-proton");
+#endif
+
+    if (app_name_str)
+    {
+        vkd3d_strlcat(cache->read_path, sizeof(cache->read_path), ".");
+        vkd3d_strlcat(cache->read_path, sizeof(cache->read_path), app_name_str);
+    }
+    vkd3d_strlcat(cache->read_path, sizeof(cache->read_path), ".cache");
+
+#ifdef _WIN32
+    INFO("Remapping VKD3D_SHADER_CACHE to: %s.\n", cache->read_path);
 #endif
 
     INFO("Attempting to load disk cache from: %s.\n", cache->read_path);

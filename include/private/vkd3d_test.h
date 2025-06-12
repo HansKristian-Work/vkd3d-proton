@@ -123,6 +123,7 @@ struct vkd3d_test_state_context
     bool bug_enabled;
 
     const char *test_name_filter;
+    const char *test_name_match;
     const char *test_exclude_list;
     char context[1024];
 };
@@ -275,14 +276,22 @@ int main(int argc, char **argv)
 {
     const char *exclude_list = getenv("VKD3D_TEST_EXCLUDE");
     const char *test_filter = getenv("VKD3D_TEST_FILTER");
+    const char *test_match = getenv("VKD3D_TEST_MATCH");
     const char *debug_level = getenv("VKD3D_TEST_DEBUG");
     const char *test_platform = getenv("VKD3D_TEST_PLATFORM");
     const char *bug = getenv("VKD3D_TEST_BUG");
+
+    if (test_filter && test_match)
+    {
+        fprintf(stderr, "Cannot specify both VKD3D_TEST_FILTER and VKD3D_TEST_MATCH!\n");
+        exit(1);
+    }
 
     memset(&vkd3d_test_state, 0, sizeof(vkd3d_test_state));
     vkd3d_test_state.debug_level = debug_level ? atoi(debug_level) : 1;
     vkd3d_test_state.bug_enabled = bug ? atoi(bug) : true;
     vkd3d_test_state.test_name_filter = test_filter;
+    vkd3d_test_state.test_name_match = test_match;
     vkd3d_test_state.test_exclude_list = exclude_list;
 
     if (test_platform)
@@ -373,6 +382,9 @@ typedef void (*vkd3d_test_pfn)(void);
 static inline void vkd3d_run_test(const char *name, vkd3d_test_pfn test_pfn)
 {
     const char *old_test_name;
+
+    if (vkd3d_test_state.test_name_match && strcmp(name, vkd3d_test_state.test_name_match))
+        return;
 
     if (vkd3d_test_state.test_name_filter && !strstr(name, vkd3d_test_state.test_name_filter))
         return;

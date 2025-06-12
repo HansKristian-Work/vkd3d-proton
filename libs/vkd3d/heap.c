@@ -26,6 +26,8 @@
 static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *iface,
         REFIID iid, void **object)
 {
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
+
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
     if (!object)
@@ -40,6 +42,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *ifa
     {
         ID3D12Heap1_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3DDestructionNotifier))
+    {
+        ID3DDestructionNotifier_AddRef(&heap->destruction_notifier.ID3DDestructionNotifier_iface);
+        *object = &heap->destruction_notifier.ID3DDestructionNotifier_iface;
         return S_OK;
     }
 
@@ -68,6 +77,8 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 {
     TRACE("Destroying heap %p.\n", heap);
 
+    d3d_destruction_notifier_free(&heap->destruction_notifier);
+
     vkd3d_free_memory(heap->device, &heap->device->memory_allocator, &heap->allocation);
     vkd3d_private_store_destroy(&heap->private_store);
     vkd3d_free(heap);
@@ -90,6 +101,8 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
     if (!refcount)
     {
         struct d3d12_device *device = heap->device;
+
+        d3d_destruction_notifier_notify(&heap->destruction_notifier);
 
         d3d12_heap_decref(heap);
         d3d12_device_release(device);
@@ -204,11 +217,31 @@ HRESULT d3d12_device_validate_custom_heap_type(struct d3d12_device *device,
     if (heap_properties->Type != D3D12_HEAP_TYPE_CUSTOM)
         return S_OK;
 
-    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN
-            || (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
-            && (is_cpu_accessible_heap(heap_properties) || d3d12_device_is_uma(device, NULL))))
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN)
     {
         WARN("Invalid memory pool preference.\n");
+        return E_INVALIDARG;
+    }
+
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
+        && heap_properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK)
+    {
+        WARN("Invalid memory pool preference and CPU page property combination.\n");
+        return E_INVALIDARG;
+    }
+
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
+        && d3d12_device_is_uma(device, NULL))
+    {
+        WARN("Invalid memory pool preference on UMA device.\n");
+        return E_INVALIDARG;
+    }
+
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
+        && heap_properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
+        && !device->memory_info.has_gpu_upload_heap)
+    {
+        WARN("Invalid memory pool preference (device does not support rebar).\n");
         return E_INVALIDARG;
     }
 
@@ -277,9 +310,30 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     if (FAILED(hr = validate_heap_desc(device, &heap->desc)))
         return hr;
 
+    memset(&alloc_info, 0, sizeof(alloc_info));
     alloc_info.heap_desc = heap->desc;
     alloc_info.host_ptr = host_address;
-    alloc_info.extra_allocation_flags = 0;
+
+    if ((alloc_info.heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
+            device->d3d12_caps.options.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2)
+    {
+        alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION;
+    }
+
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS))
+    {
+        /* Unfortunately, we cannot trust CREATE_NOT_ZEROED to actually do anything.
+         * Stress tests on Windows suggest that it drivers always clear anyway.
+         * This suggests we have a lot of potential game bugs in the wild that will randomly be exposed
+         * if we try to skip clears.
+         * For render targets, we expect the transition away from UNDEFINED to deal with it. */
+        alloc_info.heap_desc.Flags &= ~D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+    }
+
+    /* Buffers are far more sensitive to memory clears than images. */
+    if ((alloc_info.heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_IMAGE_HEAP_CLEAR))
+        alloc_info.heap_desc.Flags |= D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
 
     if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
         return hr;
@@ -317,6 +371,10 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
         heap->allocation.chunk == NULL /* not suballocated */ &&
         (device->memory_properties.memoryTypes[heap->allocation.device_allocation.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
+    vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
+            VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_HEAP_ALLOCATION, desc->SizeInBytes);
+
+    d3d_destruction_notifier_init(&heap->destruction_notifier, (IUnknown*)&heap->ID3D12Heap_iface);
     d3d12_device_add_ref(heap->device);
     return S_OK;
 }

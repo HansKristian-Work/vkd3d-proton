@@ -28,6 +28,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <math.h>
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -64,6 +65,12 @@ static inline size_t align(size_t addr, size_t alignment)
 # define VKD3D_PRINTF_FUNC(fmt, args)
 # define VKD3D_UNUSED
 #endif  /* __GNUC__ */
+
+#if __has_attribute(__counted_by__)
+# define vkd3d_counted_by(member) __attribute__((__counted_by__(member)))
+#else
+# define vkd3d_counted_by(member)
+#endif
 
 static inline unsigned int vkd3d_popcount(unsigned int v)
 {
@@ -288,6 +295,18 @@ static inline void *void_ptr_offset(void *ptr, size_t offset)
     return ((char*)ptr) + offset;
 }
 
+static inline int32_t vkd3d_float_to_fixed_24_8(float f)
+{
+    /* Docs suggest round to nearest even, but that does not match
+     * observed behaviour. Always round away from zero instead. */
+    return lroundf(f * 256.0f);
+}
+
+static inline float vkd3d_fixed_24_8_to_float(int32_t i)
+{
+    return (float)(i) / 256.0f;
+}
+
 #ifdef _MSC_VER
 #define VKD3D_THREAD_LOCAL __declspec(thread)
 #else
@@ -319,7 +338,7 @@ static inline uint64_t vkd3d_get_current_time_ticks(void)
 {
 #ifdef _MSC_VER
     return __rdtsc();
-#elif defined(__i386__) || defined(__x86_64__)
+#elif defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
     return __builtin_ia32_rdtsc();
 #else
     return vkd3d_get_current_time_ns();

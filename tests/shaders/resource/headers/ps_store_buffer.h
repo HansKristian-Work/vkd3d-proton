@@ -1,0 +1,16 @@
+static const DWORD ps_store_buffer_code_dxbc[] =
+{
+    0x43425844, 0x0dcbdd90, 0x7dad2857, 0x4ee149ee, 0x72a13d21, 0x00000001, 0x000000a4, 0x00000003,
+    0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+    0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000050, 0x00000050, 0x00000014, 0x0100086a,
+    0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300009d, 0x0011e000, 0x00000000, 0x090000a6,
+    0x0011e012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020801a, 0x00000000, 0x00000000,
+    0x0100003e,
+};
+#ifdef __GNUC__
+#define UNUSED_ARRAY_ATTR __attribute__((unused))
+#else
+#define UNUSED_ARRAY_ATTR
+#endif
+UNUSED_ARRAY_ATTR static const D3D12_SHADER_BYTECODE ps_store_buffer_dxbc = { ps_store_buffer_code_dxbc, sizeof(ps_store_buffer_code_dxbc) };
+#undef UNUSED_ARRAY_ATTR

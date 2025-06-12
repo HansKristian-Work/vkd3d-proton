@@ -3,7 +3,6 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
-#extension GL_KHR_shader_subgroup_ballot : enable
 
 #define VK_MEMORY_DECOMPRESSION_METHOD_GDEFLATE_1_0_BIT_NV (uint64_t(1))
 
@@ -103,18 +102,7 @@ void main() {
 
   // Allocate an output region structure from the scratch buffer
   memory_regions_t region_buffer = memory_regions_t(scratch_buffer);
-
-  uvec4 ballot = subgroupBallot(true);
-
-  uint out_count = subgroupBallotBitCount(ballot);
-  uint out_index = subgroupBallotExclusiveBitCount(ballot);
-
-  uint out_first;
-
-  if (subgroupElect())
-    out_first = atomicAdd(region_buffer.region_count.x, out_count);
-
-  out_index += subgroupBroadcastFirst(out_first);
+  uint out_index = atomicAdd(region_buffer.region_count.x, 1);
 
   // Compute absolute VAs for vkCmdDecompressMemoryIndirectCountNV
   region_buffer.memory_regions[out_index] = memory_region_t(

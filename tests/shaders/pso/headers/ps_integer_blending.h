@@ -1,0 +1,16 @@
+static const DWORD ps_integer_blending_code_dxbc[] =
+{
+    0x43425844, 0x9f26b611, 0xc59570a7, 0x9b327871, 0xb1015fc6, 0x00000001, 0x000000a8, 0x00000003,
+    0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+    0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+    0x00000e01, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000030, 0x00000050, 0x0000000c,
+    0x0100086a, 0x03000065, 0x00102012, 0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x00004001,
+    0x0000000a, 0x0100003e,
+};
+#ifdef __GNUC__
+#define UNUSED_ARRAY_ATTR __attribute__((unused))
+#else
+#define UNUSED_ARRAY_ATTR
+#endif
+UNUSED_ARRAY_ATTR static const D3D12_SHADER_BYTECODE ps_integer_blending_dxbc = { ps_integer_blending_code_dxbc, sizeof(ps_integer_blending_code_dxbc) };
+#undef UNUSED_ARRAY_ATTR

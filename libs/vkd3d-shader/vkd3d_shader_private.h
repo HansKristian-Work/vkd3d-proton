@@ -114,6 +114,7 @@ enum VKD3D_SHADER_INSTRUCTION_HANDLER
     VKD3DSIH_DCL_INTERFACE,
     VKD3DSIH_DCL_OUTPUT,
     VKD3DSIH_DCL_OUTPUT_CONTROL_POINT_COUNT,
+    VKD3DSIH_DCL_OUTPUT_SGV,
     VKD3DSIH_DCL_OUTPUT_SIV,
     VKD3DSIH_DCL_OUTPUT_TOPOLOGY,
     VKD3DSIH_DCL_RESOURCE_RAW,
@@ -457,6 +458,7 @@ enum vkd3d_tessellator_domain
 #define VKD3DSI_INDEXED_DYNAMIC         0x4
 #define VKD3DSI_RESINFO_RCP_FLOAT       0x1
 #define VKD3DSI_RESINFO_UINT            0x2
+#define VKD3DSI_RESINFO_MASK            0x3
 #define VKD3DSI_SAMPLE_INFO_UINT        0x1
 #define VKD3DSI_SAMPLER_COMPARISON_MODE 0x1
 
@@ -491,7 +493,7 @@ enum vkd3d_shader_conditional_op
 #define VKD3D_SM5_DS  0x0004u
 #define VKD3D_SM5_CS  0x0005u
 
-#define MAX_IMMEDIATE_CONSTANT_BUFFER_SIZE 4096
+#define MAX_IMMEDIATE_CONSTANT_BUFFER_DWORDS 16384
 #define MAX_REG_OUTPUT 32
 
 enum vkd3d_shader_type
@@ -517,7 +519,7 @@ struct vkd3d_shader_version
 struct vkd3d_shader_immediate_constant_buffer
 {
     unsigned int vec4_count;
-    uint32_t data[MAX_IMMEDIATE_CONSTANT_BUFFER_SIZE];
+    uint32_t data[MAX_IMMEDIATE_CONSTANT_BUFFER_DWORDS];
 };
 
 struct vkd3d_shader_indexable_temp
@@ -784,6 +786,8 @@ int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_signature *signature);
 int shader_parse_output_signature(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_signature *signature);
+int shader_parse_patch_constant_signature(const void *dxbc, size_t dxbc_length,
+        struct vkd3d_shader_signature *signature);
 
 struct vkd3d_dxbc_compiler;
 
@@ -906,6 +910,22 @@ static inline unsigned int vkd3d_compact_swizzle(unsigned int swizzle, unsigned 
     }
 
     return compacted_swizzle;
+}
+
+static inline unsigned int vkd3d_shader_quirk_to_tess_factor_limit(uint32_t quirks)
+{
+    if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4)
+        return 4;
+    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8)
+        return 8;
+    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12)
+        return 12;
+    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16)
+        return 16;
+    else if (quirks & VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_32)
+        return 32;
+
+    return 0;
 }
 
 #define VKD3D_DXBC_MAX_SOURCE_COUNT 6

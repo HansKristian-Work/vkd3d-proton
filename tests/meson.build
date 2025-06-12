@@ -7,10 +7,10 @@ endif
 
 d3d12_test_utils_lib = static_library('d3d12-test-utils', 'd3d12_test_utils.c',
   dependencies        : vkd3d_test_deps,
-  include_directories : vkd3d_private_includes,
-  override_options    : [ 'c_std='+vkd3d_c_std ])
+  include_directories : vkd3d_private_includes)
 
 d3d12_test_src = [
+  'd3d12_dxvk_interop_device.c',
   'd3d12_clip_cull_distance.c',
   'd3d12_enhanced_barriers.c',
   'd3d12_sampler_feedback.c',
@@ -25,6 +25,7 @@ d3d12_test_src = [
   'd3d12_descriptors.c',
   'd3d12_raytracing.c',
   'd3d12_robustness.c',
+  'd3d12_workgraphs.c',
   'd3d12_streamout.c',
   'd3d12_pso_blob.c',
   'd3d12_resource.c',
@@ -50,7 +51,6 @@ executable('d3d12', d3d12_test_src,
   include_directories : vkd3d_private_includes,
   install             : false,
   c_args              : vkd3d_test_flags,
-  override_options    : [ 'c_std='+vkd3d_c_std ],
   link_with           : [ d3d12_test_utils_lib ])
 
 executable('descriptor-performance', 'descriptor_performance.c',
@@ -58,7 +58,6 @@ executable('descriptor-performance', 'descriptor_performance.c',
   include_directories : vkd3d_private_includes,
   install             : false,
   c_args              : vkd3d_test_flags,
-  override_options    : [ 'c_std='+vkd3d_c_std ],
   link_with           : [ d3d12_test_utils_lib ])
 
 executable('pso-library-bloat', 'pso_library_bloat.c',
@@ -66,7 +65,6 @@ executable('pso-library-bloat', 'pso_library_bloat.c',
   include_directories : vkd3d_private_includes,
   install             : false,
   c_args              : vkd3d_test_flags,
-  override_options    : [ 'c_std='+vkd3d_c_std ],
   link_with           : [ d3d12_test_utils_lib ])
 
 executable('shader-api', 'vkd3d_shader_api.c',
@@ -74,5 +72,4 @@ executable('shader-api', 'vkd3d_shader_api.c',
   include_directories : [ vkd3d_private_includes, vkd3d_shader_private_includes ],
   install             : false,
   c_args              : vkd3d_test_flags,
-  override_options    : [ 'c_std='+vkd3d_c_std ],
   link_with           : [ d3d12_test_utils_lib ])

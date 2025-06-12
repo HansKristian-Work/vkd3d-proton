@@ -107,6 +107,7 @@ void test_check_feature_support(void)
 
     static const D3D_FEATURE_LEVEL all_feature_levels[] =
     {
+        D3D_FEATURE_LEVEL_12_2,
         D3D_FEATURE_LEVEL_12_1,
         D3D_FEATURE_LEVEL_12_0,
         D3D_FEATURE_LEVEL_11_1,
@@ -119,6 +120,7 @@ void test_check_feature_support(void)
     };
     static const D3D_FEATURE_LEVEL d3d12_feature_levels[] =
     {
+        D3D_FEATURE_LEVEL_12_2,
         D3D_FEATURE_LEVEL_12_1,
         D3D_FEATURE_LEVEL_12_0,
         D3D_FEATURE_LEVEL_11_1,
@@ -336,10 +338,94 @@ static const DXGI_FORMAT depth_stencil_formats[] =
 void test_format_support(void)
 {
     D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support;
+    D3D12_FEATURE_DATA_FEATURE_LEVELS feature_levels;
+    bool required_but_fails;
+    bool unspecified_format;
+    bool optional_format;
     ID3D12Device *device;
+    DXGI_FORMAT format;
     ULONG refcount;
     unsigned int i;
     HRESULT hr;
+
+    static const DXGI_FORMAT known_required_but_fails[] =
+    {
+        DXGI_FORMAT_R8G8_B8G8_UNORM,
+        DXGI_FORMAT_G8R8_G8B8_UNORM,
+        DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM,
+        DXGI_FORMAT_420_OPAQUE,
+        DXGI_FORMAT_YUY2,
+    };
+
+#define MAX_FORMAT_VALUE DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE
+
+    const struct dxgi_format_list
+    {
+        D3D_FEATURE_LEVEL feature_level;
+        DXGI_FORMAT optional_formats[MAX_FORMAT_VALUE];
+        DXGI_FORMAT unspecified_formats[MAX_FORMAT_VALUE];
+    } *dxgi_format, dxgi_format_list[] = {
+        /*
+            https://devblogs.microsoft.com/directx/new-in-directx-feature-level-12_2/
+            https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html
+        */
+        {D3D_FEATURE_LEVEL_12_2, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8},
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_B4G4R4A4_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/hardware-support-for-direct3d-12-1-formats.md */
+        {D3D_FEATURE_LEVEL_12_1, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8},
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_B4G4R4A4_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/hardware-support-for-direct3d-12-0-formats.md */
+        {D3D_FEATURE_LEVEL_12_0, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8},
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/format-support-for-direct3d-11-1-feature-level-hardware.md */
+        {D3D_FEATURE_LEVEL_11_1, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8}, 
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/format-support-for-direct3d-11-0-feature-level-hardware.md */
+        {D3D_FEATURE_LEVEL_11_0, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8}, 
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/format-support-for-direct3d-feature-level-10-1-hardware.md */
+        {D3D_FEATURE_LEVEL_10_1, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, 
+                DXGI_FORMAT_Y216, DXGI_FORMAT_NV11, DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8}, 
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/format-support-for-direct3d-feature-level-10-1-hardware.md */
+        {D3D_FEATURE_LEVEL_10_0, 
+            {DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM, DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, 
+                DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11, DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8}, 
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+    };
+
+#undef MAX_FORMAT_VALUE
+
+    static const D3D_FEATURE_LEVEL all_feature_levels[] =
+    {
+        D3D_FEATURE_LEVEL_12_2,
+        D3D_FEATURE_LEVEL_12_1,
+        D3D_FEATURE_LEVEL_12_0,
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+        D3D_FEATURE_LEVEL_10_0,
+        D3D_FEATURE_LEVEL_9_3,
+        D3D_FEATURE_LEVEL_9_2,
+        D3D_FEATURE_LEVEL_9_1,
+    };
 
     if (!(device = create_device()))
     {
@@ -350,20 +436,104 @@ void test_format_support(void)
     memset(&format_support, 0, sizeof(format_support));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
             &format_support, sizeof(format_support));
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-    todo ok(format_support.Support1 == D3D12_FORMAT_SUPPORT1_BUFFER,
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(format_support.Support1 == D3D12_FORMAT_SUPPORT1_BUFFER,
             "Got unexpected support1 %#x.\n", format_support.Support1);
     ok(!format_support.Support2 || format_support.Support2 == D3D12_FORMAT_SUPPORT2_TILED,
             "Got unexpected support2 %#x.\n", format_support.Support2);
 
-    for (i = 0; i < ARRAY_SIZE(depth_stencil_formats); ++i)
+    memset(&feature_levels, 0, sizeof(feature_levels));
+    feature_levels.NumFeatureLevels = ARRAY_SIZE(all_feature_levels);
+    feature_levels.pFeatureLevelsRequested = all_feature_levels;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS, 
+        &feature_levels, sizeof(feature_levels));
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    dxgi_format = NULL;
+    for (i = 0; i < ARRAY_SIZE(dxgi_format_list); ++i)
     {
+        if (dxgi_format_list[i].feature_level == feature_levels.MaxSupportedFeatureLevel)
+        {
+            dxgi_format = &dxgi_format_list[i];
+            break;
+        }
+    }
+    assert(dxgi_format);
+
+    for (format = 0; format <= DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE; ++format)
+    {
+        /* Undefined range, skip */
+        if (format > DXGI_FORMAT_B4G4R4A4_UNORM && format < DXGI_FORMAT_P208)
+            continue;
+
+        vkd3d_test_set_context("format %#x", format);
+
+        required_but_fails = false;
+        unspecified_format = false;
+        optional_format = false;
+
+        for (i = 0; i < ARRAY_SIZE(known_required_but_fails); ++i)
+        {
+            if (known_required_but_fails[i] == format)
+            {
+                required_but_fails = true;
+                break;
+            }
+        }
+
+        if (!required_but_fails)
+        {
+            /* ASTC format are unspecified */
+            if (format >= /* DXGI_FORMAT_UNDOCUMENTED_ASTC_FIRST */ (DXGI_FORMAT)0x85 && 
+                format <= /* DXGI_FORMAT_UNDOCUMENTED_ASTC_LAST */  (DXGI_FORMAT)0xbc)
+            {
+                unspecified_format = true;
+            }
+            else
+            {
+                /* Check if the format is unspecified or optional */
+                for (i = 0; i < ARRAY_SIZE(dxgi_format->unspecified_formats); ++i)
+                {
+                    /* Fixed size list with only part of the list filled */
+                    if (dxgi_format->unspecified_formats[i] == DXGI_FORMAT_UNKNOWN)
+                        break;
+                    if (dxgi_format->unspecified_formats[i] == format)
+                    {
+                        unspecified_format = true;
+                        break;
+                    }
+                }
+
+                if (!unspecified_format)
+                {
+                    for (i = 0; i < ARRAY_SIZE(dxgi_format->optional_formats); ++i)
+                    {
+                        /* Fixed size list with only part of the list filled */
+                        if (dxgi_format->optional_formats[i] == DXGI_FORMAT_UNKNOWN)
+                            break;
+                        if (dxgi_format->optional_formats[i] == format)
+                        {
+                            optional_format = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         memset(&format_support, 0, sizeof(format_support));
-        format_support.Format = depth_stencil_formats[i];
+        format_support.Format = format;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
                 &format_support, sizeof(format_support));
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        if (unspecified_format)
+            ok(hr == S_OK || hr == E_FAIL, "Unspecified format %d got unexpected hr %#x.\n", format, hr);
+        else if (optional_format)
+            ok(hr == S_OK || hr == E_FAIL, "Optional format %d got unexpected hr %#x.\n", format, hr);
+        else 
+            todo_if(required_but_fails) ok(hr == S_OK, "Format %d got unexpected hr %#x.\n", format, hr);
     }
+    vkd3d_test_set_context(NULL);
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
@@ -483,6 +653,15 @@ void test_multisample_quality_levels(void)
             &format_support, sizeof(format_support));
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
+    ok(format_support.NumQualityLevels >= 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
+
+    /* DXGI_FORMAT_D32_FLOAT_S8X24_UINT */
+    format_support.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    format_support.SampleCount = 4;
+    format_support.NumQualityLevels = 0xdeadbeef;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+            &format_support, sizeof(format_support));
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
     ok(format_support.NumQualityLevels >= 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
 
     for (i = 0; i < ARRAY_SIZE(depth_stencil_formats); ++i)
@@ -1598,4 +1777,318 @@ void test_vtable_origins(void)
 
     ID3D12Device_Release(device);
 #endif
+}
+
+static void __stdcall destruction_notifier_callback(void* userdata)
+{
+    bool *invoked = userdata;
+
+    if (userdata)
+        *invoked = true;
+}
+
+void test_destruction_notifier_callback(void)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3DDestructionNotifier *notifier;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    UINT callback_id;
+    unsigned int i;
+    HRESULT hr;
+
+    struct
+    {
+        bool expected;
+        bool invoked;
+    }
+    tests[] =
+    {
+        { false }, { true }, { true }, { true },
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Width = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resource);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    hr = ID3D12Resource_QueryInterface(resource, &IID_ID3DDestructionNotifier, (void**)&notifier);
+    ok(hr == S_OK, "Failed to query destruction notifier from resource, hr %#x.\n", hr);
+
+    if (FAILED(hr))
+    {
+        skip("ID3DDestructionNotifier not supported by implementation.\n");
+        ID3D12Resource_Release(resource);
+        ID3D12Device_Release(device);
+    }
+
+    callback_id = 0xdeadbeef;
+
+    hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, NULL, NULL, &callback_id);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got hr %#x, expected DXGI_ERROR_INVALID_CALL.\n", hr);
+    ok(callback_id == 0xdeadbeef, "Got callback ID %d\n", callback_id);
+
+    hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, &destruction_notifier_callback, &tests[0].invoked, &callback_id);
+    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", hr);
+    ok(callback_id == 1, "Expected callback ID 0, got %d.\n", callback_id);
+
+    /* Not capturing the callback ID is fine */
+    hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, &destruction_notifier_callback, &tests[1].invoked, NULL);
+    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", hr);
+
+    hr = ID3DDestructionNotifier_UnregisterDestructionCallback(notifier, callback_id);
+    ok(hr == S_OK, "Failed to unregister callback, hr %#x.\n", hr);
+
+    hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, &destruction_notifier_callback, &tests[2].invoked, &callback_id);
+    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", hr);
+    ok(callback_id == 2, "Expected callback ID 0, got %d.\n", callback_id);
+
+    hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, &destruction_notifier_callback, &tests[3].invoked, &callback_id);
+    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", hr);
+    ok(callback_id == 3, "Expected callback ID 2, got %d.\n", callback_id);
+
+    hr = ID3DDestructionNotifier_UnregisterDestructionCallback(notifier, 0);
+    ok(hr == DXGI_ERROR_NOT_FOUND, "Got hr %#x, expected DXGI_ERROR_NOT_FOUND.\n", hr);
+    hr = ID3DDestructionNotifier_UnregisterDestructionCallback(notifier, 0xdeadbeef);
+    ok(hr == DXGI_ERROR_NOT_FOUND, "Got hr %#x, expected DXGI_ERROR_NOT_FOUND.\n", hr);
+
+    ID3DDestructionNotifier_Release(notifier);
+    ID3D12Resource_Release(resource);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        ok(tests[i].invoked == tests[i].expected, "Got %d, expected %d.\n",
+                tests[i].invoked, tests[i].expected);
+    }
+
+    ID3D12Device_Release(device);
+}
+
+void test_destruction_notifier_interfaces(void)
+{
+    D3D12_COMMAND_SIGNATURE_DESC command_signature_desc;
+    D3D12_INDIRECT_ARGUMENT_DESC command_signature_arg;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_desc;
+    D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12CommandAllocator *command_allocator;
+    ID3D12CommandSignature *command_signature;
+    ID3D12PipelineLibrary *pipeline_library;
+    D3D12_QUERY_HEAP_DESC query_heap_desc;
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    ID3D12RootSignature *root_signature;
+    ID3DDestructionNotifier *notifier;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12CommandQueue *command_queue;
+    ULONG refcount, expected_refcount;
+    ID3D12CommandList *command_list;
+    ID3D12PipelineState *pipeline;
+    ID3D12QueryHeap *query_heap;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *resource;
+    ID3D12Device1 *device1;
+    ID3D12Device *device;
+    ID3D12Fence *fence;
+    ID3D12Heap *heap;
+    unsigned int i;
+    HRESULT hr;
+
+    IUnknown** const tests[] =
+    {
+        (IUnknown**)&command_allocator,
+        (IUnknown**)&command_list,
+        (IUnknown**)&command_queue,
+        (IUnknown**)&command_signature,
+        (IUnknown**)&descriptor_heap,
+        (IUnknown**)&device,
+        (IUnknown**)&fence,
+        (IUnknown**)&heap,
+        (IUnknown**)&pipeline,
+        (IUnknown**)&pipeline_library,
+        (IUnknown**)&query_heap,
+        (IUnknown**)&resource,
+        (IUnknown**)&root_signature,
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    device1 = NULL;
+    ID3D12Device_QueryInterface(device, &IID_ID3D12Device1, (void**)&device1);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Width = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &resource_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resource);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void**)&fence);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    memset(&query_heap_desc, 0, sizeof(query_heap_desc));
+    query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+    query_heap_desc.Count = 1024;
+
+    hr = ID3D12Device_CreateQueryHeap(device, &query_heap_desc,
+            &IID_ID3D12QueryHeap, (void**)&query_heap);
+    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void**)&command_allocator);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            command_allocator, NULL, &IID_ID3D12CommandList, (void**)&command_list);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+
+    hr = ID3D12Device_CreateCommandQueue(device, &queue_desc, &IID_ID3D12CommandQueue, (void**)&command_queue);
+    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+
+    memset(&descriptor_heap_desc, 0, sizeof(descriptor_heap_desc));
+    descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    descriptor_heap_desc.NumDescriptors = 1024;
+    descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    hr = ID3D12Device_CreateDescriptorHeap(device, &descriptor_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&descriptor_heap);
+    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+
+    pipeline_library = NULL;
+
+    if (device1)
+    {
+        hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
+        ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", hr);
+    }
+
+    memset(&command_signature_arg, 0, sizeof(command_signature_arg));
+    command_signature_arg.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    memset(&command_signature_desc, 0, sizeof(command_signature_desc));
+    command_signature_desc.NumArgumentDescs = 1;
+    command_signature_desc.pArgumentDescs = &command_signature_arg;
+    command_signature_desc.ByteStride = 16;
+
+    hr = ID3D12Device_CreateCommandSignature(device, &command_signature_desc,
+            NULL, &IID_ID3D12CommandSignature, (void**)&command_signature);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+
+    init_pipeline_state_desc(&pipeline_desc, root_signature,
+            DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pipeline_desc, &IID_ID3D12PipelineState, (void**)&pipeline);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        IUnknown* iface = *tests[i];
+
+        vkd3d_test_set_context("Test %u", i);
+
+        if (!iface)
+        {
+            skip("Interface not available.\n");
+            continue;
+        }
+
+        expected_refcount = get_refcount(iface) + 1u;
+
+        notifier = NULL;
+        hr = IUnknown_QueryInterface(iface, &IID_ID3DDestructionNotifier, (void**)&notifier);
+        ok(hr == S_OK, "Failed to query ID3DDestructionNotifier, hr %#x.\n", hr);
+
+        if (!notifier)
+            continue;
+
+        expected_refcount++;
+        ID3DDestructionNotifier_AddRef(notifier);
+
+        refcount = get_refcount(iface);
+        ok(refcount == expected_refcount, "Expected object ref count to be %u, got %u.\n", expected_refcount, refcount);
+
+        expected_refcount--;
+        refcount = ID3DDestructionNotifier_Release(notifier);
+        ok(refcount == expected_refcount, "Expected notifier ref count to be %u, got %u.\n", expected_refcount, refcount);
+
+        refcount = get_refcount(iface);
+        ok(refcount == expected_refcount, "Expected object ref count to be %u, got %u.\n", expected_refcount, refcount);
+
+        expected_refcount--;
+        ID3DDestructionNotifier_Release(notifier);
+
+        refcount = get_refcount(iface);
+        ok(refcount == expected_refcount, "Expected object ref count to be %u, got %u.\n", expected_refcount, refcount);
+    }
+
+    ID3D12PipelineState_Release(pipeline);
+    ID3D12CommandSignature_Release(command_signature);
+
+    if (pipeline_library)
+        ID3D12PipelineLibrary_Release(pipeline_library);
+
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+    ID3D12CommandQueue_Release(command_queue);
+    ID3D12CommandList_Release(command_list);
+    ID3D12CommandAllocator_Release(command_allocator);
+    ID3D12QueryHeap_Release(query_heap);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12Fence_Release(fence);
+    ID3D12Resource_Release(resource);
+    ID3D12Heap_Release(heap);
+
+    if (device1)
+        ID3D12Device1_Release(device1);
+
+    ID3D12Device_Release(device);
 }

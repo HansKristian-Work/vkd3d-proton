@@ -25,8 +25,7 @@ d3d12_lib = shared_library('d3d12', d3d12_src,
   include_directories : vkd3d_private_includes,
   install             : true,
   objects             : d3d12_needs_defs ? 'd3d12.def' : [],
-  vs_module_defs      : 'd3d12.def',
-  override_options    : [ 'c_std='+vkd3d_c_std ])
+  vs_module_defs      : 'd3d12.def')
 
 d3d12_dep = declare_dependency(
   link_with           : d3d12_lib,

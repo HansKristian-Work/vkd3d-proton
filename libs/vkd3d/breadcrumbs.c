@@ -23,6 +23,7 @@
 #include "vkd3d_common.h"
 #include <assert.h>
 #include <stdio.h>
+#include "vkd3d_descriptor_debug.h"
 
 /* Just allocate everything up front. This only consumes host memory anyways. */
 #define MAX_COMMAND_LISTS (32 * 1024)
@@ -102,8 +103,18 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "clear_inline";
         case VKD3D_BREADCRUMB_COMMAND_CLEAR_PASS:
             return "clear_pass";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV:
+            return "clear_uav";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_COPY:
+            return "clear_uav_copy";
         case VKD3D_BREADCRUMB_COMMAND_DSTORAGE:
             return "dstorage";
+        case VKD3D_BREADCRUMB_COMMAND_WORKGRAPH_META:
+            return "workgraph meta";
+        case VKD3D_BREADCRUMB_COMMAND_WORKGRAPH_NODE:
+            return "workgraph node";
+        case VKD3D_BREADCRUMB_COMMAND_SYNC_VAL_CLEAR:
+            return "sync-val clear";
 
         default:
             return "?";
@@ -155,7 +166,7 @@ HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, str
         resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
         if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
-                &resource_desc, VK_VKD3D_TYPE_TRACER_JUICE, &tracer->host_buffer)))
+                &resource_desc, "breadcrumb-host-buffer", &tracer->host_buffer)))
         {
             goto err;
         }
@@ -316,7 +327,7 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
 
     if (end_marker == 0)
     {
-        ERR(" ===== Potential crash region BEGIN (make sure RADV_DEBUG=syncshaders is used for maximum accuracy) =====\n");
+        ERR(" ===== Potential crash region BEGIN (make sure RADV_DEBUG=syncshaders or VKD3D_CONFIG=breadcrumbs_sync is used for maximum accuracy) =====\n");
         observed_begin_cmd = true;
     }
 
@@ -350,6 +361,10 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
         else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_AUX64)
         {
             ERR(" Set arg: %"PRIu64" (#%"PRIx64")\n", cmd->word_64bit, cmd->word_64bit);
+        }
+        else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_COOKIE)
+        {
+            ERR(" Cookie: %"PRIu64" (#%"PRIx64")\n", cmd->word_64bit, cmd->word_64bit);
         }
         else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_TAG)
         {
@@ -414,6 +429,19 @@ void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *t
     pthread_mutex_unlock(&global_report_lock);
 }
 
+static bool vkd3d_breadcrumb_trace_contexts_are_linked(struct vkd3d_breadcrumb_tracer *tracer,
+        uint32_t context_index, uint32_t target_context_index)
+{
+    while (context_index != target_context_index)
+    {
+        uint32_t next = tracer->trace_contexts[context_index].next;
+        if (next != UINT32_MAX && next != context_index && tracer->trace_contexts[next].prev == context_index)
+            context_index = next;
+    }
+
+    return context_index == target_context_index;
+}
+
 static uint32_t vkd3d_breadcrumb_tracer_rewind_linked_contexts(struct vkd3d_breadcrumb_tracer *tracer,
         uint32_t context_index)
 {
@@ -476,13 +504,14 @@ static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_trac
         VkQueue vk_queue)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    uint32_t begin_marker, end_marker;
+    uint32_t top_marker, bottom_marker;
     uint32_t checkpoint_context_index;
     VkCheckpointDataNV *checkpoints;
+    uint32_t bottom_context_index;
     uint32_t begin_context_index;
     uint32_t checkpoint_marker;
+    uint32_t top_context_index;
     uint32_t checkpoint_count;
-    uint32_t context_index;
     uint32_t i;
 
     VK_CALL(vkGetQueueCheckpointDataNV(vk_queue, &checkpoint_count, NULL));
@@ -494,50 +523,66 @@ static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_trac
         checkpoints[i].sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
     VK_CALL(vkGetQueueCheckpointDataNV(vk_queue, &checkpoint_count, checkpoints));
 
-    context_index = UINT32_MAX;
-    begin_marker = 0;
-    end_marker = 0;
+    bottom_context_index = UINT32_MAX;
+    top_context_index = UINT32_MAX;
+    bottom_marker = 0;
+    top_marker = 0;
 
     for (i = 0; i < checkpoint_count; i++)
     {
         checkpoint_context_index = NV_CHECKPOINT_CONTEXT(checkpoints[i].pCheckpointMarker);
         checkpoint_marker = NV_CHECKPOINT_COUNTER(checkpoints[i].pCheckpointMarker);
 
-        if (context_index != checkpoint_context_index && context_index != UINT32_MAX)
-        {
-            FIXME("Markers have different contexts. Execution is likely split across multiple command buffers?\n");
-            context_index = UINT32_MAX;
-            break;
-        }
-
-        context_index = checkpoint_context_index;
-
-        if (checkpoints[i].stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT && checkpoint_marker > begin_marker)
+        if (checkpoints[i].stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT && checkpoint_marker > top_marker)
         {
             /* We want to find the latest TOP_OF_PIPE_BIT. Then we prove that command processor got to that point. */
-            begin_marker = checkpoint_marker;
+            top_marker = checkpoint_marker;
+            top_context_index = checkpoint_context_index;
         }
-        else if (checkpoints[i].stage == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT && checkpoint_marker > end_marker)
+        else if (checkpoints[i].stage == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT && checkpoint_marker > bottom_marker)
         {
             /* We want to find the latest BOTTOM_OF_PIPE_BIT. Then we prove that we got that far. */
-            end_marker = checkpoint_marker;
+            bottom_marker = checkpoint_marker;
+            bottom_context_index = checkpoint_context_index;
         }
         else if (checkpoints[i].stage != VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT &&
                 checkpoints[i].stage != VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
         {
             FIXME("Unexpected checkpoint pipeline stage. #%x\n", checkpoints[i].stage);
-            context_index = UINT32_MAX;
-            break;
+            continue;
         }
     }
 
-    if (context_index != UINT32_MAX && begin_marker != 0 && end_marker != 0 && end_marker != UINT32_MAX)
+    if (top_context_index != UINT32_MAX && bottom_context_index != UINT32_MAX &&
+            top_marker != 0 && bottom_marker != 0 && bottom_marker != UINT32_MAX)
     {
-        ERR("Found pending command list context %u in executable state, TOP_OF_PIPE marker %u, BOTTOM_OF_PIPE marker %u.\n",
-                context_index, begin_marker, end_marker);
-        begin_context_index = vkd3d_breadcrumb_tracer_rewind_linked_contexts(tracer, context_index);
-        vkd3d_breadcrumb_tracer_report_command_list_linked(tracer, begin_context_index, context_index);
-        vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[context_index], begin_marker, end_marker);
+        ERR("Found pending command list context [%u, %u] in executable state, TOP_OF_PIPE marker %u, BOTTOM_OF_PIPE marker %u.\n",
+                bottom_context_index, top_context_index, top_marker, bottom_marker);
+
+        begin_context_index = vkd3d_breadcrumb_tracer_rewind_linked_contexts(tracer, bottom_context_index);
+        vkd3d_breadcrumb_tracer_report_command_list_linked(tracer, begin_context_index, bottom_context_index);
+
+        if (bottom_context_index == top_context_index)
+        {
+            vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[bottom_context_index],
+                    top_marker, bottom_marker);
+        }
+        else if (vkd3d_breadcrumb_trace_contexts_are_linked(tracer, bottom_context_index, top_context_index))
+        {
+            /* While a bit confusing, bottom context completes later than top context, so it comes first. */
+            vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[bottom_context_index],
+                    UINT32_MAX, bottom_marker);
+            ERR(" ===== End of command buffer, but potential crash region goes beyond this point =====\n");
+            vkd3d_breadcrumb_tracer_report_command_list_linked(tracer,
+                    tracer->trace_contexts[bottom_context_index].next, top_context_index);
+            vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[top_context_index],
+                    top_marker, 0);
+        }
+        else
+        {
+            ERR("BOTTOM and TOP contexts are not linked. Something must be corrupt.\n");
+        }
+
         ERR("Done analyzing command list.\n");
     }
 
@@ -551,28 +596,41 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
     VkQueue vk_queue;
     unsigned int i;
 
+    /* There may be latent information in the QA checker. */
+    vkd3d_descriptor_debug_kick_qa_check(device->descriptor_qa_global_info);
+
     /* Avoid interleaved logs when multiple threads observe device lost. */
     pthread_mutex_lock(&global_report_lock);
     ERR("Device lost observed, analyzing breadcrumbs ...\n");
 
+    if (tracer->reported_fault)
+    {
+        pthread_mutex_unlock(&global_report_lock);
+        return;
+    }
+    tracer->reported_fault = true;
+
     if (device->vk_info.NV_device_diagnostic_checkpoints)
     {
         /* vkGetQueueCheckpointDataNV does not require us to synchronize access to the queue. */
-        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_DIRECT, VK_QUEUE_FAMILY_IGNORED);
+
         for (i = 0; i < queue_family_info->queue_count; i++)
         {
             vk_queue = queue_family_info->queues[i]->vk_queue;
             vkd3d_breadcrumb_tracer_report_queue_nv(tracer, device, vk_queue);
         }
 
-        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, VK_QUEUE_FAMILY_IGNORED);
+
         for (i = 0; i < queue_family_info->queue_count; i++)
         {
             vk_queue = queue_family_info->queues[i]->vk_queue;
             vkd3d_breadcrumb_tracer_report_queue_nv(tracer, device, vk_queue);
         }
 
-        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COPY);
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COPY, VK_QUEUE_FAMILY_IGNORED);
+
         for (i = 0; i < queue_family_info->queue_count; i++)
         {
             vk_queue = queue_family_info->queues[i]->vk_queue;
@@ -587,6 +645,7 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
     }
 
     ERR("Done analyzing breadcrumbs ...\n");
+    vkd3d_dbg_flush();
     pthread_mutex_unlock(&global_report_lock);
 }
 
@@ -705,6 +764,26 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
                         offsetof(struct vkd3d_breadcrumb_counter, begin_marker),
                 trace->counter));
     }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_SYNC)
+    {
+        VkMemoryBarrier2 vk_barrier;
+        VkDependencyInfo dep_info;
+
+        d3d12_command_list_end_current_render_pass(list, true);
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    }
 }
 
 void vkd3d_breadcrumb_tracer_link_submission(struct d3d12_command_list *list,
@@ -777,9 +856,7 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
 void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
 {
     char env[VKD3D_PATH_MAX];
-    vkd3d_shader_hash_t hash;
-    uint32_t new_count;
-    char line[17];
+    size_t new_count;
     FILE *file;
 
     if (vkd3d_get_env_var("VKD3D_BARRIER_HASHES", env, sizeof(env)))
@@ -788,14 +865,8 @@ void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_trace
         if (file)
         {
             pthread_mutex_lock(&tracer->barrier_hash_lock);
-            new_count = 0;
-            while (fgets(line, sizeof(line), file))
-            {
-                hash = strtoull(line, NULL, 16);
-                vkd3d_array_reserve((void **)&tracer->barrier_hashes, &tracer->barrier_hashes_size,
-                        new_count + 1, sizeof(*tracer->barrier_hashes));
-                tracer->barrier_hashes[new_count++] = hash;
-            }
+            vkd3d_shader_hash_range_parse(file, &tracer->barrier_hashes, &tracer->barrier_hashes_size,
+                    &new_count, VKD3D_SHADER_HASH_RANGE_KIND_BARRIERS);
             vkd3d_atomic_uint32_store_explicit(&tracer->barrier_hashes_count, new_count, vkd3d_memory_order_relaxed);
             pthread_mutex_unlock(&tracer->barrier_hash_lock);
             fclose(file);
@@ -805,9 +876,10 @@ void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_trace
     }
 }
 
-bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_tracer *tracer, vkd3d_shader_hash_t hash)
+uint32_t vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_tracer *tracer,
+        vkd3d_shader_hash_t hash)
 {
-    bool ret = false;
+    uint32_t flags = 0;
     size_t i;
 
     /* Avoid taking lock every dispatch when we're not explicitly using the feature.
@@ -815,9 +887,10 @@ bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_
     if (vkd3d_atomic_uint32_load_explicit(&tracer->barrier_hashes_count, vkd3d_memory_order_relaxed) != 0)
     {
         pthread_mutex_lock(&tracer->barrier_hash_lock);
-        for (i = 0; i < tracer->barrier_hashes_count && !ret; i++)
-            ret = tracer->barrier_hashes[i] == hash;
+        for (i = 0; i < tracer->barrier_hashes_count; i++)
+            if (tracer->barrier_hashes[i].lo <= hash && hash <= tracer->barrier_hashes[i].hi)
+                flags |= tracer->barrier_hashes[i].flags;
         pthread_mutex_unlock(&tracer->barrier_hash_lock);
     }
-    return ret;
+    return flags;
 }

@@ -88,17 +88,31 @@ static inline void vkd3d_strlcpy(char *dst, size_t dst_size, const char *src)
 {
     if (dst_size > 0)
     {
-        strncpy(dst, src, dst_size - 1);
-        dst[dst_size - 1] = '\0';
+        if (strlen(src) < dst_size)
+        {
+            strcpy(dst, src);
+        }
+        else
+        {
+            memcpy(dst, src, dst_size - 1);
+            dst[dst_size - 1] = '\0';
+        }
     }
 }
 
 static inline void vkd3d_strlcat(char *dst, size_t dst_size, const char *src)
 {
+    char *dst_begin;
+    size_t dst_len;
+    char *dst_end;
+
     if (dst_size > 0)
     {
-        strncat(dst, src, dst_size - 1);
-        dst[dst_size - 1] = '\0';
+        dst_begin = dst + strlen(dst);
+        dst_end = dst + dst_size;
+        assert(dst_end >= dst_begin);
+        dst_len = dst_end - dst_begin;
+        vkd3d_strlcpy(dst_begin, dst_len, src);
     }
 }
 

@@ -395,12 +395,16 @@ static inline unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
     {
+        case DXGI_FORMAT_R32G32B32A32_TYPELESS:
         case DXGI_FORMAT_R32G32B32A32_FLOAT:
         case DXGI_FORMAT_R32G32B32A32_UINT:
-        case DXGI_FORMAT_R8G8_UNORM:
+        case DXGI_FORMAT_R32G32B32A32_SINT:
             return 16;
         case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:
         case DXGI_FORMAT_R32G32_UINT:
+        case DXGI_FORMAT_R32G32_SINT:
+        case DXGI_FORMAT_R32G32_FLOAT:
         case DXGI_FORMAT_R32G32_TYPELESS:
             return 8;
         case DXGI_FORMAT_R32_TYPELESS:
@@ -408,6 +412,7 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R32_UINT:
         case DXGI_FORMAT_R32_SINT:
+        case DXGI_FORMAT_R16G16_TYPELESS:
         case DXGI_FORMAT_R16G16_FLOAT:
         case DXGI_FORMAT_R16G16_UNORM:
         case DXGI_FORMAT_R16G16_UINT:
@@ -415,6 +420,7 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R10G10B10A2_UINT:
         case DXGI_FORMAT_R10G10B10A2_UNORM:
         case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+        case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
         case DXGI_FORMAT_R8G8B8A8_TYPELESS:
         case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
@@ -423,9 +429,17 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R8G8B8A8_SNORM:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
             return 4;
+        case DXGI_FORMAT_R8G8_TYPELESS:
+        case DXGI_FORMAT_R8G8_UNORM:
+        case DXGI_FORMAT_R8G8_SNORM:
+        case DXGI_FORMAT_R8G8_UINT:
+        case DXGI_FORMAT_R8G8_SINT:
         case DXGI_FORMAT_R16_FLOAT:
         case DXGI_FORMAT_R16_UNORM:
         case DXGI_FORMAT_R16_UINT:
+        case DXGI_FORMAT_R16_SNORM:
+        case DXGI_FORMAT_R16_SINT:
+        case DXGI_FORMAT_D16_UNORM:
             return 2;
         case DXGI_FORMAT_UNKNOWN:
         case DXGI_FORMAT_A8_UNORM:
@@ -450,6 +464,9 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_BC4_SNORM:
             return 8;
 
+        case DXGI_FORMAT_420_OPAQUE:
+            return 1;
+
         default:
             trace("Unhandled format %#x.\n", format);
             return 1;
@@ -464,6 +481,9 @@ static inline unsigned int format_num_planes(DXGI_FORMAT format)
         case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
         case DXGI_FORMAT_R24G8_TYPELESS:
         case DXGI_FORMAT_R32G8X24_TYPELESS:
+        case DXGI_FORMAT_NV12:
+        case DXGI_FORMAT_P010:
+        case DXGI_FORMAT_P016:
             return 2;
 
         default:
@@ -482,6 +502,13 @@ static inline unsigned int format_size_planar(DXGI_FORMAT format, unsigned int p
         case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
             return plane ? 1 : 4;
 
+        case DXGI_FORMAT_NV12:
+            return plane ? 2 : 1;
+
+        case DXGI_FORMAT_P010:
+        case DXGI_FORMAT_P016:
+            return plane ? 4 : 2;
+
         default:
             return format_size(format);
     }
@@ -497,6 +524,16 @@ static inline unsigned int format_to_footprint_format(DXGI_FORMAT format, unsign
         case DXGI_FORMAT_R32G8X24_TYPELESS:
         case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
             return plane ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS;
+
+        case DXGI_FORMAT_NV12:
+            return plane ? DXGI_FORMAT_R8G8_TYPELESS : DXGI_FORMAT_R8_TYPELESS;
+
+        case DXGI_FORMAT_P010:
+        case DXGI_FORMAT_P016:
+            return plane ? DXGI_FORMAT_R16G16_TYPELESS : DXGI_FORMAT_R16_TYPELESS;
+
+        case DXGI_FORMAT_420_OPAQUE:
+            return DXGI_FORMAT_R8_TYPELESS;
 
         default:
             return format;
@@ -551,6 +588,21 @@ static inline unsigned int format_block_height(DXGI_FORMAT format)
     }
 }
 
+static inline void format_subsample_log2(DXGI_FORMAT format, unsigned int plane, unsigned int *x, unsigned int *y)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_NV12:
+        case DXGI_FORMAT_P010:
+        case DXGI_FORMAT_P016:
+            *x = *y = plane;
+            break;
+
+        default:
+            *x = *y = 0;
+    }
+}
+
 struct resource_readback
 {
     uint64_t width;
@@ -565,6 +617,7 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
+    unsigned int subsample_x_log2, subsample_y_log2;
     D3D12_HEAP_PROPERTIES heap_properties;
     unsigned int miplevel, plane, layers;
     D3D12_RESOURCE_DESC resource_desc;
@@ -585,9 +638,10 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
     layers = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ?
         1 : resource_desc.DepthOrArraySize;
     plane = sub_resource / (resource_desc.MipLevels * layers);
-    rb->width = max(1, resource_desc.Width >> miplevel);
+    format_subsample_log2(resource_desc.Format, plane, &subsample_x_log2, &subsample_y_log2);
+    rb->width = max(1, resource_desc.Width >> (miplevel + subsample_x_log2));
     rb->width = align(rb->width, format_block_width(resource_desc.Format));
-    rb->height = max(1, resource_desc.Height >> miplevel);
+    rb->height = max(1, resource_desc.Height >> (miplevel + subsample_y_log2));
     rb->height = align(rb->height, format_block_height(resource_desc.Format));
     rb->depth = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
             ? max(1, resource_desc.DepthOrArraySize >> miplevel) : 1;
@@ -765,6 +819,9 @@ static inline ID3D12Resource *create_default_texture_(unsigned int line, ID3D12D
 
     return texture;
 }
+
+#define create_default_texture_dimension(device, dimension, width, height, depth_or_array_size, miplevel_count, format, flags, initial_state) \
+create_default_texture_(__LINE__, device, dimension, width, height, depth_or_array_size, miplevel_count, format, flags, initial_state)
 
 static inline ID3D12Resource *create_default_texture_enhanced_(unsigned int line, ID3D12Device *device,
         D3D12_RESOURCE_DIMENSION dimension, unsigned int width, unsigned int height,
@@ -1246,7 +1303,11 @@ static inline void begin_renderdoc_capturing(ID3D12Device *device)
 static inline void end_renderdoc_capturing(ID3D12Device *device)
 {
     if (renderdoc_api)
+    {
         renderdoc_api->EndFrameCapture(device, NULL);
+        /* The UI needs some time to observe that we did a capture before we exit the process. */
+        Sleep(100);
+    }
 }
 #endif
 
@@ -1390,6 +1451,12 @@ static inline D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_rtv_handle(struct test_context
         ID3D12DescriptorHeap *heap, unsigned int offset)
 {
     return get_cpu_handle(context->device, heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, offset);
+}
+
+static inline D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_dsv_handle(struct test_context *context,
+        ID3D12DescriptorHeap *heap, unsigned int offset)
+{
+    return get_cpu_handle(context->device, heap, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, offset);
 }
 
 static inline D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_descriptor_handle(struct test_context *context,

@@ -67,5 +67,20 @@ enum vkd3d_meta_copy_mode
 #include <cs_sampler_feedback_encode_buffer_min_mip.h>
 #include <cs_sampler_feedback_encode_image_min_mip.h>
 #include <cs_sampler_feedback_encode_image_mip_used.h>
+#include <fs_resolve_color_float.h>
+#include <fs_resolve_color_sint.h>
+#include <fs_resolve_color_uint.h>
+#include <fs_resolve_depth.h>
+#include <fs_resolve_stencil.h>
+#include <fs_resolve_stencil_no_export.h>
+#include <cs_resolve_color_float.h>
+#include <cs_resolve_color_sint.h>
+#include <cs_resolve_color_uint.h>
+#include <cs_workgraph_distribute_workgroups.h>
+#include <cs_workgraph_distribute_payload_offsets.h>
+#include <cs_workgraph_complete_compaction.h>
+#include <cs_workgraph_setup_gpu_input.h>
+#include <cs_gdeflate.h>
+#include <cs_gdeflate_prepare.h>
 
 #endif  /* __VKD3D_SPV_SHADERS_H */

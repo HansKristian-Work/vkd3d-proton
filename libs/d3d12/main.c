@@ -40,17 +40,11 @@
 #include "vkd3d_string.h"
 #include "vkd3d_platform.h"
 
-/* We need to specify the __declspec(dllexport) attribute
- * on MinGW because otherwise the stdcall aliases/fixups
- * don't get exported.
- */
-#if defined(_MSC_VER)
-  #define DLLEXPORT
-#elif defined(__MINGW32__)
-  #define DLLEXPORT __declspec(dllexport)
+#if defined(__WINE__) || !defined(_WIN32)
+#define DLLEXPORT __attribute__((visibility("default")))
+#include <dlfcn.h>
 #else
-  #define DLLEXPORT __attribute__((visibility("default")))
-  #include <dlfcn.h>
+#define DLLEXPORT
 #endif
 
 static pthread_once_t library_once = PTHREAD_ONCE_INIT;
@@ -59,11 +53,21 @@ static vkd3d_module_t d3d12core_module = NULL;
 
 static IVKD3DCoreInterface* core = NULL;
 
+static const struct
+{
+    const char *vuid;
+    const char *explanation;
+} ignored_validation_ids[] = {
+    { "07791", "Unimplementable requirement to not overlap memory due to how we need to place RTAS" },
+};
+
 static bool load_d3d12core_module(const char *module_name)
 {
     if (!d3d12core_module)
     {
         PFN_D3D12_GET_INTERFACE d3d12core_D3D12GetInterface = NULL;
+        IVKD3DDebugControlInterface *dbg = NULL;
+        unsigned int i;
 
         /* We link directly to d3d12core, however we still need to dlopen + dlsym
          * as both shared libraries export D3D12GetInterface, so we need to do this
@@ -80,6 +84,16 @@ static bool load_d3d12core_module(const char *module_name)
         if (FAILED(d3d12core_D3D12GetInterface(&CLSID_VKD3DCore, &IID_IVKD3DCoreInterface, (void**)&core)))
         {
             goto fail;
+        }
+
+        if (SUCCEEDED(d3d12core_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+        {
+            for (i = 0; i < ARRAY_SIZE(ignored_validation_ids); i++)
+            {
+                if (FAILED(IVKD3DDebugControlInterface_MuteValidationMessageID(
+                        dbg, ignored_validation_ids[i].vuid, ignored_validation_ids[i].explanation)))
+                    goto fail;
+            }
         }
 
         return true;

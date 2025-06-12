@@ -124,6 +124,15 @@ static void vkd3d_dbg_init_once(void)
         HMODULE module = LoadLibraryA("ntdll.dll");
         if (module)
             wine_log_output = (void*)GetProcAddress(module, "__wine_dbg_output");
+
+        const char* juiceLib = "RemoteGPUVlk.dll";
+
+        HMODULE juicevlk = GetModuleHandleA(juiceLib);
+        if (!juicevlk)
+          juicevlk = LoadLibraryA(juiceLib);
+
+        if (juicevlk)
+          wine_log_output = (void*)(GetProcAddress(juicevlk, "__wine_dbg_output"));            
 #endif
     }
 
@@ -146,9 +155,35 @@ enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
     return vkd3d_dbg_level[channel];
 }
 
+static spinlock_t vkd3d_debug_buffer_spin;
+
+void vkd3d_dbg_flush(void)
+{
+    if (vkd3d_dbg_buffer.buffer)
+    {
+        spinlock_acquire(&vkd3d_debug_buffer_spin);
+        if (vkd3d_dbg_buffer.offset)
+        {
+            if (vkd3d_log_file)
+            {
+                fwrite(vkd3d_dbg_buffer.buffer, 1, vkd3d_dbg_buffer.offset, vkd3d_log_file);
+            }
+            else
+            {
+                /* Binary vs text matters on Win32.
+                 * Don't bother trying to be clever here reopening stdio files as O_BINARY, etc. */
+                fputs(vkd3d_dbg_buffer.buffer, stderr);
+            }
+
+            vkd3d_dbg_buffer.offset = 0;
+            fflush(vkd3d_log_file ? vkd3d_log_file : stderr);
+        }
+        spinlock_release(&vkd3d_debug_buffer_spin);
+    }
+}
+
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
 {
-    static spinlock_t spin;
     unsigned int tid;
     FILE *log_file;
     va_list args;
@@ -175,7 +210,7 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
         local_buffer_count = vsnprintf(local_buffer, sizeof(local_buffer), fmt, args);
         required_count = prefix_buffer_count + local_buffer_count;
 
-        spinlock_acquire(&spin);
+        spinlock_acquire(&vkd3d_debug_buffer_spin);
         if (vkd3d_dbg_buffer.offset + required_count > vkd3d_dbg_buffer.size)
         {
             if (vkd3d_log_file)
@@ -206,19 +241,20 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
             fputs(prefix_buffer, log_file);
             fputs(local_buffer, log_file);
         }
-        spinlock_release(&spin);
+        spinlock_release(&vkd3d_debug_buffer_spin);
     }
 #ifdef _WIN32
     else if (wine_log_output)
     {
         char local_buffer[4096];
+        uint64_t ticks;
         size_t offset;
-        DWORD ticks;
 
         /* Try to match format of Wine log output. */
-        ticks = GetTickCount();
+        ticks = vkd3d_get_current_time_ns();
         offset = snprintf(local_buffer, sizeof(local_buffer),
-                "%3u.%03u:%04x:%04x:%s:vkd3d-proton:%s: ", ticks / 1000, ticks % 1000,
+                "%3u.%03u:%04x:%04x:%s:vkd3d-proton:%s: ",
+                (unsigned int)(ticks / 1000000000), (unsigned int)((ticks % 1000000000) / 1000000),
                 (UINT)GetCurrentProcessId(), tid,
                 debug_level_names[level], function);
         if (offset < sizeof(local_buffer))
@@ -228,10 +264,10 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
 #endif
     else
     {
-        spinlock_acquire(&spin);
+        spinlock_acquire(&vkd3d_debug_buffer_spin);
         fprintf(log_file, "%04x:%s:%s: ", tid, debug_level_names[level], function);
         vfprintf(log_file, fmt, args);
-        spinlock_release(&spin);
+        spinlock_release(&vkd3d_debug_buffer_spin);
         fflush(log_file);
     }
     va_end(args);

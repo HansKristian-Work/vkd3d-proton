@@ -1,13 +1,12 @@
-project('vkd3d-proton', ['c'], version : '2.11', meson_version : '>= 0.49', default_options : [
-  'warning_level=2',
+project('vkd3d-proton', ['c', 'cpp'], version : '2.14.1', meson_version : '>= 0.49', default_options : [
+  'warning_level=2', 'c_std=c11', 'cpp_std=c++17'
 ])
 
 cpu_family = target_machine.cpu_family()
 
 vkd3d_compiler = meson.get_compiler('c')
 vkd3d_is_msvc  = vkd3d_compiler.get_id() == 'msvc' or vkd3d_compiler.get_id() == 'clang-cl'
-vkd3d_is_clang = vkd3d_compiler.get_id() == 'clang'
-vkd3d_c_std    = 'c11'
+vkd3d_is_clang = vkd3d_compiler.get_id() == 'clang' or vkd3d_compiler.get_id() == 'clang-cl'
 vkd3d_platform = target_machine.system()
 
 vkd3d_buildtype = get_option('buildtype')
@@ -21,6 +20,7 @@ enable_descriptor_qa     = get_option('enable_descriptor_qa')
 enable_trace             = get_option('enable_trace')
 enable_tracy             = get_option('enable_tracy')
 dynamic_tracy            = get_option('dynamic_tracy')
+enable_dxilconv          = get_option('enable_dxilconv')
 
 if enable_trace == 'auto'
   enable_trace = vkd3d_debug
@@ -56,6 +56,10 @@ if enable_breadcrumbs
   add_project_arguments('-DVKD3D_ENABLE_BREADCRUMBS', language : 'c')
 endif
 
+if enable_dxilconv and vkd3d_platform == 'windows'
+  add_project_arguments('-DVKD3D_ENABLE_DXILCONV', language : 'c')
+endif
+
 if enable_tracy
   add_project_arguments('-DTRACY_ENABLE', language : 'c')
 
@@ -64,7 +68,7 @@ if enable_tracy
   endif
 endif
 
-vkd3d_external_includes = [ '../../common/vulkan/include', './subprojects/SPIRV-Headers/include' ]
+vkd3d_external_includes = [ '../../common/vulkan/include', './khronos/SPIRV-Headers/include' ]
 vkd3d_public_includes   = [ './include' ] + vkd3d_external_includes
 vkd3d_private_includes  = [ './include/private' ] + vkd3d_public_includes
 
@@ -127,15 +131,17 @@ add_project_arguments(vkd3d_compiler.get_supported_arguments([
 
 if cpu_family == 'x86'
   add_global_link_arguments(vkd3d_compiler.get_supported_link_arguments([
-      '-Wl,--add-stdcall-alias',
+      '-Wl,--kill-at',
       '-Wl,--enable-stdcall-fixup']),
     language : [ 'c', 'cpp' ])
 
   # Need to link against libatomic for 64-bit atomic emulation on x86
   # when using clang.
-  if vkd3d_is_clang
-    lib_atomic = vkd3d_compiler.find_library('atomic')
-    vkd3d_extra_libs += lib_atomic
+  if vkd3d_platform == 'linux'
+    if vkd3d_is_clang
+      lib_atomic = vkd3d_compiler.find_library('atomic')
+      vkd3d_extra_libs += lib_atomic
+    endif
   endif
 endif
 
@@ -156,6 +162,12 @@ if vkd3d_platform == 'windows'
   endif
   if vkd3d_compiler.has_link_argument('-static-libstdc++')
     add_global_link_arguments('-static-libstdc++', language : [ 'cpp' ])
+  endif
+  if vkd3d_compiler.has_link_argument('/NOIMPLIB')
+    add_global_link_arguments('/NOIMPLIB', language : [ 'c', 'cpp' ])
+  endif
+  if not vkd3d_is_clang and vkd3d_compiler.has_link_argument('/NOEXP')
+    add_global_link_arguments('/NOEXP', language : [ 'c', 'cpp' ])
   endif
 endif
 
@@ -193,7 +205,13 @@ endif
 subdir('include')
 subdir('libs')
 
-lib_d3d12 = d3d12_dep
+if vkd3d_platform == 'windows'
+  # MinGW LD on x86 emits incorrect implib with ordinal suffixes.
+  # As a workaround, just link to the system D3D12.
+  lib_d3d12 = vkd3d_compiler.find_library('d3d12')
+else
+  lib_d3d12 = d3d12_dep
+endif
 
 if vkd3d_platform == 'linux'
   pkg = import('pkgconfig')

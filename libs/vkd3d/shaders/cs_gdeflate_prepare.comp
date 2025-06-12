@@ -1,0 +1,73 @@
+#version 450
+
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+
+layout(local_size_x = 32) in;
+
+struct stream_offsets_t
+{
+    uint32_t src_offset;
+    uint32_t dst_offset;
+};
+
+
+layout(buffer_reference, scalar)
+readonly buffer control_buffer_t
+{
+    uint32_t stream_count;
+    stream_offsets_t streams[];
+};
+
+
+layout(buffer_reference, scalar)
+readonly buffer tile_stream_t
+{
+    uint32_t dword0;
+    uint32_t dword1;
+    uint32_t last_compressed_size;
+    uint32_t tile_offsets[];
+};
+
+
+layout(buffer_reference, scalar)
+writeonly buffer scratch_buffer_t
+{
+    u32vec3 dispatch_args[];
+};
+
+
+layout(push_constant)
+uniform u_info_t
+{
+    control_buffer_t control_buffer;
+    uint64_t src_buffer;
+    uint64_t dst_buffer;
+    scratch_buffer_t scratch_buffer;
+    uint32_t stream_count;
+    uint32_t stream_index;
+};
+
+
+void main()
+{
+    uint32_t stream_index = gl_GlobalInvocationID.x;
+
+    if (stream_index >= stream_count)
+      return;
+
+    /* Respect the stream count stored in the control buffer. If the current
+     * stream index is valid, read the tile count from the tile stream header. */
+    uint32_t tile_count = 0u;
+
+    if (stream_index < control_buffer.stream_count)
+    {
+        stream_offsets_t stream_offsets = control_buffer.streams[stream_index];
+
+        tile_stream_t tile_stream = tile_stream_t(src_buffer + stream_offsets.src_offset);
+        tile_count = bitfieldExtract(tile_stream.dword0, 16, 16);
+    }
+
+    scratch_buffer.dispatch_args[stream_index] = u32vec3(tile_count, 1u, 1u);
+}

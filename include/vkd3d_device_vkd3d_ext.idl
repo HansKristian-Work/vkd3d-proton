@@ -54,3 +54,45 @@ interface ID3D12DXVKInteropDevice : IUnknown
     HRESULT LockCommandQueue(ID3D12CommandQueue *queue);
     HRESULT UnlockCommandQueue(ID3D12CommandQueue *queue);
 }
+
+[
+    uuid(902d8115-59eb-4406-9518-fe00f991ee65),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DXVKInteropDevice1 : ID3D12DXVKInteropDevice
+{
+    HRESULT GetVulkanResourceInfo1(ID3D12Resource *resource, UINT64 *vk_handle, UINT64 *buffer_offset, VkFormat *format);
+    HRESULT CreateInteropCommandQueue(const D3D12_COMMAND_QUEUE_DESC *pDesc, UINT32 vk_queue_family_index, ID3D12CommandQueue **ppQueue);
+    HRESULT CreateInteropCommandAllocator(D3D12_COMMAND_LIST_TYPE type, UINT32 vk_queue_family_index, ID3D12CommandAllocator **ppAllocator);
+    HRESULT BeginVkCommandBufferInterop(ID3D12CommandList *pCmdList, VkCommandBuffer *pCommandBuffer);
+    HRESULT EndVkCommandBufferInterop(ID3D12CommandList *pCmdList);
+}
+
+[
+    uuid(f3112584-41f9-348d-a59b-00b7e1d285d6),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3DLowLatencyDevice : IUnknown
+{
+    BOOL SupportsLowLatency();
+    HRESULT LatencySleep();
+    HRESULT SetLatencySleepMode(BOOL low_latency_mode, BOOL low_latency_boost, UINT32 minimum_interval_us);
+    HRESULT SetLatencyMarker(UINT64 frameID, UINT32 markerType);
+    HRESULT GetLatencyInfo(D3D12_LATENCY_RESULTS *latency_results);
+}
+
+[
+    uuid(099a73fd-2199-4f45-bf48-0eb86f6fdb65),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceExt1 : ID3D12DeviceExt
+{
+    HRESULT CreateResourceFromBorrowedHandle(const D3D12_RESOURCE_DESC1 *desc, UINT64 vk_handle, ID3D12Resource **resource);
+    HRESULT GetVulkanQueueInfoEx(ID3D12CommandQueue *queue, VkQueue *vk_queue, UINT32 *vk_queue_index, UINT32 *vk_queue_flags, UINT32 *vk_queue_family);
+}

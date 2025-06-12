@@ -1,0 +1,1099 @@
+/*
+ * Copyright (c) 2023-2025 The Khronos Group Inc.
+ * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0 or MIT
+ *
+ * Licensed under either of
+ *   Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+ *   or
+ *   MIT license (http://opensource.org/licenses/MIT)
+ * at your option.
+ *
+ * Any contribution submitted by you to Khronos for inclusion in this work shall be dual licensed as above.
+ *
+ * Author: Ilya Terentiev <iterentiev@nvidia.com>
+ * Author: Vikram Kushwaha <vkushwaha@nvidia.com>
+ */
+
+/*
+ * This is a modified version of the Vulkan extension layer implementation, which can be found at
+ * https://github.com/KhronosGroup/Vulkan-ExtensionLayer/tree/main/layers/decompression/shaders
+ *
+ * In the context of vkd3d-proton, this is licensed under
+ *   MIT license (http://opensource.org/licenses/MIT)
+ *
+ * Changes from the original work include:
+ * - Merged different files into one to simplify build system integration;
+ * - Require uint16 / uint64 support;
+ * - Require Vulkan memory model;
+ * - Changed wave ops to better work with arbitrary subgroup sizes;
+ * - Changed entry point to consume the DirectStorage metadata format directly,
+ *   rather than maintaining compatibility to VK_NV_memory_decompression metadata.
+ *
+ * Author: Philip Rebohle <philip.rebohle@tu-dortmund.de>
+ */
+#version 460
+
+#pragma use_vulkan_memory_model
+
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_KHR_shader_subgroup_shuffle_relative : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+
+#define GDEFLATE_TILE_SIZE (65536u)
+
+layout(local_size_x = 32u) in;
+
+/* Output buffer */
+layout(buffer_reference, buffer_reference_align = 4)
+workgroupcoherent buffer output_data_t
+{
+    uint8_t bytes[];
+};
+
+
+/* Input buffer */
+layout(buffer_reference, buffer_reference_align = 4)
+readonly buffer tile_data_t
+{
+    uint32_t dwords[];
+};
+
+
+/* Control buffer */
+struct stream_offsets_t
+{
+    uint32_t src_offset;
+    uint32_t dst_offset;
+};
+
+
+layout(buffer_reference, scalar)
+readonly buffer control_buffer_t
+{
+    uint32_t stream_count;
+    stream_offsets_t streams[];
+};
+
+
+layout(buffer_reference, scalar)
+readonly buffer tile_stream_t
+{
+    uint32_t dword0;
+    uint32_t dword1;
+    uint32_t last_compressed_size;
+    uint32_t tile_offsets[];
+};
+
+
+struct memory_region_t
+{
+    tile_data_t     src_buffer;
+    output_data_t   dst_buffer;
+    uint32_t        compressed_size;
+}
+g_region;
+
+
+/* Shader parameters */
+layout(push_constant)
+uniform push_t
+{
+    control_buffer_t control_buffer;
+    uint64_t src_buffer;
+    uint64_t dst_buffer;
+    uint64_t scratch_buffer; /* unused */
+    uint32_t stream_count;
+    uint32_t stream_index;
+};
+
+
+/* I/O helpers */
+uint32_t read_output_byte(uint32_t offset)
+{
+    return uint32_t(g_region.dst_buffer.bytes[offset]);
+}
+
+
+void store_output_byte(uint32_t offset, uint32_t data)
+{
+    g_region.dst_buffer.bytes[offset] = uint8_t(data);
+}
+
+
+uint32_t read_input_dword(uint32_t index)
+{
+    if (4u * index < g_region.compressed_size)
+        return g_region.src_buffer.dwords[index];
+    else
+        return 0u;
+}
+
+
+/* Helpers to gracefully handle a shift amount equal to the operand size,
+ * otherwise we risk undefined behaviour in some places. */
+uint32_t shl_safe(uint32_t value, uint32_t n)
+{
+    return bitfieldInsert(0u, value, int(n), 32 - int(n));
+}
+
+
+/* Subgroup-related helpers */
+shared uint32_t g_tmp[gl_WorkGroupSize.x];
+
+
+uint32_t tid()
+{
+    if (gl_SubgroupSize <= gl_WorkGroupSize.x)
+    {
+        uint32_t result = gl_SubgroupInvocationID;
+
+        if (gl_SubgroupSize < gl_WorkGroupSize.x)
+            result += gl_SubgroupSize * gl_SubgroupID;
+
+        return result;
+    }
+    else
+    {
+        /* No guarantees on the layout of live invocations or the number of
+         * subgroups in this case, we can't meaningfully use most wave ops. */
+        return gl_LocalInvocationIndex;
+    }
+}
+
+
+uint32_t ltMask()
+{
+    if (gl_SubgroupSize == gl_WorkGroupSize.x)
+        return gl_SubgroupLtMask.x;
+    else
+        return (1u << tid()) - 1u;
+}
+
+
+uint32_t vote(bool p)
+{
+    if (gl_SubgroupSize <= gl_WorkGroupSize.x)
+    {
+        uint32_t mask = subgroupBallot(p).x;
+
+        if (gl_SubgroupSize < gl_WorkGroupSize.x)
+        {
+            mask <<= gl_SubgroupSize * gl_SubgroupID;
+
+            if (subgroupElect())
+                g_tmp[gl_SubgroupID] = mask;
+
+            barrier();
+
+            for (uint32_t i = 1u; i < gl_NumSubgroups; i++)
+                mask |= g_tmp[i ^ gl_SubgroupID];
+
+            barrier();
+        }
+
+        return mask;
+    }
+    else
+    {
+        /* Fallback for when we don't have full subgroups */
+        uint32_t mask = subgroupOr(p ? (1u << tid()) : 0u);
+
+        if (gl_NumSubgroups > 1u)
+        {
+            if (tid() == 0u)
+                g_tmp[0] = 0u;
+
+            barrier();
+
+            if (subgroupElect())
+                atomicOr(g_tmp[0], mask);
+
+            barrier();
+
+            mask = g_tmp[0];
+
+            barrier();
+        }
+
+        return mask;
+    }
+}
+
+
+uint32_t shuffle(uint32_t value, uint32_t idx)
+{
+    if (gl_SubgroupSize == gl_WorkGroupSize.x)
+    {
+        return subgroupShuffle(value, idx);
+    }
+    else
+    {
+        g_tmp[tid()] = value;
+
+        barrier();
+
+        value = g_tmp[idx & (gl_WorkGroupSize.x - 1u)];
+
+        barrier();
+
+        return value;
+    }
+}
+
+
+uint32_t broadcast(uint32_t value, uint32_t idx)
+{
+    if (gl_SubgroupSize == gl_WorkGroupSize.x)
+    {
+        return subgroupBroadcast(value, idx);
+    }
+    else
+    {
+        if (tid() == idx)
+            g_tmp[0u] = value;
+
+        barrier();
+
+        value = g_tmp[0u];
+
+        barrier();
+
+        return value;
+    }
+}
+
+
+bool all_in_group(bool p)
+{
+    if (gl_SubgroupSize == gl_WorkGroupSize.x)
+        return subgroupAll(p);
+    else
+        return vote(p) == -1u;
+}
+
+
+uint32_t add_inclusive_clustered(uint32_t value, uint32_t cluster_size)
+{
+    if (gl_SubgroupSize == cluster_size)
+    {
+        /* Trivial case */
+        return subgroupInclusiveAdd(value);
+    }
+    else if (gl_SubgroupSize < cluster_size && gl_SubgroupSize >= cluster_size / gl_SubgroupSize)
+    {
+        /* Special case for wave8 or wave16 to only use one shared memory round-trip */
+        uint32_t cluster_subgroup_count = cluster_size / gl_SubgroupSize;
+
+        uint32_t cluster_subgroup_index = gl_SubgroupID & (cluster_subgroup_count - 1u);
+        uint32_t cluster_subgroup_offset = gl_SubgroupID & ~(cluster_subgroup_count - 1u);
+
+        /* Write sum of all elements to shared memory */
+        uint32_t local_sum = subgroupInclusiveAdd(value);
+
+        if (gl_SubgroupInvocationID == gl_SubgroupSize - 1u)
+            g_tmp[gl_SubgroupID] = local_sum;
+
+        barrier();
+
+        /* Load sums of lower-indexed subgroups from shared memory */
+        uint32_t sum = 0u;
+
+        if (gl_SubgroupInvocationID < cluster_subgroup_index)
+            sum = g_tmp[gl_SubgroupInvocationID + cluster_subgroup_offset];
+
+        barrier();
+
+        /* Compute total sum of all those sums and add it to the result. Skip
+         * if we only have one non-zero result anyway and use it directly. */
+        for (uint32_t i = 1u; i < cluster_subgroup_count - 1u; i <<= 1u)
+            sum += subgroupShuffleXor(sum, i);
+
+        return local_sum + subgroupBroadcastFirst(sum);
+    }
+    else
+    {
+        /* Basic scan, used either for clustered scans on wave32 or if we get a weird subgroup size */
+        uint32_t lid = tid() & (cluster_size - 1u);
+        uint32_t sum = value;
+
+        for (uint32_t i = 1u; i < cluster_size; i <<= 1u)
+        {
+            uint32_t delta;
+
+            if (gl_SubgroupSize >= cluster_size && gl_SubgroupSize <= gl_WorkGroupSize.x)
+                delta = subgroupShuffleUp(sum, i);
+            else
+                delta = shuffle(sum, tid() - i);
+
+            sum += lid >= i ? delta : 0u;
+        }
+
+        return sum;
+    }
+}
+
+
+uint32_t add_inclusive_16(uint32_t value)
+{
+    return add_inclusive_clustered(value, 16u);
+}
+
+
+uint32_t add_exclusive_32(uint32_t value)
+{
+    return add_inclusive_clustered(value, 32u) - value;
+}
+
+
+uint32_t match(uint32_t value)
+{
+    uint32_t threads = ~0u;
+    uint32_t result = 0u;
+
+    do
+    {
+        uint32_t first = broadcast(value, findLSB(threads));
+        uint32_t mask = vote(value == first);
+
+        if (value == first)
+            result = mask;
+
+        threads -= mask;
+    }
+    while (threads != 0u);
+
+    return result;
+}
+
+
+/* Bit reader */
+struct bit_reader_t {
+    uint64_t buf;
+    uint32_t base;
+    uint32_t cnt;
+}
+g_bit_reader;
+
+
+void bit_reader_refill_impl(uint32_t offset)
+{
+    uint32_t data = read_input_dword(offset);
+
+    g_bit_reader.buf |= uint64_t(data) << g_bit_reader.cnt;
+    g_bit_reader.cnt += gl_WorkGroupSize.x;
+}
+
+
+void bit_reader_init()
+{
+    g_bit_reader.buf = 0ul;
+    g_bit_reader.base = gl_WorkGroupSize.x;
+    g_bit_reader.cnt = 0u;
+
+    bit_reader_refill_impl(tid());
+}
+
+
+void bit_reader_refill(bool p)
+{
+    p = p && g_bit_reader.cnt < gl_WorkGroupSize.x;
+
+    uint32_t ballot = vote(p);
+    uint32_t offset = bitCount(ballot & ltMask());
+
+    if (p)
+        bit_reader_refill_impl(g_bit_reader.base + offset);
+
+    g_bit_reader.base += bitCount(ballot);
+}
+
+
+void bit_reader_eat(uint32_t n, bool p)
+{
+    if (p)
+    {
+        g_bit_reader.buf >>= n;
+        g_bit_reader.cnt -= n;
+    }
+
+    bit_reader_refill(p);
+}
+
+
+uint32_t bit_reader_peek()
+{
+    return uint32_t(g_bit_reader.buf);
+}
+
+
+uint32_t bit_reader_peek(uint32_t n)
+{
+    return bitfieldExtract(uint32_t(g_bit_reader.buf), 0, int(n));
+}
+
+
+uint32_t bit_reader_read(uint32_t n, bool p)
+{
+    uint32_t bits = p ? bit_reader_peek(n) : 0u;
+    bit_reader_eat(n, p);
+    return bits;
+}
+
+
+/* Storage for code length array */
+shared struct scratch_t
+{
+    uint32_t data[64];
+}
+g_buf;
+
+
+void scratch_clear()
+{
+    /* Clear first 64 words */
+    g_buf.data[tid()] = 0u;
+    g_buf.data[tid() + 32u] = 0u;
+}
+
+
+uint32_t scratch_get4b(uint32_t i)
+{
+    /* Returns a nibble of data */
+    uint32_t ofs = i / 8u;
+    uint32_t idx = i % 8u;
+
+    return bitfieldExtract(g_buf.data[ofs], 4 * int(idx), 4);
+}
+
+
+void scratch_set4b(uint32_t nibbles, uint32_t n, uint32_t i)
+{
+    n = min(n, 8u);
+
+    /* Expand nibbles */
+    nibbles |= (nibbles << 4u);
+    nibbles |= (nibbles << 8u);
+    nibbles |= (nibbles << 16u);
+    nibbles = bitfieldExtract(nibbles, 0, 4 * int(n));
+
+    uint32_t base = i / 8u;
+    uint32_t shift = i % 8u;
+
+    atomicOr(g_buf.data[base], nibbles << (shift * 4u));
+
+    if (shift + n > 8u)
+        atomicOr(g_buf.data[base + 1u], nibbles >> ((8u - shift) * 4u));
+}
+
+
+/* Symbol table */
+const uint32_t kMaxSymbols = 288u + 32u;
+const uint32_t kDistanceCodesBase = 288u;
+
+shared struct symbol_table_t
+{
+    /* Could be stored as uint16, but no real reason to */
+    uint32_t symbols[kMaxSymbols];
+}
+g_symbol_table;
+
+
+uint32_t symbol_table_get_symbol(uint32_t id)
+{
+    return g_symbol_table.symbols[id];
+}
+
+void symbol_table_set_symbol(uint32_t idx, uint32_t id)
+{
+    g_symbol_table.symbols[idx] = id;
+}
+
+
+/* Scatter symbols according to in-register lengths and their corresponding offsets */
+uint32_t symbol_table_scatter(uint32_t sym, uint32_t len, uint32_t offset)
+{
+    uint32_t mask = match(len);
+
+    if (len != 0u)
+        symbol_table_set_symbol(offset + bitCount(mask & ltMask()), sym);
+
+    return mask;
+}
+
+
+/* Init symbol table from an array of code lengths in shared memory. hlit is at least 257.
+ * Assumes offsets contain literal/length offsets in lower numbered threads and distance
+ * code offsets in higher-numbered threads. */
+shared uint32_t g_sym_tmp[gl_WorkGroupSize.x];
+
+void symbol_table_init(uint32_t hlit, uint32_t offsets)
+{
+    for (uint32_t i = 0; i < kMaxSymbols; i += gl_WorkGroupSize.x)
+    {
+        if (tid() + i < kMaxSymbols)
+            symbol_table_set_symbol(tid() + i, 0u);
+    }
+
+    g_sym_tmp[tid()] = 0u;
+
+    barrier();
+
+    if (tid() != 15u && tid() != 31u)
+        g_sym_tmp[tid() + 1u] = offsets;
+
+    barrier();
+
+    /* 8 unconditional iterations */
+    for (uint32_t i = 0u; i < 256u / gl_WorkGroupSize.x; i++)
+    {
+        uint32_t sym = i * gl_WorkGroupSize.x + tid();
+        uint32_t len = scratch_get4b(sym);
+        uint32_t match = symbol_table_scatter(sym, len, g_sym_tmp[len]);
+
+        barrier();
+
+        if (tid() == findLSB(match))
+            g_sym_tmp[len] += bitCount(match);
+
+        barrier();
+    }
+
+    /* Bounds check on the last iteration for literals */
+    uint32_t sym = 8u * gl_WorkGroupSize.x + tid();
+    uint32_t len = sym < hlit ? scratch_get4b(sym) : 0;
+    symbol_table_scatter(sym, len, g_sym_tmp[len]);
+
+    /* Scatter distance codes (assumes source array is padded with 0) */
+    len = scratch_get4b(tid() + hlit);
+    symbol_table_scatter(tid(), len, kDistanceCodesBase + g_sym_tmp[16u + len]);
+
+    barrier();
+}
+
+
+/* Decoder pair */
+struct decoder_pair_t
+{
+    uint32_t base_codes;
+    uint32_t offsets;
+}
+g_decoder_pair_reg;
+
+shared decoder_pair_t g_decoder_pairs_shared[gl_WorkGroupSize.x];
+
+
+uint32_t decoder_pair_get_base_codes(uint32_t i)
+{
+    if (gl_SubgroupSize == gl_WorkGroupSize.x)
+        return subgroupShuffle(g_decoder_pair_reg.base_codes, i);
+    else
+        return g_decoder_pairs_shared[i].base_codes;
+}
+
+
+uint32_t decoder_pair_get_offsets(uint32_t i)
+{
+    if (gl_SubgroupSize == gl_WorkGroupSize.x)
+        return subgroupShuffle(g_decoder_pair_reg.offsets, i);
+    else
+        return g_decoder_pairs_shared[i].offsets;
+}
+
+
+void decoder_pair_set_base_codes(uint32_t value)
+{
+    if (gl_SubgroupSize == gl_WorkGroupSize.x)
+        g_decoder_pair_reg.base_codes = value;
+    else
+        g_decoder_pairs_shared[tid()].base_codes = value;
+}
+
+
+void decoder_pair_set_offsets(uint32_t value)
+{
+    if (gl_SubgroupSize == gl_WorkGroupSize.x)
+        g_decoder_pair_reg.offsets = value;
+    else
+        g_decoder_pairs_shared[tid()].offsets = value;
+}
+
+
+/* Build two decoders in parallel. Counts contain a histogram of code lengths in registers */
+void decoder_pair_init(uint32_t counts, uint32_t maxlen)
+{
+    if (gl_SubgroupSize != gl_WorkGroupSize.x)
+        barrier();
+
+    decoder_pair_set_offsets(add_inclusive_16(counts));
+
+    uint32_t base_code = 0u;
+
+    for (uint32_t i = 1u; i < maxlen; i++)
+    {
+        uint32_t lane = tid() & 15u;
+        uint32_t count = shuffle(counts, (tid() & 16u) + i);
+
+        if (lane >= i)
+            base_code += count << (lane - i);
+    }
+
+    uint32_t lane = tid() & 15u;
+    uint32_t tmp = shl_safe(base_code, 32u - lane);
+
+    decoder_pair_set_base_codes((tmp < base_code || lane >= maxlen) ? 0xffffffffu : tmp);
+
+    if (gl_SubgroupSize != gl_WorkGroupSize.x)
+        barrier();
+}
+
+
+/* Maps a code to its length (base selects decoder) */
+uint32_t decoder_length_for_code(uint32_t code, uint32_t base)
+{
+    uint32_t len = 1u;
+
+    if (code >= decoder_pair_get_base_codes(7u + base))
+        len = 8u;
+
+    if (code >= decoder_pair_get_base_codes(len + 3u + base))
+        len += 4u;
+
+    if (code >= decoder_pair_get_base_codes(len + 1u + base))
+        len += 2u;
+
+    if (code >= decoder_pair_get_base_codes(len + base))
+        len += 1u;
+
+    return len;
+}
+
+
+/* Maps a code and its length to a symbol id (base selects decoder) */
+uint32_t decoder_id_for_code(uint32_t code, uint32_t len, uint32_t base)
+{
+    uint32_t i = len + base - 1u;
+    return decoder_pair_get_offsets(i) + ((code - decoder_pair_get_base_codes(i)) >> (32u - len));
+}
+
+
+/* Decode a huffman-coded symbol */
+uint32_t decoder_decode(uint32_t bits, out uint32_t len, bool isdist)
+{
+    uint32_t code = bitfieldReverse(bits);
+
+    len = decoder_length_for_code(code, isdist ? 16u : 0u);
+    uint32_t idx = decoder_id_for_code(code, len, isdist ? 16u : 0u) + (isdist ? 288u : 0u);
+
+    return symbol_table_get_symbol(idx);
+}
+
+
+/* Calculate a histogram from in-register code lengths (each thread maps to a symbol) */
+shared uint32_t g_hist[gl_WorkGroupSize.x];
+
+void clear_histogram()
+{
+    g_hist[tid()] = 0u;
+}
+
+
+uint32_t get_histogram(uint32_t cnt, uint32_t len, uint32_t maxlen)
+{
+    g_hist[tid()] = 0u;
+
+    barrier();
+
+    if (len != 0u && tid() < cnt)
+        atomicAdd(g_hist[len], 1u);
+
+    barrier();
+
+    uint32_t result = g_hist[tid() & 15u];
+
+    barrier();
+
+    return result;
+}
+
+
+/* Read and sort code length code lengths */
+uint32_t read_len_codes(uint32_t hclen)
+{
+    const uint16_t lane_for_id[] =
+    {
+        3us, 17us, 15us, 13us, 11us, 9us, 7us, 5us, 4us, 6us, 8us, 10us, 12us, 14us, 16us, 18us,
+        0us,  1us,  2us,  0us,  0us, 0us, 0us, 0us, 0us, 0us, 0us,  0us,  0us,  0us,  0us,  0us
+    };
+
+    /* Read reordered code length code lengths in the first hclen threads */
+    uint32_t len = bit_reader_read(3u, tid() < hclen);
+
+    /* Restore original order */
+    len = shuffle(len, uint32_t(lane_for_id[tid()]));
+
+    /* Zero out the garbage */
+    len &= tid() < 19u ? 0xfu : 0u;
+    return len;
+}
+
+
+/* Update histograms (distance codes are histogrammed in the higher
+ * numbered threads, literal/length codes - in lower numbered threads) */
+void update_histograms(uint32_t len, int32_t i, int32_t n, int32_t hlit)
+{
+    uint32_t cnt = clamp(hlit > i ? hlit - i : 0, 0, n);
+
+    if (cnt != 0u)
+        atomicAdd(g_hist[len], cnt);
+
+    cnt = clamp(i + n - hlit, 0, n);
+
+    if (cnt != 0u)
+        atomicAdd(g_hist[16u + len], cnt);
+}
+
+
+/* Unpack code lengths and create a histogram of lengths. Returns a histogram
+ * of literal/length code lengths in lower numbered threads, and a histogram
+ * of distance code lenghts in higher numbered threads */
+uint32_t unpack_code_lengths(uint32_t hlit, uint32_t hdist, uint32_t hclen)
+{
+    uint32_t len = read_len_codes(hclen);
+    uint32_t hist = get_histogram(19u, len, 7u);
+    decoder_pair_init(hist, 7u);
+
+    symbol_table_scatter(tid(), len, decoder_pair_get_offsets(len - 1u));
+
+    uint32_t count = hlit + hdist;
+    uint32_t baseOffset = 0u;
+    uint32_t lastlen = -1u;
+
+    /* Clear codelens array (4 bit lengths) */
+    scratch_clear();
+    clear_histogram();
+
+    barrier();
+
+    /* Decode code length codes and expand into a shared memory array */
+    do
+    {
+        uint32_t bits = bit_reader_peek(7u + 7u);
+
+        uint32_t len = 0u;
+        uint32_t sym = decoder_decode(bits, len, false);
+
+        /* Original shader uses arrays here, we can use bitfields for better code gen */
+        int32_t idx = int32_t(sym <= 15u ? 0u : (sym - 15u));
+
+        uint32_t base = bitfieldExtract(0xb331u, 4 * idx, 4);
+        uint32_t xlen = bitfieldExtract(0x7320u, 4 * idx, 4);
+
+        uint32_t n = base + bitfieldExtract(bits, int(len), int(xlen));
+
+        /* Scan back to find the nearest lane which contains a valid symbol */
+        uint32_t lane = findMSB(vote(sym != 16u) & ltMask());
+        uint32_t codelen = sym;
+
+        if (sym > 16u)
+            codelen = 0u;
+
+        uint32_t prevlen = shuffle(codelen, lane);
+
+        if (sym == 16u)
+            codelen = lane == -1u ? lastlen : prevlen;
+
+        lastlen = broadcast(codelen, gl_WorkGroupSize.x - 1u);
+        baseOffset = add_exclusive_32(n) + baseOffset;
+
+        if (baseOffset < count && codelen != 0u)
+        {
+            update_histograms(codelen, int(baseOffset), int(n), int(hlit));
+            scratch_set4b(codelen, n, baseOffset);
+        }
+
+        bit_reader_eat(len + xlen, baseOffset < count);
+
+        baseOffset = broadcast(baseOffset + n, gl_WorkGroupSize.x - 1u);
+    }
+    while (all_in_group(baseOffset < count));
+
+    barrier();
+
+    uint32_t result = g_hist[tid()];
+
+    barrier();
+
+    return result;
+}
+
+
+void copy(uint32_t dst, uint32_t dist, uint32_t len, bool p)
+{
+    /* Fill in copy destinations in the previous round */
+    uint32_t mask = vote(p && len != 0u);
+
+    while (mask != 0u)
+    {
+        uint32_t lane = findLSB(mask);
+
+        uint32_t offset = broadcast(dist, lane);
+        uint32_t length = broadcast(len, lane);
+        uint32_t outPos = broadcast(dst, lane);
+
+        controlBarrier(gl_ScopeWorkgroup, gl_ScopeWorkgroup,
+            gl_StorageSemanticsBuffer, gl_SemanticsAcquireRelease);
+
+        for (uint32_t i = tid(); i < length; i += gl_WorkGroupSize.x)
+        {
+            uint32_t byte = read_output_byte(outPos + i % offset - offset);
+            store_output_byte(i + outPos, byte);
+        }
+
+        mask &= mask - 1u;
+    }
+}
+
+
+/* Output literals and copies */
+void coalesce_output(uint32_t dst, uint32_t offset, uint32_t dist, uint32_t length, uint32_t byte, bool iscopy)
+{
+    dst += offset;
+
+    /* Output literals */
+    if (!iscopy && length != 0u)
+        store_output_byte(dst, byte);
+
+    /* Fill in copy destinations */
+    copy(dst, dist, length, iscopy);
+}
+
+
+/* Translate a symbol to its value */
+uint32_t translate_symbol(uint32_t sym, uint32_t len, uint32_t bits, bool isdist, bool p)
+{
+    const u16vec2 lut[] =
+    {
+      /* Distance */
+      u16vec2(   1us,  0us), u16vec2(   2us,  0us), u16vec2(   3us,  0us), u16vec2(   4us,   0us), u16vec2(    5us,  1us), u16vec2(    7us,  1us), u16vec2(    9us,  2us), u16vec2(   13us,  2us),
+      u16vec2(  17us,  3us), u16vec2(  25us,  3us), u16vec2(  33us,  4us), u16vec2(  49us,   4us), u16vec2(   65us,  5us), u16vec2(   97us,  5us), u16vec2(  129us,  6us), u16vec2(  193us,  6us),
+      u16vec2( 257us,  7us), u16vec2( 385us,  7us), u16vec2( 513us,  8us), u16vec2( 769us,   8us), u16vec2( 1025us,  9us), u16vec2( 1537us,  9us), u16vec2( 2049us, 10us), u16vec2( 3073us, 10us),
+      u16vec2(4097us, 11us), u16vec2(6145us, 11us), u16vec2(8193us, 12us), u16vec2(12289us, 12us), u16vec2(16385us, 13us), u16vec2(24577us, 13us), u16vec2(32769us, 14us), u16vec2(49153us, 14us),
+      /* Literal / length */
+      u16vec2( 1us, 0us), u16vec2(  0us, 0us), u16vec2(  3us, 0us), u16vec2(  4us, 0us), u16vec2(  5us, 0us), u16vec2(  6us, 0us), u16vec2( 7us,  0us), u16vec2( 8us, 0us),
+      u16vec2( 9us, 0us), u16vec2( 10us, 0us), u16vec2( 11us, 1us), u16vec2( 13us, 1us), u16vec2( 15us, 1us), u16vec2( 17us, 1us), u16vec2(19us,  2us), u16vec2(23us, 2us),
+      u16vec2(27us, 2us), u16vec2( 31us, 2us), u16vec2( 35us, 3us), u16vec2( 43us, 3us), u16vec2( 51us, 3us), u16vec2( 59us, 3us), u16vec2(67us,  4us), u16vec2(83us, 4us),
+      u16vec2(99us, 4us), u16vec2(115us, 4us), u16vec2(131us, 5us), u16vec2(163us, 5us), u16vec2(195us, 5us), u16vec2(227us, 5us), u16vec2( 3us, 16us), u16vec2( 0us, 0us),
+    };
+
+    u16vec2 lookup = lut[isdist ? sym : max(sym, 255u) - 255u + 32u];
+
+    uint32_t n = uint32_t(lookup.y);
+    bit_reader_eat(len + n, isdist || p);
+
+    return uint32_t(lookup.x) + bitfieldExtract(bits, int(len), int(n));
+}
+
+
+/* Assumes code lengths have been stored in the shared memory array */
+uint32_t compressed_block(uint32_t hlit, uint32_t counts, uint32_t dst)
+{
+    decoder_pair_init(counts, 15u);
+    symbol_table_init(hlit, decoder_pair_get_offsets(tid()));
+
+    /* Initial round - no copy processing */
+    uint32_t len = 0u;
+    uint32_t sym = decoder_decode(bit_reader_peek(15u + 16u), len, false);
+
+    uint32_t eob = vote(sym == 256u);
+    bool oob = (eob & ltMask()) != 0u;
+
+    /* Translate current symbol */
+    uint32_t value = translate_symbol(sym, len, bit_reader_peek(), false, !oob);
+
+    /* Compute output pointers for the current round */
+    uint32_t length = oob ? 0u : value;
+    uint32_t offset = add_exclusive_32(length);
+
+    /* Copy predicate for the next round */
+    bool iscopy = sym > 256u;
+    uint32_t byte = sym;
+
+    /* .. for all symbols in the block */
+    while (eob == 0u)
+    {
+        sym = decoder_decode(bit_reader_peek(15u + 16u), len, iscopy);
+
+        /* end of block symbol */
+        eob = vote(sym == 256u);
+
+        /* true in threads which looked at symbols past the end of the block */
+        oob = (eob & ltMask()) != 0u;
+
+        /* Translate current symbol */
+        value = translate_symbol(sym, len, bit_reader_peek(), iscopy, !oob);
+        coalesce_output(dst, offset, value, length, byte, iscopy);
+
+        /* Advance output pointers */
+        dst += broadcast(offset + length, gl_WorkGroupSize.x - 1u);
+
+        /* Compute output pointers for the current round */
+        length = iscopy || oob ? 0u : value;
+        offset = add_exclusive_32(length);
+
+        /* Current symbol is a copy, transition to the new state */
+        iscopy = sym > 256u;
+        byte = sym;
+    }
+
+    /* One last round of copy processing */
+    sym = decoder_decode(bit_reader_peek(15u + 16u), len, true);
+    iscopy = iscopy && !oob;
+
+    uint32_t dist = translate_symbol(sym, len, bit_reader_peek(), iscopy, false);
+    coalesce_output(dst, offset, dist, length, byte, iscopy);
+
+    /* Advance destination pointer */
+    return dst + broadcast(offset + length, gl_WorkGroupSize.x - 1u);
+}
+
+
+/* Uncompressed block (raw copy) */
+uint32_t uncompressed_block(uint32_t dst, uint32_t size)
+{
+  uint32_t nrounds = size / gl_WorkGroupSize.x;
+
+  /* Full rounds with no bounds checking */
+  while (nrounds-- > 0u)
+  {
+      store_output_byte(dst + tid(), bit_reader_read(8, true));
+      dst += gl_WorkGroupSize.x;
+  }
+
+  uint32_t rem = size % gl_WorkGroupSize.x;
+
+  /* Last partial round with bounds check */
+  if (rem != 0u)
+  {
+      uint32_t byte = bit_reader_read(8u, tid() < rem);
+
+      if (tid() < rem)
+          store_output_byte(dst + tid(), byte);
+
+      dst += rem;
+  }
+
+  return dst;
+}
+
+
+/* Initialize fixed code lengths */
+uint32_t fixed_code_lengths()
+{
+    g_buf.data[tid()] = tid() < 18u ? 0x88888888u : 0x99999999u;
+    g_buf.data[tid() + 32u] = tid() < 3u ? 0x77777777u : (tid() < 4u ? 0x88888888u : 0x55555555u);
+    return tid() == 7u ? 24u : (tid() == 8u ? 152u : (tid() == 9u ? 112u : tid() == 16u + 5u ? 32u : 0u));
+}
+
+
+/* This is main entry point for tile decompressor */
+void decode_tile()
+{
+    /* Init bit reader */
+    bit_reader_init();
+
+    uint32_t out_dst = 0u;
+
+    bool done;
+
+    /* .. for each block */
+    do
+    {
+        /* Read block header and broadcast to all threads */
+        uint32_t header = broadcast(bit_reader_peek(), 0u);
+        done = bitfieldExtract(header, 0, 1) != 0u;
+
+        /* Parse block type */
+        uint32_t btype = bitfieldExtract(header, 1, 2);
+
+        bit_reader_eat(3u, tid() == 0u);
+
+        if (btype == 0u)
+        {
+            /* Uncompressed block */
+            uint32_t size = broadcast(bit_reader_read(16u, tid() == 0u), 0u);
+            out_dst = uncompressed_block(out_dst, size);
+        }
+        else if (btype <= 2u)
+        {
+            uint32_t hlit, counts;
+
+            if (btype == 2u)
+            {
+                /* Dynamic huffman block */
+                hlit = bitfieldExtract(header, 3, 5) + 257u;
+
+                uint32_t hdist = bitfieldExtract(header, 8, 5) + 1u;
+                bit_reader_eat(14u, tid() == 0u);
+
+                counts = unpack_code_lengths(hlit, hdist, bitfieldExtract(header, 13, 4) + 4u);
+            }
+            else
+            {
+                /* Fixed huffman block */
+                hlit = 288u;
+
+                counts = fixed_code_lengths();
+            }
+
+            out_dst = compressed_block(hlit, counts, out_dst);
+        }
+        else
+        {
+            /* Should never happen */
+            return;
+        }
+    }
+    while (!done);
+}
+
+
+void main()
+{
+    stream_offsets_t stream_offsets = control_buffer.streams[stream_index];
+    tile_stream_t tile_stream = tile_stream_t(src_buffer + stream_offsets.src_offset);
+
+    uint32_t tile_count = bitfieldExtract(tile_stream.dword0, 16, 16);
+    uint32_t tile_index = gl_WorkGroupID.x;
+
+    /* Compresed data is stored right after the metadata structure */
+    uint32_t metadata_size = 8u + tile_count * 4u;
+
+    /* Offset of first tile is implicitly 0 and not stored */
+    uint32_t src_offset = 0u;
+
+    if (tile_index > 0u)
+        src_offset = tile_stream.tile_offsets[tile_index - 1u];
+
+    /* Decompressed size for all but the last tile is 64k */
+    uint32_t dst_offset = GDEFLATE_TILE_SIZE * tile_index;
+
+    /* Compressed size can be inferred from tile offsets */
+    g_region.dst_buffer = output_data_t(dst_buffer + stream_offsets.dst_offset + dst_offset);
+    g_region.src_buffer = tile_data_t(src_buffer + stream_offsets.src_offset + metadata_size + src_offset);
+
+    if (tile_index + 1u < tile_count)
+        g_region.compressed_size = tile_stream.tile_offsets[tile_index] - src_offset;
+    else
+        g_region.compressed_size = tile_stream.last_compressed_size;
+
+    decode_tile();
+}

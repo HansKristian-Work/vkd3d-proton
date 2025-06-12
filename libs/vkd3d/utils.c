@@ -28,9 +28,23 @@
 #define DEPTH         (VK_IMAGE_ASPECT_DEPTH_BIT)
 #define STENCIL       (VK_IMAGE_ASPECT_STENCIL_BIT)
 #define DEPTH_STENCIL (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+#define PLANAR        (VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT)
 #define TYPELESS      VKD3D_FORMAT_TYPE_TYPELESS
 #define SINT          VKD3D_FORMAT_TYPE_SINT
 #define UINT          VKD3D_FORMAT_TYPE_UINT
+
+static const struct vkd3d_format_footprint nv12_copy_footprints[] =
+{
+    { DXGI_FORMAT_R8_TYPELESS, 1, 1, 1, 0, 0 },
+    { DXGI_FORMAT_R8G8_TYPELESS, 1, 1, 2, 1, 1 },
+};
+
+static const struct vkd3d_format_footprint p016_copy_footprints[] =
+{
+    { DXGI_FORMAT_R16_TYPELESS, 1, 1, 2, 0, 0 },
+    { DXGI_FORMAT_R16G16_TYPELESS, 1, 1, 4, 1, 1 },
+};
+
 static const struct vkd3d_format vkd3d_formats[] =
 {
     {DXGI_FORMAT_R32G32B32A32_TYPELESS, VK_FORMAT_R32G32B32A32_SFLOAT,      16, 1, 1,  1, COLOR, 1, TYPELESS},
@@ -123,6 +137,11 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_B4G4R4A4_UNORM,        VK_FORMAT_A4R4G4B4_UNORM_PACK16,    2,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_A4B4G4R4_UNORM,        VK_FORMAT_R4G4B4A4_UNORM_PACK16,    2,  1, 1,  1, COLOR, 1},
 
+    {DXGI_FORMAT_NV12,                  VK_FORMAT_G8_B8R8_2PLANE_420_UNORM, 0,  1, 1,  1, PLANAR, 2, TYPELESS, false, nv12_copy_footprints},
+    /* P010 and P016 are functionally equivalent, there is no way to interpret data as R10X6 in D3D. */
+    {DXGI_FORMAT_P010,                  VK_FORMAT_G16_B16R16_2PLANE_420_UNORM, 0,  1, 1,  1, PLANAR, 2, TYPELESS, false, p016_copy_footprints},
+    {DXGI_FORMAT_P016,                  VK_FORMAT_G16_B16R16_2PLANE_420_UNORM, 0,  1, 1,  1, PLANAR, 2, TYPELESS, false, p016_copy_footprints},
+
     {DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, VK_FORMAT_R32G32_UINT, 8,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE, VK_FORMAT_R32G32_UINT, 8,  1, 1,  1, COLOR, 1},
 };
@@ -162,231 +181,396 @@ static const struct dxgi_format_compatibility_list
     DXGI_FORMAT image_format;
     DXGI_FORMAT view_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
     DXGI_FORMAT uint_format; /* for ClearUAVUint */
+    DXGI_FORMAT typeless_format;
 }
 dxgi_format_compatibility_list[] =
 {
     {DXGI_FORMAT_R32G32B32A32_TYPELESS,
             {DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_UINT, DXGI_FORMAT_R32G32B32A32_SINT},
-            DXGI_FORMAT_R32G32B32A32_UINT},
+            DXGI_FORMAT_R32G32B32A32_UINT,
+            DXGI_FORMAT_R32G32B32A32_TYPELESS},
     {DXGI_FORMAT_R32G32B32A32_FLOAT, {DXGI_FORMAT_UNKNOWN},
-            DXGI_FORMAT_R32G32B32A32_UINT},
+            DXGI_FORMAT_R32G32B32A32_UINT,
+            DXGI_FORMAT_R32G32B32A32_TYPELESS},
     {DXGI_FORMAT_R32G32B32A32_UINT,
             {DXGI_FORMAT_R32G32B32A32_SINT},
-            DXGI_FORMAT_R32G32B32A32_UINT},
+            DXGI_FORMAT_R32G32B32A32_UINT,
+            DXGI_FORMAT_R32G32B32A32_TYPELESS},
     {DXGI_FORMAT_R32G32B32A32_SINT,
             {DXGI_FORMAT_R32G32B32A32_UINT},
-            DXGI_FORMAT_R32G32B32A32_UINT},
+            DXGI_FORMAT_R32G32B32A32_UINT,
+            DXGI_FORMAT_R32G32B32A32_TYPELESS},
 
     {DXGI_FORMAT_R32G32B32_TYPELESS,
             {DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32B32_UINT, DXGI_FORMAT_R32G32B32_SINT},
-            DXGI_FORMAT_R32G32B32_UINT},
+            DXGI_FORMAT_R32G32B32_UINT,
+            DXGI_FORMAT_R32G32B32_TYPELESS},
     {DXGI_FORMAT_R32G32B32_FLOAT, {DXGI_FORMAT_UNKNOWN},
-            DXGI_FORMAT_R32G32B32_UINT},
+            DXGI_FORMAT_R32G32B32_UINT,
+            DXGI_FORMAT_R32G32B32_TYPELESS},
     {DXGI_FORMAT_R32G32B32_UINT,
             {DXGI_FORMAT_R32G32B32_SINT},
-            DXGI_FORMAT_R32G32B32_UINT},
+            DXGI_FORMAT_R32G32B32_UINT,
+            DXGI_FORMAT_R32G32B32_TYPELESS},
     {DXGI_FORMAT_R32G32B32_SINT,
             {DXGI_FORMAT_R32G32B32_UINT},
-            DXGI_FORMAT_R32G32B32_UINT},
+            DXGI_FORMAT_R32G32B32_UINT,
+            DXGI_FORMAT_R32G32B32_TYPELESS},
 
     {DXGI_FORMAT_R16G16B16A16_TYPELESS,
             {DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_UNORM, DXGI_FORMAT_R16G16B16A16_SNORM, DXGI_FORMAT_R16G16B16A16_UINT, DXGI_FORMAT_R16G16B16A16_SINT},
-            DXGI_FORMAT_R16G16B16A16_UINT},
+            DXGI_FORMAT_R16G16B16A16_UINT,
+            DXGI_FORMAT_R16G16B16A16_TYPELESS},
     {DXGI_FORMAT_R16G16B16A16_FLOAT, {DXGI_FORMAT_UNKNOWN},
-            DXGI_FORMAT_R16G16B16A16_UINT},
+            DXGI_FORMAT_R16G16B16A16_UINT,
+            DXGI_FORMAT_R16G16B16A16_TYPELESS},
     {DXGI_FORMAT_R16G16B16A16_UINT,
             {DXGI_FORMAT_R16G16B16A16_SINT, DXGI_FORMAT_R16G16B16A16_UNORM, DXGI_FORMAT_R16G16B16A16_SNORM},
-            DXGI_FORMAT_R16G16B16A16_UINT},
+            DXGI_FORMAT_R16G16B16A16_UINT,
+            DXGI_FORMAT_R16G16B16A16_TYPELESS},
     {DXGI_FORMAT_R16G16B16A16_SINT,
             {DXGI_FORMAT_R16G16B16A16_UINT, DXGI_FORMAT_R16G16B16A16_UNORM, DXGI_FORMAT_R16G16B16A16_SNORM},
-            DXGI_FORMAT_R16G16B16A16_UINT},
+            DXGI_FORMAT_R16G16B16A16_UINT,
+            DXGI_FORMAT_R16G16B16A16_TYPELESS},
     {DXGI_FORMAT_R16G16B16A16_UNORM,
             {DXGI_FORMAT_R16G16B16A16_UINT, DXGI_FORMAT_R16G16B16A16_SINT},
-            DXGI_FORMAT_R16G16B16A16_UINT},
+            DXGI_FORMAT_R16G16B16A16_UINT,
+            DXGI_FORMAT_R16G16B16A16_TYPELESS},
     {DXGI_FORMAT_R16G16B16A16_SNORM,
             {DXGI_FORMAT_R16G16B16A16_UINT, DXGI_FORMAT_R16G16B16A16_SINT},
-            DXGI_FORMAT_R16G16B16A16_UINT},
+            DXGI_FORMAT_R16G16B16A16_UINT,
+            DXGI_FORMAT_R16G16B16A16_TYPELESS},
 
     {DXGI_FORMAT_R32G32_TYPELESS,
             {DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32_UINT, DXGI_FORMAT_R32G32_SINT},
-            DXGI_FORMAT_R32G32_UINT},
+            DXGI_FORMAT_R32G32_UINT,
+            DXGI_FORMAT_R32G32_TYPELESS},
     {DXGI_FORMAT_R32G32_FLOAT, {DXGI_FORMAT_UNKNOWN},
-            DXGI_FORMAT_R32G32_UINT},
+            DXGI_FORMAT_R32G32_UINT,
+            DXGI_FORMAT_R32G32_TYPELESS},
     {DXGI_FORMAT_R32G32_UINT,
             {DXGI_FORMAT_R32G32_SINT},
-            DXGI_FORMAT_R32G32_UINT},
+            DXGI_FORMAT_R32G32_UINT,
+            DXGI_FORMAT_R32G32_TYPELESS},
     {DXGI_FORMAT_R32G32_SINT,
             {DXGI_FORMAT_R32G32_UINT},
-            DXGI_FORMAT_R32G32_UINT},
+            DXGI_FORMAT_R32G32_UINT,
+            DXGI_FORMAT_R32G32_TYPELESS},
+
+    {DXGI_FORMAT_R32G8X24_TYPELESS,
+            {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R32G8X24_TYPELESS},
+    {DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS,
+            {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R32G8X24_TYPELESS},
+    {DXGI_FORMAT_X32_TYPELESS_G8X24_UINT,
+            {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R32G8X24_TYPELESS},
+    {DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
+            {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R32G8X24_TYPELESS},
 
     {DXGI_FORMAT_R10G10B10A2_TYPELESS,
             {DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_R10G10B10A2_UINT},
-            DXGI_FORMAT_R10G10B10A2_UINT},
+            DXGI_FORMAT_R10G10B10A2_UINT,
+            DXGI_FORMAT_R10G10B10A2_TYPELESS},
     {DXGI_FORMAT_R10G10B10A2_UINT,
             {DXGI_FORMAT_R10G10B10A2_UNORM},
-            DXGI_FORMAT_R10G10B10A2_UINT},
+            DXGI_FORMAT_R10G10B10A2_UINT,
+            DXGI_FORMAT_R10G10B10A2_TYPELESS},
     {DXGI_FORMAT_R10G10B10A2_UNORM,
             {DXGI_FORMAT_R10G10B10A2_UINT},
-            DXGI_FORMAT_R10G10B10A2_UINT},
+            DXGI_FORMAT_R10G10B10A2_UINT,
+            DXGI_FORMAT_R10G10B10A2_TYPELESS},
 
     {DXGI_FORMAT_R11G11B10_FLOAT, {DXGI_FORMAT_UNKNOWN},
             DXGI_FORMAT_R32_UINT},
 
+    {DXGI_FORMAT_R9G9B9E5_SHAREDEXP, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_R32_UINT},
+
     {DXGI_FORMAT_R8G8_TYPELESS,
             {DXGI_FORMAT_R8G8_UINT, DXGI_FORMAT_R8G8_SINT, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_SNORM},
-            DXGI_FORMAT_R8G8_UINT},
+            DXGI_FORMAT_R8G8_UINT,
+            DXGI_FORMAT_R8G8_TYPELESS},
     {DXGI_FORMAT_R8G8_UINT,
             {DXGI_FORMAT_R8G8_SINT, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_SNORM},
-            DXGI_FORMAT_R8G8_UINT},
+            DXGI_FORMAT_R8G8_UINT,
+            DXGI_FORMAT_R8G8_TYPELESS},
     {DXGI_FORMAT_R8G8_SINT,
             {DXGI_FORMAT_R8G8_UINT, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_SNORM},
-            DXGI_FORMAT_R8G8_UINT},
+            DXGI_FORMAT_R8G8_UINT,
+            DXGI_FORMAT_R8G8_TYPELESS},
     {DXGI_FORMAT_R8G8_UNORM,
             {DXGI_FORMAT_R8G8_UINT, DXGI_FORMAT_R8G8_SINT},
-            DXGI_FORMAT_R8G8_UINT},
+            DXGI_FORMAT_R8G8_UINT,
+            DXGI_FORMAT_R8G8_TYPELESS},
     {DXGI_FORMAT_R8G8_SNORM,
             {DXGI_FORMAT_R8G8_UINT, DXGI_FORMAT_R8G8_SINT},
-            DXGI_FORMAT_R8G8_UINT},
+            DXGI_FORMAT_R8G8_UINT,
+            DXGI_FORMAT_R8G8_TYPELESS},
 
     {DXGI_FORMAT_R8G8B8A8_TYPELESS,
             {DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_SNORM},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_R8G8B8A8_UINT,
+            DXGI_FORMAT_R8G8B8A8_TYPELESS},
     {DXGI_FORMAT_R8G8B8A8_UINT,
             {DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_SNORM},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_R8G8B8A8_UINT,
+            DXGI_FORMAT_R8G8B8A8_TYPELESS},
     {DXGI_FORMAT_R8G8B8A8_SINT,
             {DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_SNORM},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_R8G8B8A8_UINT,
+            DXGI_FORMAT_R8G8B8A8_TYPELESS},
     {DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
             {DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_R8G8B8A8_UINT,
+            DXGI_FORMAT_R8G8B8A8_TYPELESS},
     {DXGI_FORMAT_R8G8B8A8_UNORM,
             {DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_R8G8B8A8_UINT,
+            DXGI_FORMAT_R8G8B8A8_TYPELESS},
     {DXGI_FORMAT_R8G8B8A8_SNORM,
             {DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_R8G8B8A8_UINT,
+            DXGI_FORMAT_R8G8B8A8_TYPELESS},
 
     {DXGI_FORMAT_R16G16_TYPELESS,
             {DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R16G16_SINT, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16_SNORM},
-            DXGI_FORMAT_R16G16_UINT},
+            DXGI_FORMAT_R16G16_UINT,
+            DXGI_FORMAT_R16G16_TYPELESS},
     {DXGI_FORMAT_R16G16_FLOAT, {DXGI_FORMAT_UNKNOWN},
-            DXGI_FORMAT_R16G16_UINT},
+            DXGI_FORMAT_R16G16_UINT,
+            DXGI_FORMAT_R16G16_TYPELESS},
     {DXGI_FORMAT_R16G16_UINT,
             {DXGI_FORMAT_R16G16_SINT, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16_SNORM},
-            DXGI_FORMAT_R16G16_UINT},
+            DXGI_FORMAT_R16G16_UINT,
+            DXGI_FORMAT_R16G16_TYPELESS},
     {DXGI_FORMAT_R16G16_SINT,
             {DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16_SNORM},
-            DXGI_FORMAT_R16G16_UINT},
+            DXGI_FORMAT_R16G16_UINT,
+            DXGI_FORMAT_R16G16_TYPELESS},
     {DXGI_FORMAT_R16G16_UNORM,
             {DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R16G16_SINT},
-            DXGI_FORMAT_R16G16_UINT},
+            DXGI_FORMAT_R16G16_UINT,
+            DXGI_FORMAT_R16G16_TYPELESS},
     {DXGI_FORMAT_R16G16_SNORM,
             {DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R16G16_SINT},
-            DXGI_FORMAT_R16G16_UINT},
+            DXGI_FORMAT_R16G16_UINT,
+            DXGI_FORMAT_R16G16_TYPELESS},
 
     {DXGI_FORMAT_R32_TYPELESS,
             {DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32_SINT},
-            DXGI_FORMAT_R32_UINT},
+            DXGI_FORMAT_R32_UINT,
+            DXGI_FORMAT_R32_TYPELESS},
     {DXGI_FORMAT_R32_FLOAT, {DXGI_FORMAT_UNKNOWN},
-            DXGI_FORMAT_R32_UINT},
+            DXGI_FORMAT_R32_UINT,
+            DXGI_FORMAT_R32_TYPELESS},
     {DXGI_FORMAT_R32_UINT,
             {DXGI_FORMAT_R32_SINT},
-            DXGI_FORMAT_R32_UINT},
+            DXGI_FORMAT_R32_UINT,
+            DXGI_FORMAT_R32_TYPELESS},
     {DXGI_FORMAT_R32_SINT,
             {DXGI_FORMAT_R32_UINT},
-            DXGI_FORMAT_R32_UINT},
+            DXGI_FORMAT_R32_UINT,
+            DXGI_FORMAT_R32_TYPELESS},
+
+    {DXGI_FORMAT_D32_FLOAT, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R32_TYPELESS},
+
+    {DXGI_FORMAT_R24G8_TYPELESS,
+            {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R24G8_TYPELESS},
+    {DXGI_FORMAT_R24_UNORM_X8_TYPELESS,
+            {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R24G8_TYPELESS},
+    {DXGI_FORMAT_X24_TYPELESS_G8_UINT,
+            {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R24G8_TYPELESS},
+    {DXGI_FORMAT_D24_UNORM_S8_UINT,
+            {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R24G8_TYPELESS},
 
     {DXGI_FORMAT_R16_TYPELESS,
             {DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_SINT, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_SNORM},
-            DXGI_FORMAT_R16_UINT},
+            DXGI_FORMAT_R16_UINT,
+            DXGI_FORMAT_R16_TYPELESS},
     {DXGI_FORMAT_R16_FLOAT, {DXGI_FORMAT_UNKNOWN},
-            DXGI_FORMAT_R16_UINT},
+            DXGI_FORMAT_R16_UINT,
+            DXGI_FORMAT_R16_TYPELESS},
     {DXGI_FORMAT_R16_UINT,
             {DXGI_FORMAT_R16_SINT, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_SNORM},
-            DXGI_FORMAT_R16_UINT},
+            DXGI_FORMAT_R16_UINT,
+            DXGI_FORMAT_R16_TYPELESS},
     {DXGI_FORMAT_R16_SINT,
             {DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_SNORM},
-            DXGI_FORMAT_R16_UINT},
+            DXGI_FORMAT_R16_UINT,
+            DXGI_FORMAT_R16_TYPELESS},
     {DXGI_FORMAT_R16_UNORM,
             {DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_SINT},
-            DXGI_FORMAT_R16_UINT},
+            DXGI_FORMAT_R16_UINT,
+            DXGI_FORMAT_R16_TYPELESS},
     {DXGI_FORMAT_R16_SNORM,
             {DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_SINT},
-            DXGI_FORMAT_R16_UINT},
+            DXGI_FORMAT_R16_UINT,
+            DXGI_FORMAT_R16_TYPELESS},
+
+    {DXGI_FORMAT_D16_UNORM, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_R16_TYPELESS},
 
     {DXGI_FORMAT_R8_TYPELESS,
             {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM},
-            DXGI_FORMAT_R8_UINT},
+            DXGI_FORMAT_R8_UINT,
+            DXGI_FORMAT_R8_TYPELESS},
     {DXGI_FORMAT_R8_UINT,
             {DXGI_FORMAT_R8_SINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM},
-            DXGI_FORMAT_R8_UINT},
+            DXGI_FORMAT_R8_UINT,
+            DXGI_FORMAT_R8_TYPELESS},
     {DXGI_FORMAT_R8_SINT,
             {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM},
-            DXGI_FORMAT_R8_UINT},
+            DXGI_FORMAT_R8_UINT,
+            DXGI_FORMAT_R8_TYPELESS},
     {DXGI_FORMAT_R8_UNORM,
             {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT},
-            DXGI_FORMAT_R8_UINT},
+            DXGI_FORMAT_R8_UINT,
+            DXGI_FORMAT_R8_TYPELESS},
     {DXGI_FORMAT_R8_SNORM,
             {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT},
-            DXGI_FORMAT_R8_UINT},
-    {DXGI_FORMAT_A8_UNORM, {DXGI_FORMAT_UNKNOWN},
-            DXGI_FORMAT_R8_UINT},
+            DXGI_FORMAT_R8_UINT,
+            DXGI_FORMAT_R8_TYPELESS},
 
+    /* A8 has no corresponding UINT format */
+    {DXGI_FORMAT_A8_UNORM, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_A8_UNORM},
+
+    /* There's no BGRA8_UINT either, so use UNORM directly */
     {DXGI_FORMAT_B8G8R8A8_TYPELESS,
             {DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+            DXGI_FORMAT_B8G8R8A8_TYPELESS},
     {DXGI_FORMAT_B8G8R8A8_UNORM,
             {DXGI_FORMAT_B8G8R8A8_UNORM_SRGB},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+            DXGI_FORMAT_B8G8R8A8_TYPELESS},
     {DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
             {DXGI_FORMAT_B8G8R8A8_UNORM},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+            DXGI_FORMAT_B8G8R8A8_TYPELESS},
 
     {DXGI_FORMAT_B8G8R8X8_TYPELESS,
             {DXGI_FORMAT_B8G8R8X8_UNORM, DXGI_FORMAT_B8G8R8X8_UNORM_SRGB},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_B8G8R8X8_UNORM,
+            DXGI_FORMAT_B8G8R8X8_TYPELESS},
     {DXGI_FORMAT_B8G8R8X8_UNORM,
             {DXGI_FORMAT_B8G8R8X8_UNORM_SRGB},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_B8G8R8X8_UNORM,
+            DXGI_FORMAT_B8G8R8X8_TYPELESS},
     {DXGI_FORMAT_B8G8R8X8_UNORM_SRGB,
             {DXGI_FORMAT_B8G8R8X8_UNORM},
-            DXGI_FORMAT_R8G8B8A8_UINT},
+            DXGI_FORMAT_B8G8R8X8_UNORM,
+            DXGI_FORMAT_B8G8R8X8_TYPELESS},
 
     {DXGI_FORMAT_BC1_TYPELESS,
-            {DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC1_UNORM_SRGB}},
+            {DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC1_UNORM_SRGB},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC1_TYPELESS},
     {DXGI_FORMAT_BC1_UNORM,
-            {DXGI_FORMAT_BC1_UNORM_SRGB}},
+            {DXGI_FORMAT_BC1_UNORM_SRGB},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC1_TYPELESS},
     {DXGI_FORMAT_BC1_UNORM_SRGB,
-            {DXGI_FORMAT_BC1_UNORM}},
+            {DXGI_FORMAT_BC1_UNORM},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC1_TYPELESS},
 
     {DXGI_FORMAT_BC2_TYPELESS,
-            {DXGI_FORMAT_BC2_UNORM, DXGI_FORMAT_BC2_UNORM_SRGB}},
+            {DXGI_FORMAT_BC2_UNORM, DXGI_FORMAT_BC2_UNORM_SRGB},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC2_TYPELESS},
     {DXGI_FORMAT_BC2_UNORM,
-            {DXGI_FORMAT_BC2_UNORM_SRGB}},
+            {DXGI_FORMAT_BC2_UNORM_SRGB},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC2_TYPELESS},
     {DXGI_FORMAT_BC2_UNORM_SRGB,
-            {DXGI_FORMAT_BC2_UNORM}},
+            {DXGI_FORMAT_BC2_UNORM},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC2_TYPELESS},
 
     {DXGI_FORMAT_BC3_TYPELESS,
-            {DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_BC3_UNORM_SRGB}},
+            {DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_BC3_UNORM_SRGB},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC3_TYPELESS},
     {DXGI_FORMAT_BC3_UNORM,
-            {DXGI_FORMAT_BC3_UNORM_SRGB}},
+            {DXGI_FORMAT_BC3_UNORM_SRGB},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC3_TYPELESS},
     {DXGI_FORMAT_BC3_UNORM_SRGB,
-            {DXGI_FORMAT_BC3_UNORM}},
+            {DXGI_FORMAT_BC3_UNORM},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC3_TYPELESS},
 
     {DXGI_FORMAT_BC4_TYPELESS,
-            {DXGI_FORMAT_BC4_UNORM, DXGI_FORMAT_BC4_SNORM}},
+            {DXGI_FORMAT_BC4_UNORM, DXGI_FORMAT_BC4_SNORM},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC4_TYPELESS},
+    {DXGI_FORMAT_BC4_UNORM, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC4_TYPELESS},
+    {DXGI_FORMAT_BC4_SNORM, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC4_TYPELESS},
+
     {DXGI_FORMAT_BC5_TYPELESS,
-            {DXGI_FORMAT_BC5_UNORM, DXGI_FORMAT_BC5_SNORM}},
+            {DXGI_FORMAT_BC5_UNORM, DXGI_FORMAT_BC5_SNORM},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC5_TYPELESS},
+    {DXGI_FORMAT_BC5_UNORM, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC5_TYPELESS},
+    {DXGI_FORMAT_BC5_SNORM, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC5_TYPELESS},
+
     {DXGI_FORMAT_BC6H_TYPELESS,
-            {DXGI_FORMAT_BC6H_UF16, DXGI_FORMAT_BC6H_SF16}},
+            {DXGI_FORMAT_BC6H_UF16, DXGI_FORMAT_BC6H_SF16},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC6H_TYPELESS},
+    {DXGI_FORMAT_BC6H_UF16, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC6H_TYPELESS},
+    {DXGI_FORMAT_BC6H_SF16, {DXGI_FORMAT_UNKNOWN},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC6H_TYPELESS},
 
     {DXGI_FORMAT_BC7_TYPELESS,
-            {DXGI_FORMAT_BC7_UNORM, DXGI_FORMAT_BC7_UNORM_SRGB}},
+            {DXGI_FORMAT_BC7_UNORM, DXGI_FORMAT_BC7_UNORM_SRGB},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC7_TYPELESS},
     {DXGI_FORMAT_BC7_UNORM,
-            {DXGI_FORMAT_BC7_UNORM_SRGB}},
+            {DXGI_FORMAT_BC7_UNORM_SRGB},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC7_TYPELESS},
     {DXGI_FORMAT_BC7_UNORM_SRGB,
-            {DXGI_FORMAT_BC7_UNORM}},
+            {DXGI_FORMAT_BC7_UNORM},
+            DXGI_FORMAT_UNKNOWN,
+            DXGI_FORMAT_BC7_TYPELESS},
+
+    {DXGI_FORMAT_NV12,
+            {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_UINT}},
+    {DXGI_FORMAT_P010,
+            {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16_UINT}},
+    {DXGI_FORMAT_P016,
+            {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16_UINT}},
 
     /* Internal implementation detail. We desire 64-bit atomics and R32G32 UAV will trigger that compat
      * similar to other 64-bit images. */
@@ -436,7 +620,9 @@ static HRESULT vkd3d_init_format_compatibility_lists(struct d3d12_device *device
         dst = &lists[src->image_format];
 
         dst->uint_format = src->uint_format;
-        dst->vk_formats[dst->format_count++] = vkd3d_get_vk_format(src->image_format);
+        dst->typeless_format = src->typeless_format;
+
+        vkd3d_format_compatibility_list_add_format(dst, vkd3d_get_vk_format(src->image_format));
 
         for (j = 0; j < ARRAY_SIZE(src->view_formats) && src->view_formats[j]; j++)
             vkd3d_format_compatibility_list_add_format(dst, vkd3d_get_vk_format(src->view_formats[j]));
@@ -468,6 +654,65 @@ static void vkd3d_get_vk_format_properties(struct d3d12_device *device, VkFormat
     properties.pNext = properties3;
 
     VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, vk_format, &properties));
+}
+
+static void vkd3d_init_format_sample_counts(struct d3d12_device *device, struct vkd3d_format *format)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkPhysicalDeviceSparseImageFormatInfo2 sparse_info;
+    VkPhysicalDeviceImageFormatInfo2 info;
+    VkSampleCountFlagBits sample_count;
+    VkImageFormatProperties2 props;
+    uint32_t info_count;
+
+    format->supported_sample_counts = 0;
+    format->supported_sparse_sample_counts = 0;
+
+    memset(&props, 0, sizeof(props));
+    props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+
+    memset(&info, 0, sizeof(info));
+    info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+    info.format = format->vk_format;
+    info.type = VK_IMAGE_TYPE_2D;
+    info.tiling = format->vk_image_tiling;
+    info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
+    if (VK_CALL(vkGetPhysicalDeviceImageFormatProperties2(device->vk_physical_device, &info, &props)))
+        return;
+
+    format->supported_sample_counts = props.imageFormatProperties.sampleCounts;
+
+    /* Planar and depth-stencil formats do not support sparse in D3D12 */
+    if (format->plane_count > 1 || !device->device_info.features2.features.sparseResidencyImage2D)
+        return;
+
+    info.flags |= VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT |
+            VK_IMAGE_CREATE_SPARSE_ALIASED_BIT |
+            VK_IMAGE_CREATE_SPARSE_BINDING_BIT;
+
+    if (VK_CALL(vkGetPhysicalDeviceImageFormatProperties2(device->vk_physical_device, &info, &props)))
+        return;
+
+    while (props.imageFormatProperties.sampleCounts)
+    {
+        /* VUID 01094. Samples must be marked as supported by ImageFormatProperties. */
+        sample_count = 1u << vkd3d_bitmask_iter32(&props.imageFormatProperties.sampleCounts);
+
+        memset(&sparse_info, 0, sizeof(sparse_info));
+        sparse_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SPARSE_IMAGE_FORMAT_INFO_2;
+        sparse_info.format = info.format;
+        sparse_info.type = info.type;
+        sparse_info.samples = sample_count;
+        sparse_info.usage = info.usage;
+        sparse_info.tiling = info.tiling;
+
+        VK_CALL(vkGetPhysicalDeviceSparseImageFormatProperties2(
+                device->vk_physical_device, &sparse_info, &info_count, NULL));
+
+        if (info_count > 0)
+            format->supported_sparse_sample_counts |= sample_count;
+    }
 }
 
 static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
@@ -507,6 +752,8 @@ static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
         format->vk_format_features = properties.optimalTilingFeatures;
         format->vk_format_features_castable = properties.optimalTilingFeatures;
         format->vk_format_features_buffer = 0;
+
+        vkd3d_init_format_sample_counts(device, format);
     }
 
     device->depth_stencil_formats = formats;
@@ -611,6 +858,8 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
                         : properties.linearTilingFeatures;
             }
         }
+
+        vkd3d_init_format_sample_counts(device, format);
     }
 
     device->formats = formats;
@@ -674,8 +923,11 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
 {
     const struct vkd3d_format *format;
 
-    if (dxgi_format > VKD3D_MAX_DXGI_FORMAT)
+    if (!is_valid_format(dxgi_format))
+    {
+        ERR("Invalid format %d.\n", dxgi_format);
         return NULL;
+    }
 
     /* If we request a depth-stencil format (or typeless variant) that is planar,
      * there cannot be any ambiguity which format to select, we must choose a depth-stencil format.
@@ -913,6 +1165,15 @@ bool is_valid_resource_state(D3D12_RESOURCE_STATES state)
     return true;
 }
 
+bool is_valid_format(DXGI_FORMAT dxgi_format)
+{
+    if (dxgi_format >= DXGI_FORMAT_UNKNOWN && dxgi_format <= DXGI_FORMAT_B4G4R4A4_UNORM)
+        return true;
+    if (dxgi_format >= DXGI_FORMAT_P208 && dxgi_format <= DXGI_FORMAT_A4B4G4R4_UNORM)
+        return true;
+    return false;
+}
+
 HRESULT return_interface(void *iface, REFIID iface_iid,
         REFIID requested_iid, void **object)
 {
@@ -1063,6 +1324,8 @@ const char *debug_dxgi_format(DXGI_FORMAT format)
         ENUM_NAME(DXGI_FORMAT_P208)
         ENUM_NAME(DXGI_FORMAT_V208)
         ENUM_NAME(DXGI_FORMAT_V408)
+        ENUM_NAME(DXGI_FORMAT_UNDOCUMENTED_ASTC_FIRST)
+        ENUM_NAME(DXGI_FORMAT_UNDOCUMENTED_ASTC_LAST)
         ENUM_NAME(DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
         ENUM_NAME(DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
         ENUM_NAME(DXGI_FORMAT_A4B4G4R4_UNORM)
@@ -1132,6 +1395,7 @@ const char *debug_vk_queue_flags(VkQueueFlags flags, char buffer[VKD3D_DEBUG_FLA
     FLAG_TO_STR(VK_QUEUE_TRANSFER_BIT)
     FLAG_TO_STR(VK_QUEUE_SPARSE_BINDING_BIT)
     FLAG_TO_STR(VK_QUEUE_PROTECTED_BIT)
+    FLAG_TO_STR(VK_QUEUE_OPTICAL_FLOW_BIT_NV)
 #undef FLAG_TO_STR
     if (flags)
         FIXME("Unrecognized flag(s) %#x.\n", flags);
@@ -1551,3 +1815,158 @@ HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob)
 
     return S_OK;
 }
+
+
+static struct d3d_destruction_notifier *impl_from_ID3DDestructionNotifier(ID3DDestructionNotifier *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d_destruction_notifier, ID3DDestructionNotifier_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d_destruction_notifier_QueryInterface(ID3DDestructionNotifier *iface, REFIID riid, void **object)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+
+    TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
+
+    return IUnknown_QueryInterface(notifier->parent, riid, object);
+}
+
+static ULONG STDMETHODCALLTYPE d3d_destruction_notifier_AddRef(ID3DDestructionNotifier *iface)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+    ULONG refcount = IUnknown_AddRef(notifier->parent);
+
+    TRACE("%p increasing refcount to %u.\n", notifier, refcount);
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d_destruction_notifier_Release(ID3DDestructionNotifier *iface)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+    ULONG refcount = IUnknown_Release(notifier->parent);
+
+    TRACE("%p decreasing refcount to %u.\n", notifier, refcount);
+
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d_destruction_notifier_RegisterDestructionCallback(
+        ID3DDestructionNotifier *iface, PFN_DESTRUCTION_CALLBACK callback, void *data,
+        UINT *callback_id)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+    struct d3d_destruction_callback_entry *entry;
+
+    TRACE("iface %p, callback %p, data %p, callback_id %p.\n", iface, (void*)callback, data, callback_id);
+
+    if (!callback)
+        return DXGI_ERROR_INVALID_CALL;
+
+    pthread_mutex_lock(&notifier->mutex);
+
+    if (!vkd3d_array_reserve((void**)&notifier->callbacks, &notifier->callback_size,
+            notifier->callback_count + 1, sizeof(*notifier->callbacks)))
+    {
+        ERR("Failed to allocate callback array.\n");
+        pthread_mutex_unlock(&notifier->mutex);
+        return E_OUTOFMEMORY;
+    }
+
+    entry = &notifier->callbacks[notifier->callback_count++];
+    entry->callback = callback;
+    entry->userdata = data;
+    entry->callback_id = 0;
+
+    if (callback_id)
+    {
+        entry->callback_id = ++notifier->next_callback_id;
+        *callback_id = entry->callback_id;
+    }
+
+    pthread_mutex_unlock(&notifier->mutex);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d_destruction_notifier_UnregisterDestructionCallback(
+        ID3DDestructionNotifier *iface, UINT callback_id)
+{
+    struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
+    unsigned int i, entry_index;
+
+    TRACE("iface %p, callback_id %u.\n", iface, callback_id);
+
+    if (!callback_id)
+        return DXGI_ERROR_NOT_FOUND;
+
+    pthread_mutex_lock(&notifier->mutex);
+
+    entry_index = -1u;
+
+    for (i = 0; i < notifier->callback_count; i++)
+    {
+        if (notifier->callbacks[i].callback_id == callback_id)
+        {
+            entry_index = i;
+            break;
+        }
+    }
+
+    if (entry_index == -1u)
+    {
+        pthread_mutex_unlock(&notifier->mutex);
+        return DXGI_ERROR_NOT_FOUND;
+    }
+
+    notifier->callbacks[entry_index] = notifier->callbacks[--notifier->callback_count];
+
+    pthread_mutex_unlock(&notifier->mutex);
+    return S_OK;
+}
+
+static CONST_VTBL struct ID3DDestructionNotifierVtbl d3d_destruction_notifier_vtbl =
+{
+    /* IUnknown methods */
+    d3d_destruction_notifier_QueryInterface,
+    d3d_destruction_notifier_AddRef,
+    d3d_destruction_notifier_Release,
+    /* ID3DDestructionNotifier methods */
+    d3d_destruction_notifier_RegisterDestructionCallback,
+    d3d_destruction_notifier_UnregisterDestructionCallback
+};
+
+void d3d_destruction_notifier_init(struct d3d_destruction_notifier *notifier, IUnknown *parent)
+{
+    memset(notifier, 0, sizeof(*notifier));
+
+    notifier->ID3DDestructionNotifier_iface.lpVtbl = &d3d_destruction_notifier_vtbl;
+    notifier->parent = parent;
+
+    pthread_mutex_init(&notifier->mutex, NULL);
+}
+
+void d3d_destruction_notifier_free(struct d3d_destruction_notifier *notifier)
+{
+    d3d_destruction_notifier_notify(notifier);
+
+    pthread_mutex_destroy(&notifier->mutex);
+}
+
+void d3d_destruction_notifier_notify(struct d3d_destruction_notifier *notifier)
+{
+    size_t i;
+
+    for (i = 0; i < notifier->callback_count; i++)
+    {
+        const struct d3d_destruction_callback_entry *entry = &notifier->callbacks[i];
+
+        entry->callback(entry->userdata);
+    }
+
+    vkd3d_free(notifier->callbacks);
+
+    notifier->callbacks = NULL;
+    notifier->callback_count = 0u;
+    notifier->callback_size = 0u;
+}
+

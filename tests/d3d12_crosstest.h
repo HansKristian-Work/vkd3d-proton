@@ -45,8 +45,9 @@
 #if !defined(_WIN32) || defined(VKD3D_FORCE_UTILS_WRAPPER)
 # include "vkd3d_threads.h"
 # include "vkd3d.h"
-# include "vkd3d_sonames.h"
 #endif
+
+#include "vkd3d_sonames.h"
 
 #if !defined(_WIN32)
 #include <dlfcn.h>
@@ -60,8 +61,11 @@
 extern PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
 extern PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES pfn_D3D12EnableExperimentalFeatures;
 extern PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
+extern PFN_D3D12_GET_INTERFACE pfn_D3D12GetInterface;
 extern PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
 extern PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature;
+extern bool use_warp_device;
+extern unsigned int use_adapter_idx;
 
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 #define get_d3d12_pfn(name) get_d3d12_pfn_(#name)
@@ -368,8 +372,40 @@ static inline void wait_queue_idle_no_event_(unsigned int line, ID3D12Device *de
     ID3D12Fence_Release(fence);
 }
 
-static bool use_warp_device;
-static unsigned int use_adapter_idx;
+static PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
+static PFN_vkGetDeviceProcAddr pfn_vkGetDeviceProcAddr;
+static inline bool init_vulkan_loader(void)
+{
+#ifdef _WIN32
+    HMODULE hmod;
+#else
+    void *mod;
+#endif
+
+    if (pfn_vkGetInstanceProcAddr)
+        return true;
+
+    if (pfn_vkGetDeviceProcAddr)
+        return true;
+
+#ifdef _WIN32
+    hmod = LoadLibraryA(SONAME_LIBVULKAN);
+    if (!hmod)
+        return false;
+
+    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)(void *)GetProcAddress(hmod, "vkGetInstanceProcAddr");
+    pfn_vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)(void *)GetProcAddress(hmod, "vkGetDeviceProcAddr");
+#else
+    mod = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
+    if (!mod)
+        return false;
+
+    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(mod, "vkGetInstanceProcAddr");
+    pfn_vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)dlsym(mod, "vkGetDeviceProcAddr");
+#endif
+
+    return pfn_vkGetInstanceProcAddr != NULL;
+}
 
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 static IUnknown *create_warp_adapter(IDXGIFactory4 *factory)
@@ -538,36 +574,22 @@ static inline bool is_amd_vulkan_device(ID3D12Device *device)
 {
     return false;
 }
-#else
 
-static PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
-static bool init_vulkan_loader(void)
+static inline bool is_adreno_device(ID3D12Device *device)
 {
-#ifdef _WIN32
-    HMODULE hmod;
-#else
-    void *mod;
-#endif
-
-    if (pfn_vkGetInstanceProcAddr)
-        return true;
-
-#ifdef _WIN32
-    hmod = LoadLibraryA(SONAME_LIBVULKAN);
-    if (!hmod)
-        return false;
-
-    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)GetProcAddress(hmod, "vkGetInstanceProcAddr");
-#else
-    mod = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
-    if (!mod)
-        return false;
-
-    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(mod, "vkGetInstanceProcAddr");
-#endif
-
-    return pfn_vkGetInstanceProcAddr != NULL;
+    return false;
 }
+
+static inline bool is_vk_device_extension_supported(ID3D12Device *device, const char *ext)
+{
+    return false;
+}
+
+static inline bool is_vkd3d_proton_device(ID3D12Device *device)
+{
+    return false;
+}
+#else
 
 static ID3D12Device *create_device(void)
 {
@@ -606,6 +628,56 @@ static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPr
     device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     device_properties2.pNext = driver_properties;
     pfn_vkGetPhysicalDeviceProperties2(vk_physical_device, &device_properties2);
+    return true;
+}
+
+static inline bool is_vk_device_extension_supported(ID3D12Device *device, const char *ext)
+{
+    ID3D12DXVKInteropDevice *dxvk_device = NULL;
+    const char **exts = NULL;
+    bool supported = false;
+    UINT extension_count;
+    unsigned int i;
+
+    if (!init_vulkan_loader())
+        return false;
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12DXVKInteropDevice, (void **)&dxvk_device)))
+        goto err;
+
+    if (FAILED(ID3D12DXVKInteropDevice_GetDeviceExtensions(dxvk_device, &extension_count, NULL)))
+        goto err;
+
+    exts = malloc(sizeof(*exts) * extension_count);
+    if (!exts)
+        goto err;
+
+    if (FAILED(ID3D12DXVKInteropDevice_GetDeviceExtensions(dxvk_device, &extension_count, exts)))
+        goto err;
+
+    for (i = 0; i < extension_count; i++)
+    {
+        if (!strcmp(ext, exts[i]))
+        {
+            supported = true;
+            break;
+        }
+    }
+
+err:
+    if (dxvk_device)
+        ID3D12DXVKInteropDevice_Release(dxvk_device);
+    free(exts);
+    return supported;
+}
+
+static inline bool is_vkd3d_proton_device(ID3D12Device *device)
+{
+    ID3D12DXVKInteropDevice *dxvk_device = NULL;
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12DXVKInteropDevice, (void **)&dxvk_device)))
+        return false;
+    ID3D12DXVKInteropDevice_Release(dxvk_device);
     return true;
 }
 
@@ -679,6 +751,15 @@ static inline bool is_amd_vulkan_device(ID3D12Device *device)
             properties.driverID == VK_DRIVER_ID_AMD_OPEN_SOURCE_KHR ||
             properties.driverID == VK_DRIVER_ID_AMD_PROPRIETARY;
 }
+
+static inline bool is_adreno_device(ID3D12Device *device)
+{
+    VkPhysicalDeviceDriverPropertiesKHR properties;
+
+    get_driver_properties(device, &properties);
+    return properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY ||
+            properties.driverID == VK_DRIVER_ID_MESA_TURNIP;
+}
 #endif
 
 static inline void parse_args(int argc, char **argv)
@@ -728,6 +809,58 @@ static inline void enable_d3d12_debug_layer(int argc, char **argv)
         ID3D12Debug_EnableDebugLayer(debug);
         ID3D12Debug_Release(debug);
     }
+}
+
+static inline bool device_supports_gpu_upload_heap(ID3D12Device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16;
+    HRESULT hr;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS16, &options16, sizeof(options16));
+    if (hr != S_OK)
+        return false;
+
+    return options16.GPUUploadHeapSupported;
+}
+
+static inline void vkd3d_set_running_in_test_suite(void)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+    {
+        IVKD3DDebugControlInterface_SetRunningUnderTest(dbg);
+        if (getenv("VKD3D_TEST_EXPLODE_ON_VVL"))
+            IVKD3DDebugControlInterface_SetExplodeOnValidationError(dbg, TRUE);
+    }
+}
+
+static inline void vkd3d_mute_validation_message(const char *vuid, const char *explanation)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+        ok(SUCCEEDED(IVKD3DDebugControlInterface_MuteValidationMessageID(dbg, vuid, explanation)), "Failed to mute validation.\n");
+}
+
+static inline void vkd3d_unmute_validation_message(const char *vuid)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+        ok(SUCCEEDED(IVKD3DDebugControlInterface_UnmuteValidationMessageID(dbg, vuid)), "Failed to unmute validation.\n");
+}
+
+static inline void vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR behavior, BOOL enable)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+        ok(SUCCEEDED(IVKD3DDebugControlInterface_SetOutOfSpecTestBehavior(dbg, behavior, enable)), "Failed to unmute validation.\n");
 }
 
 #endif  /* __VKD3D_D3D12_CROSSTEST_H */

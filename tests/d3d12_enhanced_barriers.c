@@ -1019,6 +1019,7 @@ void test_enhanced_barrier_global_direct_queue_smoke(void)
      * The only way we can screw this up is if we mistranslate the stages / access masks for whatever reason. */
     D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
     D3D12_FEATURE_DATA_D3D12_OPTIONS5 features5;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS6 features6;
     D3D12_BARRIER_GROUP barrier_group;
     ID3D12GraphicsCommandList7 *list7;
     struct test_context_desc desc;
@@ -1136,11 +1137,14 @@ void test_enhanced_barrier_global_direct_queue_smoke(void)
         BA(ALL, RESOLVE_SOURCE),
         BA(RESOLVE, RESOLVE_SOURCE),
 
+        /* Ignore video decode/encode */
+    };
+
+    static const D3D12_GLOBAL_BARRIER barriers_vrs[] =
+    {
         BA(ALL, SHADING_RATE_SOURCE),
         BA(PIXEL_SHADING, SHADING_RATE_SOURCE),
         BA(ALL_SHADING, SHADING_RATE_SOURCE),
-
-        /* Ignore video decode/encode */
     };
 
     static const D3D12_GLOBAL_BARRIER barriers_dxr[] =
@@ -1197,6 +1201,9 @@ void test_enhanced_barrier_global_direct_queue_smoke(void)
     if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS5, &features5, sizeof(features5))))
         memset(&features5, 0, sizeof(features5));
 
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS6, &features6, sizeof(features6))))
+        memset(&features6, 0, sizeof(features6));
+
     hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList7, (void **)&list7);
     ok(SUCCEEDED(hr), "Failed to query gcl7.\n");
 
@@ -1207,6 +1214,15 @@ void test_enhanced_barrier_global_direct_queue_smoke(void)
     {
         barrier_group.pGlobalBarriers = &barriers[i];
         ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+    }
+
+    if (features6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_2)
+    {
+        for (i = 0; i < ARRAY_SIZE(barriers_vrs); i++)
+        {
+            barrier_group.pGlobalBarriers = &barriers_vrs[i];
+            ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+        }
     }
 
     if (features5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0)

@@ -22,9 +22,12 @@
 #include "vkd3d_string.h"
 
 #include "vkd3d_platform.h"
+#include "vkd3d_threads.h"
 
 #include <stdio.h>
 #include <inttypes.h>
+
+#include "vkd3d_dxcapi.h"
 
 static void vkd3d_shader_dump_blob(const char *path, vkd3d_shader_hash_t hash, const void *data, size_t size, const char *ext)
 {
@@ -362,6 +365,37 @@ static int vkd3d_shader_validate_shader_type(enum vkd3d_shader_type type, VkShad
     return 0;
 }
 
+#ifdef VKD3D_ENABLE_DXILCONV
+static DxcCreateInstanceProc vkd3d_dxilconv_instance_proc;
+
+static void dxilconv_init_once(void)
+{
+    vkd3d_module_t module = vkd3d_dlopen("dxilconv.dll");
+    if (module)
+        vkd3d_dxilconv_instance_proc = vkd3d_dlsym(module, "DxcCreateInstance");
+
+    if (vkd3d_dxilconv_instance_proc)
+        INFO("Found dxilconv.dll. Will use that for DXBC.\n");
+    else
+        INFO("Did not find dxilconv.dll. Using built-in DXBC implementation.\n");
+}
+
+static IDxbcConverter *vkd3d_shader_compiler_create_dxbc_converter(void)
+{
+    static pthread_once_t once_key = PTHREAD_ONCE_INIT;
+    IDxbcConverter *iface;
+
+    pthread_once(&once_key, dxilconv_init_once);
+    if (!vkd3d_dxilconv_instance_proc)
+        return NULL;
+
+    if (FAILED(vkd3d_dxilconv_instance_proc(&CLSID_DxbcConverter, &IID_IDxbcConverter, (void **)&iface)))
+        return NULL;
+
+    return iface;
+}
+#endif
+
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         struct vkd3d_shader_code_debug *spirv_debug,
@@ -374,6 +408,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_shader_scan_info scan_info;
     struct vkd3d_shader_parser parser;
     vkd3d_shader_hash_t hash;
+    bool is_dxil;
     int ret;
 
     TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface_info %p, compile_args %p.\n",
@@ -382,9 +417,39 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     if ((ret = vkd3d_shader_validate_compile_args(compile_args)) < 0)
         return ret;
 
-    /* DXIL is handled externally through dxil-spirv. */
-    if (shader_is_dxil(dxbc->code, dxbc->size))
+    is_dxil = shader_is_dxil(dxbc->code, dxbc->size);
+
+#ifdef VKD3D_ENABLE_DXILCONV
+    if (!is_dxil)
     {
+        IDxbcConverter *conv = vkd3d_shader_compiler_create_dxbc_converter();
+        if (conv)
+        {
+            struct vkd3d_shader_code converted;
+            UINT32 dxil_size;
+            int ret = -1;
+            void *dxil;
+
+            if (SUCCEEDED(IDxbcConverter_Convert(conv, dxbc->code, dxbc->size, NULL, &dxil, &dxil_size, NULL)))
+            {
+                converted.code = dxil;
+                converted.size = dxil_size;
+                spirv->meta.hash = vkd3d_shader_hash(dxbc);
+                ret = vkd3d_shader_compile_dxil(&converted, spirv, spirv_debug, shader_interface_info, compile_args);
+                CoTaskMemFree(dxil);
+            }
+            IDxbcConverter_Release(conv);
+
+            if (ret == 0)
+                return ret;
+        }
+    }
+#endif
+
+    /* DXIL is handled externally through dxil-spirv. */
+    if (is_dxil)
+    {
+        spirv->meta.hash = 0;
         return vkd3d_shader_compile_dxil(dxbc, spirv, spirv_debug, shader_interface_info, compile_args);
     }
 
@@ -800,6 +865,14 @@ int vkd3d_shader_parse_output_signature(const struct vkd3d_shader_code *dxbc,
     return shader_parse_output_signature(dxbc->code, dxbc->size, signature);
 }
 
+int vkd3d_shader_parse_patch_constant_signature(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_signature *signature)
+{
+    TRACE("dxbc {%p, %zu}, signature %p.\n", dxbc->code, dxbc->size, signature);
+
+    return shader_parse_patch_constant_signature(dxbc->code, dxbc->size, signature);
+}
+
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index)
@@ -863,7 +936,12 @@ uint64_t vkd3d_shader_get_revision(void)
      * Might get nuked later ...
      * It's not immediately useful for invalidating pipeline caches, since that would mostly be covered
      * by vkd3d-proton Git hash. */
+#ifdef VKD3D_ENABLE_DXILCONV
+    dxilconv_init_once();
+    return vkd3d_dxilconv_instance_proc ? 2 : 1;
+#else
     return 1;
+#endif
 }
 
 struct vkd3d_shader_stage_io_entry *vkd3d_shader_stage_io_map_append(struct vkd3d_shader_stage_io_map *map,
@@ -909,4 +987,114 @@ void vkd3d_shader_stage_io_map_free(struct vkd3d_shader_stage_io_map *map)
 
     vkd3d_free(map->entries);
     memset(map, 0, sizeof(*map));
+}
+
+static int vkd3d_shader_parse_root_signature_for_version(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        enum vkd3d_root_signature_version target_version,
+        bool raw_payload,
+        vkd3d_shader_hash_t *compatibility_hash)
+{
+    struct vkd3d_versioned_root_signature_desc desc, converted_desc;
+    int ret;
+
+    if (raw_payload)
+    {
+        if ((ret = vkd3d_shader_parse_root_signature_raw(dxbc->code, dxbc->size, &desc, compatibility_hash)) < 0)
+        {
+            WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+            return ret;
+        }
+    }
+    else
+    {
+        if ((ret = vkd3d_shader_parse_root_signature(dxbc, &desc, compatibility_hash)) < 0)
+        {
+            WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+            return ret;
+        }
+    }
+
+    if (desc.version == target_version)
+    {
+        *out_desc = desc;
+    }
+    else
+    {
+        ret = vkd3d_shader_convert_root_signature(&converted_desc, target_version, &desc);
+        vkd3d_shader_free_root_signature(&desc);
+        if (ret < 0)
+        {
+            WARN("Failed to convert from version %#x, vkd3d result %d.\n", desc.version, ret);
+            return ret;
+        }
+
+        *out_desc = converted_desc;
+    }
+
+    return ret;
+}
+
+int vkd3d_shader_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
+{
+    return vkd3d_shader_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, false,
+            compatibility_hash);
+}
+
+int vkd3d_shader_parse_root_signature_v_1_2(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
+{
+    return vkd3d_shader_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_2, false,
+            compatibility_hash);
+}
+
+int vkd3d_shader_parse_root_signature_v_1_2_from_raw_payload(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
+{
+    return vkd3d_shader_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_2, true,
+            compatibility_hash);
+}
+
+vkd3d_shader_hash_t vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
+        const struct vkd3d_root_signature_desc2 *desc)
+{
+    vkd3d_shader_hash_t hash = hash_fnv1_init();
+    uint32_t i;
+
+    hash = hash_fnv1_iterate_u32(hash, desc->static_sampler_count);
+    hash = hash_fnv1_iterate_u32(hash, desc->parameter_count);
+    hash = hash_fnv1_iterate_u32(hash, desc->flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+
+    for (i = 0; i < desc->parameter_count; i++)
+    {
+        hash = hash_fnv1_iterate_u32(hash, desc->parameters[i].parameter_type);
+        if (desc->parameters[i].parameter_type == VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+            hash = hash_fnv1_iterate_u32(hash, desc->parameters[i].constants.value_count);
+        else
+            hash = hash_fnv1_iterate_u32(hash, 0);
+    }
+
+    for (i = 0; i < desc->static_sampler_count; i++)
+    {
+        const struct vkd3d_static_sampler_desc1 *sampler = &desc->static_samplers[i];
+        /* Ignore space / register since those don't affect VkPipelineLayout. */
+        hash = hash_fnv1_iterate_u32(hash, sampler->flags);
+        hash = hash_fnv1_iterate_u32(hash, sampler->shader_visibility);
+        hash = hash_fnv1_iterate_u32(hash, sampler->max_anisotropy);
+        hash = hash_fnv1_iterate_u32(hash, sampler->border_color);
+        hash = hash_fnv1_iterate_u32(hash, sampler->comparison_func);
+        hash = hash_fnv1_iterate_u32(hash, sampler->address_u);
+        hash = hash_fnv1_iterate_u32(hash, sampler->address_v);
+        hash = hash_fnv1_iterate_u32(hash, sampler->address_w);
+        hash = hash_fnv1_iterate_u32(hash, sampler->filter);
+        hash = hash_fnv1_iterate_f32(hash, sampler->min_lod);
+        hash = hash_fnv1_iterate_f32(hash, sampler->max_lod);
+        hash = hash_fnv1_iterate_f32(hash, sampler->mip_lod_bias);
+    }
+
+    return hash;
 }

@@ -628,7 +628,7 @@ static void shader_sm4_read_shader_data(struct vkd3d_shader_instruction *ins,
 
     ++tokens;
     icb_size = token_count - 1;
-    if (icb_size % 4 || icb_size > MAX_IMMEDIATE_CONSTANT_BUFFER_SIZE)
+    if (icb_size % 4 || icb_size > MAX_IMMEDIATE_CONSTANT_BUFFER_DWORDS)
     {
         FIXME("Unexpected immediate constant buffer size %u.\n", icb_size);
         ins->handler_idx = VKD3DSIH_INVALID;
@@ -1150,6 +1150,8 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
             shader_sm4_read_dcl_input_ps_siv},
     {VKD3D_SM4_OP_DCL_OUTPUT,                       VKD3DSIH_DCL_OUTPUT,                       "",     "",
             shader_sm4_read_declaration_dst},
+    {VKD3D_SM4_OP_DCL_OUTPUT_SGV,                   VKD3DSIH_DCL_OUTPUT_SGV,                   "",     "",
+            shader_sm4_read_declaration_register_semantic},
     {VKD3D_SM4_OP_DCL_OUTPUT_SIV,                   VKD3DSIH_DCL_OUTPUT_SIV,                   "",     "",
             shader_sm4_read_declaration_register_semantic},
     {VKD3D_SM4_OP_DCL_TEMPS,                        VKD3DSIH_DCL_TEMPS,                        "",     "",
@@ -2255,15 +2257,30 @@ static int osgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
 {
     struct vkd3d_shader_signature *is = ctx;
 
-    if (tag != TAG_OSGN && tag != TAG_OSG1)
+    if (tag != TAG_OSGN && tag != TAG_OSG1 && tag != TAG_OSG5)
         return VKD3D_OK;
 
     if (is->elements)
     {
-        FIXME("Multiple input signatures.\n");
+        FIXME("Multiple output signatures.\n");
         vkd3d_shader_free_shader_signature(is);
     }
     return shader_parse_signature(tag, data, data_size, is);
+}
+
+static int psgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
+{
+    struct vkd3d_shader_signature *sig = ctx;
+
+    if (tag != TAG_PCSG && tag != TAG_PSG1)
+        return VKD3D_OK;
+
+    if (sig->elements)
+    {
+        FIXME("Multiple patch constant signatures.\n");
+        vkd3d_shader_free_shader_signature(sig);
+    }
+    return shader_parse_signature(tag, data, data_size, sig);
 }
 
 int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
@@ -2284,6 +2301,17 @@ int shader_parse_output_signature(const void *dxbc, size_t dxbc_length,
 
     memset(signature, 0, sizeof(*signature));
     if ((ret = parse_dxbc(dxbc, dxbc_length, osgn_handler, signature)) < 0)
+        ERR("Failed to parse output signature.\n");
+    return ret;
+}
+
+int shader_parse_patch_constant_signature(const void *dxbc, size_t dxbc_length,
+        struct vkd3d_shader_signature *signature)
+{
+    int ret;
+
+    memset(signature, 0, sizeof(*signature));
+    if ((ret = parse_dxbc(dxbc, dxbc_length, psgn_handler, signature)) < 0)
         ERR("Failed to parse output signature.\n");
     return ret;
 }
@@ -2889,6 +2917,7 @@ int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_si
     {
         struct vkd3d_shader_code code = { data, data_size };
         *compatibility_hash = vkd3d_shader_hash(&code);
+        vkd3d_shader_dump_shader(*compatibility_hash, &code, "rs");
     }
 
     return VKD3D_OK;

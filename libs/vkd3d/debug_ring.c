@@ -350,6 +350,7 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
             }
         }
         INFO("Done fishing for clues ...\n");
+        vkd3d_dbg_flush();
     }
 
     return NULL;
@@ -393,27 +394,15 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
     if (FAILED(vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
-            &resource_desc, VK_VKD3D_TYPE_SHADER_DEBUG_RING_JUICE, &ring->host_buffer)))
+            &resource_desc, "debug-ring-host", &ring->host_buffer)))
         goto err_free_buffers;
 
     memory_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-    /* If we're doing breadcrumb debugging, we also need to be able to read debug ring messages
-     * from a crash, so we cannot rely on being able to copy the device payload back to host.
-     * Use PCI-e BAR + UNCACHED + DEVICE_COHERENT if we must. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
-    {
-        INFO("Using debug ring with breadcrumbs, opting in to device uncached payload buffer.\n");
-        /* We use coherent in the debug_channel.h header, but not necessarily guaranteed to be coherent with
-         * host reads, so make extra sure. */
-        if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory)
-        {
-            memory_props |= VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD;
-            INFO("Enabling uncached device memory for debug ring.\n");
-        }
-    }
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    memory_props = vkd3d_debug_buffer_memory_properties(device, memory_props, false);
+#endif
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->host_buffer,
             memory_props, &ring->host_buffer_memory)))
@@ -424,21 +413,16 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
     if (FAILED(vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
-            &resource_desc, VK_VKD3D_TYPE_SHADER_DEBUG_RING_JUICE, &ring->device_atomic_buffer)))
+            &resource_desc, "debug-ring-atomic", &ring->device_atomic_buffer)))
         goto err_free_buffers;
 
     memory_props = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
-    {
-        /* Expect crashes since we won't have time to flush caches.
-         * We use coherent in the debug_channel.h header, but not necessarily guaranteed to be coherent with
-         * host reads, so make extra sure. */
-        if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory)
-            memory_props |= VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD;
-    }
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    memory_props = vkd3d_debug_buffer_memory_properties(device, memory_props, false);
+#endif
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->device_atomic_buffer,
             memory_props, &ring->device_atomic_buffer_memory)))

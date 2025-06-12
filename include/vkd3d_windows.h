@@ -85,9 +85,11 @@ typedef unsigned long ULONG_PTR;
 
 typedef ULONG_PTR SIZE_T;
 
+typedef char CHAR;
 typedef unsigned short WCHAR;
 typedef void *HANDLE;
 
+typedef const CHAR* LPCSTR;
 typedef const WCHAR* LPCWSTR;
 
 #define _fseeki64(a, b, c) fseeko64(a, b, c)
