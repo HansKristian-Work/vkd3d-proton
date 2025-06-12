@@ -7419,6 +7419,58 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_ifa
     }
 }
 
+static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMicromapUsageEXT usages_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkMicromapBuildSizesInfoEXT size_info;
+    VkMicromapBuildInfoEXT build_info;
+    VkMicromapUsageEXT *usages;
+    uint32_t usages_count;
+
+    if (!d3d12_device_supports_ray_tracing_tier_1_2(device))
+    {
+        ERR("Opacity micromap is not supported. Calling this is invalid.\n");
+        memset(info, 0, sizeof(*info));
+        return;
+    }
+
+    usages_count = desc->pOpacityMicromapArrayDesc->NumOmmHistogramEntries;
+
+    if (usages_count > VKD3D_BUILD_INFO_STACK_COUNT)
+        usages = vkd3d_malloc(usages_count * sizeof(*usages));
+    else
+        usages = usages_stack;
+
+    if (!vkd3d_opacity_micromap_convert_inputs(device, desc, &build_info, usages))
+    {
+        ERR("Failed to convert inputs.\n");
+        memset(info, 0, sizeof(*info));
+        goto cleanup;
+    }
+
+    memset(&size_info, 0, sizeof(size_info));
+    size_info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
+
+    VK_CALL(vkGetMicromapBuildSizesEXT(device->vk_device,
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+            &build_info, &size_info));
+
+    info->ResultDataMaxSizeInBytes = size_info.micromapSize;
+    info->ScratchDataSizeInBytes = size_info.buildScratchSize;
+    info->UpdateScratchDataSizeInBytes = 0;
+
+    TRACE("ResultDataMaxSizeInBytes: %"PRIu64".\n", (uint64_t)info->ResultDataMaxSizeInBytes);
+    TRACE("ScratchDataSizeInBytes: %"PRIu64".\n", (uint64_t)info->ScratchDataSizeInBytes);
+
+cleanup:
+
+    if (usages_count > VKD3D_BUILD_INFO_STACK_COUNT)
+        vkd3d_free(usages);
+}
+
 static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
@@ -7440,6 +7492,12 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     {
         ERR("Acceleration structure is not supported. Calling this is invalid.\n");
         memset(info, 0, sizeof(*info));
+        return;
+    }
+
+    if (desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
+    {
+        d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(device, desc, info);
         return;
     }
 
