@@ -1006,4 +1006,4 @@ HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
 
 /* Just expose the latest stable AgilitySDK version.
  * This is actually exported as a UINT and not a function it seems. */
-DLLEXPORT const UINT D3D12SDKVersion = 614;
+DLLEXPORT const UINT D3D12SDKVersion = 616;
