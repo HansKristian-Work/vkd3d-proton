@@ -2840,6 +2840,14 @@ struct d3d12_rtas_batch_state
 
     const VkAccelerationStructureBuildRangeInfoKHR **range_ptrs;
     size_t range_ptr_size;
+
+    VkMicromapBuildInfoEXT *omm_build_infos;
+    size_t omm_build_info_count;
+    size_t omm_build_info_size;
+
+    VkMicromapUsageEXT *omm_usage_infos;
+    size_t omm_usage_info_count;
+    size_t omm_usage_info_size;
 };
 
 union vkd3d_descriptor_heap_state
