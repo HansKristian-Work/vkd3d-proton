@@ -8334,6 +8334,12 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
         }
     }
 
+    if (tier == D3D12_RAYTRACING_TIER_1_1 && info->opacity_micromap_features.micromap)
+    {
+        INFO("DXR 1.2 support enabled.\n");
+        tier = D3D12_RAYTRACING_TIER_1_2;
+    }
+
     return tier;
 }
 
