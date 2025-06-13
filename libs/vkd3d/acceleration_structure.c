@@ -384,6 +384,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
+    VkMicromapEXT vk_opacity_micromap;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
     VkDeviceSize stride;
@@ -408,9 +409,28 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
 
     for (i = 0; i < count; i++)
     {
+        if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+        {
+            vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
+                    list->device, addresses[i], &vk_acceleration_structure, &vk_opacity_micromap);
+
+            if (vk_acceleration_structure != VK_NULL_HANDLE)
+            {
+                vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
+                continue;
+            }
+            else if (vk_opacity_micromap != VK_NULL_HANDLE)
+            {
+                vkd3d_opacity_micromap_write_postbuild_info(list, desc, i * stride, vk_opacity_micromap);
+                continue;
+            }
+            else
+                FIXME("Failed to query existing RTAS for VA 0x%"PRIx64", falling back to placement.\n", addresses[i]);
+        }
+
         vk_acceleration_structure = vkd3d_va_map_place_acceleration_structure(
                 &list->device->memory_allocator.va_map, list->device, addresses[i]);
-        if (vk_acceleration_structure)
+        if (vk_acceleration_structure != VK_NULL_HANDLE)
             vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
         else
             ERR("Failed to query acceleration structure for VA 0x%"PRIx64".\n", addresses[i]);
