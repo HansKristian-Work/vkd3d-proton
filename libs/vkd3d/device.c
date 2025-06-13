@@ -3813,7 +3813,7 @@ static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, uint3
 
     if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &pool->vk_query_pool))) < 0)
     {
-        ERR("Failed to create query pool, vr %u.\n", vr);
+        ERR("Failed to create query pool, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
     }
 
