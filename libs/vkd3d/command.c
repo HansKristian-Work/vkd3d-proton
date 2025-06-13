@@ -16516,6 +16516,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    VkAccelerationStructureKHR src_as;
+    VkMicromapEXT src_omm;
 
     TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
           iface, dst_data, src_data, mode);
@@ -16533,12 +16535,47 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
-    vkd3d_acceleration_structure_copy(list, dst_data, src_data, mode);
 
-    VKD3D_BREADCRUMB_AUX64(dst_data);
-    VKD3D_BREADCRUMB_AUX64(src_data);
-    VKD3D_BREADCRUMB_AUX32(mode);
-    VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
+    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+    {
+        vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
+                list->device, src_data, &src_as, &src_omm);
+
+        if (src_as != VK_NULL_HANDLE)
+        {
+            vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode);
+            VKD3D_BREADCRUMB_AUX64(dst_data);
+            VKD3D_BREADCRUMB_AUX64(src_data);
+            VKD3D_BREADCRUMB_AUX32(mode);
+            VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
+            return;
+        }
+        else if (src_omm != VK_NULL_HANDLE)
+        {
+            vkd3d_opacity_micromap_copy(list, dst_data, src_omm, mode);
+            VKD3D_BREADCRUMB_AUX64(dst_data);
+            VKD3D_BREADCRUMB_AUX64(src_data);
+            VKD3D_BREADCRUMB_AUX32(mode);
+            VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
+            return;
+        }
+        else
+            FIXME("Failed to query existing RTAS for VA 0x%"PRIx64", falling back to placement.\n", src_data);
+    }
+
+    src_as = vkd3d_va_map_place_acceleration_structure(
+            &list->device->memory_allocator.va_map, list->device, src_data);
+
+    if (src_as != VK_NULL_HANDLE)
+    {
+        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode);
+        VKD3D_BREADCRUMB_AUX64(dst_data);
+        VKD3D_BREADCRUMB_AUX64(src_data);
+        VKD3D_BREADCRUMB_AUX32(mode);
+        VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
+    }
+    else
+        ERR("Invalid src address #%"PRIx64" for RTAS copy.\n", src_data);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command_list_iface *iface,

@@ -77,6 +77,8 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "build_omm";
         case VKD3D_BREADCRUMB_COMMAND_COPY_RTAS:
             return "copy_rtas";
+        case VKD3D_BREADCRUMB_COMMAND_COPY_OMM:
+            return "copy_omm";
         case VKD3D_BREADCRUMB_COMMAND_EMIT_RTAS_POSTBUILD:
             return "emit_rtas_postbuild";
         case VKD3D_BREADCRUMB_COMMAND_TRACE_RAYS:

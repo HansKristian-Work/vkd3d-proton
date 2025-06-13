@@ -497,24 +497,17 @@ static bool convert_copy_mode(
 
 void vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
-        D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
+        D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_as,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkAccelerationStructureKHR dst_as, src_as;
     VkCopyAccelerationStructureInfoKHR info;
+    VkAccelerationStructureKHR dst_as;
 
     dst_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, dst);
     if (dst_as == VK_NULL_HANDLE)
     {
         ERR("Invalid dst address #%"PRIx64" for RTAS copy.\n", dst);
-        return;
-    }
-
-    src_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, src);
-    if (src_as == VK_NULL_HANDLE)
-    {
-        ERR("Invalid src address #%"PRIx64" for RTAS copy.\n", src);
         return;
     }
 
