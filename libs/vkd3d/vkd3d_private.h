@@ -2831,6 +2831,9 @@ struct d3d12_rtas_batch_state
     size_t build_info_count;
     size_t build_info_size;
 
+    VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos;
+    size_t omm_info_size;
+
     VkAccelerationStructureGeometryKHR *geometry_infos;
     size_t geometry_info_count;
     size_t geometry_info_size;
@@ -6179,10 +6182,11 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
 
 uint32_t vkd3d_acceleration_structure_get_geometry_count(
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc);
-bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
+bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
         VkAccelerationStructureGeometryKHR *geometry_infos,
+        VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
         uint32_t *primitive_counts);
 void vkd3d_acceleration_structure_emit_postbuild_info(
