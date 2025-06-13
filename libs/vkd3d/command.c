@@ -16038,6 +16038,8 @@ static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list)
     vkd3d_free(rtas_batch->geometry_infos);
     vkd3d_free(rtas_batch->range_infos);
     vkd3d_free(rtas_batch->range_ptrs);
+    vkd3d_free(rtas_batch->omm_build_infos);
+    vkd3d_free(rtas_batch->omm_usage_infos);
 }
 
 static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_list *list, uint32_t geometry_count,
@@ -16078,26 +16080,59 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
     return true;
 }
 
+static bool d3d12_command_list_allocate_omm_build_info(struct d3d12_command_list *list, uint32_t usage_count,
+        VkMicromapBuildInfoEXT **build_info,
+        VkMicromapUsageEXT **usage_infos)
+{
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+
+    if (!vkd3d_array_reserve((void **)&rtas_batch->omm_build_infos, &rtas_batch->omm_build_info_size,
+            rtas_batch->omm_build_info_count + 1, sizeof(*rtas_batch->omm_build_infos)))
+    {
+        ERR("Failed to allocate build info array.\n");
+        return false;
+    }
+
+    if (!vkd3d_array_reserve((void **)&rtas_batch->omm_usage_infos, &rtas_batch->omm_usage_info_size,
+            rtas_batch->omm_usage_info_count + usage_count, sizeof(*rtas_batch->omm_usage_infos)))
+    {
+        ERR("Failed to allocate usage array.\n");
+        return false;
+    }
+
+    *build_info = &rtas_batch->omm_build_infos[rtas_batch->omm_build_info_count];
+    *usage_infos = &rtas_batch->omm_usage_infos[rtas_batch->omm_usage_info_count];
+
+    rtas_batch->omm_build_info_count += 1;
+    rtas_batch->omm_usage_info_count += usage_count;
+
+    return true;
+}
+
 static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
 {
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
 
     rtas_batch->build_info_count = 0;
     rtas_batch->geometry_info_count = 0;
+    rtas_batch->omm_build_info_count = 0;
+    rtas_batch->omm_usage_info_count = 0;
 }
 
 static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
-    unsigned int i, geometry_index;
+    unsigned int i, geometry_index, usage_index;
 
-    if (!rtas_batch->build_info_count)
+    if (!rtas_batch->build_info_count && !rtas_batch->omm_build_info_count)
         return;
 
-    TRACE("list %p, build_info_count %zu.\n", list, rtas_batch->build_info_count);
+    TRACE("list %p, build_info_count %zu, omm_build_info_count %zu.\n", list,
+            rtas_batch->build_info_count, rtas_batch->omm_build_info_count);
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->range_ptrs, &rtas_batch->range_ptr_size,
+    if (rtas_batch->build_info_count &&
+            !vkd3d_array_reserve((void **)&rtas_batch->range_ptrs, &rtas_batch->range_ptr_size,
             rtas_batch->build_info_count, sizeof(*rtas_batch->range_ptrs)))
     {
         ERR("Failed to allocate range pointer array.\n");
@@ -16118,11 +16153,29 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
         geometry_index += geometry_count;
     }
 
+    /* Assign usage count pointers */
+    usage_index = 0;
+
+    for (i = 0; i < rtas_batch->omm_build_info_count; i++)
+    {
+        uint32_t usage_count = rtas_batch->omm_build_infos[i].usageCountsCount;
+        assert(usage_index + usage_count <= rtas_batch->omm_usage_info_count);
+
+        rtas_batch->omm_build_infos[i].pUsageCounts = &rtas_batch->omm_usage_infos[usage_index];
+
+        usage_index += usage_count;
+    }
+
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
 
-    VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
-            rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
+    if (rtas_batch->build_info_count)
+        VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
+                rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
+
+    if (rtas_batch->omm_build_info_count)
+        VK_CALL(vkCmdBuildMicromapsEXT(list->cmd.vk_command_buffer,
+                rtas_batch->omm_build_info_count, rtas_batch->omm_build_infos));
 
     d3d12_command_list_clear_rtas_batch(list);
 }
@@ -16159,7 +16212,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     /* Do not batch TLAS and BLAS builds into the same command, since doing so
      * is disallowed if there are data dependencies between the builds. This
      * happens in Cyberpunk 2077, which does not emit appropriate UAV barriers. */
-    if (rtas_batch->build_info_count && rtas_batch->build_type != desc->Inputs.Type)
+    if ((rtas_batch->build_info_count || rtas_batch->omm_build_info_count) &&
+            rtas_batch->build_type != desc->Inputs.Type)
     {
         d3d12_command_list_flush_rtas_batch(list);
 
@@ -16169,6 +16223,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         vk_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
         vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
         vk_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
+        if (list->device->device_info.opacity_micromap_features.micromap)
+        {
+            vk_barrier.srcAccessMask |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
+            vk_barrier.dstAccessMask |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
+        }
 
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
