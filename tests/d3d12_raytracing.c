@@ -150,6 +150,12 @@ static D3D12_SHADER_BYTECODE get_misfire_lib(void)
     return misfire_dxil;
 }
 
+static D3D12_SHADER_BYTECODE get_omm_lib(void)
+{
+#include "shaders/rt/headers/omm.h"
+    return omm_dxil;
+}
+
 struct initial_vbo
 {
     float f32[3 * 3 * 2];
@@ -172,9 +178,12 @@ struct test_geometry
 
 static void destroy_test_geometry(struct test_geometry *geom)
 {
-    ID3D12Resource_Release(geom->vbo);
-    ID3D12Resource_Release(geom->zero_vbo);
-    ID3D12Resource_Release(geom->ibo);
+    if (geom->vbo)
+        ID3D12Resource_Release(geom->vbo);
+    if (geom->zero_vbo)
+        ID3D12Resource_Release(geom->zero_vbo);
+    if (geom->ibo)
+        ID3D12Resource_Release(geom->ibo);
 }
 
 static void init_test_geometry(ID3D12Device *device, struct test_geometry *geom)
@@ -210,6 +219,33 @@ static void init_test_geometry(ID3D12Device *device, struct test_geometry *geom)
         };
         geom->ibo = create_upload_buffer(device, sizeof(initial_ibo_data), &initial_ibo_data);
     }
+}
+
+static void init_test_omm_geometry(ID3D12Device *device, struct test_geometry *geom)
+{
+    struct vec4 tri_data[8][3];
+    unsigned int tri;
+
+    for (tri = 0; tri < 8; tri++)
+    {
+        tri_data[tri][0].x = -1.0;
+        tri_data[tri][0].y = -1.0;
+        tri_data[tri][0].z = 10.0 * (float)tri;
+        tri_data[tri][0].w = 1.0;
+
+        tri_data[tri][1].x = +1.0;
+        tri_data[tri][1].y = -1.0;
+        tri_data[tri][1].z = 10.0 * (float)tri;
+        tri_data[tri][1].w = 1.0;
+
+        tri_data[tri][2].x = 0.0;
+        tri_data[tri][2].y = +1.0;
+        tri_data[tri][2].z = 10.0 * (float)tri;
+        tri_data[tri][2].w = 1.0;
+    }
+
+    memset(geom, 0, sizeof(*geom));
+    geom->vbo = create_upload_buffer(device, sizeof(tri_data), tri_data);
 }
 
 static ID3D12Resource *create_transform_buffer(ID3D12Device *device, unsigned int count, float x_stride)
@@ -418,6 +454,21 @@ struct test_rt_geometry
     ID3D12Resource *instance_buffer;
 };
 
+struct test_rt_omm_geometry
+{
+    ID3D12Resource *omm_triangle; /* Points to micromap payload */
+    ID3D12Resource *omm_triangle_alt; /* Points to alternative micromap payload (used for update with relink test) */
+    ID3D12Resource *omm_index_buffer; /* Maps BLAS triangle to OMM array index (or special index) */
+    ID3D12Resource *micromap_payload; /* Raw bits encoding the micromap, 1 bit / tri or 2 bit / tri. */
+    ID3D12Resource *instance;
+    struct rt_acceleration_structure omm_base;
+    struct rt_acceleration_structure omm_alt;
+    ID3D12Resource *omm;
+    struct rt_acceleration_structure blas;
+    struct rt_acceleration_structure tlas;
+    ID3D12Resource *query;
+};
+
 static void destroy_rt_geometry(struct test_rt_geometry *rt_geom)
 {
     unsigned int i;
@@ -436,9 +487,157 @@ static void destroy_rt_geometry(struct test_rt_geometry *rt_geom)
     destroy_acceleration_structure(&rt_geom->top_rtas);
 }
 
+static void destroy_rt_omm_geometry(struct test_rt_omm_geometry *rt_omm_geom)
+{
+    ID3D12Resource_Release(rt_omm_geom->omm_triangle);
+    ID3D12Resource_Release(rt_omm_geom->omm_triangle_alt);
+    ID3D12Resource_Release(rt_omm_geom->omm_index_buffer);
+    ID3D12Resource_Release(rt_omm_geom->micromap_payload);
+    ID3D12Resource_Release(rt_omm_geom->instance);
+    ID3D12Resource_Release(rt_omm_geom->omm);
+    ID3D12Resource_Release(rt_omm_geom->query);
+    destroy_acceleration_structure(&rt_omm_geom->omm_base);
+    destroy_acceleration_structure(&rt_omm_geom->omm_alt);
+    destroy_acceleration_structure(&rt_omm_geom->blas);
+    destroy_acceleration_structure(&rt_omm_geom->tlas);
+}
+
 static bool instance_index_is_aabb(unsigned int index)
 {
     return !!(index & 2);
+}
+
+struct omm_test_configuration
+{
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS omm_build_flags;
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS blas_build_flags;
+    D3D12_RAYTRACING_INSTANCE_FLAGS instance_flags;
+    UINT ray_flags;
+    UINT subdivision;
+};
+
+static void init_rt_omm_geometry(struct raytracing_test_context *context,
+    struct test_rt_omm_geometry *rt_omm_geom, struct test_geometry *geom,
+    const void *micromap_payload, size_t micromap_payload_size,
+    const void *index_buffer, size_t index_buffer_size, unsigned int index_base_location, DXGI_FORMAT index_format,
+    const struct omm_test_configuration *config)
+{
+    D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY histogram[2];
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
+    D3D12_RAYTRACING_OPACITY_MICROMAP_DESC micromap_desc[16];
+    D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC array_desc;
+    D3D12_RAYTRACING_GEOMETRY_OMM_LINKAGE_DESC omm_linkage;
+    D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC tri_desc;
+    D3D12_RAYTRACING_INSTANCE_DESC instance_desc;
+    D3D12_RAYTRACING_GEOMETRY_DESC geom_desc;
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(micromap_desc); i++)
+    {
+        micromap_desc[i].ByteOffset = i & 7;
+        micromap_desc[i].Format = i < 8 ?
+            D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_2_STATE :
+            D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_4_STATE;
+        micromap_desc[i].SubdivisionLevel = config->subdivision;
+    }
+
+    assert(sizeof(micromap_desc[0]) == 8);
+
+    rt_omm_geom->micromap_payload = create_upload_buffer(context->context.device, micromap_payload_size, micromap_payload);
+    rt_omm_geom->omm_triangle = create_upload_buffer(context->context.device, sizeof(micromap_desc), micromap_desc);
+    rt_omm_geom->omm_index_buffer = create_upload_buffer(context->context.device, index_buffer_size, index_buffer);
+
+    memset(&inputs, 0, sizeof(inputs));
+    memset(&array_desc, 0, sizeof(array_desc));
+    inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY;
+    inputs.Flags = config->omm_build_flags;
+    inputs.NumDescs = 1;
+    inputs.pOpacityMicromapArrayDesc = &array_desc;
+
+    array_desc.NumOmmHistogramEntries = ARRAY_SIZE(histogram);
+    array_desc.pOmmHistogram = histogram;
+    memset(histogram, 0, sizeof(histogram));
+    histogram[0].Count = ARRAY_SIZE(micromap_desc) / 2;
+    histogram[0].Format = D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_2_STATE;
+    histogram[0].SubdivisionLevel = config->subdivision;
+    histogram[1].Count = ARRAY_SIZE(micromap_desc) / 2;
+    histogram[1].Format = D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_4_STATE;
+    histogram[1].SubdivisionLevel = config->subdivision;
+
+    array_desc.PerOmmDescs.StartAddress = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->omm_triangle);
+    array_desc.PerOmmDescs.StrideInBytes = sizeof(micromap_desc[0]);
+    array_desc.InputBuffer = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->micromap_payload);
+
+    rt_omm_geom->query = create_default_buffer(context->context.device, 128, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    create_acceleration_structure(context, &inputs, &rt_omm_geom->omm_base,
+        (config->omm_build_flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION) ?
+        ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->query) : 0);
+
+    for (i = 0; i < ARRAY_SIZE(micromap_desc); i++)
+        micromap_desc[i].SubdivisionLevel = 0;
+    for (i = 0; i < ARRAY_SIZE(histogram); i++)
+        histogram[i].SubdivisionLevel = 0;
+    rt_omm_geom->omm_triangle_alt = create_upload_buffer(context->context.device, sizeof(micromap_desc), micromap_desc);
+    array_desc.PerOmmDescs.StartAddress = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->omm_triangle_alt);
+    create_acceleration_structure(context, &inputs, &rt_omm_geom->omm_alt, 0);
+
+    rt_omm_geom->omm = duplicate_acceleration_structure(context, rt_omm_geom->omm_base.rtas,
+        (config->omm_build_flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION) ?
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT : D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
+
+    inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+    inputs.Flags = config->blas_build_flags;
+    inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    inputs.pGeometryDescs = &geom_desc;
+    inputs.NumDescs = 1;
+    
+    memset(&geom_desc, 0, sizeof(geom_desc));
+    geom_desc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES;
+    geom_desc.OmmTriangles.pOmmLinkage = &omm_linkage;
+    geom_desc.OmmTriangles.pTriangles = &tri_desc;
+
+    memset(&omm_linkage, 0, sizeof(omm_linkage));
+    memset(&tri_desc, 0, sizeof(tri_desc));
+
+    if (config->blas_build_flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_OMM_LINKAGE_UPDATE)
+        omm_linkage.OpacityMicromapArray = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->omm_alt.rtas);
+    else
+        omm_linkage.OpacityMicromapArray = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->omm);
+
+    omm_linkage.OpacityMicromapIndexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->omm_index_buffer);
+    omm_linkage.OpacityMicromapIndexBuffer.StrideInBytes = format_size(index_format);
+    omm_linkage.OpacityMicromapBaseLocation = index_base_location;
+    omm_linkage.OpacityMicromapIndexFormat = index_format;
+
+    tri_desc.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(geom->vbo);
+    tri_desc.VertexBuffer.StrideInBytes = 4 * sizeof(float);
+    tri_desc.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+    tri_desc.VertexCount = 3 * 8;
+
+    create_acceleration_structure(context, &inputs, &rt_omm_geom->blas, 0);
+
+    if (config->blas_build_flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE)
+    {
+        if (config->blas_build_flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_OMM_LINKAGE_UPDATE)
+            omm_linkage.OpacityMicromapArray = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->omm);
+        update_acceleration_structure(context, &inputs, &rt_omm_geom->blas);
+    }
+
+    inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_NONE;
+    inputs.NumDescs = 1;
+    memset(&instance_desc, 0, sizeof(instance_desc));
+    instance_desc.AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->blas.rtas);
+    instance_desc.Transform[0][0] = 1.0f;
+    instance_desc.Transform[1][1] = 1.0f;
+    instance_desc.Transform[2][2] = 1.0f;
+    instance_desc.InstanceMask = 0xff;
+    instance_desc.Flags = config->instance_flags;
+    rt_omm_geom->instance = create_upload_buffer(context->context.device, sizeof(instance_desc), &instance_desc);
+    inputs.InstanceDescs = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->instance);
+
+    create_acceleration_structure(context, &inputs, &rt_omm_geom->tlas, 0);
 }
 
 static void init_rt_geometry(struct raytracing_test_context *context, struct test_rt_geometry *rt_geom,
@@ -3836,5 +4035,541 @@ void test_raytracing_null_rtas(void)
     ID3D12Resource_Release(output);
     ID3D12DescriptorHeap_Release(heap);
     ID3D12StateObject_Release(rtpso);
+    destroy_raytracing_test_context(&context);
+}
+
+/* Straight out of Vulkan spec. */
+static uint32_t BarycentricsToSpaceFillingCurveIndex(float u, float v, uint32_t level)
+{
+    uint32_t iu, iv, iw;
+    float fu, fv;
+    float uf, vf;
+    uint32_t iuv;
+    uint32_t b0;
+    uint32_t b1;
+    uint32_t t;
+    uint32_t f;
+
+    u = max(min(u, 1.0f), 0.0f);
+    v = max(min(v, 1.0f), 0.0f);
+
+    // Quantize barycentric coordinates
+    fu = u * (1u << level);
+    fv = v * (1u << level);
+
+    iu = (uint32_t)fu;
+    iv = (uint32_t)fv;
+
+    uf = fu - (float)iu;
+    vf = fv - (float)iv;
+
+    if (iu >= (1u << level))
+        iu = (1u << level) - 1u;
+    if (iv >= (1u << level))
+        iv = (1u << level) - 1u;
+
+    iuv = iu + iv;
+
+    if (iuv >= (1u << level))
+        iu -= iuv - (1u << level) + 1u;
+
+    iw = ~(iu + iv);
+
+    if (uf + vf >= 1.0f && iuv < (1u << level) - 1u)
+        --iw;
+
+    b0 = ~(iu ^ iw);
+    b0 &= ((1u << level) - 1u);
+    t = (iu ^ iv) & b0;
+
+    f = t;
+    f ^= f >> 1u;
+    f ^= f >> 2u;
+    f ^= f >> 4u;
+    f ^= f >> 8u;
+    b1 = ((f ^ iu) & ~b0) | t;
+
+    /* Interleave bits */
+    b0 = (b0 | (b0 << 8u)) & 0x00ff00ffu;
+    b0 = (b0 | (b0 << 4u)) & 0x0f0f0f0fu;
+    b0 = (b0 | (b0 << 2u)) & 0x33333333u;
+    b0 = (b0 | (b0 << 1u)) & 0x55555555u;
+    b1 = (b1 | (b1 << 8u)) & 0x00ff00ffu;
+    b1 = (b1 | (b1 << 4u)) & 0x0f0f0f0fu;
+    b1 = (b1 | (b1 << 2u)) & 0x33333333u;
+    b1 = (b1 | (b1 << 1u)) & 0x55555555u;
+
+    return b0 | (b1 << 1u);
+}
+
+void test_raytracing_opacity_micro_map(void)
+{
+    uint8_t sbt_data[D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 3];
+    struct test_rt_omm_geometry test_rtases;
+    struct raytracing_test_context context;
+    ID3D12StateObjectProperties *props;
+    D3D12_DESCRIPTOR_RANGE rs_range[1];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[4];
+    struct test_geometry test_geom;
+    D3D12_HIT_GROUP_DESC hit_group;
+    struct rt_pso_factory factory;
+    D3D12_DISPATCH_RAYS_DESC rays;
+    const void *hitgroup_handle;
+    struct resource_readback rb;
+    ID3D12Resource *ray_buffer;
+    const void *raygen_handle;
+    ID3D12StateObject *rtpso;
+    unsigned int test_index;
+    const void *miss_handle;
+    ID3D12Resource *output;
+    ID3D12Device *device;
+    ID3D12Resource *sbt;
+    unsigned int i, j;
+
+#define NUM_RAYS_PER_TRIANGLE 256
+#define TRIANGLES_PER_RAY 8
+#define NUM_RAYS (NUM_RAYS_PER_TRIANGLE * TRIANGLES_PER_RAY)
+#define INDEX_BUFFER_OFFSET 6
+
+    uint8_t micromap_payload[1024];
+
+    /* Ends up picking special indices, 1bpt and 2bpt modes all in one dispatch. */
+    static const uint32_t triangle_to_omm_map[TRIANGLES_PER_RAY] = {
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_TRANSPARENT,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_OPAQUE,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_UNKNOWN_TRANSPARENT,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_UNKNOWN_OPAQUE,
+        0, 1, 2, 3,
+    };
+
+    struct vec2 uvs[NUM_RAYS_PER_TRIANGLE];
+    struct vec4 rays_data[NUM_RAYS];
+
+    static const struct omm_test_configuration tests[] = {
+        /* Vanilla */
+        {
+            0, 0,
+            0,
+            0,
+            2,
+        },
+        /* Try compacting the OMM */
+        {
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION, 0,
+            0,
+            0,
+            3,
+        },
+        /* Non-functional test, but checks that it doesn't blow up. */
+        {
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, 0,
+            0,
+            0,
+            4,
+        },
+        {
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD, 0,
+            0,
+            0,
+            5,
+        },
+        /* Try BLAS update with OMM */
+        {
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION,
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE,
+            0, 0, 2,
+        },
+        {
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION,
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_OMM_LINKAGE_UPDATE,
+            0, 0, 2,
+        },
+        /* Test behavior of forcing opacity state */
+        {
+            0, 0,
+            0,
+            D3D12_RAY_FLAG_FORCE_OPAQUE, /* Check if we can override UNKNOWN states instead of entering anyhit */
+            2,
+        },
+        {
+            0, 0,
+            0,
+            D3D12_RAY_FLAG_FORCE_NON_OPAQUE, /* Should force entering any-hit */
+            2,
+        },
+        {
+            0, 0,
+            D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE,
+            0,
+            2,
+        },
+        {
+            0, 0,
+            D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_NON_OPAQUE,
+            0,
+            2,
+        },
+        /* Test behavior of forcing 2-state +/- opacity state force on top */
+        {
+            0, 0,
+            D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE,
+            0,
+            2,
+        },
+        {
+            0, 0,
+            D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE,
+            D3D12_RAY_FLAG_FORCE_OPAQUE,
+            2,
+        },
+        {
+            0, 0,
+            D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE,
+            D3D12_RAY_FLAG_FORCE_NON_OPAQUE,
+            2,
+        },
+        /* Same, but using ray flag instead of instance state */
+        {
+            0, 0,
+            0,
+            D3D12_RAY_FLAG_FORCE_OMM_2_STATE,
+            2,
+        },
+        {
+            0, 0,
+            0,
+            D3D12_RAY_FLAG_FORCE_OMM_2_STATE | D3D12_RAY_FLAG_FORCE_OPAQUE,
+            2,
+        },
+        {
+            0, 0,
+            0,
+            D3D12_RAY_FLAG_FORCE_OMM_2_STATE |D3D12_RAY_FLAG_FORCE_NON_OPAQUE,
+            2,
+        },
+        /* Test disabling OMM completely */
+        {
+            0, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_DISABLE_OMMS,
+            D3D12_RAYTRACING_INSTANCE_FLAG_DISABLE_OMMS,
+            D3D12_RAY_FLAG_FORCE_OPAQUE,
+            2,
+        },
+        {
+            0, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_DISABLE_OMMS,
+            D3D12_RAYTRACING_INSTANCE_FLAG_DISABLE_OMMS,
+            D3D12_RAY_FLAG_FORCE_NON_OPAQUE,
+            2,
+        },
+    };
+
+    /* Generate some barycentric coordinates. */
+    srand(10);
+
+    for (i = 0; i < NUM_RAYS_PER_TRIANGLE; i++)
+    {
+        uvs[i].x = (rand() % 16) / 16.0f;
+        uvs[i].x += 0.005f; /* Avoids landing on a triangle edge. */
+        uvs[i].y = (rand() % 16) / 16.0f;
+        uvs[i].y += 0.005f; /* Avoids landing on a triangle edge. */
+        uvs[i].y = min(0.99f - uvs[i].x, uvs[i].y);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(micromap_payload); i++)
+        micromap_payload[i] = rand();
+
+    /* Generate some rays based on triangle pos + barys. */
+    for (i = 0; i < NUM_RAYS_PER_TRIANGLE; i++)
+    {
+        const struct vec2 v0 = { -1, -1 };
+        const struct vec2 v1 = { +1, -1 };
+        const struct vec2 v2 = { 0, +1 };
+
+        for (j = 0; j < TRIANGLES_PER_RAY; j++)
+        {
+            rays_data[TRIANGLES_PER_RAY * i + j].x = (v1.x - v0.x) * uvs[i].x + (v2.x - v0.x) * uvs[i].y + v0.x;
+            rays_data[TRIANGLES_PER_RAY * i + j].y = (v1.y - v0.y) * uvs[i].x + (v2.y - v0.y) * uvs[i].y + v0.y;
+            rays_data[TRIANGLES_PER_RAY * i + j].z = 10.0f * j - 1.0f;
+            rays_data[TRIANGLES_PER_RAY * i + j].w = 2.0f;
+        }
+    }
+
+    memset(&hit_group, 0, sizeof(hit_group));
+    hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+    hit_group.HitGroupExport = u"HitGroup";
+    hit_group.ClosestHitShaderImport = u"ClosestHit";
+    hit_group.AnyHitShaderImport = u"AnyHit";
+
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_2))
+        return;
+
+    device = context.context.device;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(rs_range, 0, sizeof(rs_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].Descriptor.ShaderRegister = 1;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[3].Constants.Num32BitValues = 1;
+
+    create_root_signature(device, &rs_desc, &context.context.root_signature);
+
+    rt_pso_factory_init(&factory);
+    rt_pso_factory_add_dxil_library(&factory, get_omm_lib(), 0, NULL);
+    rt_pso_factory_add_pipeline_config1(&factory, 1, D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS);
+    rt_pso_factory_add_shader_config(&factory, 8, 8);
+    rt_pso_factory_add_hit_group(&factory, &hit_group);
+    rt_pso_factory_add_global_root_signature(&factory, context.context.root_signature);
+    rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+    rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+
+    ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props);
+    miss_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"MissShader");
+    ok(!!miss_handle, "Failed to query miss handle.\n");
+    raygen_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"GenShader");
+    ok(!!raygen_handle, "Failed to query raygen handle.\n");
+    hitgroup_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"HitGroup");
+    ok(!!hitgroup_handle, "Failed to query hitgroup handle.\n");
+    ID3D12StateObjectProperties_Release(props);
+
+    output = create_default_buffer(device, NUM_RAYS * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    ray_buffer = create_upload_buffer(device, sizeof(rays_data), rays_data);
+
+    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 0, raygen_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 1, miss_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 2, hitgroup_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+    sbt = create_upload_buffer(device, sizeof(sbt_data), sbt_data);
+
+    init_test_omm_geometry(device, &test_geom);
+
+    for (test_index = 0; test_index < ARRAY_SIZE(tests); test_index++)
+    {
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_info;
+        const struct omm_test_configuration *config = &tests[test_index];
+        D3D12_GPU_VIRTUAL_ADDRESS va;
+
+        vkd3d_test_set_context("Test %u", test_index);
+
+        init_rt_omm_geometry(&context, &test_rtases, &test_geom,
+            micromap_payload, sizeof(micromap_payload),
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
+            config);
+
+        ID3D12GraphicsCommandList4_SetPipelineState1(context.list4, rtpso);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.context.list, context.context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(test_rtases.tlas.rtas));
+        ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.context.list, 1, ID3D12Resource_GetGPUVirtualAddress(ray_buffer));
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.context.list, 3, config->ray_flags, 0);
+
+        if (config->omm_build_flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION)
+        {
+            postbuild_info.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+            postbuild_info.DestBuffer = ID3D12Resource_GetGPUVirtualAddress(test_rtases.query) + 64;
+            va = ID3D12Resource_GetGPUVirtualAddress(test_rtases.omm);
+            ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
+
+            postbuild_info.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+            postbuild_info.DestBuffer = ID3D12Resource_GetGPUVirtualAddress(test_rtases.query) + 64 + 8;
+            va = ID3D12Resource_GetGPUVirtualAddress(test_rtases.omm);
+            ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
+
+            postbuild_info.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+            postbuild_info.DestBuffer = ID3D12Resource_GetGPUVirtualAddress(test_rtases.query) + 64 + 16;
+            va = ID3D12Resource_GetGPUVirtualAddress(test_rtases.omm_base.rtas);
+            ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
+
+            postbuild_info.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+            postbuild_info.DestBuffer = ID3D12Resource_GetGPUVirtualAddress(test_rtases.query) + 64 + 24;
+            va = ID3D12Resource_GetGPUVirtualAddress(test_rtases.omm_base.rtas);
+            ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
+        }
+
+        memset(&rays, 0, sizeof(rays));
+        rays.Width = NUM_RAYS;
+        rays.Height = 1;
+        rays.Depth = 1;
+        rays.RayGenerationShaderRecord.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 0 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        rays.RayGenerationShaderRecord.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        rays.MissShaderTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 1 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        rays.MissShaderTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        rays.MissShaderTable.StrideInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        rays.HitGroupTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 2 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        rays.HitGroupTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        rays.HitGroupTable.StrideInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+
+        ID3D12GraphicsCommandList4_DispatchRays(context.list4, &rays);
+        transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.context.queue, context.context.list);
+
+        for (i = 0; i < NUM_RAYS; i++)
+        {
+            unsigned int bitcode;
+            bool force_nonopaque;
+            bool force_opaque;
+            uint32_t index;
+            float expected;
+            bool state2;
+            bool omm;
+
+#define MISS_VALUE 0.125f
+#define HIT_VALUE 1.0f
+#define ANYHIT_VALUE 0.875f
+
+            /* Compute which bit is read from the payload buffer, or we can hit a special index. */
+            bitcode = BarycentricsToSpaceFillingCurveIndex(uvs[i / TRIANGLES_PER_RAY].x, uvs[i / TRIANGLES_PER_RAY].y, config->subdivision);
+
+            state2 = ((config->ray_flags & D3D12_RAY_FLAG_FORCE_OMM_2_STATE) ||
+                (config->instance_flags & D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE)) &&
+                !(config->instance_flags & D3D12_RAYTRACING_INSTANCE_FLAG_DISABLE_OMMS);
+
+            force_opaque = (config->ray_flags & D3D12_RAY_FLAG_FORCE_OPAQUE) ||
+                (config->instance_flags & D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE);
+
+            force_nonopaque = (config->ray_flags & D3D12_RAY_FLAG_FORCE_NON_OPAQUE) ||
+                (config->instance_flags & D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_NON_OPAQUE);
+
+            omm = !(config->instance_flags & D3D12_RAYTRACING_INSTANCE_FLAG_DISABLE_OMMS);
+
+            index = triangle_to_omm_map[i % TRIANGLES_PER_RAY];
+
+            if (!omm)
+            {
+                /* Inherit from geometry directly. */
+                expected = force_opaque ? HIT_VALUE : ANYHIT_VALUE;
+            }
+            else if (index == (uint32_t)D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_TRANSPARENT)
+            {
+                expected = MISS_VALUE;
+            }
+            else if (index == (uint32_t)D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_OPAQUE)
+            {
+                expected = force_nonopaque ? ANYHIT_VALUE : HIT_VALUE;
+            }
+            else if (index == (uint32_t)D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_UNKNOWN_TRANSPARENT)
+            {
+                if (state2)
+                    expected = MISS_VALUE;
+                else if (force_opaque)
+                    expected = HIT_VALUE;
+                else
+                    expected = ANYHIT_VALUE;
+            }
+            else if (index == (uint32_t)D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_UNKNOWN_OPAQUE)
+            {
+                if (state2 || force_opaque)
+                    expected = force_nonopaque ? ANYHIT_VALUE : HIT_VALUE;
+                else
+                    expected = ANYHIT_VALUE;
+            }
+            else
+            {
+                unsigned int byte_offset;
+                unsigned int bit_offset;
+
+                index += INDEX_BUFFER_OFFSET;
+                byte_offset = index & 7;
+                bit_offset = byte_offset * 8;
+
+                if (index < 8)
+                {
+                    /* 1bpt mode */
+                    bit_offset += bitcode;
+                    expected = micromap_payload[bit_offset / 8] & (1u << (bit_offset & 7)) ? HIT_VALUE : MISS_VALUE;
+                    if (force_nonopaque && expected == HIT_VALUE)
+                        expected = ANYHIT_VALUE;
+                }
+                else
+                {
+                    /* 2bpt mode */
+                    unsigned int code;
+                    bit_offset += 2 * bitcode;
+                    code = (micromap_payload[bit_offset / 8] >> (bit_offset & 7)) & 3;
+
+                    if (state2)
+                        code &= 1;
+
+                    switch (code)
+                    {
+                        case D3D12_RAYTRACING_OPACITY_MICROMAP_STATE_TRANSPARENT:
+                            expected = MISS_VALUE;
+                            break;
+                        case D3D12_RAYTRACING_OPACITY_MICROMAP_STATE_OPAQUE:
+                            expected = force_nonopaque ? ANYHIT_VALUE : HIT_VALUE;
+                            break;
+                        default:
+                            expected = force_opaque ? HIT_VALUE : ANYHIT_VALUE;
+                            break;
+                    }
+                }
+            }
+
+            ok(get_readback_float(&rb, i, 0) == expected, "Index %u, UV (%f, %f), omm bit %u, expected %f, got %f\n",
+                i, uvs[i / TRIANGLES_PER_RAY].x, uvs[i / TRIANGLES_PER_RAY].y, bitcode,
+                expected, get_readback_float(&rb, i, 0));
+        }
+
+        release_resource_readback(&rb);
+
+        reset_command_list(context.context.list, context.context.allocator);
+
+        if (config->omm_build_flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION)
+        {
+            uint64_t query_base_compacted, query_base_size;
+            uint64_t postbuild_compacted, postbuild_size;
+            uint64_t query_compacted, query_size;
+
+            get_buffer_readback_with_command_list(test_rtases.query, DXGI_FORMAT_UNKNOWN, &rb, context.context.queue, context.context.list);
+            reset_command_list(context.context.list, context.context.allocator);
+
+            postbuild_compacted = get_readback_uint64(&rb, 0, 0);
+            postbuild_size = get_readback_uint64(&rb, 1, 0);
+            query_compacted = get_readback_uint64(&rb, 64 / 8, 0);
+            query_size = get_readback_uint64(&rb, 64 / 8 + 1, 0);
+            query_base_compacted = get_readback_uint64(&rb, 64 / 8 + 2, 0);
+            query_base_size = get_readback_uint64(&rb, 64 / 8 + 3, 0);
+
+            /* After compaction, sizes should remain the same. */
+            ok(postbuild_compacted == postbuild_size, "Expected %u == %u\n", (unsigned int)postbuild_compacted, (unsigned int)postbuild_size);
+            ok(query_compacted == query_size, "Expected %u == %u\n", (unsigned int)query_compacted, (unsigned int)query_size);
+            ok(query_base_compacted <= query_base_size, "Expected %u <= %u\n", (unsigned int)query_base_compacted, (unsigned int)query_base_size);
+
+            /* postbuild query and normal query should both work. */
+            ok(postbuild_compacted == query_compacted, "Expected %u == %u\n", (unsigned int)postbuild_compacted, (unsigned int)query_compacted);
+            ok(postbuild_size == query_size, "Expected %u == %u\n", (unsigned int)postbuild_size, (unsigned int)query_size);
+
+            /* Sizes should not be 0. */
+            ok(postbuild_compacted != 0, "Expected %u != 0\n", (unsigned int)postbuild_compacted);
+            ok(postbuild_size != 0, "Expected %u != 0\n", (unsigned int)postbuild_size);
+            ok(query_compacted != 0, "Expected %u != 0\n", (unsigned int)query_compacted);
+            ok(query_size != 0, "Expected %u != 0\n", (unsigned int)query_size);
+            ok(query_base_compacted != 0, "Expected %u != 0\n", (unsigned int)query_base_compacted);
+            ok(query_base_size != 0, "Expected %u != 0\n", (unsigned int)query_base_size);
+
+            /* Expect that size remains invariant after compaction */
+            ok(query_size == query_base_compacted, "Expected %u == %u\n", (unsigned int)query_size, (unsigned int)query_base_compacted);
+
+            release_resource_readback(&rb);
+        }
+
+        destroy_rt_omm_geometry(&test_rtases);
+        memset(&test_rtases, 0, sizeof(test_rtases));
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12StateObject_Release(rtpso);
+    ID3D12Resource_Release(sbt);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(ray_buffer);
+    destroy_test_geometry(&test_geom);
     destroy_raytracing_test_context(&context);
 }
