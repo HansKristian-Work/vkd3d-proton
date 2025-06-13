@@ -61,6 +61,51 @@ uint32_t vkd3d_acceleration_structure_get_geometry_count(
         return desc->NumDescs;
 }
 
+void vkd3d_acceleration_structure_convert_triangles(const struct d3d12_device *device,
+        const D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC *desc,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        uint32_t *primitive_count)
+{
+    VkAccelerationStructureGeometryTrianglesDataKHR *triangles;
+
+    geometry_info->geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+    triangles = &geometry_info->geometry.triangles;
+    triangles->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+    triangles->indexData.deviceAddress = desc->IndexBuffer;
+    if (desc->IndexFormat != DXGI_FORMAT_UNKNOWN)
+    {
+        if (!desc->IndexBuffer)
+            WARN("Application is using IndexBuffer = 0 and IndexFormat != UNKNOWN. Likely application bug.\n");
+
+        triangles->indexType =
+                desc->IndexFormat == DXGI_FORMAT_R16_UINT ?
+                        VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
+        *primitive_count = desc->IndexCount / 3;
+        RT_TRACE("  Indexed : Index count = %u (%u bits)\n",
+                desc->IndexCount,
+                triangles->indexType == VK_INDEX_TYPE_UINT16 ? 16 : 32);
+        RT_TRACE("  Vertex count: %u\n", desc->VertexCount);
+        RT_TRACE("  IBO VA: %"PRIx64".\n", desc->IndexBuffer);
+    }
+    else
+    {
+        *primitive_count = desc->VertexCount / 3;
+        triangles->indexType = VK_INDEX_TYPE_NONE_KHR;
+        RT_TRACE("  Triangle list : Vertex count: %u\n", desc->VertexCount);
+    }
+
+    triangles->maxVertex = max(1, desc->VertexCount) - 1;
+    triangles->vertexStride = desc->VertexBuffer.StrideInBytes;
+    triangles->vertexFormat = vkd3d_internal_get_vk_format(device, desc->VertexFormat);
+    triangles->vertexData.deviceAddress = desc->VertexBuffer.StartAddress;
+    triangles->transformData.deviceAddress = desc->Transform3x4;
+
+    RT_TRACE("  Transform3x4: %s\n", desc->Transform3x4 ? "on" : "off");
+    RT_TRACE("  Vertex format: %s\n", debug_dxgi_format(desc->VertexFormat));
+    RT_TRACE("  VBO VA: %"PRIx64"\n", desc->VertexBuffer.StartAddress);
+    RT_TRACE("  Vertex stride: %"PRIu64" bytes\n", desc->VertexBuffer.StrideInBytes);
+}
+
 bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
@@ -68,7 +113,6 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
         uint32_t *primitive_counts)
 {
-    VkAccelerationStructureGeometryTrianglesDataKHR *triangles;
     VkAccelerationStructureGeometryAabbsDataKHR *aabbs;
     const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
     bool have_triangles, have_aabbs;
@@ -171,42 +215,8 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     }
                     have_triangles = true;
 
-                    geometry_infos[i].geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-                    triangles = &geometry_infos[i].geometry.triangles;
-                    triangles->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-                    triangles->indexData.deviceAddress = geom_desc->Triangles.IndexBuffer;
-                    if (geom_desc->Triangles.IndexFormat != DXGI_FORMAT_UNKNOWN)
-                    {
-                        if (!geom_desc->Triangles.IndexBuffer)
-                            WARN("Application is using IndexBuffer = 0 and IndexFormat != UNKNOWN. Likely application bug.\n");
-
-                        triangles->indexType =
-                                geom_desc->Triangles.IndexFormat == DXGI_FORMAT_R16_UINT ?
-                                        VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
-                        primitive_count = geom_desc->Triangles.IndexCount / 3;
-                        RT_TRACE("  Indexed : Index count = %u (%u bits)\n",
-                                geom_desc->Triangles.IndexCount,
-                                triangles->indexType == VK_INDEX_TYPE_UINT16 ? 16 : 32);
-                        RT_TRACE("  Vertex count: %u\n", geom_desc->Triangles.VertexCount);
-                        RT_TRACE("  IBO VA: %"PRIx64".\n", geom_desc->Triangles.IndexBuffer);
-                    }
-                    else
-                    {
-                        primitive_count = geom_desc->Triangles.VertexCount / 3;
-                        triangles->indexType = VK_INDEX_TYPE_NONE_KHR;
-                        RT_TRACE("  Triangle list : Vertex count: %u\n", geom_desc->Triangles.VertexCount);
-                    }
-
-                    triangles->maxVertex = max(1, geom_desc->Triangles.VertexCount) - 1;
-                    triangles->vertexStride = geom_desc->Triangles.VertexBuffer.StrideInBytes;
-                    triangles->vertexFormat = vkd3d_internal_get_vk_format(device, geom_desc->Triangles.VertexFormat);
-                    triangles->vertexData.deviceAddress = geom_desc->Triangles.VertexBuffer.StartAddress;
-                    triangles->transformData.deviceAddress = geom_desc->Triangles.Transform3x4;
-
-                    RT_TRACE("  Transform3x4: %s\n", geom_desc->Triangles.Transform3x4 ? "on" : "off");
-                    RT_TRACE("  Vertex format: %s\n", debug_dxgi_format(geom_desc->Triangles.VertexFormat));
-                    RT_TRACE("  VBO VA: %"PRIx64"\n", geom_desc->Triangles.VertexBuffer.StartAddress);
-                    RT_TRACE("  Vertex stride: %"PRIu64" bytes\n", geom_desc->Triangles.VertexBuffer.StrideInBytes);
+                    vkd3d_acceleration_structure_convert_triangles(device,
+                            &geom_desc->Triangles, &geometry_infos[i], &primitive_count);
                     break;
 
                 case D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS:
