@@ -16036,6 +16036,7 @@ static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list)
 
     vkd3d_free(rtas_batch->build_infos);
     vkd3d_free(rtas_batch->geometry_infos);
+    vkd3d_free(rtas_batch->omm_infos);
     vkd3d_free(rtas_batch->range_infos);
     vkd3d_free(rtas_batch->range_ptrs);
     vkd3d_free(rtas_batch->omm_build_infos);
@@ -16045,6 +16046,7 @@ static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list)
 static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_list *list, uint32_t geometry_count,
         VkAccelerationStructureBuildGeometryInfoKHR **build_info,
         VkAccelerationStructureGeometryKHR **geometry_infos,
+        VkAccelerationStructureTrianglesOpacityMicromapEXT **omm_infos,
         VkAccelerationStructureBuildRangeInfoKHR **range_infos)
 {
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
@@ -16063,6 +16065,14 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
         return false;
     }
 
+    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device) &&
+            !vkd3d_array_reserve((void **)&rtas_batch->omm_infos, &rtas_batch->omm_info_size,
+            rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->omm_infos)))
+    {
+        ERR("Failed to allocate opacity micromap info array.\n");
+        return false;
+    }
+
     if (!vkd3d_array_reserve((void **)&rtas_batch->range_infos, &rtas_batch->range_info_size,
             rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->range_infos)))
     {
@@ -16072,6 +16082,8 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
 
     *build_info = &rtas_batch->build_infos[rtas_batch->build_info_count];
     *geometry_infos = &rtas_batch->geometry_infos[rtas_batch->geometry_info_count];
+    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+        *omm_infos = &rtas_batch->omm_infos[rtas_batch->geometry_info_count];
     *range_infos = &rtas_batch->range_infos[rtas_batch->geometry_info_count];
 
     rtas_batch->build_info_count += 1;
@@ -16287,6 +16299,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+    VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos;
     VkAccelerationStructureBuildGeometryInfoKHR *build_info;
     VkAccelerationStructureBuildRangeInfoKHR *range_infos;
     VkAccelerationStructureGeometryKHR *geometry_infos;
@@ -16355,11 +16368,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 #endif
 
     if (!d3d12_command_list_allocate_rtas_build_info(list, geometry_count,
-            &build_info, &geometry_infos, &range_infos))
+            &build_info, &geometry_infos, &omm_infos, &range_infos))
         return;
 
     if (!vkd3d_acceleration_structure_convert_inputs(list->device, &desc->Inputs,
-            build_info, geometry_infos, range_infos, primitive_counts))
+            build_info, geometry_infos, omm_infos, range_infos, primitive_counts))
     {
         ERR("Failed to convert inputs.\n");
         return;

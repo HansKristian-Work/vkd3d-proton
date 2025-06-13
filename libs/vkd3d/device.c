@@ -7477,9 +7477,11 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
+    VkAccelerationStructureTrianglesOpacityMicromapEXT omms_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     uint32_t primitive_counts_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureTrianglesOpacityMicromapEXT *omms;
     VkAccelerationStructureBuildGeometryInfoKHR build_info;
     VkAccelerationStructureBuildSizesInfoKHR size_info;
     VkAccelerationStructureGeometryKHR *geometries;
@@ -7504,15 +7506,17 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(desc);
     primitive_counts = primitive_counts_stack;
     geometries = geometries_stack;
+    omms = omms_stack;
 
     if (geometry_count > VKD3D_BUILD_INFO_STACK_COUNT)
     {
         primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
         geometries = vkd3d_malloc(geometry_count * sizeof(*geometries));
+        omms = vkd3d_malloc(geometry_count * sizeof(*omms));
     }
 
     if (!vkd3d_acceleration_structure_convert_inputs(device,
-            desc, &build_info, geometries, NULL, primitive_counts))
+            desc, &build_info, geometries, omms, NULL, primitive_counts))
     {
         ERR("Failed to convert inputs.\n");
         memset(info, 0, sizeof(*info));
@@ -7542,6 +7546,7 @@ cleanup:
     {
         vkd3d_free(primitive_counts);
         vkd3d_free(geometries);
+        vkd3d_free(omms);
     }
 }
 
