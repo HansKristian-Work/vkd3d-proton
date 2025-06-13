@@ -115,6 +115,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_PAGEABLE_DEVICE_LOCAL_MEMORY, EXT_pageable_device_local_memory),
     VK_EXTENSION(EXT_MEMORY_PRIORITY, EXT_memory_priority),
     VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
+    VK_EXTENSION_DISABLE_COND(EXT_OPACITY_MICROMAP, EXT_opacity_micromap, VKD3D_CONFIG_FLAG_NO_DXR),
     VK_EXTENSION(EXT_LINE_RASTERIZATION, EXT_line_rasterization),
     VK_EXTENSION(EXT_IMAGE_COMPRESSION_CONTROL, EXT_image_compression_control),
     VK_EXTENSION_COND(EXT_DEVICE_FAULT, EXT_device_fault, VKD3D_CONFIG_FLAG_FAULT),
@@ -1451,6 +1452,12 @@ bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *devic
             device->d3d12_caps.options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0;
 }
 
+bool d3d12_device_supports_ray_tracing_tier_1_2(const struct d3d12_device *device)
+{
+    return device->device_info.opacity_micromap_features.micromap &&
+            device->d3d12_caps.options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_2;
+}
+
 bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device)
 {
     const struct vkd3d_physical_device_info *info = &device->device_info;
@@ -2032,6 +2039,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->dynamic_rendering_unused_attachments_features);
     }
 
+    if (vulkan_info->EXT_opacity_micromap)
+    {
+        info->opacity_micromap_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->opacity_micromap_features);
+    }
+
     if (vulkan_info->EXT_line_rasterization)
     {
         info->line_rasterization_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT;
@@ -2525,6 +2538,11 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("    taskShader: %#x\n", info->mesh_shader_features.taskShader);
     TRACE("    multiviewMeshShader: %#x\n", info->mesh_shader_features.multiviewMeshShader);
     TRACE("    primitiveFragmentShadingRateMeshShader: %#x\n", info->mesh_shader_features.primitiveFragmentShadingRateMeshShader);
+
+    TRACE("  VkPhysicalDeviceOpacityMicromapFeaturesEXT:\n");
+    TRACE("    micromap: %#x\n", info->opacity_micromap_features.micromap);
+    TRACE("    micromapCaptureReplay: %#x\n", info->opacity_micromap_features.micromapCaptureReplay);
+    TRACE("    micromapHostCommands: %#x\n", info->opacity_micromap_features.micromapHostCommands);
 
     TRACE("  VkPhysicalDeviceLineRasterizationFeaturesEXT:\n");
     TRACE("    rectangularLines: %u\n", info->line_rasterization_features.rectangularLines);
@@ -3778,6 +3796,16 @@ static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, uint3
             pool_info.queryCount = 128;
             break;
 
+        case VKD3D_QUERY_TYPE_INDEX_OMM_COMPACTED_SIZE:
+            pool_info.queryType = VK_QUERY_TYPE_MICROMAP_COMPACTED_SIZE_EXT;
+            pool_info.queryCount = 128;
+            break;
+
+        case VKD3D_QUERY_TYPE_INDEX_OMM_SERIALIZE_SIZE:
+            pool_info.queryType = VK_QUERY_TYPE_MICROMAP_SERIALIZATION_SIZE_EXT;
+            pool_info.queryCount = 128;
+            break;
+
         default:
             ERR("Unhandled query type %u.\n", type_index);
             return E_INVALIDARG;
@@ -3785,7 +3813,7 @@ static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, uint3
 
     if ((vr = VK_CALL(vkCreateQueryPool(device->vk_device, &pool_info, NULL, &pool->vk_query_pool))) < 0)
     {
-        ERR("Failed to create query pool, vr %u.\n", vr);
+        ERR("Failed to create query pool, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
     }
 
@@ -7394,15 +7422,69 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_ifa
     }
 }
 
+static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMicromapUsageEXT usages_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkMicromapBuildSizesInfoEXT size_info;
+    VkMicromapBuildInfoEXT build_info;
+    VkMicromapUsageEXT *usages;
+    uint32_t usages_count;
+
+    if (!d3d12_device_supports_ray_tracing_tier_1_2(device))
+    {
+        ERR("Opacity micromap is not supported. Calling this is invalid.\n");
+        memset(info, 0, sizeof(*info));
+        return;
+    }
+
+    usages_count = desc->pOpacityMicromapArrayDesc->NumOmmHistogramEntries;
+
+    if (usages_count > VKD3D_BUILD_INFO_STACK_COUNT)
+        usages = vkd3d_malloc(usages_count * sizeof(*usages));
+    else
+        usages = usages_stack;
+
+    if (!vkd3d_opacity_micromap_convert_inputs(device, desc, &build_info, usages))
+    {
+        ERR("Failed to convert inputs.\n");
+        memset(info, 0, sizeof(*info));
+        goto cleanup;
+    }
+
+    memset(&size_info, 0, sizeof(size_info));
+    size_info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
+
+    VK_CALL(vkGetMicromapBuildSizesEXT(device->vk_device,
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+            &build_info, &size_info));
+
+    info->ResultDataMaxSizeInBytes = size_info.micromapSize;
+    info->ScratchDataSizeInBytes = size_info.buildScratchSize;
+    info->UpdateScratchDataSizeInBytes = 0;
+
+    TRACE("ResultDataMaxSizeInBytes: %"PRIu64".\n", (uint64_t)info->ResultDataMaxSizeInBytes);
+    TRACE("ScratchDataSizeInBytes: %"PRIu64".\n", (uint64_t)info->ScratchDataSizeInBytes);
+
+cleanup:
+
+    if (usages_count > VKD3D_BUILD_INFO_STACK_COUNT)
+        vkd3d_free(usages);
+}
+
 static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
+    VkAccelerationStructureTrianglesOpacityMicromapEXT omms_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     uint32_t primitive_counts_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureTrianglesOpacityMicromapEXT *omms;
     VkAccelerationStructureBuildGeometryInfoKHR build_info;
     VkAccelerationStructureBuildSizesInfoKHR size_info;
     VkAccelerationStructureGeometryKHR *geometries;
@@ -7418,18 +7500,26 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
         return;
     }
 
+    if (desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
+    {
+        d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(device, desc, info);
+        return;
+    }
+
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(desc);
     primitive_counts = primitive_counts_stack;
     geometries = geometries_stack;
+    omms = omms_stack;
 
     if (geometry_count > VKD3D_BUILD_INFO_STACK_COUNT)
     {
         primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
         geometries = vkd3d_malloc(geometry_count * sizeof(*geometries));
+        omms = vkd3d_malloc(geometry_count * sizeof(*omms));
     }
 
     if (!vkd3d_acceleration_structure_convert_inputs(device,
-            desc, &build_info, geometries, NULL, primitive_counts))
+            desc, &build_info, geometries, omms, NULL, primitive_counts))
     {
         ERR("Failed to convert inputs.\n");
         memset(info, 0, sizeof(*info));
@@ -7459,6 +7549,7 @@ cleanup:
     {
         vkd3d_free(primitive_counts);
         vkd3d_free(geometries);
+        vkd3d_free(omms);
     }
 }
 
@@ -8244,6 +8335,12 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
             INFO("DXR 1.1 support enabled.\n");
             tier = D3D12_RAYTRACING_TIER_1_1;
         }
+    }
+
+    if (tier == D3D12_RAYTRACING_TIER_1_1 && info->opacity_micromap_features.micromap)
+    {
+        INFO("DXR 1.2 support enabled.\n");
+        tier = D3D12_RAYTRACING_TIER_1_2;
     }
 
     return tier;
@@ -9214,6 +9311,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV;
+    }
+
+    if (device->device_info.opacity_micromap_features.micromap)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_OPACITY_MICROMAP;
     }
 
     if (device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence &&

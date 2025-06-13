@@ -167,6 +167,7 @@ struct vkd3d_vulkan_info
     bool EXT_pageable_device_local_memory;
     bool EXT_memory_priority;
     bool EXT_dynamic_rendering_unused_attachments;
+    bool EXT_opacity_micromap;
     bool EXT_line_rasterization;
     bool EXT_image_compression_control;
     bool EXT_device_fault;
@@ -353,6 +354,9 @@ void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct vkd3d_unique_resour
 void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_resource *resource);
 const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_map, VkDeviceAddress va);
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device,
+        VkDeviceAddress va);
+VkMicromapEXT vkd3d_va_map_place_opacity_micromap(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
@@ -1188,7 +1192,8 @@ enum vkd3d_view_type
     VKD3D_VIEW_TYPE_BUFFER,
     VKD3D_VIEW_TYPE_IMAGE,
     VKD3D_VIEW_TYPE_SAMPLER,
-    VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE
+    VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE,
+    VKD3D_VIEW_TYPE_OPACITY_MICROMAP
 };
 
 struct vkd3d_view
@@ -1203,6 +1208,7 @@ struct vkd3d_view
         VkImageView vk_image_view;
         VkSampler vk_sampler;
         VkAccelerationStructureKHR vk_acceleration_structure;
+        VkMicromapEXT vk_micromap;
     };
     const struct vkd3d_format *format;
     union
@@ -1259,6 +1265,8 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device,
 bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view);
 bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device,
+        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view);
+bool vkd3d_create_opacity_micromap_view(struct d3d12_device *device,
         const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view);
 bool vkd3d_create_texture_view(struct d3d12_device *device,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view);
@@ -2454,7 +2462,9 @@ struct vkd3d_scratch_buffer
 #define VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE (4u)
 #define VKD3D_QUERY_TYPE_INDEX_RT_CURRENT_SIZE (5u)
 #define VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE_BOTTOM_LEVEL_POINTERS (6u)
-#define VKD3D_VIRTUAL_QUERY_TYPE_COUNT (7u)
+#define VKD3D_QUERY_TYPE_INDEX_OMM_COMPACTED_SIZE (7u)
+#define VKD3D_QUERY_TYPE_INDEX_OMM_SERIALIZE_SIZE (8u)
+#define VKD3D_VIRTUAL_QUERY_TYPE_COUNT (9u)
 #define VKD3D_VIRTUAL_QUERY_POOL_COUNT (128u)
 
 struct vkd3d_query_pool
@@ -2821,6 +2831,9 @@ struct d3d12_rtas_batch_state
     size_t build_info_count;
     size_t build_info_size;
 
+    VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos;
+    size_t omm_info_size;
+
     VkAccelerationStructureGeometryKHR *geometry_infos;
     size_t geometry_info_count;
     size_t geometry_info_size;
@@ -2830,6 +2843,14 @@ struct d3d12_rtas_batch_state
 
     const VkAccelerationStructureBuildRangeInfoKHR **range_ptrs;
     size_t range_ptr_size;
+
+    VkMicromapBuildInfoEXT *omm_build_infos;
+    size_t omm_build_info_count;
+    size_t omm_build_info_size;
+
+    VkMicromapUsageEXT *omm_usage_infos;
+    size_t omm_usage_info_count;
+    size_t omm_usage_info_size;
 };
 
 union vkd3d_descriptor_heap_state
@@ -3583,7 +3604,9 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_RESOLVE_QUERY,
     VKD3D_BREADCRUMB_COMMAND_GATHER_VIRTUAL_QUERY,
     VKD3D_BREADCRUMB_COMMAND_BUILD_RTAS,
+    VKD3D_BREADCRUMB_COMMAND_BUILD_OMM,
     VKD3D_BREADCRUMB_COMMAND_COPY_RTAS,
+    VKD3D_BREADCRUMB_COMMAND_COPY_OMM,
     VKD3D_BREADCRUMB_COMMAND_EMIT_RTAS_POSTBUILD,
     VKD3D_BREADCRUMB_COMMAND_TRACE_RAYS,
     VKD3D_BREADCRUMB_COMMAND_BARRIER,
@@ -4762,6 +4785,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMaintenance6FeaturesKHR maintenance_6_features;
     VkPhysicalDeviceMaintenance7FeaturesKHR maintenance_7_features;
     VkPhysicalDeviceMaintenance8FeaturesKHR maintenance_8_features;
+    VkPhysicalDeviceOpacityMicromapFeaturesEXT opacity_micromap_features;
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
     VkPhysicalDeviceFaultFeaturesEXT fault_features;
@@ -5459,6 +5483,7 @@ static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *d
 bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device);
 bool d3d12_device_supports_variable_shading_rate_tier_2(struct d3d12_device *device);
 bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *device);
+bool d3d12_device_supports_ray_tracing_tier_1_2(const struct d3d12_device *device);
 UINT d3d12_determine_shading_rate_image_tile_size(struct d3d12_device *device);
 bool d3d12_device_supports_required_subgroup_size_for_stage(
         struct d3d12_device *device, VkShaderStageFlagBits stage);
@@ -6157,10 +6182,11 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
 
 uint32_t vkd3d_acceleration_structure_get_geometry_count(
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc);
-bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
+bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
         VkAccelerationStructureGeometryKHR *geometry_infos,
+        VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
         uint32_t *primitive_counts);
 void vkd3d_acceleration_structure_emit_postbuild_info(
@@ -6171,7 +6197,30 @@ void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkAccelerationStructureKHR vk_acceleration_structure);
-void vkd3d_acceleration_structure_copy(
+bool vkd3d_acceleration_structure_copy(
+        struct d3d12_command_list *list,
+        D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
+
+bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+        VkMicromapBuildInfoEXT *build_info,
+        VkMicromapUsageEXT *usages);
+void vkd3d_opacity_micromap_write_postbuild_info(
+        struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkDeviceSize desc_offset,
+        VkMicromapEXT vk_opacity_micromap);
+void vkd3d_opacity_micromap_emit_postbuild_info(
+        struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        uint32_t count,
+        const D3D12_GPU_VIRTUAL_ADDRESS *addresses);
+void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
+        struct d3d12_command_list *list, uint32_t count,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkMicromapEXT vk_opacity_micromap);
+bool vkd3d_opacity_micromap_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
