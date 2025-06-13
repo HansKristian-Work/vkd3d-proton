@@ -284,3 +284,54 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
 
     vkd3d_opacity_micromap_end_barrier(list);
 }
+
+static bool convert_copy_mode(
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode,
+        VkCopyMicromapModeEXT *vk_mode)
+{
+    switch (mode)
+    {
+        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE:
+            *vk_mode = VK_COPY_MICROMAP_MODE_CLONE_EXT;
+            return true;
+        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT:
+            *vk_mode = VK_COPY_MICROMAP_MODE_COMPACT_EXT;
+            return true;
+        default:
+            FIXME("Unsupported OMM copy mode #%x.\n", mode);
+            return false;
+    }
+}
+
+bool vkd3d_opacity_micromap_copy(
+        struct d3d12_command_list *list,
+        D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMicromapEXT dst_omm, src_omm;
+    VkCopyMicromapInfoEXT info;
+
+    src_omm = vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map, list->device, src);
+    if (src_omm == VK_NULL_HANDLE)
+    {
+        ERR("Invalid src address #%"PRIx64" for OMM (or RTAS) copy.\n", src);
+        return false;
+    }
+
+    dst_omm = vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map, list->device, dst);
+    if (dst_omm == VK_NULL_HANDLE)
+    {
+        ERR("Invalid dst address #%"PRIx64" for OMM (or RTAS) copy.\n", dst);
+        return false;
+    }
+
+    info.sType = VK_STRUCTURE_TYPE_COPY_MICROMAP_INFO_EXT;
+    info.pNext = NULL;
+    info.dst = dst_omm;
+    info.src = src_omm;
+    if (convert_copy_mode(mode, &info.mode))
+        VK_CALL(vkCmdCopyMicromapEXT(list->cmd.vk_command_buffer, &info));
+
+    return true;
+}

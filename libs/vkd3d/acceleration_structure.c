@@ -490,7 +490,7 @@ static bool convert_copy_mode(
     }
 }
 
-void vkd3d_acceleration_structure_copy(
+bool vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
@@ -499,18 +499,20 @@ void vkd3d_acceleration_structure_copy(
     VkAccelerationStructureKHR dst_as, src_as;
     VkCopyAccelerationStructureInfoKHR info;
 
-    dst_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, dst);
-    if (dst_as == VK_NULL_HANDLE)
-    {
-        ERR("Invalid dst address #%"PRIx64" for RTAS copy.\n", dst);
-        return;
-    }
-
     src_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, src);
     if (src_as == VK_NULL_HANDLE)
     {
-        ERR("Invalid src address #%"PRIx64" for RTAS copy.\n", src);
-        return;
+        if (!d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+            ERR("Invalid src address #%"PRIx64" for RTAS copy.\n", src);
+        return false;
+    }
+
+    dst_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, dst);
+    if (dst_as == VK_NULL_HANDLE)
+    {
+        if (!d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+            ERR("Invalid dst address #%"PRIx64" for RTAS copy.\n", dst);
+        return false;
     }
 
     info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
@@ -519,6 +521,8 @@ void vkd3d_acceleration_structure_copy(
     info.src = src_as;
     if (convert_copy_mode(mode, &info.mode))
         VK_CALL(vkCmdCopyAccelerationStructureKHR(list->cmd.vk_command_buffer, &info));
+
+    return true;
 }
 
 struct vkd3d_empty_rtas_build_info

@@ -16533,7 +16533,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
-    vkd3d_acceleration_structure_copy(list, dst_data, src_data, mode);
+    
+    if (!vkd3d_acceleration_structure_copy(list, dst_data, src_data, mode))
+    {
+        if (d3d12_device_supports_ray_tracing_tier_1_2(list->device) &&
+                vkd3d_opacity_micromap_copy(list, dst_data, src_data, mode))
+        {
+            VKD3D_BREADCRUMB_AUX64(dst_data);
+            VKD3D_BREADCRUMB_AUX64(src_data);
+            VKD3D_BREADCRUMB_AUX32(mode);
+            VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
+            return;
+        }
+    }
 
     VKD3D_BREADCRUMB_AUX64(dst_data);
     VKD3D_BREADCRUMB_AUX64(src_data);

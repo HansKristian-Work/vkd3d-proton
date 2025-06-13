@@ -3603,6 +3603,7 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_BUILD_RTAS,
     VKD3D_BREADCRUMB_COMMAND_BUILD_OMM,
     VKD3D_BREADCRUMB_COMMAND_COPY_RTAS,
+    VKD3D_BREADCRUMB_COMMAND_COPY_OMM,
     VKD3D_BREADCRUMB_COMMAND_EMIT_RTAS_POSTBUILD,
     VKD3D_BREADCRUMB_COMMAND_TRACE_RAYS,
     VKD3D_BREADCRUMB_COMMAND_BARRIER,
@@ -6192,7 +6193,7 @@ void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkAccelerationStructureKHR vk_acceleration_structure);
-void vkd3d_acceleration_structure_copy(
+bool vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
@@ -6215,6 +6216,10 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkMicromapEXT vk_opacity_micromap);
+bool vkd3d_opacity_micromap_copy(
+        struct d3d12_command_list *list,
+        D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
 
 typedef enum D3D11_USAGE
 {
