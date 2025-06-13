@@ -1358,6 +1358,7 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
 {
     struct vkd3d_view_entry entry, *e;
     struct vkd3d_view *redundant_view;
+    struct vkd3d_view_key key_omm;
     struct vkd3d_view *view;
     bool success;
 
@@ -1370,6 +1371,20 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         view = e->view;
         rw_spinlock_release_read(&view_map->spinlock);
         return view;
+    }
+
+    if (key->view_type == VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE &&
+            d3d12_device_supports_ray_tracing_tier_1_2(device))
+    {
+        /* Ugly workaround for D3D12 having us guess if VA is RTAS or OMM. */
+        key_omm = *key;
+        key_omm.view_type = VKD3D_VIEW_TYPE_OPACITY_MICROMAP;
+
+        if (hash_map_find(&view_map->map, &key_omm))
+        {
+            rw_spinlock_release_read(&view_map->spinlock);
+            return NULL;
+        }
     }
 
     rw_spinlock_release_read(&view_map->spinlock);
