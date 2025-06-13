@@ -174,6 +174,7 @@ struct vkd3d_vulkan_info
     bool EXT_device_address_binding_report;
     bool EXT_depth_bias_control;
     bool EXT_zero_initialize_device_memory;
+    bool EXT_shader_float8;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -193,6 +194,7 @@ struct vkd3d_vulkan_info
     bool NV_device_generated_commands_compute;
     bool NV_low_latency2;
     bool NV_raw_access_chains;
+    bool NV_cooperative_matrix2;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     /* MESA extensions */
@@ -4776,6 +4778,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceOpticalFlowFeaturesNV optical_flow_nv_features;
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features;
     VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT zero_initialize_device_memory_features;
+    VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
+    VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
 
     VkPhysicalDeviceFeatures2 features2;
 
