@@ -514,12 +514,15 @@ struct omm_test_configuration
     D3D12_RAYTRACING_INSTANCE_FLAGS instance_flags;
     UINT ray_flags;
     UINT subdivision;
+    const void *index_buffer;
+    size_t index_buffer_size;
+    uint32_t index_offset;
+    DXGI_FORMAT index_buffer_format;
 };
 
 static void init_rt_omm_geometry(struct raytracing_test_context *context,
     struct test_rt_omm_geometry *rt_omm_geom, struct test_geometry *geom,
     const void *micromap_payload, size_t micromap_payload_size,
-    const void *index_buffer, size_t index_buffer_size, unsigned int index_base_location, DXGI_FORMAT index_format,
     const struct omm_test_configuration *config)
 {
     D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY histogram[2];
@@ -545,7 +548,7 @@ static void init_rt_omm_geometry(struct raytracing_test_context *context,
 
     rt_omm_geom->micromap_payload = create_upload_buffer(context->context.device, micromap_payload_size, micromap_payload);
     rt_omm_geom->omm_triangle = create_upload_buffer(context->context.device, sizeof(micromap_desc), micromap_desc);
-    rt_omm_geom->omm_index_buffer = create_upload_buffer(context->context.device, index_buffer_size, index_buffer);
+    rt_omm_geom->omm_index_buffer = create_upload_buffer(context->context.device, config->index_buffer_size, config->index_buffer);
 
     memset(&inputs, 0, sizeof(inputs));
     memset(&array_desc, 0, sizeof(array_desc));
@@ -606,9 +609,9 @@ static void init_rt_omm_geometry(struct raytracing_test_context *context,
         omm_linkage.OpacityMicromapArray = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->omm);
 
     omm_linkage.OpacityMicromapIndexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(rt_omm_geom->omm_index_buffer);
-    omm_linkage.OpacityMicromapIndexBuffer.StrideInBytes = format_size(index_format);
-    omm_linkage.OpacityMicromapBaseLocation = index_base_location;
-    omm_linkage.OpacityMicromapIndexFormat = index_format;
+    omm_linkage.OpacityMicromapIndexBuffer.StrideInBytes = format_size(config->index_buffer_format);
+    omm_linkage.OpacityMicromapBaseLocation = config->index_offset;
+    omm_linkage.OpacityMicromapIndexFormat = config->index_buffer_format;
 
     tri_desc.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(geom->vbo);
     tri_desc.VertexBuffer.StrideInBytes = 4 * sizeof(float);
@@ -4143,6 +4146,22 @@ void test_raytracing_opacity_micro_map(void)
         0, 1, 2, 3,
     };
 
+    static const uint16_t triangle_to_omm_map16[TRIANGLES_PER_RAY] = {
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_TRANSPARENT,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_OPAQUE,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_UNKNOWN_TRANSPARENT,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_UNKNOWN_OPAQUE,
+        0, 1, 2, 3,
+    };
+
+    static const uint8_t triangle_to_omm_map8[TRIANGLES_PER_RAY] = {
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_TRANSPARENT,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_OPAQUE,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_UNKNOWN_TRANSPARENT,
+        D3D12_RAYTRACING_OPACITY_MICROMAP_SPECIAL_INDEX_FULLY_UNKNOWN_OPAQUE,
+        0, 1, 2, 3,
+    };
+
     struct vec2 uvs[NUM_RAYS_PER_TRIANGLE];
     struct vec4 rays_data[NUM_RAYS];
 
@@ -4153,6 +4172,21 @@ void test_raytracing_opacity_micro_map(void)
             0,
             0,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
+        },
+        {
+            0, 0,
+            0,
+            0,
+            2,
+            triangle_to_omm_map16, sizeof(triangle_to_omm_map16), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R16_UINT,
+        },
+        {
+            0, 0,
+            0,
+            0,
+            2,
+            triangle_to_omm_map8, sizeof(triangle_to_omm_map8), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R8_UINT,
         },
         /* Try compacting the OMM */
         {
@@ -4160,6 +4194,7 @@ void test_raytracing_opacity_micro_map(void)
             0,
             0,
             3,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         /* Non-functional test, but checks that it doesn't blow up. */
         {
@@ -4167,23 +4202,27 @@ void test_raytracing_opacity_micro_map(void)
             0,
             0,
             4,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD, 0,
             0,
             0,
             5,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         /* Try BLAS update with OMM */
         {
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION,
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE,
             0, 0, 2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION,
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_OMM_LINKAGE_UPDATE,
             0, 0, 2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         /* Test behavior of forcing opacity state */
         {
@@ -4191,24 +4230,28 @@ void test_raytracing_opacity_micro_map(void)
             0,
             D3D12_RAY_FLAG_FORCE_OPAQUE, /* Check if we can override UNKNOWN states instead of entering anyhit */
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             0, 0,
             0,
             D3D12_RAY_FLAG_FORCE_NON_OPAQUE, /* Should force entering any-hit */
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             0, 0,
             D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE,
             0,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             0, 0,
             D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_NON_OPAQUE,
             0,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         /* Test behavior of forcing 2-state +/- opacity state force on top */
         {
@@ -4216,18 +4259,35 @@ void test_raytracing_opacity_micro_map(void)
             D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE,
             0,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             0, 0,
             D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE,
             D3D12_RAY_FLAG_FORCE_OPAQUE,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
+        },
+        {
+            0, 0,
+            D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE,
+            D3D12_RAY_FLAG_FORCE_OPAQUE,
+            2,
+            triangle_to_omm_map16, sizeof(triangle_to_omm_map16), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R16_UINT,
+        },
+        {
+            0, 0,
+            D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE,
+            D3D12_RAY_FLAG_FORCE_OPAQUE,
+            2,
+            triangle_to_omm_map8, sizeof(triangle_to_omm_map8), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R8_UINT,
         },
         {
             0, 0,
             D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OMM_2_STATE,
             D3D12_RAY_FLAG_FORCE_NON_OPAQUE,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         /* Same, but using ray flag instead of instance state */
         {
@@ -4235,18 +4295,21 @@ void test_raytracing_opacity_micro_map(void)
             0,
             D3D12_RAY_FLAG_FORCE_OMM_2_STATE,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             0, 0,
             0,
             D3D12_RAY_FLAG_FORCE_OMM_2_STATE | D3D12_RAY_FLAG_FORCE_OPAQUE,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             0, 0,
             0,
             D3D12_RAY_FLAG_FORCE_OMM_2_STATE |D3D12_RAY_FLAG_FORCE_NON_OPAQUE,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         /* Test disabling OMM completely */
         {
@@ -4254,12 +4317,14 @@ void test_raytracing_opacity_micro_map(void)
             D3D12_RAYTRACING_INSTANCE_FLAG_DISABLE_OMMS,
             D3D12_RAY_FLAG_FORCE_OPAQUE,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
         {
             0, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_DISABLE_OMMS,
             D3D12_RAYTRACING_INSTANCE_FLAG_DISABLE_OMMS,
             D3D12_RAY_FLAG_FORCE_NON_OPAQUE,
             2,
+            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
         },
     };
 
@@ -4361,7 +4426,6 @@ void test_raytracing_opacity_micro_map(void)
 
         init_rt_omm_geometry(&context, &test_rtases, &test_geom,
             micromap_payload, sizeof(micromap_payload),
-            triangle_to_omm_map, sizeof(triangle_to_omm_map), INDEX_BUFFER_OFFSET, DXGI_FORMAT_R32_UINT,
             config);
 
         ID3D12GraphicsCommandList4_SetPipelineState1(context.list4, rtpso);
