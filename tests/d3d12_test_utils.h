@@ -1622,6 +1622,8 @@ void destroy_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds
 #define create_cb_root_signature(a, b, c, e) create_cb_root_signature_(__LINE__, a, b, c, e)
 #define create_32bit_constants_root_signature(a, b, c, e) \
 create_32bit_constants_root_signature_(__LINE__, a, b, c, e, 0)
+#define create_32bit_constants_root_signature_flags(a, b, c, e, f) \
+create_32bit_constants_root_signature_(__LINE__, a, b, c, e, f)
 #define create_texture_root_signature(a, b, c, d) create_texture_root_signature_(__LINE__, a, b, c, d, NULL)
 #define create_compute_pipeline_state(a, b, c) create_compute_pipeline_state_(__LINE__, a, b, c)
 #define create_command_signature(a, b) create_command_signature_(__LINE__, a, b)
