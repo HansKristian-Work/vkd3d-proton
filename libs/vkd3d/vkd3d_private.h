@@ -353,6 +353,10 @@ struct vkd3d_va_map
 void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct vkd3d_unique_resource *resource);
 void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_resource *resource);
 const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_map, VkDeviceAddress va);
+void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device, VkDeviceAddress va,
+        VkAccelerationStructureKHR *acceleration_structure,
+        VkMicromapEXT *micromap);
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va);
@@ -6169,6 +6173,8 @@ struct vkd3d_view_key
         D3D12_SAMPLER_DESC2 sampler;
     } u;
 };
+struct vkd3d_view *vkd3d_view_map_get_view(struct vkd3d_view_map *view_map,
+        struct d3d12_device *device, const struct vkd3d_view_key *key);
 struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key, bool rtas_is_omm);
 static inline struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
