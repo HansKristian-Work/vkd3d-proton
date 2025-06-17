@@ -37,6 +37,7 @@ jobs:
       uses: Joshua-Ashton/arch-mingw-github-action@v8
       with:
         command: |
+          sudo pacman -Syu --noconfirm lib32-gcc-libs
           export CC="gcc -m32"
           export CXX="g++ -m32"
           export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig"
@@ -58,6 +59,7 @@ jobs:
       uses: Joshua-Ashton/arch-mingw-github-action@v8
       with:
         command: |
+          sudo pacman -Syu --noconfirm lib32-gcc-libs
           export CC="clang -m32"
           export CXX="clang++ -m32"
           export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig"
