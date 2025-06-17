@@ -3505,7 +3505,7 @@ static enum VkBlendOp vk_blend_op_from_d3d12(D3D12_BLEND_OP op)
     }
 }
 
-static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentState *vk_desc,
+static void blend_attachment_from_d3d12(struct d3d12_device *device, struct VkPipelineColorBlendAttachmentState *vk_desc,
         const D3D12_RENDER_TARGET_BLEND_DESC *d3d12_desc, const struct vkd3d_format *format)
 {
     if (d3d12_desc->BlendEnable && d3d12_desc->RenderTargetWriteMask)
@@ -3556,6 +3556,18 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
             vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
         if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_ALPHA)
             vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+
+        /* RGB9E5 is quirky with write masks, RGB must be either all set or unset. Drivers
+         * are supposed to ignore alpha, however this is currently broken on RADV. */
+        if (format && format->vk_format == VK_FORMAT_E5B9G9R9_UFLOAT_PACK32 &&
+                !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+        {
+            vk_desc->colorWriteMask &= ~VK_COLOR_COMPONENT_A_BIT;
+
+            if (vk_desc->colorWriteMask & (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT))
+                vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+        }
     }
 }
 
@@ -4824,7 +4836,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
             goto fail;
         }
 
-        blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc, format);
+        blend_attachment_from_d3d12(device, &graphics->blend_attachments[i], rt_desc, format);
 
         if (graphics->null_attachment_mask & (1u << i))
             memset(&graphics->blend_attachments[i], 0, sizeof(graphics->blend_attachments[i]));
