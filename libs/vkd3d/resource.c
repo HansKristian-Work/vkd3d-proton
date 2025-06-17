@@ -1351,6 +1351,23 @@ static void vkd3d_view_tag_debug_name(struct vkd3d_view *view, struct d3d12_devi
     }
 }
 
+struct vkd3d_view *vkd3d_view_map_get_view(struct vkd3d_view_map *view_map,
+        struct d3d12_device *device, const struct vkd3d_view_key *key)
+{
+    struct vkd3d_view *view = NULL;
+    struct vkd3d_view_entry *e;
+
+    /* In the steady state, we will be reading existing entries from a view map.
+     * Prefer read-write spinlocks here to reduce contention as much as possible. */
+    rw_spinlock_acquire_read(&view_map->spinlock);
+
+    if ((e = (struct vkd3d_view_entry *)hash_map_find(&view_map->map, key)))
+        view = e->view;
+
+    rw_spinlock_release_read(&view_map->spinlock);
+    return view;
+}
+
 struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key, bool rtas_is_omm)
 {
@@ -1359,18 +1376,8 @@ struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
     struct vkd3d_view *view;
     bool success;
 
-    /* In the steady state, we will be reading existing entries from a view map.
-     * Prefer read-write spinlocks here to reduce contention as much as possible. */
-    rw_spinlock_acquire_read(&view_map->spinlock);
-
-    if ((e = (struct vkd3d_view_entry *)hash_map_find(&view_map->map, key)))
-    {
-        view = e->view;
-        rw_spinlock_release_read(&view_map->spinlock);
+    if ((view = vkd3d_view_map_get_view(view_map, device, key)))
         return view;
-    }
-
-    rw_spinlock_release_read(&view_map->spinlock);
 
     switch (key->view_type)
     {

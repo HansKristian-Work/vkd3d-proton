@@ -247,6 +247,43 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
     return vkd3d_va_map_deref_mutable(va_map, va);
 }
 
+void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device, VkDeviceAddress va,
+        VkAccelerationStructureKHR *acceleration_structure,
+        VkMicromapEXT *micromap)
+{
+    const struct vkd3d_unique_resource *resource;
+    struct vkd3d_view_map *view_map;
+    const struct vkd3d_view *view;
+    struct vkd3d_view_key key;
+
+    *acceleration_structure = VK_NULL_HANDLE;
+    *micromap = VK_NULL_HANDLE;
+
+    resource = vkd3d_va_map_deref(va_map, va);
+    if (!resource || !resource->va)
+        return;
+
+    view_map = vkd3d_atomic_ptr_load_explicit(&resource->view_map, vkd3d_memory_order_acquire);
+    if (!view_map)
+        return;
+
+    key.view_type = VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE_OR_OPACITY_MICROMAP;
+    key.u.buffer.buffer = resource->vk_buffer;
+    key.u.buffer.offset = va - resource->va;
+    key.u.buffer.size = resource->size - key.u.buffer.offset;
+    key.u.buffer.format = NULL;
+
+    view = vkd3d_view_map_get_view(view_map, device, &key);
+    if (!view)
+        return;
+    
+    if (view->info.buffer.rtas_is_micromap)
+        *micromap = view->vk_micromap;
+    else
+        *acceleration_structure = view->vk_acceleration_structure;
+}
+
 static void vkd3d_va_map_try_place_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va, bool rtas_is_omm,
         VkAccelerationStructureKHR *acceleration_structure,
