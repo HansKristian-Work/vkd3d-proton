@@ -2139,3 +2139,233 @@ void test_mismatching_rtv_dsv_size(void)
 
     destroy_test_context(&context);
 }
+
+
+void decode_rgb9e5(uint32_t packed, float color[3])
+{
+    // No inf, nan, or implied 1 and thus no denorms
+    uint32_t r = (packed >>  0) & 0x1ffu;
+    uint32_t g = (packed >>  9) & 0x1ffu;
+    uint32_t b = (packed >> 18) & 0x1ffu;
+    uint32_t e = (packed >> 27);
+
+    float factor = (float)(1u << e) / (float)(1u << 24u);
+
+    color[0] = (float)r * factor;
+    color[1] = (float)g * factor;
+    color[2] = (float)b * factor;
+}
+
+void test_rgb9e5_rendering(void)
+{
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT format_query;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_descriptor;
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_RESOURCE_DESC rt_desc;
+    ID3D12PipelineState *pso;
+    unsigned int i, x, y;
+    ID3D12Resource *rt;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+    static uint32_t reference[16][16];
+
+    static const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+#include "shaders/render_target/headers/ps_gradient.h"
+#include "shaders/render_target/headers/vs_gradient.h"
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&format_query, 0, sizeof(format_query));
+    format_query.Format = DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
+
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_SUPPORT, &format_query, sizeof(format_query));
+
+    if (FAILED(hr) || !(format_query.Support1 & D3D12_FORMAT_SUPPORT1_RENDER_TARGET))
+    {
+        skip("RGB9E5 not supported for rendering.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rtv_heap_desc, 0, sizeof(rtv_heap_desc));
+    rtv_heap_desc.NumDescriptors = 1u;
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &rtv_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&rtv_heap);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    rtv_descriptor = get_cpu_rtv_handle(&context, rtv_heap, 0);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&rt_desc, 0, sizeof(rt_desc));
+    rt_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rt_desc.Width = 16;
+    rt_desc.Height = 16;
+    rt_desc.DepthOrArraySize = 1;
+    rt_desc.MipLevels = 1;
+    rt_desc.SampleDesc.Count = 1;
+    rt_desc.Format = DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
+    rt_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    rt_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &rt_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.Format = DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+
+    ID3D12Device_CreateRenderTargetView(context.device, rt, &rtv_desc, rtv_descriptor);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R9G9B9E5_SHAREDEXP,
+            &vs_gradient_dxbc, &ps_gradient_dxbc, NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    memset(&vp, 0, sizeof(vp));
+    vp.Width = 16.0f;
+    vp.Height = 16.0f;
+    vp.MaxDepth = 1.0f;
+
+    memset(&sci, 0, sizeof(sci));
+    sci.right = 16;
+    sci.bottom = 16;
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_descriptor, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_descriptor, white, 0, NULL);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(rt, 0, &rb, context.queue, context.list);
+
+    for (x = 0; x < 16; x++)
+    {
+        for (y = 0; y < 16; y++)
+        {
+            float rgb_got[3], rgb_expected[3];
+            uint32_t packed = get_readback_uint(&rb, x, y, 0);
+
+            rgb_expected[0] = (((float)x) + 0.5f) / 16.0f;
+            rgb_expected[1] = 1.0f - (((float)y) + 0.5f) / 16.0f;
+            rgb_expected[2] = rgb_expected[0] + rgb_expected[1];
+
+            decode_rgb9e5(packed, rgb_got);
+
+            for (i = 0; i < 3; i++)
+                ok(fabs(rgb_got[i] - rgb_expected[i]) < 0.01f, "Got %f, expected %f for channel %u at %u,%u.\n", rgb_got[i], rgb_expected[i], i, x, y);
+
+            reference[x][y] = packed;
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12PipelineState_Release(pso);
+
+    reset_command_list(context.list, context.allocator);
+
+    pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = 0x7u; /* no alpha */
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_descriptor, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_descriptor, white, 0, NULL);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(rt, 0, &rb, context.queue, context.list);
+
+    for (x = 0; x < 16; x++)
+    {
+        for (y = 0; y < 16; y++)
+        {
+            uint32_t packed = get_readback_uint(&rb, x, y, 0);
+
+            ok(packed == reference[x][y], "Got %#x, expected %#x at %u,%u.\n", packed, reference[x][y], x, y);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12PipelineState_Release(pso);
+
+    reset_command_list(context.list, context.allocator);
+
+    pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = 0x8u; /* only alpha */
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_descriptor, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_descriptor, white, 0, NULL);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(rt, 0, &rb, context.queue, context.list);
+
+    for (x = 0; x < 16; x++)
+    {
+        for (y = 0; y < 16; y++)
+        {
+            float rgb_got[3];
+            uint32_t packed = get_readback_uint(&rb, x, y, 0);
+            decode_rgb9e5(packed, rgb_got);
+
+            for (i = 0; i < 3; i++)
+                ok(rgb_got[i] == 1.0f, "Got %f, expected 1.0 for channel %u at %u,%u.\n", rgb_got[i], i, x, y);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12PipelineState_Release(pso);
+
+    ID3D12Resource_Release(rt);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+
+    destroy_test_context(&context);
+}
