@@ -19608,7 +19608,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
             if (bind->tile_index < first_packed_tile)
                 image_bind_count += min(bind->tile_count, first_packed_tile - bind->tile_index);
             if (bind->tile_index + bind->tile_count > first_packed_tile)
-                opaque_bind_count += bind->tile_index + bind->tile_count - first_packed_tile;
+                opaque_bind_count += min(bind->tile_count, bind->tile_index + bind->tile_count - first_packed_tile);
         }
 
         if (opaque_bind_count)
