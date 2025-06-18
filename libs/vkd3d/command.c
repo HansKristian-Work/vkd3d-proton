@@ -19552,11 +19552,15 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         struct vkd3d_sparse_memory_bind *bind_infos)
 {
     struct vkd3d_sparse_memory_bind_range *bind_ranges = NULL;
+    VkSparseImageOpaqueMemoryBindInfo *opaque_info = NULL;
+    VkSparseBufferMemoryBindInfo *buffer_info = NULL;
     unsigned int first_packed_tile, processed_tiles;
     VkSparseImageMemoryBindInfo *image_info = NULL;
     VkSparseImageMemoryBind *image_binds = NULL;
     VkSparseMemoryBind *memory_binds = NULL;
-    unsigned int i, j, k;
+    unsigned int opaque_bind_count = 0;
+    unsigned int image_bind_count = 0;
+    unsigned int i, j;
 
     TRACE("queue %p, dst_resource %p, src_resource %p, count %u, bind_infos %p.\n",
           command_queue, dst_resource, src_resource, count, bind_infos);
@@ -19575,8 +19579,6 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 
     if (d3d12_resource_is_buffer(dst_resource))
     {
-        VkSparseBufferMemoryBindInfo *buffer_info;
-
         if (!(memory_binds = vkd3d_malloc(count * sizeof(*memory_binds))))
         {
             ERR("Failed to allocate sparse memory bind info.\n");
@@ -19590,13 +19592,11 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 
         buffer_info = &command_queue->sparse.buffer_binds[command_queue->sparse.buffer_binds_count++];
         buffer_info->buffer = dst_resource->res.vk_buffer;
-        buffer_info->bindCount = count;
+        buffer_info->bindCount = 0;
         buffer_info->pBinds = memory_binds;
     }
     else
     {
-        unsigned int opaque_bind_count = 0;
-        unsigned int image_bind_count = 0;
 
         if (dst_resource->sparse.packed_mips.NumPackedMips)
             first_packed_tile = dst_resource->sparse.packed_mips.StartTileIndexInOverallResource;
@@ -19613,7 +19613,6 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 
         if (opaque_bind_count)
         {
-            VkSparseImageOpaqueMemoryBindInfo *opaque_info;
             if (!(memory_binds = vkd3d_malloc(opaque_bind_count * sizeof(*memory_binds))))
             {
                 ERR("Failed to allocate sparse memory bind info.\n");
@@ -19627,7 +19626,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 
             opaque_info = &command_queue->sparse.image_opaque_binds[command_queue->sparse.image_opaque_binds_count++];
             opaque_info->image = dst_resource->res.vk_image;
-            opaque_info->bindCount = opaque_bind_count;
+            opaque_info->bindCount = 0;
             opaque_info->pBinds = memory_binds;
         }
 
@@ -19644,8 +19643,6 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
                     command_queue->sparse.image_binds_count + 1,
                     sizeof(command_queue->sparse.image_binds[0]));
 
-            /* The image bind count is not exact but only an upper limit,
-             * so do the actual counting while filling in bind infos */
             image_info = &command_queue->sparse.image_binds[command_queue->sparse.image_binds_count++];
             image_info->image = dst_resource->res.vk_image;
             image_info->bindCount = 0;
@@ -19653,7 +19650,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         }
     }
 
-    for (i = 0, k = 0; i < count; i++)
+    for (i = 0; i < count; i++)
     {
         struct vkd3d_sparse_memory_bind_range *bind = &bind_ranges[i];
         command_queue->sparse.total_tiles += bind->tile_count;
@@ -19665,8 +19662,11 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
             if (d3d12_resource_is_buffer(dst_resource))
             {
                 const struct d3d12_sparse_tile *last_tile = &tile[bind->tile_count - 1];
+                VkSparseMemoryBind *vk_bind;
 
-                VkSparseMemoryBind *vk_bind = &memory_binds[k++];
+                assert(buffer_info->bindCount < count);
+
+                vk_bind = &memory_binds[buffer_info->bindCount++];
                 vk_bind->resourceOffset = tile->buffer.offset;
                 vk_bind->size = last_tile->buffer.offset
                               + last_tile->buffer.length
@@ -19681,6 +19681,8 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
             {
                 const D3D12_SUBRESOURCE_TILING *tiling = &dst_resource->sparse.tilings[tile->image.subresource_index];
                 const uint32_t tile_count = tiling->WidthInTiles * tiling->HeightInTiles * tiling->DepthInTiles;
+
+                assert(image_info->bindCount < image_bind_count);
 
                 if (bind->tile_index == tiling->StartTileIndexInOverallResource && bind->tile_count >= tile_count)
                 {
@@ -19714,7 +19716,11 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
             }
             else
             {
-                VkSparseMemoryBind *vk_bind = &memory_binds[k++];
+                VkSparseMemoryBind *vk_bind;
+
+                assert(opaque_info->bindCount < opaque_bind_count);
+
+                vk_bind = &memory_binds[opaque_info->bindCount++];
                 vk_bind->resourceOffset = tile->buffer.offset;
                 vk_bind->size = tile->buffer.length;
                 vk_bind->memory = bind->vk_memory;
