@@ -2750,7 +2750,13 @@ void test_line_rasterization(void)
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
     memset(&options19, 0, sizeof(options19));
-    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS19, &options19, sizeof(options19));
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS19, &options19, sizeof(options19));
+    if (FAILED(hr))
+    {
+        skip("OPTIONS19 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     rt = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
