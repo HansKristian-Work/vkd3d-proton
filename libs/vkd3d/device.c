@@ -5273,6 +5273,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             TRACE("MaxSamplerDescriptorHeapSize %u\n", data->MaxSamplerDescriptorHeapSize);
             TRACE("MaxSamplerDescriptorHeapSizeWithStaticSamplers %u\n", data->MaxSamplerDescriptorHeapSizeWithStaticSamplers);
             TRACE("MaxViewDescriptorHeapSize %u\n", data->MaxViewDescriptorHeapSize);
+            TRACE("ComputeOnlyCustomHeapSupported %u\n", data->ComputeOnlyCustomHeapSupported);
 
             return S_OK;
         }
@@ -8673,6 +8674,7 @@ static void d3d12_device_caps_init_feature_options19(struct d3d12_device *device
     options19->MaxSamplerDescriptorHeapSize = d3d12_device_get_max_descriptor_heap_size(device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
     options19->MaxSamplerDescriptorHeapSizeWithStaticSamplers = options19->MaxSamplerDescriptorHeapSize;
     options19->MaxViewDescriptorHeapSize = d3d12_device_get_max_descriptor_heap_size(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    options19->ComputeOnlyCustomHeapSupported = FALSE;
 }
 
 static void d3d12_device_caps_init_feature_options20(struct d3d12_device *device)
