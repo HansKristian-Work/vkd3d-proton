@@ -920,6 +920,7 @@ typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS19
     UINT MaxSamplerDescriptorHeapSize;
     UINT MaxSamplerDescriptorHeapSizeWithStaticSamplers;
     UINT MaxViewDescriptorHeapSize;
+    BOOL ComputeOnlyCustomHeapSupported;
 } D3D12_FEATURE_DATA_D3D12_OPTIONS19;
 
 typedef enum D3D12_RECREATE_AT_TIER
