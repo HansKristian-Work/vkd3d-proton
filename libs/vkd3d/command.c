@@ -16084,6 +16084,8 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
     *geometry_infos = &rtas_batch->geometry_infos[rtas_batch->geometry_info_count];
     if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
         *omm_infos = &rtas_batch->omm_infos[rtas_batch->geometry_info_count];
+    else
+        *omm_infos = NULL;
     *range_infos = &rtas_batch->range_infos[rtas_batch->geometry_info_count];
 
     rtas_batch->build_info_count += 1;
@@ -16298,8 +16300,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos = NULL;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
-    VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos;
     VkAccelerationStructureBuildGeometryInfoKHR *build_info;
     VkAccelerationStructureBuildRangeInfoKHR *range_infos;
     VkAccelerationStructureGeometryKHR *geometry_infos;

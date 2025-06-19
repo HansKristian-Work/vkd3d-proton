@@ -189,7 +189,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         have_aabbs = false;
 
         memset(geometry_infos, 0, sizeof(*geometry_infos) * desc->NumDescs);
-        memset(omm_infos, 0, sizeof(*omm_infos) * desc->NumDescs);
+        if (omm_infos)
+            memset(omm_infos, 0, sizeof(*omm_infos) * desc->NumDescs);
 
         if (primitive_counts)
             memset(primitive_counts, 0, sizeof(*primitive_counts) * desc->NumDescs);
