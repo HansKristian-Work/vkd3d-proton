@@ -455,6 +455,7 @@ decl_test(test_large_heap);
 decl_test(test_wmma_matmul);
 decl_test(test_wmma_fp8_fp32_conversions);
 decl_test(test_wmma_fp32_fp8_conversions);
+decl_test(test_wmma_fp32_fp8_special_conversions);
 decl_test(test_wmma_matrix_length);
 decl_test(test_wmma_extract_insert);
 decl_test(test_wmma_lds_transpose);

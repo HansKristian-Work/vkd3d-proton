@@ -5544,6 +5544,124 @@ void test_wmma_fp32_fp8_conversions(void)
     destroy_test_context(&context);
 }
 
+void test_wmma_fp32_fp8_special_conversions(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    struct resource_readback rb;
+    struct test_context context;
+    bool supports_vk_float8;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+    static const uint32_t fp32_values[] =
+    {
+        0x7f7fffff, 0x7f800000, 0x7fffffff,
+        0xff7fffff, 0xff800000, 0xffffffff,
+    };
+
+#include "shaders/sm_advanced/headers/cs_wmma_fp32_fp8_special_conversions.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    input = create_upload_buffer(context.device, sizeof(fp32_values), fp32_values);
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    vkd3d_mute_validation_message("10163", "Currently just assuming that 8-bit Acc matrix works.");
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_fp32_fp8_special_conversions_dxil);
+    vkd3d_unmute_validation_message("10163");
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, ARRAY_SIZE(fp32_values) * sizeof(uint32_t) * 2,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_Dispatch(context.list, ARRAY_SIZE(fp32_values), 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    supports_vk_float8 = is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8");
+
+    /* Test every possible FP16 value in this range. */
+    for (i = 0; i < ARRAY_SIZE(fp32_values); i++)
+    {
+        uint8_t expected_unclamped, expected_clamped, expected_clamped_alt;
+        uint8_t value_unclamped, value_clamped;
+
+        value_unclamped = get_readback_uint(&rb, 2 * i, 0, 0);
+        value_clamped = get_readback_uint(&rb, 2 * i + 1, 0, 0);
+        expected_unclamped = i < ARRAY_SIZE(fp32_values) / 2 ? 0x7f : 0xff;
+        expected_clamped = i < ARRAY_SIZE(fp32_values) / 2 ? 0x7e : 0xfe;
+
+        if (i % 3 == 2)
+        {
+            /* NaN inputs always resolve to -nan somehow ... */
+            expected_unclamped = 0xff;
+            expected_clamped = 0xff;
+        }
+        else if (i % 3 == 1)
+        {
+            /* Clamped conversions from +/- inf is bugged, and resolve to NaN. */
+            expected_clamped = i < ARRAY_SIZE(fp32_values) / 2 ? 0x7f : 0xff;
+        }
+
+        expected_clamped_alt = expected_clamped;
+
+        /* The saturation fixup we do forces inf to NaN, where we always end up with 0xff pattern. */
+        if (i % 3 == 1 && supports_vk_float8)
+            expected_clamped_alt = 0xff;
+
+        todo_if(i % 3 == 2 || !supports_vk_float8)
+        ok(value_unclamped == expected_unclamped,
+                    "FP32 unclamped (#%x) -> FP8: Expected 0x%x, got 0x%x\n",
+                    fp32_values[i], expected_unclamped, value_unclamped);
+        todo_if(i % 3 == 2 || !supports_vk_float8)
+        ok(value_clamped == expected_clamped || value_clamped == expected_clamped_alt,
+                    "FP32 clamped (#%x) -> FP8: Expected 0x%x, got 0x%x\n",
+                    fp32_values[i], expected_clamped, value_clamped);
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
+
 void test_wmma_matrix_length(void)
 {
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
