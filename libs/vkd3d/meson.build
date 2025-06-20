@@ -89,7 +89,8 @@ vkd3d_src = [
   'opacity_micromap.c',
   'swapchain.c',
   'queue_timeline.c',
-  'address_binding_tracker.c'
+  'address_binding_tracker.c',
+  'workgraphs.c'
 ]
 
 if enable_renderdoc
