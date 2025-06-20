@@ -324,6 +324,7 @@ VK_DEVICE_EXT_PFN(vkDestroyCuFunctionNVX)
 VK_DEVICE_EXT_PFN(vkCmdCuLaunchKernelNVX)
 
 /* VK_NVX_image_view_handle */
+VK_DEVICE_EXT_PFN(vkGetImageViewHandle64NVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewHandleNVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewAddressNVX)
 

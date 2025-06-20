@@ -207,6 +207,8 @@ struct vkd3d_vulkan_info
     unsigned int extension_count;
     const char* const* extension_names;
 
+    bool supports_cubin_64bit;
+
     bool rasterization_stream;
     unsigned int max_vertex_attrib_divisor;
 
@@ -4899,7 +4901,7 @@ struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
 
 /* ID3D12DeviceExt */
-typedef ID3D12DeviceExt1 d3d12_device_vkd3d_ext_iface;
+typedef ID3D12DeviceExt2 d3d12_device_vkd3d_ext_iface;
 
 /* ID3D12DXVKInteropDevice */
 typedef ID3D12DXVKInteropDevice1 d3d12_dxvk_interop_device_iface;
