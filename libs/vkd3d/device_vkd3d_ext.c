@@ -19,6 +19,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include "vkd3d_private.h"
+#include "nvShaderExtnEnums.h"
 
 uint32_t vkd3d_nv_shader_extn_entry_hash(const void *key)
 {
@@ -486,10 +487,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetAGSUAVSlot(d3d12_devi
 static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupported(d3d12_device_vkd3d_ext_iface *iface,
         UINT32 op_code)
 {
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     TRACE("iface %p, op_code %"PRIu32".\n", iface, op_code);
 
     switch (op_code)
     {
+        case NV_EXTN_OP_HIT_OBJECT_TRACE_RAY:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT_WITH_RECORD_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_MISS:
+        case NV_EXTN_OP_HIT_OBJECT_REORDER_THREAD:
+        case NV_EXTN_OP_HIT_OBJECT_INVOKE:
+        case NV_EXTN_OP_HIT_OBJECT_IS_MISS:
+        case NV_EXTN_OP_HIT_OBJECT_GET_INSTANCE_ID:
+        case NV_EXTN_OP_HIT_OBJECT_GET_INSTANCE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_PRIMITIVE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_GEOMETRY_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_HIT_KIND:
+        case NV_EXTN_OP_HIT_OBJECT_GET_RAY_DESC:
+        case NV_EXTN_OP_HIT_OBJECT_GET_ATTRIBUTES:
+        case NV_EXTN_OP_HIT_OBJECT_GET_SHADER_TABLE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_LOAD_LOCAL_ROOT_TABLE_CONSTANT:
+        case NV_EXTN_OP_HIT_OBJECT_IS_HIT:
+        case NV_EXTN_OP_HIT_OBJECT_IS_NOP:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_NOP:
+            return device->device_info.ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder ? TRUE : FALSE;
         default:
             return FALSE;
     }

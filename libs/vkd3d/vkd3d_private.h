@@ -209,6 +209,7 @@ struct vkd3d_vulkan_info
     bool NV_low_latency2;
     bool NV_raw_access_chains;
     bool NV_cooperative_matrix2;
+    bool NV_ray_tracing_invocation_reorder;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_shader_mixed_float_dot_product;
@@ -5111,6 +5112,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDevicePresentId2FeaturesKHR present_id2_features;
     VkPhysicalDevicePresentWait2FeaturesKHR present_wait2_features;
     VkPhysicalDevicePresentTimingFeaturesEXT present_timing_features;
+    VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV ray_tracing_invocation_reorder_features_nv;
 
     VkPhysicalDeviceFeatures2 features2;
 
