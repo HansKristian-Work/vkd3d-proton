@@ -5252,7 +5252,7 @@ void test_wmma_matmul(void)
 void test_wmma_multi_matmul(void)
 {
     uint8_t xyz_reference_fp16_quant[16][16];
-    uint8_t yz_reference_fp16_quant[16][16];
+    float yz_reference_fp16_quant[16][16];
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_ROOT_PARAMETER rs_param[3];
     uint8_t input_data[16 * 16 * 3];
@@ -5346,7 +5346,9 @@ void test_wmma_multi_matmul(void)
             /* Ensure we're not just testing inf clamped values. */
             ok(fabsf(res) <= 448.0f, "res %f is out of range.\n", res);
             yz_reference[j][i] = float_to_fp8(res);
-            yz_reference_fp16_quant[j][i] = float_to_fp8(quant_fp16(res));
+
+            /* If we don't support FP8 natively, we can just quant to FP16 instead of FP8. */
+            yz_reference_fp16_quant[j][i] = quant_fp16(res);
         }
     }
 
@@ -5364,7 +5366,7 @@ void test_wmma_multi_matmul(void)
                 uint8_t x = input_data[k + 16 * j];
                 uint8_t yz = yz_reference[k][i];
                 res += fp8_to_float(x) * fp8_to_float(yz);
-                res_fp16_quant += fp8_to_float(x) * fp8_to_float(yz_reference_fp16_quant[k][i]);
+                res_fp16_quant += fp8_to_float(x) * yz_reference_fp16_quant[k][i];
             }
 
             /* Ensure we're not just testing inf clamped values. */
