@@ -5135,16 +5135,32 @@ void test_wmma_matmul(void)
     for (test_index = 0; test_index < ARRAY_SIZE(tests); test_index++)
     {
         unsigned int elem_stride = tests[test_index].quant.element_stride;
+        bool test_is_native_fp8;
         float A[16][16];
         float B[16][16];
         float C[16][16];
 
+        test_is_native_fp8 = is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8") &&
+                (tests[test_index].a.type == TYPE_FP8 || tests[test_index].b.type == TYPE_FP8 ||
+                 tests[test_index].c.type == TYPE_FP8 || tests[test_index].quant.type == TYPE_FP8);
+
         vkd3d_test_set_context("Test %u", test_index);
-        if (test_index == 1)
+
+        if (test_is_native_fp8)
+        {
+            vkd3d_mute_validation_message("10163", "See VVL issue 10306.");
+            vkd3d_mute_validation_message("10060", "See VVL issue 10306.");
+        }
+        else if (test_index == 1)
             vkd3d_mute_validation_message("10163", "Currently just assuming that 8-bit Acc matrix works.");
+
         pso = create_wmma_pso(context.device, context.root_signature, *tests[test_index].dxil);
-        if (test_index == 1)
+
+        if (test_is_native_fp8 || test_index == 1)
             vkd3d_unmute_validation_message("10163");
+        if (test_is_native_fp8)
+            vkd3d_unmute_validation_message("10060");
+
         if (!pso)
             continue;
 
@@ -5298,9 +5314,14 @@ void test_wmma_multi_matmul(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_mute_validation_message("10060", "See VVL issue 10306.");
     vkd3d_mute_validation_message("10163", "Currently just assuming that 8-bit Acc matrix works.");
     context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_multi_matmul_dxil);
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_unmute_validation_message("10060");
     vkd3d_unmute_validation_message("10163");
+
 
     if (!context.pipeline_state)
     {
@@ -5432,7 +5453,12 @@ void test_wmma_fp8_fp32_conversions(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_mute_validation_message("10163", "See VVL issue 10306.");
     context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_fp8_fp32_conversions_dxil);
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_unmute_validation_message("10163");
+
     if (!context.pipeline_state)
     {
         destroy_test_context(&context);
@@ -5698,7 +5724,11 @@ void test_wmma_matrix_length(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_mute_validation_message("10163", "See VVL issue 10306.");
     context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_matrix_length_dxil);
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_unmute_validation_message("10163");
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
@@ -5782,7 +5812,11 @@ void test_wmma_extract_insert(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_mute_validation_message("10163", "See VVL issue 10306.");
     context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_extract_insert_dxil);
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_unmute_validation_message("10163");
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
@@ -5946,7 +5980,11 @@ void test_wmma_lds_layout(void)
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_mute_validation_message("10163", "See VVL issue 10306.");
     context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_lds_layout_dxil);
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8"))
+        vkd3d_unmute_validation_message("10163");
     todo ok(context.pipeline_state, "Failed to create PSO.\n");
     if (!context.pipeline_state)
     {
