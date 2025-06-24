@@ -464,6 +464,7 @@ decl_test(test_wmma_copy_transpose);
 decl_test(test_wmma_alloca);
 decl_test(test_wmma_multi_matmul);
 decl_test(test_wmma_layout_assumptions);
+decl_test(test_wmma_special_conversions);
 decl_test(test_tex2d_array_reinterpretation_sm51);
 decl_test(test_tex2d_array_reinterpretation_dxil);
 decl_test(test_tex1d_array_reinterpretation_sm51);
