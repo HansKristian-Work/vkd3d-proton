@@ -5574,8 +5574,6 @@ void test_wmma_fp32_fp8_special_conversions(void)
         return;
     }
 
-    input = create_upload_buffer(context.device, sizeof(fp32_values), fp32_values);
-
     memset(rs_param, 0, sizeof(rs_param));
     memset(&rs_desc, 0, sizeof(rs_desc));
     rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -5599,6 +5597,8 @@ void test_wmma_fp32_fp8_special_conversions(void)
         destroy_test_context(&context);
         return;
     }
+
+    input = create_upload_buffer(context.device, sizeof(fp32_values), fp32_values);
 
     output = create_default_buffer(context.device, ARRAY_SIZE(fp32_values) * sizeof(uint32_t) * 2,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
