@@ -5279,6 +5279,7 @@ void test_wmma_multi_matmul(void)
     ID3D12Resource *output;
     ID3D12Resource *input;
     unsigned int i, j, k;
+    int emul_slack;
 
 #include "shaders/sm_advanced/headers/cs_wmma_multi_matmul.h"
 
@@ -5397,6 +5398,9 @@ void test_wmma_multi_matmul(void)
         }
     }
 
+    /* Slight imprecisions in the FP16 work might lead to some errors on RDNA3. */
+    emul_slack = is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8") ? 0 : 8;
+
     for (j = 0; j < 16; j++)
     {
         for (i = 0; i < 16; i++)
@@ -5407,7 +5411,7 @@ void test_wmma_multi_matmul(void)
             uint8_t value;
 
             value = get_readback_uint8(&rb, j + i * 16, 0);
-            ok(value == expected || value == expected_alt,
+            ok(value == expected || (emul_slack && abs(value - expected_alt) <= emul_slack),
                     "row %u, col %u: Expected 0x%02x, got 0x%02x\n", j, i, expected, value);
         }
     }
