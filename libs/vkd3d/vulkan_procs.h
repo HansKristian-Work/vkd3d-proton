@@ -387,6 +387,9 @@ VK_DEVICE_EXT_PFN(vkCmdBuildMicromapsEXT)
 VK_DEVICE_EXT_PFN(vkCmdWriteMicromapsPropertiesEXT)
 VK_DEVICE_EXT_PFN(vkCmdCopyMicromapEXT)
 
+/* VK_AMD_anti_lag */
+VK_DEVICE_EXT_PFN(vkAntiLagUpdateAMD)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
