@@ -1031,7 +1031,8 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
     request->dxgi_hdr_metadata = chain->user.dxgi_hdr_metadata;
     request->modifies_hdr_metadata = chain->user.modifies_hdr_metadata;
     request->begin_frame_time_ns = chain->user.begin_frame_time_ns;
-    request->low_latency_frame_id = chain->queue->device->frame_markers.present;
+    request->low_latency_frame_id = vkd3d_atomic_uint64_load_explicit(
+            &chain->queue->device->frame_markers.present, vkd3d_memory_order_acquire);
 
     if (chain->debug_latency && request->low_latency_frame_id)
         INFO("Presenting with low latency frame ID: %"PRIu64".\n", request->low_latency_frame_id);
