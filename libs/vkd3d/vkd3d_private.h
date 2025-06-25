@@ -4885,16 +4885,20 @@ struct vkd3d_device_swapchain_info
     uint32_t swapchain_count;
     bool mode;
     bool boost;
-    uint32_t minimum_us;
+    union
+    {
+        uint32_t minimum_us; /* LL2 variant */
+        uint32_t max_fps; /* AntiLag variant */
+    };
 };
 
 #define VKD3D_LOW_LATENCY_FRAME_ID_STRIDE 10000
 struct vkd3d_device_frame_markers
 {
-    uint64_t simulation;
-    uint64_t render;
-    uint64_t present;
-    uint64_t consumed_present_id;
+    UINT64 simulation;
+    UINT64 render;
+    UINT64 present;
+    UINT64 consumed_present_id;
 };
 
 /* ID3D12Device */

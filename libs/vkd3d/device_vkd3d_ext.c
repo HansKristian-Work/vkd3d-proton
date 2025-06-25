@@ -704,7 +704,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
                 WARN("PRESENT_START_NV is non-monotonic %"PRIu64" <= %"PRIu64".\n",
                         internal_frame_id, device->frame_markers.present);
             }
-            device->frame_markers.present = internal_frame_id;
+            vkd3d_atomic_uint64_store_explicit(
+                    &device->frame_markers.present, internal_frame_id, vkd3d_memory_order_release);
             break;
         default:
             break;
