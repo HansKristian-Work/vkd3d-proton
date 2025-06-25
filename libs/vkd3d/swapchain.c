@@ -56,6 +56,12 @@ struct low_latency_state
     uint32_t minimum_interval_us;
 };
 
+struct anti_lag_state
+{
+    bool mode;
+    uint32_t max_fps;
+};
+
 struct dxgi_vk_swap_chain_present_request
 {
     uint64_t begin_frame_time_ns;
@@ -66,7 +72,11 @@ struct dxgi_vk_swap_chain_present_request
     DXGI_VK_HDR_METADATA dxgi_hdr_metadata;
     uint32_t swap_interval;
     uint64_t low_latency_frame_id;
-    struct low_latency_state requested_low_latency_state;
+    union
+    {
+        struct low_latency_state requested_low_latency_state;
+        struct anti_lag_state requested_anti_lag_state;
+    };
     bool low_latency_update_requested;
     bool modifies_hdr_metadata;
 };
@@ -1048,6 +1058,14 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
         low_latency_enable = chain->requested_low_latency_state.mode;
         pthread_mutex_unlock(&chain->present.low_latency_state_update_lock);
     }
+    else if (chain->queue->device->device_info.anti_lag_amd.antiLag)
+    {
+        spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
+        request->requested_anti_lag_state.mode = chain->queue->device->swapchain_info.mode;
+        request->requested_anti_lag_state.max_fps = chain->queue->device->swapchain_info.max_fps;
+        low_latency_enable = request->requested_anti_lag_state.mode;
+        spinlock_release(&chain->queue->device->low_latency_swapchain_spinlock);
+    }
     else
     {
         memset(&request->requested_low_latency_state, 0, sizeof(request->requested_low_latency_state));
@@ -1715,6 +1733,49 @@ static void dxgi_vk_swap_chain_low_latency_state_update(struct dxgi_vk_swap_chai
     }
 }
 
+static void dxgi_vk_swap_chain_anti_lag_state_update(struct dxgi_vk_swap_chain *chain)
+{
+    struct d3d12_device *device = chain->queue->device;
+
+    if (chain->request.low_latency_frame_id)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+        VkAntiLagPresentationInfoAMD present_info;
+        VkAntiLagDataAMD anti_lag;
+        bool should_signal;
+
+        memset(&anti_lag, 0, sizeof(anti_lag));
+        memset(&present_info, 0, sizeof(present_info));
+        anti_lag.sType = VK_STRUCTURE_TYPE_ANTI_LAG_DATA_AMD;
+        anti_lag.mode = chain->request.requested_anti_lag_state.mode ?
+                VK_ANTI_LAG_MODE_ON_AMD : VK_ANTI_LAG_MODE_OFF_AMD;
+        anti_lag.maxFPS = chain->request.requested_anti_lag_state.max_fps;
+        anti_lag.pPresentationInfo = &present_info;
+
+        present_info.sType = VK_STRUCTURE_TYPE_ANTI_LAG_PRESENTATION_INFO_AMD;
+        present_info.frameIndex = chain->request.low_latency_frame_id;
+        present_info.stage = VK_ANTI_LAG_STAGE_PRESENT_AMD;
+
+        /* Don't submit the same frame marker over and over. This will probably matter for frame-gen. */
+        spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
+        should_signal = present_info.frameIndex > device->frame_markers.consumed_present_id;
+        if (should_signal)
+            device->frame_markers.consumed_present_id = present_info.frameIndex;
+        spinlock_release(&chain->queue->device->low_latency_swapchain_spinlock);
+
+        /* There is no strong requirement that frame index is submitted monotonically,
+         * so it should be fine to drop the lock while calling UpdateAMD.
+         * We don't want to hold a lock while calling AntiLagUpdateAMD.
+         * This is only a theoretical problem if there are two physical queues that concurrently call
+         * QueuePresentKHR. */
+        if (should_signal)
+        {
+            TRACE("AntiLag present timeline, frame %"PRIu64".\n", present_info.frameIndex);
+            VK_CALL(vkAntiLagUpdateAMD(device->vk_device, &anti_lag));
+        }
+    }
+}
+
 static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
@@ -2369,6 +2430,11 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
 
     if (!dxgi_vk_swap_chain_submit_blit(chain, swapchain_index))
         return;
+
+    /* Only mark anti-lag update after we have submitted blit
+     * so we don't get wrong associations. */
+    if (chain->queue->device->device_info.anti_lag_amd.antiLag)
+        dxgi_vk_swap_chain_anti_lag_state_update(chain);
 
     memset(&present_info, 0, sizeof(present_info));
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;

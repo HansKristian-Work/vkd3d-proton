@@ -763,3 +763,128 @@ CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl =
     d3d12_low_latency_device_SetLatencyMarker,
     d3d12_low_latency_device_GetLatencyInfo
 };
+
+static inline struct d3d12_device *d3d12_device_from_IAmdExtAntiLag(IAmdExtAntiLagApi *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_device, IAmdExtAntiLagApi_iface);
+}
+
+ULONG STDMETHODCALLTYPE d3d12_amd_ext_anti_lag_AddRef(IAmdExtAntiLagApi *iface)
+{
+    struct d3d12_device *device = d3d12_device_from_IAmdExtAntiLag(iface);
+    TRACE("iface %p", iface);
+    return d3d12_device_add_ref(device);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_amd_ext_anti_lag_Release(IAmdExtAntiLagApi *iface)
+{
+    struct d3d12_device *device = d3d12_device_from_IAmdExtAntiLag(iface);
+    TRACE("iface %p", iface);
+    return d3d12_device_release(device);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_amd_ext_anti_lag_QueryInterface(IAmdExtAntiLagApi *iface,
+        REFIID iid, void **out)
+{
+    struct d3d12_device *device = d3d12_device_from_IAmdExtAntiLag(iface);
+    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+    return d3d12_device_QueryInterface(&device->ID3D12Device_iface, iid, out);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_amd_ext_anti_lag_UpdateAntiLagState(
+        IAmdExtAntiLagApi *iface, void *pData)
+{
+    struct d3d12_device *device = d3d12_device_from_IAmdExtAntiLag(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct AmdAntiLagAPIData_v1 *v1 = pData;
+    const struct AmdAntiLagAPIData_v2 *v2 = pData;
+
+    /* Don't try to use LL2 and AMD anti-lag at the same time. */
+    if (!device->device_info.anti_lag_amd.antiLag || device->vk_info.NV_low_latency2)
+        return S_OK;
+
+    /* The assumption is that this function cannot be called concurrently,
+     * but it probably can be called concurrently with e.g. Present and ExecuteCommandList. */
+
+    if (!pData)
+    {
+        struct vkd3d_queue_timeline_trace_cookie cookie = { 0 };
+        VkAntiLagPresentationInfoAMD present_info;
+        VkAntiLagDataAMD anti_lag;
+
+        /* Purely inserts a delay. The API wrapper never seems to pass down anything useful for
+         * frame IDs, so just invent them ourselves. */
+
+        memset(&anti_lag, 0, sizeof(anti_lag));
+        memset(&present_info, 0, sizeof(present_info));
+        anti_lag.sType = VK_STRUCTURE_TYPE_ANTI_LAG_DATA_AMD;
+        anti_lag.mode = device->swapchain_info.mode ? VK_ANTI_LAG_MODE_ON_AMD : VK_ANTI_LAG_MODE_OFF_AMD;
+        anti_lag.maxFPS = device->swapchain_info.max_fps;
+        anti_lag.pPresentationInfo = &present_info;
+
+        present_info.sType = VK_STRUCTURE_TYPE_ANTI_LAG_PRESENTATION_INFO_AMD;
+        present_info.frameIndex = device->frame_markers.present + 1;
+        present_info.stage = VK_ANTI_LAG_STAGE_INPUT_AMD;
+
+        TRACE("AntiLag input timeline, frame %"PRIu64".\n", present_info.frameIndex);
+        if (device->swapchain_info.mode)
+            cookie = vkd3d_queue_timeline_trace_register_low_latency_sleep(&device->queue_timeline_trace, present_info.frameIndex);
+        VK_CALL(vkAntiLagUpdateAMD(device->vk_device, &anti_lag));
+        if (device->swapchain_info.mode)
+            vkd3d_queue_timeline_trace_complete_low_latency_sleep(&device->queue_timeline_trace, cookie);
+
+        /* Any present after this point will map to this frameIndex. */
+        vkd3d_atomic_uint64_store_explicit(&device->frame_markers.present,
+                present_info.frameIndex, vkd3d_memory_order_release);
+    }
+    else if (v1->uiVersion == 1)
+    {
+        /* Mode setting for v1. */
+        if (v1->uiSize != sizeof(*v1))
+        {
+            ERR("Invalid size for API structure.\n");
+            return E_INVALIDARG;
+        }
+
+        spinlock_acquire(&device->low_latency_swapchain_spinlock);
+        device->swapchain_info.max_fps = v1->maxFPS;
+        device->swapchain_info.mode = v1->eMode == 1;
+        spinlock_release(&device->low_latency_swapchain_spinlock);
+        TRACE("AntiLag v1 config: MaxFPS = %u, Enabled = %u\n",
+                device->swapchain_info.max_fps, device->swapchain_info.mode);
+    }
+    else if (v2->uiVersion == 2)
+    {
+        /* Mode setting for v2. */
+        if (v2->uiSize != sizeof(*v2))
+        {
+            ERR("Invalid size for API structure.\n");
+            return E_INVALIDARG;
+        }
+
+        /* This structure only seems to flag certain things, and does not modify the mode?
+         * There isn't much we can do with this struct right now I think other than logging ... */
+        TRACE("AntiLag v2 config: Frame = %"PRIu64", signalFgFrameType = %u, isInterpolatedFrame = %u, signalGetUserInputIdx = %u, signalEndOfFrameIdx = %u\n",
+                v2->iiFrameIdx,
+                v2->flags.signalFgFrameType, v2->flags.isInterpolatedFrame,
+                v2->flags.signalGetUserInputIdx, v2->flags.signalEndOfFrameIdx);
+    }
+    else
+    {
+        ERR("Invalid uiVersion %u.\n", v1->uiVersion);
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
+CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_amd_ext_anti_lag_QueryInterface,
+    d3d12_amd_ext_anti_lag_AddRef,
+    d3d12_amd_ext_anti_lag_Release,
+
+    /* IAmdExtAntiLag methods */
+    d3d12_amd_ext_anti_lag_UpdateAntiLagState
+};

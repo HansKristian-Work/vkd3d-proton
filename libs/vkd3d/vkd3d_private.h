@@ -181,6 +181,7 @@ struct vkd3d_vulkan_info
     bool AMD_device_coherent_memory;
     bool AMD_shader_core_properties;
     bool AMD_shader_core_properties2;
+    bool AMD_anti_lag;
     /* NV device extensions */
     bool NV_optical_flow;
     bool NV_shader_sm_builtins;
@@ -4809,6 +4810,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceOpacityMicromapFeaturesEXT opacity_micromap_features;
     VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
+    VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
 
     VkPhysicalDeviceFeatures2 features2;
 
@@ -5164,6 +5166,7 @@ struct d3d12_device
     d3d12_device_vkd3d_ext_iface ID3D12DeviceExt_iface;
     d3d12_dxvk_interop_device_iface ID3D12DXVKInteropDevice_iface;
     d3d_low_latency_device_iface ID3DLowLatencyDevice_iface;
+    IAmdExtAntiLagApi IAmdExtAntiLagApi_iface;
     LONG refcount;
 
     VkDevice vk_device;
