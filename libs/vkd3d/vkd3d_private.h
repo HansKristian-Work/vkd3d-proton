@@ -5256,6 +5256,13 @@ struct d3d12_device
         bool amdgpu_broken_null_tile_mapping;
         bool tiler_renderpass_barriers;
     } workarounds;
+
+#ifdef _WIN64
+    struct
+    {
+        HMODULE amdxc64;
+    } vendor_hacks;
+#endif
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
