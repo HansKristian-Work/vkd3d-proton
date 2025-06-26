@@ -3347,6 +3347,36 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
     return S_OK;
 }
 
+static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
+{
+    /* We don't do anything with this library directly, but various AMD provided dlls
+     * like FSR and AntiLag check if amdxc64.dll is loaded, then attempt
+     * calling into it. On Proton, this DLL is purely a shim intended to forward calls
+     * to where they belong.
+     * This DLL is provided through external means (at least for now),
+     * but the logical thing to do is to load the DLL when the d3d12 device is created,
+     * since this is literally the name of the d3d12 driver on Windows.
+     * Don't bother with 32-bit since 32-bit d3d12 is not really a thing. */
+    (void)device;
+
+#ifdef _WIN64
+    if (device->device_info.properties2.properties.vendorID == 0x1002)
+    {
+        device->vendor_hacks.amdxc64 = LoadLibraryA("amdxc64.dll");
+        if (device->vendor_hacks.amdxc64)
+            INFO("Loaded amdxc64.dll successfully.\n");
+    }
+#endif
+}
+
+static void d3d12_device_cleanup_vendor_hacks(struct d3d12_device *device)
+{
+#ifdef _WIN64
+    if (device->vendor_hacks.amdxc64)
+        FreeLibrary(device->vendor_hacks.amdxc64);
+#endif
+}
+
 static void d3d12_device_init_workarounds(struct d3d12_device *device)
 {
     uint32_t major, minor, patch;
@@ -3544,6 +3574,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     device->vk_info.extension_names = extensions;
 
     d3d12_device_init_workarounds(device);
+    d3d12_device_init_vendor_hacks(device);
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
@@ -4160,6 +4191,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     d3d12_device_free_pipeline_libraries(device);
     /* Tear down descriptor global info late, so we catch last minute faults after we drain the queues. */
     vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
+    d3d12_device_cleanup_vendor_hacks(device);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (vkd3d_renderdoc_active() && vkd3d_renderdoc_global_capture_enabled())
