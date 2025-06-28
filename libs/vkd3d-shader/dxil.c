@@ -1308,14 +1308,14 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         {
             /* We don't expect min and max heuristics to have conflicting ideas. */
             if (heuristic_max_wave_size &&
-                    compiler_args->max_subgroup_size > heuristic_max_wave_size &&
+                    compiler_args->max_subgroup_size >= heuristic_max_wave_size &&
                     compiler_args->min_subgroup_size <= heuristic_max_wave_size)
             {
                 wave_size_preferred = heuristic_max_wave_size;
             }
             else if (heuristic_min_wave_size &&
                     compiler_args->max_subgroup_size >= heuristic_min_wave_size &&
-                    compiler_args->min_subgroup_size < heuristic_min_wave_size)
+                    compiler_args->min_subgroup_size <= heuristic_min_wave_size)
             {
                 wave_size_preferred = heuristic_min_wave_size;
             }
