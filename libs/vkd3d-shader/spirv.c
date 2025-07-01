@@ -9344,8 +9344,11 @@ static void vkd3d_dxbc_compiler_emit_deriv_instruction(struct vkd3d_dxbc_compile
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
+    struct vkd3d_shader_register_info src_reg_info;
     const struct instruction_info *info;
     uint32_t type_id, src_id, val_id;
+    size_t function_location;
+    bool found_src_reg_info;
     unsigned int i;
 
     static const struct instruction_info
@@ -9385,9 +9388,36 @@ static void vkd3d_dxbc_compiler_emit_deriv_instruction(struct vkd3d_dxbc_compile
     assert(instruction->dst_count == 1);
     assert(instruction->src_count == 1);
 
-    type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
-    src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
-    val_id = vkd3d_spirv_build_op_tr1(builder, &builder->function_stream, info->op, type_id, src_id);
+    /* If the SRC is a shader input register, and we're inside the main function, insert
+     * the derivative calculation at the beginning of the function to avoid calculating
+     * the derivative in non-uniform control flow. */
+    function_location = vkd3d_dxbc_compiler_get_current_function_location(compiler);
+    found_src_reg_info = vkd3d_dxbc_compiler_get_register_info(compiler, &src->reg, &src_reg_info);
+    if (vkd3d_dxbc_compiler_has_quirk(compiler, VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES)
+        && (src->reg.type == VKD3DSPR_INPUT
+        || src->reg.type == VKD3DSPR_CONSTBUFFER
+        || src->reg.type == VKD3DSPR_IMMCONST
+        || src->reg.type == VKD3DSPR_IMMCONST64)
+        && found_src_reg_info
+        && !src_reg_info.is_dynamically_indexed
+        && function_location == compiler->spirv_builder.main_function_location)
+    {
+        vkd3d_spirv_begin_function_stream_insertion(builder, function_location,
+            VKD3D_SPIRV_INSERT_PRIORITY_OTHER);
+
+        type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
+        src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
+        val_id = vkd3d_spirv_build_op_tr1(builder, &builder->function_stream, info->op, type_id, src_id);
+
+        vkd3d_spirv_end_function_stream_insertion(builder);
+    }
+    else
+    {
+        type_id = vkd3d_dxbc_compiler_get_type_id_for_dst(compiler, dst);
+        src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
+        val_id = vkd3d_spirv_build_op_tr1(builder, &builder->function_stream, info->op, type_id, src_id);
+    }
+
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
