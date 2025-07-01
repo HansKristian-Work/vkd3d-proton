@@ -8825,7 +8825,9 @@ static void d3d12_device_caps_init_feature_options21(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS21 *options21 = &device->d3d12_caps.options21;
 
-    options21->WorkGraphsTier = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES) &&
+    /* Enable WGs in test suite to avoid bitrot. */
+    options21->WorkGraphsTier = ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES) ||
+            vkd3d_debug_control_is_test_suite()) &&
             device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence ?
             D3D12_WORK_GRAPHS_TIER_1_0 : D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED;
     options21->ExecuteIndirectTier = device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands ?
