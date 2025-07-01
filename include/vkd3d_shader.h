@@ -484,7 +484,13 @@ enum vkd3d_shader_quirk
 
     /* Do more aggressive analysis of when nonuniform may be missing from shaders.
      * Not done by default since it's overly conservative. */
-    VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM = (1 << 24)
+    VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM = (1 << 24),
+
+    /* Move derivative instructions to the beginning of the function
+     * when they are used inside the main function,
+     * aren't dynamically indexed and use a PS input or
+     * CBV value. */
+    VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25)
 };
 
 struct vkd3d_shader_quirk_hash
