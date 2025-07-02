@@ -114,6 +114,7 @@ struct vkd3d_spirv_chunk
     struct list entry;
     size_t location;
     size_t word_count;
+    unsigned int priority;
     uint32_t words[] vkd3d_counted_by(word_count);
 };
 
@@ -142,7 +143,8 @@ static size_t vkd3d_spirv_stream_current_location(struct vkd3d_spirv_stream *str
 }
 
 static void vkd3d_spirv_stream_insert(struct vkd3d_spirv_stream *stream,
-        size_t location, const uint32_t *words, unsigned int word_count)
+        size_t location, const uint32_t *words, unsigned int word_count,
+        unsigned int insert_priority)
 {
     struct vkd3d_spirv_chunk *chunk, *current;
 
@@ -151,11 +153,13 @@ static void vkd3d_spirv_stream_insert(struct vkd3d_spirv_stream *stream,
 
     chunk->location = location;
     chunk->word_count = word_count;
+    chunk->priority = insert_priority;
     memcpy(chunk->words, words, word_count * sizeof(*words));
 
     LIST_FOR_EACH_ENTRY(current, &stream->inserted_chunks, struct vkd3d_spirv_chunk, entry)
     {
-        if (current->location > location)
+        if ((current->location > location)
+            || (current->location == location && current->priority > insert_priority))
         {
             list_add_before(&current->entry, &chunk->entry);
             return;
@@ -204,6 +208,9 @@ static bool vkd3d_spirv_stream_append(struct vkd3d_spirv_stream *dst_stream,
     return true;
 }
 
+#define VKD3D_SPIRV_INSERT_PRIORITY_OPVARIABLE 0
+#define VKD3D_SPIRV_INSERT_PRIORITY_OTHER 1
+
 struct vkd3d_spirv_builder
 {
     SpvCapability *capabilities;
@@ -240,6 +247,7 @@ struct vkd3d_spirv_builder
     struct vkd3d_spirv_stream original_function_stream;
     struct vkd3d_spirv_stream insertion_stream;
     size_t insertion_location;
+    unsigned int insert_priority;
 
     size_t main_function_location;
 
@@ -712,16 +720,18 @@ static uint32_t vkd3d_spirv_build_op_tr2v(struct vkd3d_spirv_builder *builder,
 }
 
 static void vkd3d_spirv_begin_function_stream_insertion(struct vkd3d_spirv_builder *builder,
-        size_t location)
+        size_t location, unsigned int insert_priority)
 {
     assert(builder->insertion_location == ~(size_t)0);
 
-    if (vkd3d_spirv_stream_current_location(&builder->function_stream) == location)
+    if (vkd3d_spirv_stream_current_location(&builder->function_stream) == location
+        && insert_priority == VKD3D_SPIRV_INSERT_PRIORITY_OTHER)
         return;
 
     builder->original_function_stream = builder->function_stream;
     builder->function_stream = builder->insertion_stream;
     builder->insertion_location = location;
+    builder->insert_priority = insert_priority;
 }
 
 static void vkd3d_spirv_end_function_stream_insertion(struct vkd3d_spirv_builder *builder)
@@ -735,9 +745,10 @@ static void vkd3d_spirv_end_function_stream_insertion(struct vkd3d_spirv_builder
     builder->function_stream = builder->original_function_stream;
 
     vkd3d_spirv_stream_insert(&builder->function_stream, builder->insertion_location,
-            insertion_stream->words, insertion_stream->word_count);
+            insertion_stream->words, insertion_stream->word_count, builder->insert_priority);
     vkd3d_spirv_stream_clear(insertion_stream);
     builder->insertion_location = ~(size_t)0;
+    builder->insert_priority = VKD3D_SPIRV_INSERT_PRIORITY_OTHER;
 }
 
 struct vkd3d_spirv_op_branch_conditional
@@ -6333,7 +6344,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_temps(struct vkd3d_dxbc_compiler *compi
     uint32_t id;
 
     function_location = vkd3d_dxbc_compiler_get_current_function_location(compiler);
-    vkd3d_spirv_begin_function_stream_insertion(builder, function_location);
+    vkd3d_spirv_begin_function_stream_insertion(builder, function_location,
+        VKD3D_SPIRV_INSERT_PRIORITY_OPVARIABLE);
 
     assert(!compiler->temp_count);
     compiler->temp_count = instruction->declaration.count;
@@ -6375,7 +6387,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     component_count = vkd3d_shader_scan_get_idxtemp_components(compiler->scan_info, &reg);
 
     function_location = vkd3d_dxbc_compiler_get_current_function_location(compiler);
-    vkd3d_spirv_begin_function_stream_insertion(builder, function_location);
+    vkd3d_spirv_begin_function_stream_insertion(builder, function_location,
+        VKD3D_SPIRV_INSERT_PRIORITY_OPVARIABLE);
 
     id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->function_stream,
             SpvStorageClassFunction, VKD3D_TYPE_FLOAT, component_count, 0, temp->register_size);
@@ -8612,8 +8625,8 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
         /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
         remainder_val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, remainder_val_id, uint_max_id);
     }
-    if (dst[0].reg.type != VKD3DSPR_NULL) 
-    {        
+    if (dst[0].reg.type != VKD3DSPR_NULL)
+    {
         vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[0], quotient_val_id);
     }
     if (dst[1].reg.type != VKD3DSPR_NULL)
@@ -9166,7 +9179,8 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             /* The OpSwitch instruction is inserted when the endswitch
              * instruction is processed because we do not know the number
              * of case statments in advance.*/
-            vkd3d_spirv_begin_function_stream_insertion(builder, cf_info->switch_.stream_location);
+            vkd3d_spirv_begin_function_stream_insertion(builder, cf_info->switch_.stream_location,
+                VKD3D_SPIRV_INSERT_PRIORITY_OTHER);
             vkd3d_spirv_build_op_switch(builder, cf_info->switch_.selector_id,
                     cf_info->switch_.default_block_id, cf_info->switch_.case_blocks,
                     cf_info->switch_.case_block_count);
