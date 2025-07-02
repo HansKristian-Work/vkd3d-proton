@@ -1303,6 +1303,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
         if (quirks & VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32)
             heuristic_max_wave_size = 32;
+        if (quirks & VKD3D_SHADER_QUIRK_FORCE_MIN_WAVE32)
+            heuristic_min_wave_size = 32;
 
         if (!wave_size_min)
         {

@@ -490,7 +490,11 @@ enum vkd3d_shader_quirk
      * when they are used inside the main function,
      * aren't dynamically indexed and use a PS input or
      * CBV value. */
-    VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25)
+    VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25),
+
+    /* Enforce a subgroup size of 32 or more. Can be used to work around
+     * issues in shaders that are buggy with small subgroups (Intel). */
+    VKD3D_SHADER_QUIRK_FORCE_MIN_WAVE32 = (1 << 26),
 };
 
 struct vkd3d_shader_quirk_hash
