@@ -477,3 +477,5 @@ decl_test(test_heap_non_zeroed_behavior_stress);
 decl_test(test_committed_non_zeroed_behavior_stress);
 decl_test(test_vs_instance_input_nonuniform_workarounds);
 decl_test(test_rgb9e5_rendering);
+decl_test(test_derivative_hoisting_dxbc);
+decl_test(test_derivative_hoisting_dxil);
