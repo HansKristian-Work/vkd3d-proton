@@ -818,6 +818,16 @@ static const struct vkd3d_shader_quirk_info satisfactory_quirks = {
     satisfactory_hashes, ARRAY_SIZE(satisfactory_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash deadspace_hashes[] = {
+    /* Shader calculates derivatives in non-uniform control flow,
+     * leading to NaN pixels on Nvidia GPUs. */
+    { 0x8b981fdafe14b649, VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES },
+};
+
+static const struct vkd3d_shader_quirk_info deadspace_quirks = {
+    deadspace_hashes, ARRAY_SIZE(deadspace_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -874,6 +884,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "FactoryGameEGS-Win64-Shipping.exe", &satisfactory_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
+    /* Dead Space (2023) */
+    { VKD3D_STRING_COMPARE_ENDS_WITH, "Dead Space.exe", &deadspace_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
