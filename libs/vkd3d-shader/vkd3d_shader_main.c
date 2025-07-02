@@ -915,32 +915,157 @@ vkd3d_shader_hash_t vkd3d_shader_hash(const struct vkd3d_shader_code *shader)
     return h;
 }
 
+struct vkd3d_shader_quirk_entry
+{
+    vkd3d_shader_hash_t lo;
+    vkd3d_shader_hash_t hi;
+    uint32_t flags;
+};
+
+static struct vkd3d_shader_quirk_entry *vkd3d_shader_quirk_entries;
+size_t vkd3d_shader_quirk_entry_count;
+
+#define ENTRY(x) { #x, VKD3D_SHADER_QUIRK_ ## x }
+static const struct vkd3d_shader_quirk_mapping
+{
+    const char *name;
+    enum vkd3d_shader_quirk quirk;
+} vkd3d_shader_quirk_mappings[] = {
+    ENTRY(FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW),
+    ENTRY(FORCE_TGSM_BARRIERS),
+    ENTRY(INVARIANT_POSITION),
+    ENTRY(FORCE_NOCONTRACT_MATH),
+    ENTRY(LIMIT_TESS_FACTORS_32),
+    ENTRY(LIMIT_TESS_FACTORS_16),
+    ENTRY(LIMIT_TESS_FACTORS_8),
+    ENTRY(LIMIT_TESS_FACTORS_4),
+    ENTRY(FORCE_SUBGROUP_SIZE_1),
+    ENTRY(FORCE_MAX_WAVE32),
+    ENTRY(FORCE_MIN16_AS_32BIT),
+    ENTRY(REWRITE_GRAD_TO_BIAS),
+    ENTRY(FORCE_LOOP),
+    ENTRY(DESCRIPTOR_HEAP_ROBUSTNESS),
+    ENTRY(DISABLE_OPTIMIZATIONS),
+    ENTRY(FORCE_NOCONTRACT_MATH_VS),
+    ENTRY(FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY),
+    ENTRY(ASSUME_BROKEN_SUB_8x8_CUBE_MIPS),
+    ENTRY(FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING),
+    ENTRY(AGGRESSIVE_NONUNIFORM),
+    ENTRY(HOIST_DERIVATIVES),
+    ENTRY(FORCE_MIN_WAVE32),
+};
+#undef ENTRY
+
+static void vkd3d_shader_init_quirk_table(void)
+{
+    struct vkd3d_shader_quirk_entry entry;
+    size_t size = 0;
+    char env[128];
+    char *trail;
+    FILE *file;
+    size_t i;
+
+    if (!vkd3d_get_env_var("VKD3D_SHADER_QUIRKS", env, sizeof(env)))
+        return;
+
+    file = fopen(env, "r");
+    if (!file)
+    {
+        INFO("Failed to open VKD3D_SHADER_QUIRKS file \"%s\".\n", env);
+        return;
+    }
+
+    while (fgets(env, sizeof(env), file))
+    {
+        if (!vkd3d_shader_hash_range_parse_line(env, &entry.lo, &entry.hi, &trail))
+            continue;
+
+        if (*trail == '\0')
+            continue;
+
+        for (i = 0; i < ARRAY_SIZE(vkd3d_shader_quirk_mappings); i++)
+        {
+            if (strcmp(trail, vkd3d_shader_quirk_mappings[i].name) == 0)
+            {
+                entry.flags = vkd3d_shader_quirk_mappings[i].quirk;
+                INFO("Parsed shader quirk entry: [%016"PRIx64", %016"PRIx64"] -> %s\n",
+                        entry.lo, entry.hi, trail);
+                break;
+            }
+        }
+
+        if (i == ARRAY_SIZE(vkd3d_shader_quirk_mappings))
+        {
+            INFO("Parsed shader quirk entry: [%016"PRIx64", %016"PRIx64"], but no quirk for %s was found.\n",
+                    entry.lo, entry.hi, trail);
+        }
+
+        vkd3d_array_reserve((void **)&vkd3d_shader_quirk_entries, &size,
+                vkd3d_shader_quirk_entry_count + 1, sizeof(*vkd3d_shader_quirk_entries));
+        vkd3d_shader_quirk_entries[vkd3d_shader_quirk_entry_count++] = entry;
+    }
+
+    fclose(file);
+}
+
+static pthread_once_t vkd3d_shader_quirk_once = PTHREAD_ONCE_INIT;
+
 uint32_t vkd3d_shader_compile_arguments_select_quirks(
         const struct vkd3d_shader_compile_arguments *compile_args, vkd3d_shader_hash_t shader_hash)
 {
+    uint32_t quirks = 0;
     unsigned int i;
+
+    pthread_once(&vkd3d_shader_quirk_once, vkd3d_shader_init_quirk_table);
+
+    for (i = 0; i < vkd3d_shader_quirk_entry_count; i++)
+    {
+        if (vkd3d_shader_quirk_entries[i].lo <= shader_hash && vkd3d_shader_quirk_entries[i].hi >= shader_hash)
+        {
+            quirks |= vkd3d_shader_quirk_entries[i].flags;
+            INFO("Adding shader quirks #%x for hash %016"PRIx64".\n",
+                    vkd3d_shader_quirk_entries[i].flags, shader_hash);
+        }
+    }
+
     if (compile_args && compile_args->quirks)
     {
         for (i = 0; i < compile_args->quirks->num_hashes; i++)
             if (compile_args->quirks->hashes[i].shader_hash == shader_hash)
-                return compile_args->quirks->hashes[i].quirks | compile_args->quirks->global_quirks;
-        return compile_args->quirks->default_quirks | compile_args->quirks->global_quirks;
+                return quirks | compile_args->quirks->hashes[i].quirks | compile_args->quirks->global_quirks;
+        return quirks | compile_args->quirks->default_quirks | compile_args->quirks->global_quirks;
     }
     else
-        return 0;
+        return quirks;
 }
 
 uint64_t vkd3d_shader_get_revision(void)
 {
+    uint64_t quirk_hash = 0;
+    size_t i;
+
+    pthread_once(&vkd3d_shader_quirk_once, vkd3d_shader_init_quirk_table);
+
+    if (vkd3d_shader_quirk_entry_count)
+    {
+        quirk_hash = hash_fnv1_init();
+        for (i = 0; i < vkd3d_shader_quirk_entry_count; i++)
+        {
+            quirk_hash = hash_fnv1_iterate_u64(quirk_hash, vkd3d_shader_quirk_entries[i].lo);
+            quirk_hash = hash_fnv1_iterate_u64(quirk_hash, vkd3d_shader_quirk_entries[i].hi);
+            quirk_hash = hash_fnv1_iterate_u32(quirk_hash, vkd3d_shader_quirk_entries[i].flags);
+        }
+    }
+
     /* This is meant to be bumped every time a change is made to the shader compiler.
      * Might get nuked later ...
      * It's not immediately useful for invalidating pipeline caches, since that would mostly be covered
      * by vkd3d-proton Git hash. */
 #ifdef VKD3D_ENABLE_DXILCONV
     dxilconv_init_once();
-    return vkd3d_dxilconv_instance_proc ? 2 : 1;
+    return quirk_hash ^ (vkd3d_dxilconv_instance_proc ? 2 : 1);
 #else
-    return 1;
+    return quirk_hash ^ 1;
 #endif
 }
 
