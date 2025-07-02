@@ -14975,3 +14975,119 @@ void test_varying_nointerpolation_mixed_type_dxil(void)
 {
     test_varying_nointerpolation_mixed_type(true);
 }
+
+static void test_derivative_hoisting(bool use_dxil)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    ID3D12Resource *cbv;
+    D3D12_VIEWPORT vp;
+    unsigned int x, y;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+#include "shaders/shaders/headers/vs_derivative_hoisting.h"
+#include "shaders/shaders/headers/ps_derivative_hoisting.h"
+
+    static const float cbv_data[] = { 1, -1, -1, 1 };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_render_target = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN, NULL,
+        use_dxil ? (const void *)vs_derivative_hoisting_code_dxil : (const void *)vs_derivative_hoisting_code_dxbc,
+        use_dxil ? sizeof(vs_derivative_hoisting_code_dxil) : sizeof(vs_derivative_hoisting_code_dxbc),
+        use_dxil ? (const void *)ps_derivative_hoisting_code_dxil : (const void *)ps_derivative_hoisting_code_dxbc,
+        use_dxil ? sizeof(ps_derivative_hoisting_code_dxil) : sizeof(ps_derivative_hoisting_code_dxbc));
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    cbv = create_upload_buffer(context.device, sizeof(cbv_data), cbv_data);
+    output = create_default_buffer(context.device, 4 * sizeof(struct vec4), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    set_viewport(&vp, 0, 0, 2, 2, 0, 1);
+    set_rect(&sci, 0, 0, 2, 2);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(cbv));
+    ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (y = 0; y < 2; y++)
+    {
+        for (x = 0; x < 2; x++)
+        {
+            struct vec4 expected;
+            const struct vec4 *v;
+            bool is_bug;
+
+            if (x + y == 1)
+            {
+                memset(&expected, 0, sizeof(expected));
+            }
+            else
+            {
+                expected.x = 11.0f;
+                expected.y = -14.0f;
+                expected.z = 1.0f;
+                expected.w = 1.0f;
+            }
+
+            /* Other behavior observed in the wild: The CBV load does not have to be elided. We can observe NaN derivatives.
+             * If compiler optimizes the obviously zero ddx/ddy, we could also observe 0.0. */
+
+            v = get_readback_vec4(&rb, y * 2 + x, 0);
+
+            /* NV is not conformant with D3D11.3 16.8.2 here, so we're justified in app-opting instead of pessimizing all shaders. */
+            is_bug = (is_nvidia_windows_device(context.device) || is_nvidia_device(context.device)) && x + y != 1;
+            bug_if(is_bug)
+            ok(compare_vec4(&expected, v, 0), "(%u, %u): Expected (%f, %f, %f, %f), got (%f, %f, %f, %f)\n", x, y,
+                expected.x, expected.y, expected.z, expected.w,
+                v->x, v->y, v->z, v->w);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(cbv);
+    destroy_test_context(&context);
+}
+
+void test_derivative_hoisting_dxbc(void)
+{
+    test_derivative_hoisting(false);
+}
+
+void test_derivative_hoisting_dxil(void)
+{
+    test_derivative_hoisting(true);
+}
