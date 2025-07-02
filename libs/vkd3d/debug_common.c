@@ -21,6 +21,7 @@
 #include "vkd3d_private.h"
 #include "vkd3d_debug.h"
 #include "vkd3d_common.h"
+#include "vkd3d_shader.h"
 #include <assert.h>
 #include <stdio.h>
 
@@ -30,36 +31,13 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
     vkd3d_shader_hash_t lo_hash;
     vkd3d_shader_hash_t hi_hash;
     size_t new_count = 0;
-    char *old_end_ptr;
-    char line[64];
     char *end_ptr;
+    char line[64];
 
     while (fgets(line, sizeof(line), file))
     {
-        /* Look for either a single number, or lohash-hihash format. */
-        if (!isalnum(*line))
+        if (!vkd3d_shader_hash_range_parse_line(line, &lo_hash, &hi_hash, &end_ptr))
             continue;
-
-        lo_hash = strtoull(line, &end_ptr, 16);
-
-        while (*end_ptr != '\0' && !isalnum(*end_ptr))
-            end_ptr++;
-
-        old_end_ptr = end_ptr;
-        hi_hash = strtoull(end_ptr, &end_ptr, 16);
-
-        /* If we didn't fully consume a hex number here, back up. */
-        if (*end_ptr != '\0' && *end_ptr != '\n' && *end_ptr != ' ')
-        {
-            end_ptr = old_end_ptr;
-            hi_hash = 0;
-        }
-
-        while (*end_ptr != '\0' && !isalpha(*end_ptr))
-            end_ptr++;
-
-        if (!hi_hash)
-            hi_hash = lo_hash;
 
         if (lo_hash || hi_hash)
         {
@@ -68,13 +46,6 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
 
             (*ranges)[new_count].lo = lo_hash;
             (*ranges)[new_count].hi = hi_hash;
-
-            if (*end_ptr != '\0')
-            {
-                char *stray_newline = end_ptr + (strlen(end_ptr) - 1);
-                if (*stray_newline == '\n')
-                    *stray_newline = '\0';
-            }
 
             if (kind == VKD3D_SHADER_HASH_RANGE_KIND_BARRIERS)
             {
