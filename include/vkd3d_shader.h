@@ -499,6 +499,10 @@ enum vkd3d_shader_quirk
 
     /* Use DXBC-SPIRV if the shader is Shader Model 5.1 or below. */
     VKD3D_SHADER_QUIRK_DXBC_SPIRV = (1 << 26),
+
+    /* Enforce a subgroup size of 32 or more. Can be used to work around
+     * issues in shaders that are buggy with small subgroups (Intel). */
+    VKD3D_SHADER_QUIRK_FORCE_MIN_WAVE32 = (1 << 27),
 };
 
 struct vkd3d_shader_quirk_hash
