@@ -1098,3 +1098,50 @@ vkd3d_shader_hash_t vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
 
     return hash;
 }
+
+bool vkd3d_shader_hash_range_parse_line(char *line,
+        vkd3d_shader_hash_t *lo, vkd3d_shader_hash_t *hi,
+        char **trail)
+{
+    vkd3d_shader_hash_t lo_hash;
+    vkd3d_shader_hash_t hi_hash;
+    char *old_end_ptr;
+    char *end_ptr;
+
+    /* Look for either a single number, or lohash-hihash format. */
+    if (!isalnum(*line))
+        return false;
+    lo_hash = strtoull(line, &end_ptr, 16);
+
+    while (*end_ptr != '\0' && !isalnum(*end_ptr))
+        end_ptr++;
+
+    old_end_ptr = end_ptr;
+    hi_hash = strtoull(end_ptr, &end_ptr, 16);
+
+    /* If we didn't fully consume a hex number here, back up. */
+    if (*end_ptr != '\0' && *end_ptr != '\n' && *end_ptr != ' ')
+    {
+        end_ptr = old_end_ptr;
+        hi_hash = 0;
+    }
+
+    while (*end_ptr != '\0' && !isalpha(*end_ptr))
+        end_ptr++;
+
+    if (!hi_hash)
+        hi_hash = lo_hash;
+
+    *lo = lo_hash;
+    *hi = hi_hash;
+    *trail = end_ptr;
+
+    if (*end_ptr != '\0')
+    {
+        char *stray_newline = end_ptr + (strlen(end_ptr) - 1);
+        if (*stray_newline == '\n')
+            *stray_newline = '\0';
+    }
+
+    return true;
+}
