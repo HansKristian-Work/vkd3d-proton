@@ -187,16 +187,19 @@ static void cxg_populate_command_list(struct cx_gears *cxg, unsigned int rt_idx)
     ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &cxg->ibv);
     ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 2, cxg->vbv);
 
-    for (i = 0; i < ARRAY_SIZE(cxg->draws); ++i)
+    for (int j = 0; j < 4000; j++)
     {
-        ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, cxg->draws[i].flat_index_count,
-                1, cxg->draws[i].flat_index_idx, cxg->draws[i].vertex_idx, i);
+        for (i = 0; i < ARRAY_SIZE(cxg->draws); ++i)
+        {
+            ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, cxg->draws[i].flat_index_count,
+                    1, cxg->draws[i].flat_index_idx, cxg->draws[i].vertex_idx, i);
 
-        ID3D12GraphicsCommandList_SetPipelineState(command_list, cxg->pipeline_state_smooth);
-        ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, cxg->draws[i].smooth_index_count,
-                1, cxg->draws[i].smooth_index_idx, cxg->draws[i].vertex_idx, i);
+            ID3D12GraphicsCommandList_SetPipelineState(command_list, cxg->pipeline_state_smooth);
+            ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, cxg->draws[i].smooth_index_count,
+                    1, cxg->draws[i].smooth_index_idx, cxg->draws[i].vertex_idx, i);
 
-        ID3D12GraphicsCommandList_SetPipelineState(command_list, cxg->pipeline_state_flat);
+            ID3D12GraphicsCommandList_SetPipelineState(command_list, cxg->pipeline_state_flat);
+        }
     }
 
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
@@ -210,19 +213,23 @@ static void cxg_populate_command_list(struct cx_gears *cxg, unsigned int rt_idx)
 static void cxg_wait_for_previous_frame(struct cx_gears *cxg)
 {
     struct cxg_fence *fence = &cxg->fence;
-    const UINT64 v = fence->value;
+    UINT64 v = ++fence->value;
     HRESULT hr;
 
     hr = ID3D12CommandQueue_Signal(cxg->command_queue, fence->fence, v);
     assert(SUCCEEDED(hr));
 
-    ++fence->value;
-
-    if (ID3D12Fence_GetCompletedValue(fence->fence) < v)
+    if (v)
     {
-        hr = ID3D12Fence_SetEventOnCompletion(fence->fence, v, fence->event);
-        assert(SUCCEEDED(hr));
-        demo_wait_event(fence->event);
+        /* Keep one frame outstanding */
+        v--;
+
+        if (ID3D12Fence_GetCompletedValue(fence->fence) < v)
+        {
+            hr = ID3D12Fence_SetEventOnCompletion(fence->fence, v, fence->event);
+            assert(SUCCEEDED(hr));
+            demo_wait_event(fence->event);
+        }
     }
 
     cxg->rt_idx = demo_swapchain_get_current_back_buffer_index(cxg->swapchain);

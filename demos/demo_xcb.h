@@ -32,6 +32,7 @@
 #include <dlfcn.h>
 #include <sys/eventfd.h>
 #include <stdio.h>
+#include "vkd3d_device_vkd3d_ext.h"
 
 struct demo
 {
@@ -73,6 +74,7 @@ struct demo_swapchain
 {
     IDXGIVkSwapChain *swapchain;
     IDXGIVkSurfaceFactory *surface_factory;
+    IAmdExtAntiLagApi *anti_lag;
     int fd;
 };
 
@@ -281,6 +283,8 @@ static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
 {
     IDXGIVkSwapChain_Release(swapchain->swapchain);
     IDXGIVkSurfaceFactory_Release(swapchain->surface_factory);
+    if (swapchain->anti_lag)
+        IAmdExtAntiLagApi_Release(swapchain->anti_lag);
     /* FD 0 is never returned as a valid fd. */
     if (swapchain->fd > 0)
         close(swapchain->fd);
@@ -418,6 +422,7 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     IDXGIVkSwapChainFactory *factory = NULL;
     struct demo_swapchain *swapchain;
     DXGI_SWAP_CHAIN_DESC1 swap_desc;
+    ID3D12Device *device;
 
     swapchain = calloc(1, sizeof(*swapchain));
 
@@ -445,6 +450,23 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
 
     swapchain->fd = (int)(intptr_t)IDXGIVkSwapChain_GetFrameLatencyEvent(swapchain->swapchain);
     acquire_eventfd(swapchain->fd);
+
+    ID3D12CommandQueue_GetDevice(command_queue, &IID_ID3D12Device, (void **)&device);
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_IAmdExtAntiLagApi, (void **)&swapchain->anti_lag)))
+        swapchain->anti_lag = NULL;
+    ID3D12Device_Release(device);
+
+    if (swapchain->anti_lag)
+    {
+        struct AmdAntiLagAPIData_v1 v1;
+        memset(&v1, 0, sizeof(v1));
+        v1.uiVersion = 1;
+        v1.uiSize = sizeof(v1);
+        v1.eMode = 1;
+        v1.maxFPS = 0;
+        IAmdExtAntiLagApi_UpdateAntiLagState(swapchain->anti_lag, &v1);
+        IAmdExtAntiLagApi_UpdateAntiLagState(swapchain->anti_lag, NULL);
+    }
 
     if (factory)
         IDXGIVkSwapChainFactory_Release(factory);
@@ -475,6 +497,8 @@ static inline ID3D12Resource *demo_swapchain_get_back_buffer(struct demo_swapcha
 static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
     IDXGIVkSwapChain_Present(swapchain->swapchain, 1, 0, NULL);
+    if (swapchain->anti_lag)
+        IAmdExtAntiLagApi_UpdateAntiLagState(swapchain->anti_lag, NULL);
     acquire_eventfd(swapchain->fd);
 }
 
