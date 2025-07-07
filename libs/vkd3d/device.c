@@ -641,6 +641,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
             VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     /* Rise of the Tomb Raider. Game renders and samples a texture at the same time */
     { VKD3D_STRING_COMPARE_EXACT, "ROTTR.exe", VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION, 0 },
+    /* Death Stranding (Director's Cut and original). Massive CPU overhead due to reading from HVV in certain scenarios. */
+    { VKD3D_STRING_COMPARE_EXACT, "ds.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
