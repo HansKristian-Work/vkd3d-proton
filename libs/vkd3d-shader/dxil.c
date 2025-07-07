@@ -879,6 +879,7 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
         struct dxil_spv_option_extended_robustness robustness = { { DXIL_SPV_OPTION_EXTENDED_ROBUSTNESS } };
         robustness.robust_alloca = DXIL_SPV_TRUE;
         robustness.robust_constant_lut = DXIL_SPV_TRUE;
+        robustness.robust_group_shared = DXIL_SPV_TRUE;
         if (dxil_spv_converter_add_option(converter, &robustness.base) != DXIL_SPV_SUCCESS)
         {
             WARN("dxil-spirv does not support EXTENDED_ROBUSTNESS.\n");
