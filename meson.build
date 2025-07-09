@@ -1,5 +1,5 @@
 # For maintainers: remember to update vcs_tag(fallback) as well
-project('vkd3d-proton', ['c', 'cpp'], version : '2.14.1', meson_version : '>= 0.49', default_options : [
+project('vkd3d-proton', ['c', 'cpp'], version : '2.15', meson_version : '>= 0.49', default_options : [
   'warning_level=2', 'c_std=c11', 'cpp_std=c++17'
 ])
 
@@ -170,7 +170,7 @@ vkd3d_build = vcs_tag(
 vkd3d_version = vcs_tag(
   command : ['git', 'describe', '--always', '--tags', '--dirty=+'],
   input   : 'vkd3d_version.h.in',
-  output  : 'vkd3d_version.h', fallback : '201401')
+  output  : 'vkd3d_version.h', fallback : '201500')
 
 dxil_spirv = subproject('dxil-spirv')
 dxil_spirv_dep = dxil_spirv.get_variable('dxil_spirv_dep')

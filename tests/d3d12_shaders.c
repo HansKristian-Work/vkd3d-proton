@@ -15091,3 +15091,275 @@ void test_derivative_hoisting_dxil(void)
 {
     test_derivative_hoisting(true);
 }
+
+static void test_constant_lut_out_of_bounds(bool use_dxil)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/shaders/headers/constant_lut_out_of_bounds.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!use_dxil && is_amd_vulkan_device(context.device) && !is_radv_device(context.device))
+    {
+        skip("Going OOB for LUT can hang GPU on amdvlk. Skipping test. Known TODO.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param[1].Constants.Num32BitValues = 2;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+        use_dxil ? constant_lut_out_of_bounds_dxil : constant_lut_out_of_bounds_dxbc);
+
+    output = create_default_buffer(context.device, 64 * sizeof(float) * 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 0x20000000u, 0);
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 0x40000000u, 1);
+    ID3D12GraphicsCommandList_Dispatch(context.list, 8, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* Driver behavior seems to be to collate all LUTs into a big array, then perform robustness checks on that array.
+     * When there are multiple arrays, there might be leakage between the ICBs. Focus on testing single LUT. */
+
+    for (i = 0; i < 64; i++)
+    {
+        struct vec4 expected = { 102.0f + 2.0f * i, 101.0f + i, 101.0f + i, 101.0f + i };
+        const struct vec4 *value;
+
+        value = get_readback_vec4(&rb, i, 0);
+        if (i >= 9)
+            memset(&expected, 0, sizeof(expected));
+
+        if (i < 9)
+        {
+            ok(value->x == expected.x && value->y == expected.y,
+                "Value %u .xy, expected %f, %f, got %f, %f\n",
+                i, expected.x, expected.y, value->x, value->y);
+        }
+
+        /* Native is robust against this, but the behavior for OOB elements can be a bit dicey.
+         * Usually it'll clamp to 0, but there might be garbage there in some cases.
+         * dxil-spirv range checks this, so the check should be exact. */
+        if (use_dxil)
+        {
+            ok(value->z == expected.z && value->w == expected.w,
+                "Value %u .zw, expected %f, %f, got %f, %f\n",
+                i, expected.z, expected.w, value->z, value->w);
+        }
+    }
+
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    destroy_test_context(&context);
+}
+
+void test_constant_lut_out_of_bounds_dxbc(void)
+{
+    test_constant_lut_out_of_bounds(false);
+}
+
+void test_constant_lut_out_of_bounds_dxil(void)
+{
+    test_constant_lut_out_of_bounds(true);
+}
+
+static void test_alloca_out_of_bounds(bool use_dxil)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+
+#include "shaders/shaders/headers/alloca_out_of_bounds.h"
+
+    /* Just arbitrary test stimuli. Make sure to test negative and huge u32 indices. */
+    static const int32_t input_data[8][16][2] = {
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { -7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { -16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { -8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 10000, 4 }, { 10000, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { -16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 1, 10 }, { 1, -100 }, { 1, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+        use_dxil ? alloca_out_of_bounds_dxil : alloca_out_of_bounds_dxbc);
+
+    output = create_default_buffer(context.device, 8 * 16 * sizeof(int32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 8; i++)
+    {
+        for (j = 0; j < 16; j++)
+        {
+            int32_t expected = 0;
+            int32_t value;
+
+            for (k = 0; k < 16; k++)
+            {
+                if (input_data[i][k][0] == (int)j)
+                    expected += input_data[i][k][1];
+            }
+
+            value = get_readback_uint(&rb, 16 * i + j, 0, 0);
+            ok(value == expected, "value %u[%u]: expected %d, got %d\n", i, j, expected, value);
+        }
+    }
+
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    destroy_test_context(&context);
+}
+
+void test_alloca_out_of_bounds_dxbc(void)
+{
+    test_alloca_out_of_bounds(false);
+}
+
+void test_alloca_out_of_bounds_dxil(void)
+{
+    test_alloca_out_of_bounds(true);
+}
+
+static void test_groupshared_out_of_bounds(bool use_dxil)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j, k;
+    bool known_behavior;
+
+#include "shaders/shaders/headers/groupshared_out_of_bounds.h"
+
+    /* Just arbitrary test stimuli. Make sure to test negative and huge u32 indices. */
+    static const int32_t input_data[8][16][2] = {
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, {8, 400}, {15, 2}, {16, 40}, {-1, 500}, {1000000, 1}, {0x20000000, 50}, {0x40000000, 80} },
+        { { 1, 4 }, { 3, 10 }, { -7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { -16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { -8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 10000, 4 }, { 10000, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 3, 10 }, { 7, -100 }, { 8, 400 }, { 15, 2 }, { -16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+        { { 1, 4 }, { 1, 10 }, { 1, -100 }, { 1, 400 }, { 15, 2 }, { 16, 40 }, { -1, 500 }, { 1000000, 1 }, { 0x20000000, 50 }, { 0x40000000, 80 } },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+        use_dxil ? groupshared_out_of_bounds_dxil : groupshared_out_of_bounds_dxbc);
+
+    output = create_default_buffer(context.device, 16 * sizeof(int32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    known_behavior = is_nvidia_device(context.device) || is_amd_vulkan_device(context.device) || is_amd_windows_device(context.device);
+
+    /* This modelling matches AMD and NV hardware it seems. */
+    for (j = 0; j < 16; j++)
+    {
+        int32_t expected = 0;
+        int32_t value;
+
+        for (i = 0; i < 8; i++)
+        {
+            for (k = 0; k < 16; k++)
+            {
+                uint32_t write_addr = input_data[i][k][0];
+                bool overflow_write = write_addr >= 0x40000000;
+                /* Internally, we assume a u32 LDS offset is computed. This can overflow. */
+                write_addr &= 0x3fffffff;
+                if (write_addr == j)
+                    expected += (overflow_write ? 2 : 1) * input_data[i][k][1];
+                if (j >= 8 && write_addr == j)
+                    expected += input_data[i][k][1];
+            }
+        }
+
+        value = get_readback_uint(&rb, j, 0, 0);
+
+        /* We don't know exact behavior for other GPUs, but we shouldn't hang the GPU at least.
+         * Depending on how the driver lays out the groupshared, we can get unexpected result in these indices, but that's okay. */
+        todo_if(!known_behavior || j == 0 || j == 8 || j == 9 || j == 15)
+            ok(value == expected, "value %u: expected %d, got %d\n", j, expected, value);
+    }
+
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+    destroy_test_context(&context);
+}
+
+void test_groupshared_out_of_bounds_dxbc(void)
+{
+    test_groupshared_out_of_bounds(false);
+}
+
+void test_groupshared_out_of_bounds_dxil(void)
+{
+    test_groupshared_out_of_bounds(true);
+}
