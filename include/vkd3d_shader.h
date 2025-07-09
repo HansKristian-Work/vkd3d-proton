@@ -490,7 +490,11 @@ enum vkd3d_shader_quirk
      * when they are used inside the main function,
      * aren't dynamically indexed and use a PS input or
      * CBV value. */
-    VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25)
+    VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25),
+
+    /* Enforce a subgroup size of 32 or more. Can be used to work around
+     * issues in shaders that are buggy with small subgroups (Intel). */
+    VKD3D_SHADER_QUIRK_FORCE_MIN_WAVE32 = (1 << 26),
 };
 
 struct vkd3d_shader_quirk_hash
@@ -1211,6 +1215,10 @@ int vkd3d_shader_parse_root_signature_v_1_2_from_raw_payload(const struct vkd3d_
 
 vkd3d_shader_hash_t vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
         const struct vkd3d_root_signature_desc2 *desc);
+
+bool vkd3d_shader_hash_range_parse_line(char *line,
+        vkd3d_shader_hash_t *lo, vkd3d_shader_hash_t *hi,
+        char **trail);
 
 #ifdef __cplusplus
 }
