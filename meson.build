@@ -68,7 +68,7 @@ if enable_tracy
   endif
 endif
 
-vkd3d_external_includes = [ '../../common/vulkan/include', './khronos/SPIRV-Headers/include' ]
+vkd3d_external_includes = [ './khronos/Vulkan-Headers/include', './khronos/SPIRV-Headers/include', '../../common/vulkan-extensions/include' ]
 vkd3d_public_includes   = [ './include' ] + vkd3d_external_includes
 vkd3d_private_includes  = [ './include/private' ] + vkd3d_public_includes
 
