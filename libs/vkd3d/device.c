@@ -2724,8 +2724,20 @@ static bool vkd3d_supports_minimum_coopmat_caps(struct d3d12_device *device)
 
     if (!supports_8bit_c)
     {
-        WARN("8-bit Accumulator type not exposed, but assuming it works anyway. "
-             "This is required for FSR4 and happens to work in practice on AMD GPUs.\n");
+        switch (device->device_info.vulkan_1_2_properties.driverID)
+        {
+            case VK_DRIVER_ID_MESA_RADV:
+            case VK_DRIVER_ID_AMD_OPEN_SOURCE:
+            case VK_DRIVER_ID_AMD_PROPRIETARY:
+                WARN("8-bit Accumulator type not exposed, but assuming it works anyway. "
+                     "This is required for FSR4 and happens to work in practice on AMD GPUs.\n");
+                break;
+
+            default:
+                /* This is out of spec and known to segfault some drivers, so just don't bother.
+                 * FSR4 is only relevant on AMD GPUs anyway. */
+                return false;
+        }
     }
 
     return true;
