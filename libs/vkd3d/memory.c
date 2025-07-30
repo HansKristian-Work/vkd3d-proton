@@ -1757,6 +1757,10 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 {
     size_t i;
 
+    for (i = 0; i < ARRAY_SIZE(allocator->sparse_pending_destroy); i++)
+        if (allocator->sparse_pending_destroy[i])
+            d3d12_resource_decref(allocator->sparse_pending_destroy[i]);
+
     for (i = 0; i < allocator->chunks_count; i++)
         vkd3d_memory_chunk_destroy(allocator->chunks[i], device, allocator);
 

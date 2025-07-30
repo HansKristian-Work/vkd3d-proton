@@ -2694,6 +2694,56 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
     }
 }
 
+/* This is used for workaround purposes for when some games screw up use-after-free of in-flight resources.
+ * If resources are destroyed in-flight that's usually fine since GPU page tables are not updated
+ * while a submission is in flight, but since we thread the actual submissions, we might observe behavior
+ * that might not happen on Windows.
+ * For workaround purposes, it's enough that we just defer the actual final decref until all dependent
+ * vkQueueSubmit calls have gone through on CPU timeline.
+ * This can be extended as needed to deal with GPU timeline too, but that's only relevant if truly needed,
+ * since it will dramatically increase complexity and CPU overhead. */
+void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device *device,
+        void (*inc_call)(void *), void (*dec_call)(void *), void *userdata, bool postpone_decref)
+{
+    struct vkd3d_queue_family_info *queue_family;
+    struct d3d12_command_queue_submission sub;
+    unsigned int i, j, family_index;
+    struct vkd3d_queue *vk_queue;
+
+    for (family_index = 0; family_index < ARRAY_SIZE(device->queue_families); family_index++)
+    {
+        queue_family = device->queue_families[family_index];
+        if (!queue_family)
+            continue;
+
+        /* Only use unique queue families. */
+        for (i = 0; i < family_index; i++)
+            if (device->queue_families[i] == queue_family)
+                break;
+
+        if (i < family_index)
+            continue;
+
+        for (i = 0; i < queue_family->queue_count; i++)
+        {
+            vk_queue = queue_family->queues[i];
+            pthread_mutex_lock(&vk_queue->mutex);
+            for (j = 0; j < vk_queue->command_queue_count; j++)
+            {
+                sub.type = VKD3D_SUBMISSION_CPU_TIMELINE_CALLBACK;
+                sub.callback.callback = dec_call;
+                sub.callback.userdata = userdata;
+                inc_call(userdata);
+                d3d12_command_queue_add_submission(vk_queue->command_queues[j], &sub);
+            }
+            pthread_mutex_unlock(&vk_queue->mutex);
+        }
+    }
+
+    if (!postpone_decref)
+        dec_call(userdata);
+}
+
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
         struct d3d12_command_queue *command_queue)
 {

@@ -2007,6 +2007,36 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(d3d12_resource_iface *iface
     return refcount;
 }
 
+static void d3d12_resource_deferred_incref(void *userdata)
+{
+    struct d3d12_resource *resource = userdata;
+    d3d12_resource_incref(resource);
+}
+
+static void d3d12_resource_deferred_decref(void *userdata)
+{
+    struct d3d12_resource *resource = userdata;
+    d3d12_resource_decref(resource);
+}
+
+static void d3d12_device_add_pending_resource_decref(struct d3d12_device *device,
+        struct d3d12_resource *resource)
+{
+    /* Just keep sparse resources alive indefinitely until the free pool is exhausted.
+     * They only consume VA space, not VRAM, so this is a somewhat reasonable workaround for
+     * certain games that just refuse to be well-behaved.
+     * Ordering is irrelevant so just use an atomic counter and atomic exchanges. */
+    uint32_t index = vkd3d_atomic_uint32_increment(
+            &device->memory_allocator.sparse_pending_destroy_count, vkd3d_memory_order_relaxed);
+    index &= ARRAY_SIZE(device->memory_allocator.sparse_pending_destroy) - 1;
+
+    resource = vkd3d_atomic_ptr_exchange_explicit(&device->memory_allocator.sparse_pending_destroy[index],
+            resource, vkd3d_memory_order_acq_rel);
+
+    if (resource)
+        d3d12_resource_decref(resource);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
@@ -2021,7 +2051,30 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *ifac
     {
         d3d_destruction_notifier_notify(&resource->destruction_notifier);
 
-        d3d12_resource_decref(resource);
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION)
+        {
+            /* AC: Valhalla seems to trigger use-after-free long
+             * after the resource is destroyed in some cases.
+             * Fortunately, this resource always seems to be a sparse resource,
+             * so it's possible Windows native behavior is to hold on to sparse VA space
+             * longer than we get on Linux for whatever reason, so "indefinitely" post-pone
+             * the release of these resources. The worst cost of this is a little VA space bloat. */
+            bool postpone_decref = !!(resource->flags & VKD3D_RESOURCE_RESERVED);
+
+            d3d12_device_add_queue_timeline_deferred_decref(
+                    device,
+                    d3d12_resource_deferred_incref,
+                    d3d12_resource_deferred_decref,
+                    resource, postpone_decref);
+
+            if (postpone_decref)
+                d3d12_device_add_pending_resource_decref(device, resource);
+        }
+        else
+        {
+            d3d12_resource_decref(resource);
+        }
+
         d3d12_device_release(device);
     }
 
