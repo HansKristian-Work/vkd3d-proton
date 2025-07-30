@@ -20159,7 +20159,7 @@ void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue)
 void d3d12_command_queue_enqueue_callback(struct d3d12_command_queue *queue, void (*callback)(void *), void *userdata)
 {
     struct d3d12_command_queue_submission sub;
-    sub.type = VKD3D_SUBMISSION_CALLBACK;
+    sub.type = VKD3D_SUBMISSION_QUEUE_USING_CALLBACK;
     sub.callback.callback = callback;
     sub.callback.userdata = userdata;
     d3d12_command_queue_add_submission(queue, &sub);
@@ -20354,10 +20354,15 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             pthread_mutex_unlock(&queue->queue_lock);
             break;
 
-        case VKD3D_SUBMISSION_CALLBACK:
+        case VKD3D_SUBMISSION_QUEUE_USING_CALLBACK:
             cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "CALLBACK");
+            /* Only flush waiters if the callback intends to use the queue (for e.g. WSI). */
             d3d12_command_queue_flush_waiters(queue, VKD3D_WAIT_SEMAPHORES_EXTERNAL | VKD3D_WAIT_SEMAPHORES_SERIALIZING);
+            submission.callback.callback(submission.callback.userdata);
+            break;
 
+        case VKD3D_SUBMISSION_CPU_TIMELINE_CALLBACK:
+            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "CPU_CALLBACK");
             submission.callback.callback(submission.callback.userdata);
             break;
 
