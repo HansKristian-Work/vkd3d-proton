@@ -103,7 +103,6 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
         struct d3d12_device *device = heap->device;
 
         d3d_destruction_notifier_notify(&heap->destruction_notifier);
-
         d3d12_heap_decref(heap);
         d3d12_device_release(device);
     }

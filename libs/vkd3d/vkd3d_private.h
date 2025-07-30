@@ -909,6 +909,11 @@ struct vkd3d_memory_allocator
     size_t chunks_count;
 
     struct vkd3d_va_map va_map;
+
+    /* For workaround purposes. Hold onto sparse resources in a ring buffer so that
+     * their VAs remain valid longer than they should. */
+    struct d3d12_resource *sparse_pending_destroy[32];
+    uint32_t sparse_pending_destroy_count;
 };
 
 void vkd3d_free_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
@@ -5272,6 +5277,8 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
         uint32_t vk_family_index);
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
         struct d3d12_command_queue *command_queue);
+void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device *device,
+        void (*inc_call)(void *), void (*dec_call)(void *), void *userdata, bool postpone_decref);
 void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue, struct d3d12_command_queue *command_queue);
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
