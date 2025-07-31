@@ -682,26 +682,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
 
     switch (vk_marker)
     {
-        case VK_LATENCY_MARKER_SIMULATION_START_NV:
-            if (internal_frame_id <= device->frame_markers.simulation)
-            {
-                WARN("SIMULATION_START_NV is non-monotonic %"PRIu64" <= %"PRIu64".\n",
-                        internal_frame_id, device->frame_markers.simulation);
-            }
-            device->frame_markers.simulation = internal_frame_id;
-            break;
         case VK_LATENCY_MARKER_RENDERSUBMIT_START_NV:
-            if (internal_frame_id <= device->frame_markers.render)
+            if (internal_frame_id < device->frame_markers.render)
             {
-                WARN("RENDERSUBMIT_START_NV is non-monotonic %"PRIu64" <= %"PRIu64".\n",
+                WARN("RENDERSUBMIT_START_NV is non-monotonic %"PRIu64" < %"PRIu64".\n",
                         internal_frame_id, device->frame_markers.render);
             }
             device->frame_markers.render = internal_frame_id;
             break;
         case VK_LATENCY_MARKER_PRESENT_START_NV:
-            if (internal_frame_id <= device->frame_markers.present)
+            if (internal_frame_id < device->frame_markers.present)
             {
-                WARN("PRESENT_START_NV is non-monotonic %"PRIu64" <= %"PRIu64".\n",
+                WARN("PRESENT_START_NV is non-monotonic %"PRIu64" < %"PRIu64".\n",
                         internal_frame_id, device->frame_markers.present);
             }
             vkd3d_atomic_uint64_store_explicit(
