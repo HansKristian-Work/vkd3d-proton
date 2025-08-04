@@ -2107,9 +2107,7 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
     unsigned int i;
     VkResult vr;
 
-    if (!device->device_info.vulkan_1_2_features.vulkanMemoryModel ||
-            !device->device_info.vulkan_1_3_features.subgroupSizeControl ||
-            !(device->device_info.vulkan_1_3_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT))
+    if (!d3d12_device_supports_workgraphs(device))
         return S_OK;
 
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
