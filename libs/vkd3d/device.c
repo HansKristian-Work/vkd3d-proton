@@ -3433,13 +3433,18 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
     {
         if (vkd3d_get_linux_kernel_version(&major, &minor, &patch))
         {
+            uint32_t ver;
+
             /* 6.10 amdgpu kernel changes the clear vram code to do background clears instead
              * of on-demand clearing. This seems to have bugs, and we have been able to observe
              * non-zeroed VRAM coming from the affected kernels.
              * This workaround needs to be in place until we have confirmed a fix in upstream kernel. */
             INFO("Detected Linux kernel version %u.%u.%u\n", major, minor, patch);
 
-            if (major > 6 || (major == 6 && minor >= 10))
+            ver = major * 1000000 + minor * 1000 + patch;
+
+            /* Fixed in kernel 6.15.9 and 6.16+. */
+            if (ver >= 6010000 && ver < 6015009)
             {
                 INFO("AMDGPU broken kernel detected. Enabling manual memory clearing path.\n");
                 device->workarounds.amdgpu_broken_clearvram = true;
