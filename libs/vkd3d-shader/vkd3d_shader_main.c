@@ -953,6 +953,7 @@ static const struct vkd3d_shader_quirk_mapping
     ENTRY(AGGRESSIVE_NONUNIFORM),
     ENTRY(HOIST_DERIVATIVES),
     ENTRY(FORCE_MIN_WAVE32),
+    ENTRY(PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER),
 };
 #undef ENTRY
 
