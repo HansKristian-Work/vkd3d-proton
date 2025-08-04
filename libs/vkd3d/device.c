@@ -8905,14 +8905,25 @@ static void d3d12_device_caps_init_feature_options20(struct d3d12_device *device
     options20->RecreateAtTier = D3D12_RECREATE_AT_TIER_NOT_SUPPORTED;
 }
 
+bool d3d12_device_supports_workgraphs(const struct d3d12_device *device)
+{
+    /* Thread nodes currently need wave32 to function correctly since the API limits for thread nodes
+     * match wave32 expectations (8 nodes per thread * 32 threads = 256 max nodes). */
+    return ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES) ||
+            vkd3d_debug_control_is_test_suite()) &&
+            device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence &&
+            device->device_info.vulkan_1_2_features.vulkanMemoryModel &&
+            device->device_info.vulkan_1_3_features.subgroupSizeControl &&
+            (device->device_info.vulkan_1_3_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) &&
+            device->device_info.vulkan_1_3_properties.minSubgroupSize <= 32;
+}
+
 static void d3d12_device_caps_init_feature_options21(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS21 *options21 = &device->d3d12_caps.options21;
 
     /* Enable WGs in test suite to avoid bitrot. */
-    options21->WorkGraphsTier = ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES) ||
-            vkd3d_debug_control_is_test_suite()) &&
-            device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence ?
+    options21->WorkGraphsTier = d3d12_device_supports_workgraphs(device) ?
             D3D12_WORK_GRAPHS_TIER_1_0 : D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED;
     options21->ExecuteIndirectTier = device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands ?
             D3D12_EXECUTE_INDIRECT_TIER_1_1 : D3D12_EXECUTE_INDIRECT_TIER_1_0;
