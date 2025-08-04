@@ -503,6 +503,10 @@ enum vkd3d_shader_quirk
     /* Enforce a subgroup size of 32 or more. Can be used to work around
      * issues in shaders that are buggy with small subgroups (Intel). */
     VKD3D_SHADER_QUIRK_FORCE_MIN_WAVE32 = (1 << 27),
+
+    /* Big hammer that converts all barrier()s to UAV barriers, leading to force coherent UAVs in most cases.
+     * FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY is a more subtle variant of this. */
+    VKD3D_SHADER_QUIRK_PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER = (1 << 28),
 };
 
 struct vkd3d_shader_quirk_hash
