@@ -897,6 +897,7 @@ static const struct vkd3d_shader_quirk_mapping
     ENTRY(HOIST_DERIVATIVES),
     ENTRY(DXBC_SPIRV),
     ENTRY(FORCE_MIN_WAVE32),
+    ENTRY(PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER),
 };
 #undef ENTRY
 
