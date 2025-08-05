@@ -2219,6 +2219,159 @@ void test_descriptors_visibility(void)
     destroy_test_context(&context);
 }
 
+static void test_null_descriptor_resinfo(bool use_dxil)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DESCRIPTOR_RANGE desc_range[3];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/descriptors/headers/null_descriptor_resinfo.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(desc_range, 0, sizeof(desc_range));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+    rs_params[0].DescriptorTable.pDescriptorRanges = desc_range;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].Descriptor.ShaderRegister = 10;
+
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[0].NumDescriptors = 10;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    desc_range[1].NumDescriptors = 10;
+    desc_range[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    desc_range[2].NumDescriptors = 10;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, use_dxil ?
+            null_descriptor_resinfo_dxil : null_descriptor_resinfo_dxbc);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 10);
+    output = create_default_buffer(context.device, 10 * 4 * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COMMON);
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+
+    /* 0: SRV tex (non-array)
+     * 1: SRV tex (array)
+     * 2: SRV typed buffer
+     * 3: SRV raw
+     * 4: SRV structured
+     * 5: UAV tex (non-array)
+     * 6: UAV tex (array)
+     * 7: UAV typed buffer
+     * 8: UAV raw
+     * 9: UAV structured
+     */
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Format = DXGI_FORMAT_R32_UINT;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 0));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+    ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 1));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 2));
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+    srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 3));
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    srv_desc.Format = DXGI_FORMAT_UNKNOWN;
+    srv_desc.Buffer.StructureByteStride = 16 /* verify this is ignored for null desc */;
+    ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 4));
+
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, heap, 5));
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+    ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, heap, 6));
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, heap, 7));
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+    uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, heap, 8));
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+    uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+    uav_desc.Buffer.StructureByteStride = 16 /* verify this is ignored for null desc */;
+    ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, heap, 9));
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN,
+            &rb, context.queue, context.list);
+
+    for (i = 0; i < 10; i++)
+    {
+        static const struct uvec4 expected[] = {
+            { 0, 0, UINT32_MAX, 0 },
+            { 0, 0, 0, 0 },
+            { 0, UINT32_MAX, UINT32_MAX, UINT32_MAX },
+            { 0, UINT32_MAX, UINT32_MAX, UINT32_MAX },
+            { 0, 4, UINT32_MAX, UINT32_MAX },
+            { 0, 0, UINT32_MAX, UINT32_MAX },
+            { 0, 0, 0, UINT32_MAX },
+            { 0, UINT32_MAX, UINT32_MAX, UINT32_MAX },
+            { 0, UINT32_MAX, UINT32_MAX, UINT32_MAX },
+            { 0, 4, UINT32_MAX, UINT32_MAX },
+        };
+        const struct uvec4 *v = get_readback_uvec4(&rb, i, 0);
+
+        ok(compare_uvec4(&expected[i], v), "Value %u: expected %x, %x, %x, %x, got %x, %x, %x, %x\n", i,
+                expected[i].x, expected[i].y, expected[i].z, expected[i].w,
+                v->x, v->y, v->z, v->w);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(output);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+void test_null_descriptor_resinfo_dxbc(void)
+{
+    test_null_descriptor_resinfo(false);
+}
+
+void test_null_descriptor_resinfo_dxil(void)
+{
+    test_null_descriptor_resinfo(true);
+}
+
 void test_create_null_descriptors(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;

@@ -479,3 +479,5 @@ decl_test(test_vs_instance_input_nonuniform_workarounds);
 decl_test(test_rgb9e5_rendering);
 decl_test(test_derivative_hoisting_dxbc);
 decl_test(test_derivative_hoisting_dxil);
+decl_test(test_null_descriptor_resinfo_dxbc);
+decl_test(test_null_descriptor_resinfo_dxil);
