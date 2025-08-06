@@ -5517,6 +5517,7 @@ bool d3d12_device_supports_ray_tracing_tier_1_2(const struct d3d12_device *devic
 UINT d3d12_determine_shading_rate_image_tile_size(struct d3d12_device *device);
 bool d3d12_device_supports_required_subgroup_size_for_stage(
         struct d3d12_device *device, VkShaderStageFlagBits stage);
+bool d3d12_device_supports_workgraphs(const struct d3d12_device *device);
 
 static inline void d3d12_device_register_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
 {
