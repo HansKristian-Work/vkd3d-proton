@@ -21,6 +21,7 @@
 #include "vkd3d_private.h"
 #include "vkd3d_sonames.h"
 #include "vkd3d_descriptor_debug.h"
+#include "vkd3d_timestamp_profiler.h"
 #include "vkd3d_platform.h"
 
 #ifdef VKD3D_ENABLE_RENDERDOC
@@ -4228,6 +4229,9 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_address_binding_tracker_cleanup(&device->address_binding_tracker, device);
     vkd3d_queue_timeline_trace_cleanup(&device->queue_timeline_trace);
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_deinit(device->timestamp_profiler);
+#endif
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     vkd3d_breadcrumb_tracer_cleanup_barrier_hashes(&device->breadcrumb_tracer);
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
@@ -9872,6 +9876,10 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
                 VKD3D_DESCRIPTOR_DEBUG_DEFAULT_NUM_COOKIES, device)))
             goto out_cleanup_breadcrumb_tracer;
     }
+
+#ifdef VKD3D_ENABLE_PROFILING
+    device->timestamp_profiler = vkd3d_timestamp_profiler_init(device);
+#endif
 
     hash_map_init(&device->vertex_input_pipelines,
             vkd3d_vertex_input_pipeline_desc_hash,

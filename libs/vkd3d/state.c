@@ -22,6 +22,7 @@
 #include "vkd3d_private.h"
 #include "vkd3d_descriptor_debug.h"
 #include "vkd3d_rw_spinlock.h"
+#include "vkd3d_timestamp_profiler.h"
 #include <stdio.h>
 
 /* ID3D12RootSignature */
@@ -5849,6 +5850,10 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     }
 
     TRACE("Created pipeline state %p.\n", object);
+
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_register_pipeline_state(device->timestamp_profiler, object);
+#endif
 
     *state = object;
     return S_OK;

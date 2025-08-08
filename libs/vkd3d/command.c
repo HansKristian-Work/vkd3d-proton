@@ -22,6 +22,7 @@
 #include "vkd3d_private.h"
 #include "vkd3d_swapchain_factory.h"
 #include "vkd3d_descriptor_debug.h"
+#include "vkd3d_timestamp_profiler.h"
 #ifdef VKD3D_ENABLE_RENDERDOC
 #include "vkd3d_renderdoc.h"
 #endif
@@ -2126,6 +2127,11 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
 
 static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *list)
 {
+#ifdef VKD3D_ENABLE_PROFILING
+    if (list->timestamp_profiler.active_timestamp_state)
+        return;
+#endif
+
     /* Not worth splitting if we're in the middle of a render pass already. */
     if (list->cmd.vk_command_buffer == list->cmd.vk_init_commands_post_indirect_barrier &&
             !(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) &&
@@ -4853,6 +4859,10 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
 
     d3d12_command_list_handle_active_queries(list, true);
 
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_end_render_pass(list->device->timestamp_profiler, list);
+#endif
+
     if (list->xfb_buffer_count)
     {
         VK_CALL(vkCmdEndTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
@@ -5318,6 +5328,11 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         if (list->allocator)
             d3d12_command_allocator_free_command_buffer(list->allocator, list);
 
+#ifdef VKD3D_ENABLE_PROFILING
+        vkd3d_timestamp_profiler_reset_command_list(list->device->timestamp_profiler, list);
+        vkd3d_free(list->timestamp_profiler.work);
+#endif
+
         vkd3d_free(list->rtv_resolves);
         vkd3d_free(list->rtv_resolve_regions);
         vkd3d_free(list->init_transitions);
@@ -5517,6 +5532,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         WARN("Command list is not in the recording state.\n");
         return E_FAIL;
     }
+
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_end_command_buffer(list->device->timestamp_profiler, list);
+#endif
 
     d3d12_command_list_debug_mark_end_region(list); /* CommandList region */
 
@@ -5850,6 +5869,10 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     for (i = 0; i < list->retained_resources_count; i++)
         d3d12_resource_decref_weak(list->retained_resources[i]);
     list->retained_resources_count = 0;
+
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_reset_command_list(list->device->timestamp_profiler, list);
+#endif
 
     d3d12_command_list_clear_rtas_batch(list);
 }
@@ -6775,6 +6798,10 @@ static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *l
     d3d12_command_list_check_pre_compute_barrier(list, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
     d3d12_command_list_update_descriptors(list);
 
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_mark_pre_command(list->device->timestamp_profiler, list);
+#endif
+
     return true;
 }
 
@@ -7145,6 +7172,9 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
     {
         d3d12_command_list_handle_active_queries(list, false);
+#ifdef VKD3D_ENABLE_PROFILING
+        vkd3d_timestamp_profiler_mark_pre_command(list->device->timestamp_profiler, list);
+#endif
         return true;
     }
 
@@ -7173,6 +7203,10 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         VK_CALL(vkCmdBeginTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
                 list->so_counter_buffers, list->so_counter_buffer_offsets));
     }
+
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_mark_pre_command(list->device->timestamp_profiler, list);
+#endif
 
     d3d12_command_list_handle_active_queries(list, false);
     return true;
@@ -10159,6 +10193,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     vkd3d_renderdoc_command_list_check_capture(list, state);
+#endif
+
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_set_pipeline_state(list->device->timestamp_profiler, list, state);
 #endif
 
     if (state && state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
@@ -18423,6 +18461,10 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             WARN("Unsupported command list type %p.\n", cmd_list);
             return;
         }
+
+#ifdef VKD3D_ENABLE_PROFILING
+        vkd3d_timestamp_profiler_submit_command_list(command_queue->device->timestamp_profiler, cmd_list);
+#endif
 
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
