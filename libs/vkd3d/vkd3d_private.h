@@ -2222,6 +2222,13 @@ struct d3d12_pipeline_state
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
+
+#ifdef VKD3D_ENABLE_PROFILING
+    struct
+    {
+        size_t pso_entry_index;
+    } timestamp_profiler;
+#endif
 };
 
 HRESULT d3d12_pipeline_state_create_shader_module(struct d3d12_device *device,
@@ -2972,6 +2979,8 @@ struct d3d12_command_list_sequence
     struct d3d12_command_list_iteration_indirect_meta *indirect_meta;
 };
 
+struct vkd3d_timestamp_profiler_submitted_work;
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -3111,6 +3120,25 @@ struct d3d12_command_list
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int breadcrumb_context_index;
+#endif
+
+#ifdef VKD3D_ENABLE_PROFILING
+    struct
+    {
+        struct d3d12_pipeline_state *active_timestamp_state;
+        size_t timestamp_index;
+
+        struct vkd3d_timestamp_profiler_submitted_work *work;
+        size_t work_count;
+        size_t work_size;
+
+        /* When a commandlist is submitted multiple times,
+         * we need to make sure the worker thread has observed the previous submission's timestamp
+         * before we resubmit. */
+        uint64_t resubmit_timeline;
+
+        uint32_t dispatch_count;
+    } timestamp_profiler;
 #endif
 };
 
@@ -4950,6 +4978,7 @@ typedef ID3D12Device12 d3d12_device_iface;
 
 struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
+struct vkd3d_timestamp_profiler;
 
 /* ID3D12DeviceExt */
 typedef ID3D12DeviceExt1 d3d12_device_vkd3d_ext_iface;
@@ -5285,6 +5314,9 @@ struct d3d12_device
 #endif
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     struct vkd3d_descriptor_qa_global_info *descriptor_qa_global_info;
+#endif
+#ifdef VKD3D_ENABLE_PROFILING
+    struct vkd3d_timestamp_profiler *timestamp_profiler;
 #endif
     uint64_t shader_interface_key;
     uint32_t device_has_dgc_templates;
