@@ -11267,9 +11267,19 @@ static void d3d12_command_list_set_push_descriptor_info(struct d3d12_command_lis
                     : vk_info->device_limits.maxStorageBufferRange;
 
             resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, gpu_address);
-            descriptor->info.buffer.buffer = resource->vk_buffer;
-            descriptor->info.buffer.offset = gpu_address - resource->va;
-            descriptor->info.buffer.range = min(resource->size - descriptor->info.buffer.offset, max_range);
+
+            if (resource)
+            {
+                descriptor->info.buffer.buffer = resource->vk_buffer;
+                descriptor->info.buffer.offset = gpu_address - resource->va;
+                descriptor->info.buffer.range = min(resource->size - descriptor->info.buffer.offset, max_range);
+            }
+            else
+            {
+                descriptor->info.buffer.buffer = VK_NULL_HANDLE;
+                descriptor->info.buffer.offset = 0;
+                descriptor->info.buffer.range = VK_WHOLE_SIZE;
+            }
         }
         else
         {
@@ -11441,9 +11451,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
     if (view->BufferLocation != 0)
     {
         resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, view->BufferLocation);
-        list->index_buffer.buffer = resource->vk_buffer;
-        list->index_buffer.offset = view->BufferLocation - resource->va;
-        list->index_buffer.size = view->SizeInBytes;
+        if (resource)
+        {
+            list->index_buffer.buffer = resource->vk_buffer;
+            list->index_buffer.offset = view->BufferLocation - resource->va;
+            list->index_buffer.size = view->SizeInBytes;
+        }
+        else
+        {
+            WARN("Invalid VA lookup.\n");
+            list->index_buffer.buffer = VK_NULL_HANDLE;
+        }
     }
     else
         list->index_buffer.buffer = VK_NULL_HANDLE;
@@ -11563,13 +11581,32 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
         if (views[i].BufferLocation && views[i].SizeInBytes)
         {
             resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferLocation);
-            list->so_buffers[start_slot + i] = resource->vk_buffer;
-            list->so_buffer_offsets[start_slot + i] = views[i].BufferLocation - resource->va;
-            list->so_buffer_sizes[start_slot + i] = views[i].SizeInBytes;
+            if (resource)
+            {
+                list->so_buffers[start_slot + i] = resource->vk_buffer;
+                list->so_buffer_offsets[start_slot + i] = views[i].BufferLocation - resource->va;
+                list->so_buffer_sizes[start_slot + i] = views[i].SizeInBytes;
+            }
+            else
+            {
+                WARN("Invalid VA lookup.\n");
+                list->so_buffers[start_slot + i] = VK_NULL_HANDLE;
+                list->so_buffer_offsets[start_slot + i] = 0;
+                list->so_buffer_sizes[start_slot + i] = 0;
+            }
 
             resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferFilledSizeLocation);
-            list->so_counter_buffers[start_slot + i] = resource->vk_buffer;
-            list->so_counter_buffer_offsets[start_slot + i] = views[i].BufferFilledSizeLocation - resource->va;
+            if (resource)
+            {
+                list->so_counter_buffers[start_slot + i] = resource->vk_buffer;
+                list->so_counter_buffer_offsets[start_slot + i] = views[i].BufferFilledSizeLocation - resource->va;
+            }
+            else
+            {
+                WARN("Invalid VA lookup.\n");
+                list->so_counter_buffers[start_slot + i] = VK_NULL_HANDLE;
+                list->so_counter_buffer_offsets[start_slot + i] = 0;
+            }
         }
         else
         {
