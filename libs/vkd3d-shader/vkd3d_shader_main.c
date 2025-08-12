@@ -22,12 +22,9 @@
 #include "vkd3d_string.h"
 
 #include "vkd3d_platform.h"
-#include "vkd3d_threads.h"
 
 #include <stdio.h>
 #include <inttypes.h>
-
-#include "vkd3d_dxcapi.h"
 
 static void vkd3d_shader_dump_blob(const char *path, vkd3d_shader_hash_t hash, const void *data, size_t size, const char *ext)
 {
@@ -365,37 +362,6 @@ static int vkd3d_shader_validate_shader_type(enum vkd3d_shader_type type, VkShad
     return 0;
 }
 
-#ifdef VKD3D_ENABLE_DXILCONV
-static DxcCreateInstanceProc vkd3d_dxilconv_instance_proc;
-
-static void dxilconv_init_once(void)
-{
-    vkd3d_module_t module = vkd3d_dlopen("dxilconv.dll");
-    if (module)
-        vkd3d_dxilconv_instance_proc = vkd3d_dlsym(module, "DxcCreateInstance");
-
-    if (vkd3d_dxilconv_instance_proc)
-        INFO("Found dxilconv.dll. Will use that for DXBC.\n");
-    else
-        INFO("Did not find dxilconv.dll. Using built-in DXBC implementation.\n");
-}
-
-static IDxbcConverter *vkd3d_shader_compiler_create_dxbc_converter(void)
-{
-    static pthread_once_t once_key = PTHREAD_ONCE_INIT;
-    IDxbcConverter *iface;
-
-    pthread_once(&once_key, dxilconv_init_once);
-    if (!vkd3d_dxilconv_instance_proc)
-        return NULL;
-
-    if (FAILED(vkd3d_dxilconv_instance_proc(&CLSID_DxbcConverter, &IID_IDxbcConverter, (void **)&iface)))
-        return NULL;
-
-    return iface;
-}
-#endif
-
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         struct vkd3d_shader_code_debug *spirv_debug,
@@ -419,33 +385,6 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return ret;
 
     is_dxil = shader_is_dxil(dxbc->code, dxbc->size);
-
-#ifdef VKD3D_ENABLE_DXILCONV
-    if (!is_dxil)
-    {
-        IDxbcConverter *conv = vkd3d_shader_compiler_create_dxbc_converter();
-        if (conv)
-        {
-            struct vkd3d_shader_code converted;
-            UINT32 dxil_size;
-            int ret = -1;
-            void *dxil;
-
-            if (SUCCEEDED(IDxbcConverter_Convert(conv, dxbc->code, dxbc->size, NULL, &dxil, &dxil_size, NULL)))
-            {
-                converted.code = dxil;
-                converted.size = dxil_size;
-                spirv->meta.hash = vkd3d_shader_hash(dxbc);
-                ret = vkd3d_shader_compile_dxil(&converted, spirv, spirv_debug, shader_interface_info, compile_args, true);
-                CoTaskMemFree(dxil);
-            }
-            IDxbcConverter_Release(conv);
-
-            if (ret == 0)
-                return ret;
-        }
-    }
-#endif
 
     /* DXIL is handled externally through dxil-spirv. */
     hash = vkd3d_shader_hash(dxbc);
@@ -939,12 +878,7 @@ uint64_t vkd3d_shader_get_revision(void)
      * Might get nuked later ...
      * It's not immediately useful for invalidating pipeline caches, since that would mostly be covered
      * by vkd3d-proton Git hash. */
-#ifdef VKD3D_ENABLE_DXILCONV
-    dxilconv_init_once();
-    return vkd3d_dxilconv_instance_proc ? 2 : 1;
-#else
     return 1;
-#endif
 }
 
 struct vkd3d_shader_stage_io_entry *vkd3d_shader_stage_io_map_append(struct vkd3d_shader_stage_io_map *map,
