@@ -94,7 +94,11 @@ struct vkd3d_shader_meta
     uint8_t cs_wave_size_min; /* If non-zero, minimum or required subgroup size. */
     uint8_t cs_wave_size_max; /* If non-zero, maximum subgroup size. */
     uint8_t cs_wave_size_preferred; /* If non-zero, preferred subgroup size. */
-    uint8_t gs_input_topology; /* VkPrimitiveTopology */
+    union
+    {
+        uint8_t gs_input_topology; /* VkPrimitiveTopology */
+        uint8_t patch_location_offset; /* Hull output, Domain input */
+    };
     uint32_t flags; /* vkd3d_shader_meta_flags */
 };
 STATIC_ASSERT(sizeof(struct vkd3d_shader_meta) == 32);
@@ -266,6 +270,7 @@ struct vkd3d_shader_interface_info
 {
     unsigned int flags; /* vkd3d_shader_interface_flags */
     unsigned int min_ssbo_alignment;
+    unsigned int patch_location_offset;
 
     struct vkd3d_shader_descriptor_table_buffer descriptor_tables;
     const struct vkd3d_shader_resource_binding *bindings;

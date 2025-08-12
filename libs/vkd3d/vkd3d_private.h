@@ -2081,6 +2081,7 @@ struct d3d12_graphics_pipeline_state_cached_desc
     D3D12_SHADER_BYTECODE bytecode[VKD3D_MAX_SHADER_STAGES];
     VkShaderStageFlagBits bytecode_stages[VKD3D_MAX_SHADER_STAGES];
     uint32_t bytecode_duped_mask;
+    uint32_t patch_location_offset;
 };
 
 struct d3d12_graphics_pipeline_state

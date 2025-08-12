@@ -2600,6 +2600,10 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
     {
         shader_interface->stage_input_map = &state->graphics.cached_desc.stage_io_map_ms_ps;
     }
+    else if (stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
+    {
+        shader_interface->patch_location_offset = state->graphics.cached_desc.patch_location_offset;
+    }
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     shader_interface->descriptor_qa_payload_binding = &root_signature->descriptor_qa_payload_binding;
@@ -2777,6 +2781,11 @@ static HRESULT vkd3d_compile_shader_stage(struct d3d12_pipeline_state *state, st
         {
             /* At this point we don't need the map anymore. */
             vkd3d_shader_stage_io_map_free(&state->graphics.cached_desc.stage_io_map_ms_ps);
+        }
+        else if (stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
+        {
+            /* Needed to properly link Hull / Domain together. */
+            state->graphics.cached_desc.patch_location_offset = spirv_code->meta.patch_location_offset;
         }
     }
 
