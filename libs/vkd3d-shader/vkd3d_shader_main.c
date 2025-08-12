@@ -408,6 +408,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     struct vkd3d_shader_scan_info scan_info;
     struct vkd3d_shader_parser parser;
     vkd3d_shader_hash_t hash;
+    uint32_t quirks;
     bool is_dxil;
     int ret;
 
@@ -435,7 +436,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
                 converted.code = dxil;
                 converted.size = dxil_size;
                 spirv->meta.hash = vkd3d_shader_hash(dxbc);
-                ret = vkd3d_shader_compile_dxil(&converted, spirv, spirv_debug, shader_interface_info, compile_args);
+                ret = vkd3d_shader_compile_dxil(&converted, spirv, spirv_debug, shader_interface_info, compile_args, true);
                 CoTaskMemFree(dxil);
             }
             IDxbcConverter_Release(conv);
@@ -447,15 +448,17 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 #endif
 
     /* DXIL is handled externally through dxil-spirv. */
-    if (is_dxil)
+    hash = vkd3d_shader_hash(dxbc);
+    quirks = vkd3d_shader_compile_arguments_select_quirks(compile_args, hash);
+
+    if (is_dxil || (quirks & VKD3D_SHADER_QUIRK_DXBC_SPIRV))
     {
         spirv->meta.hash = 0;
-        return vkd3d_shader_compile_dxil(dxbc, spirv, spirv_debug, shader_interface_info, compile_args);
+        return vkd3d_shader_compile_dxil(dxbc, spirv, spirv_debug, shader_interface_info, compile_args, is_dxil);
     }
 
     memset(&spirv->meta, 0, sizeof(spirv->meta));
 
-    hash = vkd3d_shader_hash(dxbc);
     spirv->meta.hash = hash;
     if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {

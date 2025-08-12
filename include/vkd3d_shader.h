@@ -490,7 +490,10 @@ enum vkd3d_shader_quirk
      * when they are used inside the main function,
      * aren't dynamically indexed and use a PS input or
      * CBV value. */
-    VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25)
+    VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25),
+
+    /* Use DXBC-SPIRV if the shader is Shader Model 5.1 or below. */
+    VKD3D_SHADER_QUIRK_DXBC_SPIRV = (1 << 26),
 };
 
 struct vkd3d_shader_quirk_hash
