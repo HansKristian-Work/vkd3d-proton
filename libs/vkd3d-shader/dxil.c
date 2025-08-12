@@ -1124,7 +1124,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         struct vkd3d_shader_code_debug *spirv_debug,
         const struct vkd3d_shader_interface_info *shader_interface_info,
-        const struct vkd3d_shader_compile_arguments *compiler_args)
+        const struct vkd3d_shader_compile_arguments *compiler_args, bool is_dxil)
 {
     uint32_t wave_size_min, wave_size_max, wave_size_preferred;
     struct vkd3d_dxil_remap_userdata remap_userdata;
@@ -1170,7 +1170,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     dxil_spv_begin_thread_allocator_context();
 
-    vkd3d_shader_dump_shader(hash, dxbc, "dxil");
+    vkd3d_shader_dump_shader(hash, dxbc, is_dxil ? "dxil" : "dxbc");
 
     if (dxil_spv_parse_dxil_blob(dxbc->code, dxbc->size, &blob) != DXIL_SPV_SUCCESS)
     {

@@ -941,6 +941,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         struct vkd3d_shader_code_debug *spirv_debug,
         const struct vkd3d_shader_interface_info *shader_interface_info,
-        const struct vkd3d_shader_compile_arguments *compiler_args);
+        const struct vkd3d_shader_compile_arguments *compiler_args,
+        bool is_dxil);
 
 #endif  /* __VKD3D_SHADER_PRIVATE_H */
