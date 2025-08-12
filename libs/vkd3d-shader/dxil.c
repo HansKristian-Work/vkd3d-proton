@@ -1246,6 +1246,9 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     if (shader_interface_info->stage_output_map)
         dxil_spv_converter_set_stage_output_remapper(converter, dxil_shader_stage_output_capture, (void *)shader_interface_info->stage_output_map);
 
+    if (stage == DXIL_SPV_STAGE_DOMAIN)
+        dxil_spv_converter_set_patch_location_offset(converter, shader_interface_info->patch_location_offset);
+
     if (dxil_spv_converter_run(converter) != DXIL_SPV_SUCCESS)
     {
         ret = VKD3D_ERROR_INVALID_ARGUMENT;
@@ -1288,6 +1291,13 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             &spirv->meta.cs_workgroup_size[1],
             &spirv->meta.cs_workgroup_size[2]);
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
+
+    if (stage == DXIL_SPV_STAGE_HULL)
+    {
+        unsigned int offset;
+        dxil_spv_converter_get_patch_location_offset(converter, &offset);
+        spirv->meta.patch_location_offset = offset;
+    }
 
     dxil_spv_converter_get_compute_wave_size_range(converter,
             &wave_size_min, &wave_size_max, &wave_size_preferred);
