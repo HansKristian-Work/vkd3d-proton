@@ -648,6 +648,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "DeathStranding.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* AC: Valhalla (2208920). Very ugly use-after-free in some cases. The main culprit seems a sparse resource. */
     { VKD3D_STRING_COMPARE_EXACT, "ACValhalla.exe", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION, 0 },
+    /* Endless Legend 2 (3407390) and its demo (3596660). Broken tessellation shaders with legacy compiler. */
+    { VKD3D_STRING_COMPARE_EXACT, "Endless Legend 2.exe", VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
