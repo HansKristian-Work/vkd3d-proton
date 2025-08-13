@@ -214,8 +214,8 @@ static void init_test_geometry(ID3D12Device *device, struct test_geometry *geom)
 
     {
         static const struct initial_ibo initial_ibo_data = {
-            { 0, 1, 2, 3, 2, 1 },
-            { 0, 1, 2, 3, 2, 1 },
+            { 0, 1, 2, 3, 0, 2 },
+            { 0, 1, 2, 3, 0, 2 },
         };
         geom->ibo = create_upload_buffer(device, sizeof(initial_ibo_data), &initial_ibo_data);
     }
