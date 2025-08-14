@@ -896,6 +896,7 @@ static void dxgi_vk_swap_chain_set_hdr_metadata(struct dxgi_vk_swap_chain *chain
     VK_CALL(vkSetHdrMetadataEXT(chain->queue->device->vk_device, 1, &chain->present.vk_swapchain, &hdr_metadata));
 }
 
+#ifdef _WIN32
 static bool dxgi_vk_swap_chain_present_task_is_idle(struct dxgi_vk_swap_chain *chain)
 {
     uint64_t presented_count = vkd3d_atomic_uint64_load_explicit(&chain->present.present_count, vkd3d_memory_order_acquire);
@@ -912,9 +913,11 @@ static bool dxgi_vk_swap_chain_is_occluded(struct dxgi_vk_swap_chain *chain)
     /* Win32 jank, when these are 0 we cannot create a swapchain. */
     return surface_caps.maxImageExtent.width == 0 || surface_caps.maxImageExtent.height == 0;
 }
+#endif
 
 static bool dxgi_vk_swap_chain_present_is_occluded(struct dxgi_vk_swap_chain *chain)
 {
+#ifdef _WIN32
     if (dxgi_vk_swap_chain_present_task_is_idle(chain))
     {
         /* Query the surface directly. */
@@ -928,6 +931,11 @@ static bool dxgi_vk_swap_chain_present_is_occluded(struct dxgi_vk_swap_chain *ch
          * so rely on observed behavior from presentation thread. */
         return vkd3d_atomic_uint32_load_explicit(&chain->present.is_occlusion_state, vkd3d_memory_order_relaxed) != 0;
     }
+#else
+	/* Irrelevant on native build. */
+	(void)chain;
+	return false;
+#endif
 }
 
 static void dxgi_vk_swap_chain_present_callback(void *chain);
