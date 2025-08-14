@@ -536,9 +536,6 @@ static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance
         VK_KHR_SURFACE_EXTENSION_NAME,
 #ifdef _WIN32
         VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-#else
-        /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
-        "VK_KHR_xcb_surface",
 #endif
     };
 
@@ -546,7 +543,14 @@ static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance
     {
         VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
         VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+#ifndef _WIN32
+        /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
+        "VK_KHR_xcb_surface",
+        "VK_KHR_xlib_surface",
+        "VK_KHR_wayland_surface",
+#endif
     };
+
 #ifdef _WIN32
     char *openvr_extensions, *openxr_extensions;
     uint32_t vr_extension_count;
