@@ -638,13 +638,14 @@ static void vkd3d_memory_transfer_queue_wait_allocation(struct vkd3d_memory_tran
     vkd3d_memory_transfer_queue_wait_semaphore(queue, wait_value, UINT64_MAX);
 }
 
-static uint32_t vkd3d_select_memory_types(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+static uint32_t vkd3d_select_memory_types(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, bool fallback)
 {
     const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
     uint32_t type_mask = (1ull << memory_info->memoryTypeCount) - 1;
     const struct vkd3d_memory_info_domain *domain_info;
 
-    domain_info = d3d12_device_get_memory_info_domain(device, heap_properties);
+    domain_info = d3d12_device_get_memory_info_domain(device, heap_properties, fallback);
 
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
         type_mask &= domain_info->buffer_type_mask;
@@ -658,7 +659,7 @@ static uint32_t vkd3d_select_memory_types(struct d3d12_device *device, const D3D
             heap_properties->Type != D3D12_HEAP_TYPE_READBACK)
         type_mask &= domain_info->rt_ds_type_mask;
 
-    if (!type_mask)
+    if (!type_mask && !fallback)
         ERR("No memory type found for heap flags %#x.\n", heap_flags);
 
     return type_mask;
@@ -1335,7 +1336,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
      * the memory types we want to allocate with. */
     type_mask = memory_requirements.memoryTypeBits;
     if (!(info->flags & VKD3D_ALLOCATION_FLAG_DEDICATED))
-        type_mask &= vkd3d_select_memory_types(device, &info->heap_properties, info->heap_flags);
+        type_mask &= vkd3d_select_memory_types(device, &info->heap_properties, info->heap_flags, false);
 
     /* Allocate actual backing storage */
     flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
@@ -2092,9 +2093,8 @@ static bool vkd3d_heap_allocation_accept_deferred_resource_placements(struct d3d
     if (is_cpu_accessible_system_memory_heap(heap_properties))
         return false;
 
-    type_mask = vkd3d_select_memory_types(device, heap_properties, heap_flags);
-    return device->memory_properties.memoryHeapCount > 1 &&
-            !vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(&device->memory_properties, type_mask);
+    type_mask = vkd3d_select_memory_types(device, heap_properties, heap_flags, true);
+    return type_mask == 0;
 }
 
 HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
