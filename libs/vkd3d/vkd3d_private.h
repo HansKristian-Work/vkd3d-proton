@@ -4106,6 +4106,9 @@ struct vkd3d_memory_info
      * Used when we want to allocate DEFAULT heaps or non-visible CUSTOM heaps.
      * For images, we only include memory types which are OPTIMAL tiled. */
     struct vkd3d_memory_info_domain non_cpu_accessible_domain;
+    /* Same as non_cpu_accessible_domain, but removes memory types which belong to the primary device-local heap.
+     * On iGPU, fallback_domain == non_cpu_accessible_domain. */
+    struct vkd3d_memory_info_domain fallback_domain;
 
     VkMemoryPropertyFlags upload_heap_memory_properties;
     VkMemoryPropertyFlags descriptor_heap_memory_properties;

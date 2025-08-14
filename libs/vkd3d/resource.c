@@ -9225,6 +9225,25 @@ void vkd3d_memory_info_cleanup(struct vkd3d_memory_info *info,
     pthread_mutex_destroy(&info->budget_lock);
 }
 
+static uint32_t vkd3d_memory_info_filter_sysmem_memory_types(struct d3d12_device *device,
+        const struct vkd3d_memory_info *info, uint32_t type_mask)
+{
+    uint32_t result_mask = 0;
+    uint32_t heap_index;
+
+    while (type_mask)
+    {
+        unsigned int type_index = vkd3d_bitmask_iter32(&type_mask);
+        heap_index = device->memory_properties.memoryTypes[type_index].heapIndex;
+
+        /* Do not allow anything device local here. If we're doing fallbacks we can only consider non-device local. */
+        if (!(device->memory_properties.memoryHeaps[heap_index].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT))
+            result_mask |= 1u << type_index;
+    }
+
+    return result_mask;
+}
+
 HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
         struct d3d12_device *device)
 {
@@ -9352,6 +9371,25 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     for (i = 0; i < device->memory_properties.memoryTypeCount; i++)
         if (device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
             host_visible_mask |= 1u << i;
+
+    if ((device->device_info.properties2.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ||
+            device->device_info.properties2.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU) &&
+            topology.exists_device_only_type && topology.exists_host_only_type &&
+            topology.largest_device_local_heap_index != topology.largest_host_only_heap_index)
+    {
+        /* There is a clear distinction between sysmem and VRAM.
+         * If we're forced to fallback allocate, compute which memory types we can use. */
+        info->fallback_domain.rt_ds_type_mask = vkd3d_memory_info_filter_sysmem_memory_types(
+                device, info, rt_ds_type_mask);
+        info->fallback_domain.sampled_type_mask = vkd3d_memory_info_filter_sysmem_memory_types(
+                device, info, sampled_type_mask);
+        info->fallback_domain.buffer_type_mask = vkd3d_memory_info_filter_sysmem_memory_types(
+                device, info, buffer_type_mask);
+    }
+    else
+    {
+        info->fallback_domain = info->non_cpu_accessible_domain;
+    }
 
     /* We don't create images in host-visible memory anymore, only buffers */
     info->cpu_accessible_domain.buffer_type_mask = buffer_type_mask & host_visible_mask;
