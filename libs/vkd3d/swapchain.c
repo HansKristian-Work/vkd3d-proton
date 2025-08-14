@@ -796,6 +796,13 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_ChangeProperties(IDXGIVkSwap
         chain->user.index = 0;
     }
 
+#ifndef _WIN32
+    /* Non-Win32 platforms (e.g. Wayland) may not be able to detect resizes on its own.
+     * We have drained the present queue at this point, so it's safe to poke this bool.
+     * If using native builds, it's up to the application to use ResizeBuffers properly. */
+    chain->present.force_swapchain_recreation = true;
+#endif
+
     return S_OK;
 }
 
@@ -1834,7 +1841,11 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
 
     /* Sanity check, this cannot happen on Win32 surfaces, but could happen on Wayland. */
     if (surface_caps.currentExtent.width == UINT32_MAX || surface_caps.currentExtent.height == UINT32_MAX)
-        return;
+    {
+        /* TODO: Can add extended interface to query surface size. */
+        surface_caps.currentExtent.width = chain->desc.Width;
+        surface_caps.currentExtent.height = chain->desc.Height;
+    }
 
     /* No format to present to yet. Can happen in transition states for HDR.
      * Where we have modified color space, but not yet changed user backbuffer format. */
