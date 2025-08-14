@@ -395,6 +395,7 @@ decl_test(test_enhanced_barrier_split_barrier);
 decl_test(test_enhanced_barrier_discard_behavior);
 decl_test(test_enhanced_barrier_subresource);
 decl_test(test_enhanced_barrier_self_copy);
+decl_test(test_instruction_msad_dxbc);
 decl_test(test_instruction_msad_dxil);
 decl_test(test_depth_stencil_front_and_back);
 decl_test(test_topology_triangle_fan);
