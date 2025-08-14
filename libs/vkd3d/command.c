@@ -11423,7 +11423,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
 
     list->index_buffer.is_dirty = true;
 
-    if (!view)
+    if (!view || view->SizeInBytes == 0)
     {
         list->index_buffer.buffer = VK_NULL_HANDLE;
         VKD3D_BREADCRUMB_AUX32(0);
