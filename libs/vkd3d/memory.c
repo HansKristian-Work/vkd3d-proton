@@ -1074,21 +1074,29 @@ HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
 
     if (FAILED(hr) && (type_flags & optional_flags))
     {
-        if (vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(&device->memory_properties, type_mask))
+        /* If we're allocating pure DEVICE_LOCAL_BIT memory, we should never need to fallback allocate ourselves.
+         * Allocating ReBAR can still fail. */
+        if (!device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory ||
+                type_flags != optional_flags)
         {
-            WARN("Memory allocation failed, falling back to system memory.\n");
-            hr = vkd3d_try_allocate_device_memory(device, size,
-                    type_flags & ~optional_flags, type_mask, pNext, respect_budget, allocation);
-        }
-        else if (device->memory_properties.memoryHeapCount > 1)
-        {
-            /* It might be the case (NV with RT/DS heap) that we just cannot fall back in any meaningful way.
-             * E.g. there exists no memory type that is not DEVICE_LOCAL and covers both RT and DS.
-             * For this case, we have no choice but to not allocate,
-             * and defer actual memory allocation to CreatePlacedResource() time.
-             * NVIDIA bug reference for fixing this case: 2175829. */
-            WARN("Memory allocation failed, but it is not possible to fallback to system memory here. Deferring allocation.\n");
-            return hr;
+            if (vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(&device->memory_properties, type_mask))
+            {
+                WARN("Memory allocation failed, falling back to system memory.\n");
+                hr = vkd3d_try_allocate_device_memory(device, size,
+                        type_flags & ~optional_flags, type_mask, pNext, respect_budget, allocation);
+            }
+            else if (!device->memory_info.fallback_domain.rt_ds_type_mask ||
+                    !device->memory_info.fallback_domain.sampled_type_mask ||
+                    !device->memory_info.fallback_domain.buffer_type_mask)
+            {
+                /* It might be the case (NV with RT/DS heap on very old GPUs) that we just cannot fall back in any meaningful way.
+                 * E.g. there exists no memory type that is not DEVICE_LOCAL and covers both RT and DS.
+                 * For this case, we have no choice but to not allocate,
+                 * and defer actual memory allocation to CreatePlacedResource() time.
+                 * NVIDIA bug reference for fixing this case: 2175829. */
+                WARN("Memory allocation failed, but it is not possible to fallback to system memory here. Deferring allocation.\n");
+                return hr;
+            }
         }
 
         /* If we fail to allocate, and only have one heap to work with (iGPU),
