@@ -1126,6 +1126,12 @@ static void vkd3d_config_flags_init_once(void)
     vkd3d_get_env_var("VKD3D_CONFIG", config, sizeof(config));
     vkd3d_config_flags = vkd3d_parse_debug_options(config, vkd3d_config_options, ARRAY_SIZE(vkd3d_config_options));
 
+    if (vkd3d_debug_control_is_test_suite())
+    {
+        INFO("Running test suite, enabling dxbc-spirv.\n");
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV;
+    }
+
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS))
         vkd3d_instance_apply_application_workarounds();
 
