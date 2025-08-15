@@ -22,6 +22,7 @@
 #include "vkd3d_win32.h"
 #endif
 #include "vkd3d_private.h"
+#include "vkd3d_timestamp_profiler.h"
 
 static inline struct dxgi_vk_swap_chain_factory *impl_from_IDXGIVkSwapChainFactory(IDXGIVkSwapChainFactory *iface)
 {
@@ -2644,6 +2645,10 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     vkd3d_breadcrumb_tracer_update_barrier_hashes(&chain->queue->device->breadcrumb_tracer);
+#endif
+
+#ifdef VKD3D_ENABLE_PROFILING
+    vkd3d_timestamp_profiler_mark_frame_boundary(chain->queue->device->timestamp_profiler);
 #endif
 }
 
