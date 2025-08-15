@@ -4106,6 +4106,9 @@ struct vkd3d_memory_info
      * Used when we want to allocate DEFAULT heaps or non-visible CUSTOM heaps.
      * For images, we only include memory types which are OPTIMAL tiled. */
     struct vkd3d_memory_info_domain non_cpu_accessible_domain;
+    /* Same as non_cpu_accessible_domain, but removes memory types which belong to the primary device-local heap.
+     * On iGPU, fallback_domain == non_cpu_accessible_domain. */
+    struct vkd3d_memory_info_domain fallback_domain;
 
     VkMemoryPropertyFlags upload_heap_memory_properties;
     VkMemoryPropertyFlags descriptor_heap_memory_properties;
@@ -5366,14 +5369,14 @@ static inline uint32_t vkd3d_bindless_state_find_set_info_index_fast(struct d3d1
 
 static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_info_domain(
         struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties)
+        const D3D12_HEAP_PROPERTIES *heap_properties, bool fallback)
 {
     /* Host visible and non-host visible memory types do not necessarily
      * overlap. Need to select memory types appropriately. */
     if (is_cpu_accessible_heap(heap_properties))
         return &device->memory_info.cpu_accessible_domain;
     else
-        return &device->memory_info.non_cpu_accessible_domain;
+        return fallback ? &device->memory_info.fallback_domain : &device->memory_info.non_cpu_accessible_domain;
 }
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
