@@ -2132,8 +2132,11 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     /* For non-buffer heaps, we only care about being able to clear the heap.
      * Using TRANSFER_DST_BIT only helps capture tools, since if VAs are supported,
      * they cannot prove the buffer is not in use. */
-    if (info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)
+    if ((info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
+            (alloc_info.flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER))
+    {
         alloc_info.explicit_global_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    }
 
     if (is_cpu_accessible_system_memory_heap(&info->heap_desc.Properties))
     {
