@@ -1230,6 +1230,8 @@ void test_shader_sm62_denorm(void)
                 "We intentionally ignore what NV driver reports here since it doesn't match reality.");
         vkd3d_mute_validation_message("06300",
                 "We intentionally ignore what NV driver reports here since it doesn't match reality.");
+        vkd3d_mute_validation_message("08740",
+                "We intentionally ignore what NV driver reports here since it doesn't match reality.");
     }
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
@@ -1261,6 +1263,7 @@ void test_shader_sm62_denorm(void)
     {
         vkd3d_unmute_validation_message("06297");
         vkd3d_unmute_validation_message("06300");
+        vkd3d_unmute_validation_message("08740");
     }
 
     vkd3d_test_set_context(NULL);
@@ -2433,6 +2436,7 @@ static void test_denorm_behavior(bool use_dxil)
     {
         vkd3d_mute_validation_message("06297", "Ignoring denorm props on NV.");
         vkd3d_mute_validation_message("06300", "Ignoring denorm props on NV.");
+        vkd3d_mute_validation_message("08740", "Ignoring denorm props on NV.");
     }
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
@@ -2497,6 +2501,7 @@ static void test_denorm_behavior(bool use_dxil)
     {
         vkd3d_unmute_validation_message("06297");
         vkd3d_unmute_validation_message("06300");
+        vkd3d_unmute_validation_message("08740");
     }
 
     destroy_test_context(&context);
