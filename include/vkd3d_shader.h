@@ -84,6 +84,7 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_POINT_MODE_TESSELLATION = 1 << 23,
     VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX = 1 << 24,
     VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX_FP8 = 1 << 25,
+    VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS = 1 << 26,
 };
 
 struct vkd3d_shader_meta
@@ -507,6 +508,8 @@ enum vkd3d_shader_quirk
     /* Big hammer that converts all barrier()s to UAV barriers, leading to force coherent UAVs in most cases.
      * FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY is a more subtle variant of this. */
     VKD3D_SHADER_QUIRK_PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER = (1 << 28),
+
+    VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS = (1 << 29),
 };
 
 struct vkd3d_shader_quirk_hash
