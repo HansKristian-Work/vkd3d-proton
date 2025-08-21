@@ -7028,6 +7028,37 @@ static bool d3d12_command_list_fixup_null_xfb_buffers(struct d3d12_command_list 
     return true;
 }
 
+static void d3d12_command_list_check_render_pass_barrier(struct d3d12_command_list *list)
+{
+    if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VkMemoryBarrier2 vk_barrier;
+        VkDependencyInfo dep_info;
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT |
+                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        VKD3D_BREADCRUMB_TAG("ForceRenderPassBarrier");
+        VKD3D_BREADCRUMB_COMMAND(BARRIER);
+        d3d12_command_list_debug_mark_label(list, "ForceRenderPassBarrier", 1.0f, 1.0f, 0.0f, 1.0f);
+
+        list->current_meta_flags &= ~VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS;
+    }
+}
+
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
         enum vkd3d_pipeline_type pipeline_type)
 {
@@ -7055,7 +7086,10 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     }
 
     if (!(list->rendering_info.state_flags & VKD3D_RENDERING_SUSPENDED))
+    {
+        d3d12_command_list_check_render_pass_barrier(list);
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
+    }
 
     d3d12_command_list_debug_mark_begin_region(list, "RenderPass");
     VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &list->rendering_info.info));
@@ -10128,6 +10162,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             list->dynamic_state.stencil_back.write_mask = state->graphics.ds_desc.back.writeMask;
             list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK;
         }
+
+        /* Only consider FRAGMENT for workarounds when it comes to barriers.
+         * Other shader stages tend to be highly reused anyway.
+         * FRAGMENT is always last if it exists. */
+        if (state->graphics.stages[state->graphics.stage_count - 1].stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+            list->current_meta_flags = state->graphics.code[state->graphics.stage_count - 1].meta.flags;
     }
     else
     {
