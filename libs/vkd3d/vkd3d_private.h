@@ -3022,7 +3022,7 @@ struct d3d12_command_list
     struct d3d12_rt_state_object *rt_state;
     D3D12_SET_WORK_GRAPH_DESC wg_state;
     const struct d3d12_rt_state_object_variant *rt_state_variant;
-    uint32_t current_compute_meta_flags;
+    uint32_t current_meta_flags;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_command_allocator *submit_allocator;

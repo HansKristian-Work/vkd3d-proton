@@ -7480,7 +7480,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
     vkd3d_descriptor_debug_sync_validation_barrier(list->device->descriptor_qa_global_info,
             list->device, list->cmd.vk_command_buffer);
 
-    if ((list->current_compute_meta_flags & (VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
+    if ((list->current_meta_flags & (VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
             VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH |
             VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH)) || list->cmd.clear_uav_pending)
     {
@@ -7493,7 +7493,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
         memset(&dep_info, 0, sizeof(dep_info));
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
 
-        if (list->current_compute_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH)
+        if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH)
         {
             vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
             vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT |
@@ -7502,7 +7502,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
             vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
         }
-        else if (list->current_compute_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH)
+        else if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH)
         {
             vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT;
             vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -7510,7 +7510,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
             vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
         }
 
-        if ((list->current_compute_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH) || list->cmd.clear_uav_pending)
+        if ((list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH) || list->cmd.clear_uav_pending)
         {
             vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             vk_barrier.srcAccessMask |= VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -7527,7 +7527,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
         VKD3D_BREADCRUMB_COMMAND(BARRIER);
         d3d12_command_list_debug_mark_label(list, "ForcePreBarrier", 1.0f, 1.0f, 0.0f, 1.0f);
 
-        list->current_compute_meta_flags &= ~(VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
+        list->current_meta_flags &= ~(VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
                 VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH |
                 VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH);
         list->cmd.clear_uav_pending = false;
@@ -7541,7 +7541,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
 
 static void d3d12_command_list_check_compute_barrier(struct d3d12_command_list *list)
 {
-    bool force_barrier = !!(list->current_compute_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH);
+    bool force_barrier = !!(list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(&list->device->breadcrumb_tracer,
@@ -10131,9 +10131,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     }
     else
     {
-        list->current_compute_meta_flags = state->compute.code.meta.flags;
+        list->current_meta_flags = state->compute.code.meta.flags;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-        list->current_compute_meta_flags |= vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
+        list->current_meta_flags |= vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
                 &list->device->breadcrumb_tracer,
                 state->compute.code.meta.hash);
 #endif
