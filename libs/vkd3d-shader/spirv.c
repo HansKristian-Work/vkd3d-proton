@@ -12108,6 +12108,16 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
     vkd3d_shader_extract_feature_meta(spirv);
     if (compiler->quirks & VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
+    if (compiler->quirks & VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH;
+    if (compiler->quirks & VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH;
+    if (compiler->quirks & VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH;
+    if (compiler->quirks & VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS;
+    if (compiler->quirks & VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS;
 
     return VKD3D_OK;
 }
