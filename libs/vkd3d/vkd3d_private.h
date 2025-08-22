@@ -1857,6 +1857,12 @@ struct d3d12_root_signature
     unsigned int root_constant_count;
     struct vkd3d_shader_push_constant_buffer *root_constants;
 
+    unsigned int root_parameter_mappings_count;
+    struct vkd3d_shader_root_parameter_mapping *root_parameter_mappings;
+
+    void *root_signature_blob;
+    size_t root_signature_blob_size;
+
     struct vkd3d_shader_descriptor_binding push_constant_ubo_binding;
     struct vkd3d_shader_descriptor_binding raw_va_aux_buffer_binding;
     struct vkd3d_shader_descriptor_binding offset_buffer_binding;

@@ -228,6 +228,15 @@ struct vkd3d_shader_descriptor_table_buffer
     unsigned int count;  /* number of tables */
 };
 
+struct vkd3d_shader_root_parameter_mapping
+{
+    unsigned int root_parameter;
+    unsigned int offset;
+    unsigned int vk_set;
+    unsigned int vk_binding;
+    bool descriptor;
+};
+
 enum vkd3d_shader_interface_flag
 {
     VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER    = 0x00000001u,
@@ -302,6 +311,12 @@ struct vkd3d_shader_interface_info
     /* Used for either VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER or local root signatures. */
     uint32_t descriptor_size_cbv_srv_uav;
     uint32_t descriptor_size_sampler;
+
+    /* Purely for debug. Only non-NULL when running with EXTENDED_DEBUG_UTILS. */
+    const struct vkd3d_shader_root_parameter_mapping *root_parameter_mappings;
+    unsigned int root_parameter_mapping_count;
+    const void *root_signature_blob;
+    size_t root_signature_blob_size;
 };
 
 struct vkd3d_shader_descriptor_table
@@ -403,6 +418,7 @@ enum vkd3d_shader_target_extension
     VKD3D_SHADER_TARGET_EXTENSION_OPACITY_MICROMAP,
     VKD3D_SHADER_TARGET_EXTENSION_WMMA_FP8,
     VKD3D_SHADER_TARGET_EXTENSION_NV_COOPMAT2_CONVERSIONS,
+    VKD3D_SHADER_TARGET_EXTENSION_EXTENDED_NON_SEMANTIC,
     VKD3D_SHADER_TARGET_EXTENSION_COUNT,
 };
 
