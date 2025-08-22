@@ -1032,6 +1032,42 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
             {
                 float8.nv_cooperative_matrix2_conversions = DXIL_SPV_TRUE;
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_EXTENDED_NON_SEMANTIC)
+            {
+                static const dxil_spv_option_extended_non_semantic non_semantic = {
+                        { DXIL_SPV_OPTION_EXTENDED_NON_SEMANTIC }, DXIL_SPV_TRUE };
+
+                if (dxil_spv_converter_add_option(converter, &non_semantic.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support EXTENDED_NON_SEMANTIC.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+
+                for (j = 0; j < shader_interface_info->root_parameter_mapping_count; j++)
+                {
+                    const struct vkd3d_shader_root_parameter_mapping *mapping =
+                            &shader_interface_info->root_parameter_mappings[j];
+
+                    if (mapping->descriptor)
+                    {
+                        dxil_spv_converter_add_root_descriptor_mapping(
+                                converter, mapping->root_parameter, mapping->vk_set, mapping->vk_binding);
+                    }
+                    else
+                    {
+                        dxil_spv_converter_add_root_parameter_mapping(
+                                converter, mapping->root_parameter, mapping->offset);
+                    }
+                }
+
+                if (shader_interface_info->root_signature_blob_size)
+                {
+                    dxil_spv_converter_add_non_semantic_debug_info(converter,
+                            "RootSignature",
+                            shader_interface_info->root_signature_blob,
+                            shader_interface_info->root_signature_blob_size);
+                }
+            }
         }
 
         if (compiler_args->driver_version)

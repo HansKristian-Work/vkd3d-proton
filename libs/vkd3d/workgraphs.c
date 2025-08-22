@@ -2244,6 +2244,7 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
         shader_interface_info.binding_count = rs->binding_count;
         shader_interface_info.push_constant_buffers = rs->root_constants;
         shader_interface_info.push_constant_buffer_count = rs->root_constant_count;
+        /* TODO: EXTENDED_DEBUG_UTILS mapping. */
         shader_interface_info.push_constant_ubo_binding = &rs->push_constant_ubo_binding;
         shader_interface_info.offset_buffer_binding = &rs->offset_buffer_binding;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
