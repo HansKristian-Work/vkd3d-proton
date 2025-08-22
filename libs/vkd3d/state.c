@@ -1670,7 +1670,7 @@ HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
     D3D12_ROOT_SIGNATURE_DESC2 desc;
     HRESULT hr;
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
     memset(&desc, 0, sizeof(desc));
@@ -1724,7 +1724,7 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
         }
     }
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    if (!(object = vkd3d_calloc(1, sizeof(*object))))
     {
         vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
         return E_OUTOFMEMORY;
