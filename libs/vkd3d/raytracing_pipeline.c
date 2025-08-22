@@ -2002,6 +2002,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
             shader_interface_info.binding_count = per_entry_global_signature->binding_count;
             shader_interface_info.push_constant_buffers = per_entry_global_signature->root_constants;
             shader_interface_info.push_constant_buffer_count = per_entry_global_signature->root_constant_count;
+            /* TODO: EXTENDED_DEBUG_UTILS mapping. */
             shader_interface_info.push_constant_ubo_binding = &per_entry_global_signature->push_constant_ubo_binding;
             shader_interface_info.offset_buffer_binding = &per_entry_global_signature->offset_buffer_binding;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA

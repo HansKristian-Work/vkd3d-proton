@@ -993,6 +993,7 @@ static void vkd3d_instance_deduce_config_flags_from_environment(void)
                 VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV |
                 VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV;
         vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_EXTENDED_DEBUG_UTILS;
     }
 
     /* RADV_THREAD_TRACE_xxx are deprecated and will be removed at some point. */
@@ -9543,6 +9544,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_NV_COOPMAT2_CONVERSIONS;
+    }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_EXTENDED_DEBUG_UTILS)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_EXTENDED_NON_SEMANTIC;
     }
 }
 

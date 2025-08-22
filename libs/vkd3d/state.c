@@ -91,6 +91,8 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     vkd3d_free(root_signature->root_constants);
     vkd3d_free(root_signature->static_samplers);
     vkd3d_free(root_signature->static_samplers_desc);
+    vkd3d_free(root_signature->root_parameter_mappings);
+    vkd3d_free(root_signature->root_signature_blob);
 }
 
 void d3d12_root_signature_inc_ref(struct d3d12_root_signature *root_signature)
@@ -613,6 +615,35 @@ static HRESULT d3d12_root_signature_init_shader_record_constants(
     return S_OK;
 }
 
+static void d3d12_root_signature_add_root_parameter_mapping(struct d3d12_root_signature *root_signature,
+        uint32_t index, uint32_t offset)
+{
+    if (root_signature->root_parameter_mappings)
+    {
+        struct vkd3d_shader_root_parameter_mapping *mapping;
+        assert(root_signature->root_parameter_mappings_count < root_signature->parameter_count);
+        mapping = &root_signature->root_parameter_mappings[root_signature->root_parameter_mappings_count++];
+        mapping->root_parameter = index;
+        mapping->offset = offset;
+        mapping->descriptor = false;
+    }
+}
+
+static void d3d12_root_signature_add_root_descriptor_mapping(struct d3d12_root_signature *root_signature,
+        uint32_t index, uint32_t vk_set, uint32_t vk_binding)
+{
+    if (root_signature->root_parameter_mappings)
+    {
+        struct vkd3d_shader_root_parameter_mapping *mapping;
+        assert(root_signature->root_parameter_mappings_count < root_signature->parameter_count);
+        mapping = &root_signature->root_parameter_mappings[root_signature->root_parameter_mappings_count++];
+        mapping->root_parameter = index;
+        mapping->vk_set = vk_set;
+        mapping->vk_binding = vk_binding;
+        mapping->descriptor = true;
+    }
+}
+
 static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC2 *desc, const struct d3d12_root_signature_info *info,
         struct VkPushConstantRange *push_constant_range)
@@ -632,6 +663,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         if (d3d12_root_signature_parameter_is_raw_va(root_signature, p->ParameterType))
         {
             push_constant_range->stageFlags |= vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
+            d3d12_root_signature_add_root_parameter_mapping(root_signature, i, push_constant_range->size);
             push_constant_range->size += sizeof(VkDeviceSize);
         }
     }
@@ -644,6 +676,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
             continue;
 
+        d3d12_root_signature_add_root_parameter_mapping(root_signature, i, push_constant_range->size);
         root_signature->root_constant_mask |= 1ull << i;
 
         root_signature->parameters[i].parameter_type = p->ParameterType;
@@ -674,6 +707,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
             if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
                 continue;
 
+            d3d12_root_signature_add_root_parameter_mapping(root_signature, i, push_constant_range->size);
             root_signature->descriptor_table_count += 1;
 
             push_constant_range->stageFlags |= vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
@@ -1095,6 +1129,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
             vk_binding->stageFlags = vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
             vk_binding->pImmutableSamplers = NULL;
             root_signature->root_descriptor_push_mask |= 1ull << i;
+
+            d3d12_root_signature_add_root_descriptor_mapping(root_signature, i, context->vk_set, context->vk_binding);
         }
         else
             root_signature->root_descriptor_raw_va_mask |= 1ull << i;
@@ -1418,6 +1454,14 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
             sizeof(*root_signature->static_samplers))))
         return hr;
 
+    if (!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE) &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_EXTENDED_DEBUG_UTILS))
+    {
+        if (!(root_signature->root_parameter_mappings = vkd3d_calloc(root_signature->parameter_count,
+                sizeof(*root_signature->root_parameter_mappings))))
+            return hr;
+    }
+
     for (i = 0; i < bindless_state->set_count; i++)
         root_signature->set_layouts[context.vk_set++] = bindless_state->set_info[i].vk_set_layout;
 
@@ -1737,6 +1781,16 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
     object->pso_compatibility_hash = compatibility_hash;
     object->layout_compatibility_hash = vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
             &root_signature_desc.vkd3d.v_1_2);
+
+    /* Inline the root signature blob inside the SPIR-V. */
+    if (SUCCEEDED(hr) && !raw_payload &&
+            !(root_signature_desc.d3d12.Desc_1_2.Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE) &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_EXTENDED_DEBUG_UTILS))
+    {
+        object->root_signature_blob = vkd3d_malloc(bytecode_length);
+        memcpy(object->root_signature_blob, bytecode, bytecode_length);
+        object->root_signature_blob_size = bytecode_length;
+    }
 
     vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
     if (FAILED(hr))
@@ -2580,6 +2634,10 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
     shader_interface->binding_count = root_signature->binding_count;
     shader_interface->push_constant_buffers = root_signature->root_constants;
     shader_interface->push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface->root_parameter_mappings = root_signature->root_parameter_mappings;
+    shader_interface->root_parameter_mapping_count = root_signature->root_parameter_mappings_count;
+    shader_interface->root_signature_blob = root_signature->root_signature_blob;
+    shader_interface->root_signature_blob_size = root_signature->root_signature_blob_size;
     shader_interface->push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
     shader_interface->offset_buffer_binding = &root_signature->offset_buffer_binding;
     shader_interface->stage = stage;
