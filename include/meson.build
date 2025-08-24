@@ -19,3 +19,14 @@ vkd3d_idl = [
 ]
 
 vkd3d_header_files = idl_generator.process(vkd3d_idl)
+
+# Install generated IDL headers
+foreach idl_file : vkd3d_idl
+  header_name = idl_file.split('.')[0] + '.h'
+  custom_target('install_' + header_name,
+    input : idl_generator.process(idl_file),
+    output : header_name,
+    command : ['cp', '@INPUT@', '@OUTPUT@'],
+    install : true,
+    install_dir : get_option('includedir') / 'vkd3d-proton')
+endforeach

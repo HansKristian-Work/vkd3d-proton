@@ -185,7 +185,7 @@ if vkd3d_platform == 'linux'
   pkg = import('pkgconfig')
   pkg.generate(vkd3d_lib, filebase : 'libvkd3d-proton', subdirs : 'vkd3d-proton', description : 'The vkd3d-proton D3D12 implementation')
   install_headers('include/vkd3d_sonames.h', 'include/vkd3d.h', 'include/vkd3d_types.h', 'include/vkd3d_win32.h', 'include/vkd3d_windows.h', subdir : 'vkd3d-proton')
-  # TODO: Figure out how to export the IDL generated headers as well.
+  # IDL generated headers (like vkd3d_d3d12.h) are installed via include/meson.build
 endif
 
 if enable_tests
