@@ -570,8 +570,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Serious Sam 4 (257420).
      * Invariant workarounds cause graphical glitches when rendering foliage on NV. */
     { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION | VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0 },
-    /* Cyberpunk 2077 (1091500). */
-    { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION, 0 },
+    /* Cyberpunk 2077 (1091500). For whatever reason, anti-lag is always used if it is supported (impossible to disable),
+     * leading to bad performance in some cases. Currently only affects Proton-GE which ships amdxc64.dll shim by default. */
+    { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION, 0, VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG },
     /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
     { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", 0, 0, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
     /* Hellblade: Senua's Sacrifice (414340). Enables RT by default if supported which is ... jarring and particularly jarring on Deck. */
