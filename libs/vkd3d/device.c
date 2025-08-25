@@ -520,7 +520,8 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX,
-    VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS
+    VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS,
+    VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -9262,7 +9263,14 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
             break;
 
         case VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX:
+            INFO("Disabling NV reflex.\n");
             device->vk_info.NV_low_latency2 = false;
+            break;
+
+        case VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG:
+            INFO("Disabling AMD anti-lag.\n");
+            device->vk_info.AMD_anti_lag = false;
+            device->device_info.anti_lag_amd.antiLag = VK_FALSE;
             break;
 
         default:
