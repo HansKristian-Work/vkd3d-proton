@@ -7696,6 +7696,16 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
         descriptor_count += VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
     }
 
+    /* For embedded mutable we view descriptors in a sliced sense, so make sure to allocate memory for that
+     * partially OOB descriptor. This is mostly relevant for tooling, but technically speaking we need to do this
+     * to be spec legal. */
+    if (d3d12_device_use_embedded_mutable_descriptors(device) &&
+            descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+            (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+    {
+        descriptor_count++;
+    }
+
     for (i = 0, set_count = 0; i < device->bindless_state.set_count; i++)
     {
         const struct vkd3d_bindless_set_info *set_info = &device->bindless_state.set_info[i];
