@@ -2859,13 +2859,13 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
                  * That's a good sign the application is actually not behaving correctly. */
                 if (previous_semaphore >= (int)chain->frame_latency + 4)
                 {
-                    WARN("Incrementing frame latency semaphore beyond max latency. "
+                    TRACE("Incrementing frame latency semaphore beyond max latency. "
                             "Did application forget to acquire? (new count = %d, max latency = %u)\n",
                             previous_semaphore + 1, chain->frame_latency);
                 }
             }
             else
-                WARN("Failed to increment swapchain semaphore. Did application forget to acquire?\n");
+                TRACE("Failed to increment swapchain semaphore. Did application forget to acquire?\n");
         }
 
         if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
