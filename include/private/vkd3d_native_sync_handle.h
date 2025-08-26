@@ -72,7 +72,7 @@ static inline int vkd3d_native_sync_handle_release(vkd3d_native_sync_handle hand
             /* Failing to release semaphore is expected if the counter exceeds the maximum limit.
              * If the application does not wait for the semaphore once per present, this
              * will eventually happen. */
-            WARN("Failed to release semaphore (#%x).\n", GetLastError());
+            TRACE("Failed to release semaphore (#%x).\n", GetLastError());
             prev = -1;
         }
         return prev;
