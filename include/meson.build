@@ -27,11 +27,13 @@ foreach idl_file : vkd3d_idl
   header_file = idl_generator.process(idl_file)
   vkd3d_header_files += header_file
 
-  header_name = idl_file.split('.')[0] + '.h'
-  custom_target('install_' + header_name,
-    input : header_file,
-    output : header_name,
-    command : ['cp', '@INPUT@', '@OUTPUT@'],
-    install : true,
-    install_dir : get_option('includedir') / 'vkd3d-proton')
+  if target_machine.system() == 'linux'
+    header_name = idl_file.split('.')[0] + '.h'
+    custom_target('install_' + header_name,
+        input : header_file,
+        output : header_name,
+        command : ['cp', '@INPUT@', '@OUTPUT@'],
+        install : true,
+        install_dir : get_option('includedir') / 'vkd3d-proton')
+  endif
 endforeach
