@@ -841,6 +841,15 @@ static const struct vkd3d_shader_quirk_info deadspace_quirks = {
     deadspace_hashes, ARRAY_SIZE(deadspace_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash death_stranding_hashes[] = {
+    /* Game forgets to transition RENDER_TARGET to PIXEL_SHADER_RESOURCE. */
+    { 0x014fa51aaa3f3139, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
+};
+
+static const struct vkd3d_shader_quirk_info death_stranding_quirks = {
+    death_stranding_hashes, ARRAY_SIZE(death_stranding_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -899,6 +908,9 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* Dead Space (2023) */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "Dead Space.exe", &deadspace_quirks },
+    /* Death Stranding  */
+    { VKD3D_STRING_COMPARE_EXACT, "ds.exe", &death_stranding_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "DeathStranding.exe", &death_stranding_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
