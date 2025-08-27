@@ -19,8 +19,8 @@ endif
 
 d3d12_needs_defs = (not vkd3d_is_msvc) and (vkd3d_platform == 'windows')
 
-d3d12_lib = shared_library('d3d12', d3d12_src,
-  name_prefix         : d3d12_name_prefix,
+d3d12_lib = shared_library(d3d12_name_prefix + 'd3d12', d3d12_src,
+  name_prefix         : '',
   dependencies        : d3d12_dependencies,
   include_directories : vkd3d_private_includes,
   install             : true,
