@@ -18,4 +18,22 @@ vkd3d_idl = [
   'vkd3d_core_interface.idl',
 ]
 
-vkd3d_header_files = idl_generator.process(vkd3d_idl)
+# idl_generator.process() returns GeneratedList
+# even when called with single item so we process
+# each idl file in a loop generating and installing
+# them to avoid calling process() twice
+vkd3d_header_files = []
+foreach idl_file : vkd3d_idl
+  header_file = idl_generator.process(idl_file)
+  vkd3d_header_files += header_file
+
+  if target_machine.system() == 'linux'
+    header_name = idl_file.split('.')[0] + '.h'
+    custom_target('install_' + header_name,
+        input : header_file,
+        output : header_name,
+        command : ['cp', '@INPUT@', '@OUTPUT@'],
+        install : true,
+        install_dir : get_option('includedir') / 'vkd3d-proton')
+  endif
+endforeach
