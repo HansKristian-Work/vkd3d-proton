@@ -3525,6 +3525,64 @@ static void d3d12_resource_wait_for_sparse_init(struct d3d12_resource *resource)
         ERR("Failed to wait for timeline semaphore, vr %d.\n", vr);
 }
 
+void d3d12_resource_decref_retained(struct d3d12_resource *resource)
+{
+    if (vkd3d_atomic_uint32_load_explicit(&resource->internal_refcount, vkd3d_memory_order_relaxed) == 1)
+    {
+        unsigned int data_size;
+        void *data;
+        char *str;
+        ERR("Resource refcount will hit 0 from a fence callback, which proves use-after-free by game.\n");
+
+        ERR("  Identified use-after-free resource: %u x %u x %u, levels %u, DXGI_FORMAT #%x, dim %u.\n",
+                (unsigned int)resource->desc.Width,
+                resource->desc.Height,
+                resource->desc.DepthOrArraySize,
+                resource->desc.MipLevels,
+                resource->desc.Format,
+                resource->desc.Dimension);
+
+        if (SUCCEEDED(vkd3d_get_private_data(
+                &resource->private_store, &WKPDID_D3DDebugObjectNameW,
+                &data_size, NULL)))
+        {
+            data = vkd3d_malloc(data_size);
+            vkd3d_get_private_data(&resource->private_store, &WKPDID_D3DDebugObjectNameW,
+                    &data_size, data);
+
+            str = vkd3d_strdup_w_utf8(data, data_size / sizeof(WCHAR));
+            ERR(" Resource name: %s\n", str);
+            vkd3d_free(str);
+            vkd3d_free(data);
+        }
+        else
+            ERR(" Resource does not seem to have a name assigned.\n");
+    }
+
+    d3d12_resource_decref(resource);
+}
+
+void d3d12_resource_incref_weak(struct d3d12_resource *resource)
+{
+    vkd3d_atomic_uint32_increment(&resource->weak_count, vkd3d_memory_order_relaxed);
+}
+
+void d3d12_resource_decref_weak(struct d3d12_resource *resource)
+{
+    /* To be able to detect a destroyed resource, we need to hold on to the d3d12_resource memory a bit longer.
+     * Effectively, we have a weak_ptr system in place. Only bother going through this if
+     * we enable the weak_ptr retain path. This should only be enabled in debug builds and/or special workaround
+     * cases. ID3D12GraphicsCommandList can retain a weak reference until it is Reset. */
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    const bool can_have_weak_references = true;
+#else
+    const bool can_have_weak_references = !!(resource->flags & VKD3D_RESOURCE_RETAINED_GPU_REFERENCE);
+#endif
+
+    if (!can_have_weak_references || vkd3d_atomic_uint32_decrement(&resource->weak_count, vkd3d_memory_order_acq_rel) == 0)
+        vkd3d_free(resource);
+}
+
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -3573,7 +3631,8 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     vkd3d_private_store_destroy(&resource->private_store);
     if (resource->heap)
         d3d12_heap_decref(resource->heap);
-    vkd3d_free(resource);
+
+    d3d12_resource_decref_weak(resource);
 }
 
 static void d3d12_resource_destroy_and_release_device(struct d3d12_resource *resource,
@@ -3715,6 +3774,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
 
     object->refcount = 1;
     object->internal_refcount = 1;
+    object->weak_count = 1;
     object->desc = *desc;
     object->device = device;
     object->flags = flags;

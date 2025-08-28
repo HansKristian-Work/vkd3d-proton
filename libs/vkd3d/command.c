@@ -452,6 +452,8 @@ struct vkd3d_waiting_fence_submission_info
 {
     struct d3d12_command_allocator **command_allocators;
     size_t num_command_allocators;
+    struct d3d12_resource **retained_resources;
+    size_t num_retained_resources;
 };
 
 static void vkd3d_waiting_fence_release_submission(struct vkd3d_fence_worker *worker,
@@ -464,6 +466,11 @@ static void vkd3d_waiting_fence_release_submission(struct vkd3d_fence_worker *wo
         d3d12_command_allocator_dec_ref(info->command_allocators[i]);
 
     vkd3d_free(info->command_allocators);
+
+    for (i = 0; i < info->num_retained_resources; i++)
+        d3d12_resource_decref_retained(info->retained_resources[i]);
+
+    vkd3d_free(info->retained_resources);
 }
 
 struct vkd3d_waiting_fence_sparse_bind_info
@@ -2302,6 +2309,30 @@ static void d3d12_command_allocator_retain_pipeline_state(struct d3d12_command_a
 
     d3d12_pipeline_state_inc_ref(state);
     allocator->pipelines[allocator->pipelines_count++] = state;
+}
+
+static void d3d12_command_list_register_used_resource(struct d3d12_command_list *list,
+        struct d3d12_resource *resource)
+{
+    size_t i;
+    if (!resource)
+        return;
+
+#ifndef VKD3D_ENABLE_BREADCRUMBS
+    if (!(resource->flags & VKD3D_RESOURCE_RETAINED_GPU_REFERENCE))
+        return;
+#endif
+
+    for (i = 0; i < list->retained_resources_count; i++)
+        if (list->retained_resources[i] == resource)
+            return;
+
+    if (!vkd3d_array_reserve((void **)&list->retained_resources, &list->retained_resources_size,
+            list->retained_resources_count + 1, sizeof(*list->retained_resources)))
+        return;
+
+    d3d12_resource_incref_weak(resource);
+    list->retained_resources[list->retained_resources_count++] = resource;
 }
 
 static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *list)
@@ -5187,6 +5218,8 @@ static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *l
         transition.resource.perform_initial_transition = perform_initial_transition;
         d3d12_command_list_add_transition(list, &transition);
     }
+
+    d3d12_command_list_register_used_resource(list, resource);
 }
 
 static void d3d12_command_list_track_query_heap(struct d3d12_command_list *list,
@@ -5276,6 +5309,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
     if (!refcount)
     {
         struct d3d12_device *device = list->device;
+        size_t i;
 
         d3d_destruction_notifier_free(&list->destruction_notifier);
         vkd3d_private_store_destroy(&list->private_store);
@@ -5293,6 +5327,9 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         vkd3d_free(list->dsv_resource_tracking);
         vkd3d_free(list->subresource_tracking);
         vkd3d_free(list->query_resolves);
+        for (i = 0; i < list->retained_resources_count; i++)
+            d3d12_resource_decref_weak(list->retained_resources[i]);
+        vkd3d_free(list->retained_resources);
         hash_map_free(&list->query_resolve_lut);
         d3d12_command_list_free_rtas_batch(list);
 
@@ -5789,11 +5826,14 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
 static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *list)
 {
+    size_t i;
+
 #ifdef VKD3D_ENABLE_RENDERDOC
     list->debug_capture = vkd3d_renderdoc_active() && vkd3d_renderdoc_should_capture_shader_hash(0);
 #else
     list->debug_capture = false;
 #endif
+
     list->has_replaced_shaders = false;
 
     list->init_transitions_count = 0;
@@ -5806,6 +5846,10 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
     list->submit_allocator = NULL;
+
+    for (i = 0; i < list->retained_resources_count; i++)
+        d3d12_resource_decref_weak(list->retained_resources[i]);
+    list->retained_resources_count = 0;
 
     d3d12_command_list_clear_rtas_batch(list);
 }
@@ -18340,8 +18384,10 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     size_t num_transitions, num_command_buffers;
     VkCommandBufferSubmitInfo *buffers, *buffer;
     struct d3d12_command_allocator **allocators;
+    struct d3d12_resource **retained_resources;
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
+    size_t num_retained_resources = 0;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int *breadcrumb_indices;
 #endif
@@ -18385,6 +18431,19 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             assert(cmd_list->cmd.iterations[iter].vk_command_buffer);
             num_command_buffers++;
         }
+
+        num_retained_resources += cmd_list->retained_resources_count;
+        for (iter = 0; iter < cmd_list->retained_resources_count; iter++)
+        {
+            if (vkd3d_atomic_uint32_load_explicit(
+                    &cmd_list->retained_resources[iter]->internal_refcount, vkd3d_memory_order_relaxed) == 0)
+            {
+                ERR("Trying to execute resource which has already been destroyed. This will likely hang GPU.\n");
+                /* TODO: We could mark device as lost, or just ignore this submit. Hard to tell
+                 * what the appropriate action is. Future workarounds may have to guide our decision here. */
+                return;
+            }
+        }
     }
 
     if (!(buffers = vkd3d_calloc(num_command_buffers, sizeof(*buffers))))
@@ -18413,6 +18472,12 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         breadcrumb_indices = NULL;
 #endif
 
+    if (num_retained_resources)
+        retained_resources = vkd3d_malloc(sizeof(*retained_resources) * num_retained_resources);
+    else
+        retained_resources = NULL;
+    num_retained_resources = 0;
+
     timeline_cookie = vkd3d_queue_timeline_trace_register_execute(
             &command_queue->device->queue_timeline_trace,
             command_lists, command_list_count);
@@ -18436,12 +18501,10 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
                         "Command list %p is not associated with an allocator.\n", command_lists[i]);
             }
 
-            for (j = 0; j < i; j++)
-                d3d12_command_allocator_dec_ref(allocators[j]);
-
             vkd3d_free(allocators);
             vkd3d_free(buffers);
             vkd3d_free(cmd_cost);
+            vkd3d_free(retained_resources);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
             vkd3d_free(breadcrumb_indices);
 #endif
@@ -18453,7 +18516,6 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         num_transitions += cmd_list->init_transitions_count;
 
         allocators[i] = cmd_list->submit_allocator;
-        d3d12_command_allocator_inc_ref(allocators[i]);
 
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
@@ -18485,6 +18547,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         {
             sub.execute.split_submission = true;
         }
+
+        for (iter = 0; iter < cmd_list->retained_resources_count; iter++)
+            retained_resources[num_retained_resources++] = cmd_list->retained_resources[iter];
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
         if (breadcrumb_indices)
@@ -18549,6 +18614,12 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     sub.execute.cmd_count = num_command_buffers;
     sub.execute.command_allocators = allocators;
     sub.execute.num_command_allocators = command_list_count;
+    sub.execute.retained_resources = retained_resources;
+    sub.execute.num_retained_resources = num_retained_resources;
+    for (i = 0; i < command_list_count; i++)
+        d3d12_command_allocator_inc_ref(allocators[i]);
+    for (i = 0; i < num_retained_resources; i++)
+        d3d12_resource_incref(retained_resources[i]);
     sub.execute.low_latency_frame_id = command_queue->device->frame_markers.render;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     sub.execute.breadcrumb_indices = breadcrumb_indices;
@@ -19637,7 +19708,10 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         ERR("Failed to acquire queue %p.\n", vkd3d_queue);
         for (i = 0; i < exec->num_command_allocators; i++)
             d3d12_command_allocator_dec_ref(exec->command_allocators[i]);
+        for (i = 0; i < exec->num_retained_resources; i++)
+            d3d12_resource_decref_retained(exec->retained_resources[i]);
         vkd3d_free(exec->command_allocators);
+        vkd3d_free(exec->retained_resources);
         vkd3d_queue_timeline_trace_complete_execute(&command_queue->device->queue_timeline_trace,
                 NULL, exec->timeline_cookie);
         return;
@@ -19850,6 +19924,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
                 &vkd3d_waiting_fence_release_submission, sizeof(*submission_info));
         submission_info->command_allocators = exec->command_allocators;
         submission_info->num_command_allocators = exec->num_command_allocators;
+        submission_info->retained_resources = exec->retained_resources;
+        submission_info->num_retained_resources = exec->num_retained_resources;
 
         if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &exec->timeline_cookie)))
         {
