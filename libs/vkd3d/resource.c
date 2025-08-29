@@ -2122,6 +2122,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(d3d12_re
             (vkd3d_set_name_callback) d3d12_resource_set_name, resource);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *iface, LPCWSTR str)
+{
+    struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
+
+    /* Disgusting workaround, but we've seen many titles screwing up their FSR implementation
+     * with use-after-free. This is set right after resource creation. */
+    const WCHAR fsr_prefix[] = u"FSR3UPSCALER";
+
+    if (vkd3d_wcslen(str) >= 12 && memcmp(fsr_prefix, str, 12 * sizeof(WCHAR)) == 0)
+    {
+        WARN("FSR resource detected. Forcing retained GPU reference to work around broken integration code in either game or UE5.\n");
+        /* Technically not thread safe, but for targeted workaround, this is fine. */
+        resource->flags |= VKD3D_RESOURCE_RETAINED_GPU_REFERENCE;
+    }
+
+    return d3d12_object_SetName((ID3D12Object *)iface, str);
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(d3d12_resource_iface *iface, REFIID iid, void **device)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
@@ -2544,7 +2562,7 @@ CONST_VTBL struct ID3D12Resource2Vtbl d3d12_resource_vtbl =
     d3d12_resource_GetPrivateData,
     d3d12_resource_SetPrivateData,
     d3d12_resource_SetPrivateDataInterface,
-    (void *)d3d12_object_SetName,
+    d3d12_resource_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_resource_GetDevice,
     /* ID3D12Resource methods */
