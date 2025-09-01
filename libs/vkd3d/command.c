@@ -7752,7 +7752,7 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
     }
     copy->bufferRowLength = footprint->Footprint.RowPitch /
             (src_format->byte_count * src_format->block_byte_count) * src_format->block_width;
-    copy->bufferImageHeight = footprint->Footprint.Height;
+    copy->bufferImageHeight = align(footprint->Footprint.Height, src_format->block_height);
     copy->imageSubresource = vk_image_subresource_layers_from_d3d12(
             dst_format, sub_resource_idx, image_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(image_desc));
@@ -7791,7 +7791,7 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2 *copy,
             footprint->Footprint.RowPitch, row_count * footprint->Footprint.RowPitch, dst_x, dst_y, dst_z);
     copy->bufferRowLength = footprint->Footprint.RowPitch /
             (dst_format->byte_count * dst_format->block_byte_count) * dst_format->block_width;
-    copy->bufferImageHeight = footprint->Footprint.Height;
+    copy->bufferImageHeight = align(footprint->Footprint.Height, dst_format->block_height);
     copy->imageSubresource = vk_image_subresource_layers_from_d3d12(
             src_format, sub_resource_idx, image_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(image_desc));
