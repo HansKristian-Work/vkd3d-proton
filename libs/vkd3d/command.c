@@ -18315,21 +18315,22 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
+    struct d3d12_command_allocator **allocators = NULL;
+    VkCommandBufferSubmitInfo *buffers = NULL, *buffer;
+    struct d3d12_resource **retained_resources = NULL;
     struct vkd3d_initial_transition *transitions;
     size_t num_transitions, num_command_buffers;
-    VkCommandBufferSubmitInfo *buffers, *buffer;
-    struct d3d12_command_allocator **allocators;
-    struct d3d12_resource **retained_resources;
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
     size_t num_retained_resources = 0;
-#ifdef VKD3D_ENABLE_BREADCRUMBS
-    unsigned int *breadcrumb_indices;
-#endif
-    uint32_t *cmd_cost;
+    uint32_t *cmd_cost = NULL;
     unsigned int iter;
     unsigned int i, j;
     HRESULT hr;
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    unsigned int *breadcrumb_indices = NULL;
+#endif
 
     TRACE("iface %p, command_list_count %u, command_lists %p.\n",
             iface, command_list_count, command_lists);
@@ -18368,49 +18369,33 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         }
 
         num_retained_resources += cmd_list->retained_resources_count;
-        for (iter = 0; iter < cmd_list->retained_resources_count; iter++)
-        {
-            if (vkd3d_atomic_uint32_load_explicit(
-                    &cmd_list->retained_resources[iter]->internal_refcount, vkd3d_memory_order_relaxed) == 0)
-            {
-                ERR("Trying to execute resource which has already been destroyed. This will likely hang GPU.\n");
-                /* TODO: We could mark device as lost, or just ignore this submit. Hard to tell
-                 * what the appropriate action is. Future workarounds may have to guide our decision here. */
-                return;
-            }
-        }
     }
 
     if (!(buffers = vkd3d_calloc(num_command_buffers, sizeof(*buffers))))
     {
         ERR("Failed to allocate command buffer array.\n");
-        return;
+        goto err_free;
     }
 
     if (!(allocators = vkd3d_calloc(command_list_count, sizeof(*allocators))))
     {
         ERR("Failed to allocate outstanding submissions count.\n");
-        vkd3d_free(buffers);
-        return;
+        goto err_free;
     }
 
     if (!(cmd_cost = vkd3d_calloc(num_command_buffers, sizeof(*cmd_cost))))
     {
         ERR("Failed to allocate command buffer cost array.\n");
-        return;
+        goto err_free;
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
         breadcrumb_indices = vkd3d_malloc(sizeof(unsigned int) * command_list_count);
-    else
-        breadcrumb_indices = NULL;
 #endif
 
     if (num_retained_resources)
         retained_resources = vkd3d_malloc(sizeof(*retained_resources) * num_retained_resources);
-    else
-        retained_resources = NULL;
     num_retained_resources = 0;
 
     timeline_cookie = vkd3d_queue_timeline_trace_register_execute(
@@ -18436,16 +18421,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
                         "Command list %p is not associated with an allocator.\n", command_lists[i]);
             }
 
-            vkd3d_free(allocators);
-            vkd3d_free(buffers);
-            vkd3d_free(cmd_cost);
-            vkd3d_free(retained_resources);
-#ifdef VKD3D_ENABLE_BREADCRUMBS
-            vkd3d_free(breadcrumb_indices);
-#endif
             vkd3d_queue_timeline_trace_complete_execute(&command_queue->device->queue_timeline_trace,
                     NULL, timeline_cookie);
-            return;
+            goto err_free;
         }
 
         num_transitions += cmd_list->init_transitions_count;
@@ -18551,10 +18529,25 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     sub.execute.num_command_allocators = command_list_count;
     sub.execute.retained_resources = retained_resources;
     sub.execute.num_retained_resources = num_retained_resources;
+    for (i = 0; i < num_retained_resources; i++)
+    {
+        if (!vkd3d_atomic_uint32_load_explicit(&retained_resources[i]->internal_refcount, vkd3d_memory_order_relaxed) ||
+                d3d12_resource_incref(retained_resources[i]) == 1)
+        {
+            ERR("Trying to execute resource which has already been destroyed. This will likely hang GPU at some point ... Skipping ECL.\n");
+            /* TODO: We could mark device as lost, or just ignore this submit. Hard to tell
+             * what the appropriate action is. Future workarounds may have to guide our decision here.
+             * The resource has already been proved to have been released, so the only reasonable thing to do
+             * is to reset the counter back to 0.
+             * The application has already committed grave UB sins, so any instability after this point is
+             * not really our fault. */
+            vkd3d_atomic_uint32_exchange_explicit(
+                    &retained_resources[i]->internal_refcount, 0, vkd3d_memory_order_relaxed);
+            goto err_free;
+        }
+    }
     for (i = 0; i < command_list_count; i++)
         d3d12_command_allocator_inc_ref(allocators[i]);
-    for (i = 0; i < num_retained_resources; i++)
-        d3d12_resource_incref(retained_resources[i]);
     sub.execute.low_latency_frame_id = command_queue->device->frame_markers.render;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     sub.execute.breadcrumb_indices = breadcrumb_indices;
@@ -18562,6 +18555,16 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #endif
     sub.execute.timeline_cookie = timeline_cookie;
     d3d12_command_queue_add_submission(command_queue, &sub);
+    return;
+
+err_free:
+    vkd3d_free(allocators);
+    vkd3d_free(buffers);
+    vkd3d_free(cmd_cost);
+    vkd3d_free(retained_resources);
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    vkd3d_free(breadcrumb_indices);
+#endif
 }
 
 static void STDMETHODCALLTYPE d3d12_command_queue_SetMarker(ID3D12CommandQueue *iface,
