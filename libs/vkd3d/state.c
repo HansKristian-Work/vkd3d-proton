@@ -5522,29 +5522,76 @@ static HRESULT d3d12_pipeline_create_private_root_signature(struct d3d12_device 
         VkPipelineBindPoint bind_point, const struct d3d12_pipeline_state_desc *desc,
         struct d3d12_root_signature **root_signature)
 {
-    const struct D3D12_SHADER_BYTECODE *bytecode;
-    ID3D12RootSignature *object = NULL;
+    const struct D3D12_SHADER_BYTECODE *bytecodes[VKD3D_MAX_SHADER_STAGES];
+    unsigned int num_bytecodes = 0;
+    unsigned int i;
     HRESULT hr;
 
-    if (bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
-        bytecode = &desc->cs;
-    else if (desc->ms.BytecodeLength)
-        bytecode = &desc->ms;
-    else
-        bytecode = &desc->vs;
+    /* Any shader stage can define the private root signature.
+     * If multiple stages emit it, they have to match or runtime complains. */
 
-    if (!bytecode->BytecodeLength)
+    if (bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+    {
+        bytecodes[num_bytecodes++] = &desc->cs;
+    }
+    else if (desc->ms.BytecodeLength)
+    {
+        bytecodes[num_bytecodes++] = &desc->as;
+        bytecodes[num_bytecodes++] = &desc->ms;
+        bytecodes[num_bytecodes++] = &desc->ps;
+    }
+    else
+    {
+        bytecodes[num_bytecodes++] = &desc->vs;
+        bytecodes[num_bytecodes++] = &desc->hs;
+        bytecodes[num_bytecodes++] = &desc->ds;
+        bytecodes[num_bytecodes++] = &desc->gs;
+        bytecodes[num_bytecodes++] = &desc->ps;
+    }
+
+    *root_signature = NULL;
+
+    for (i = 0; i < num_bytecodes; i++)
+    {
+        const struct D3D12_SHADER_BYTECODE *bytecode = bytecodes[i];
+        ID3D12RootSignature *object = NULL;
+
+        if (!bytecode->BytecodeLength)
+            continue;
+
+        if (!vkd3d_shader_contains_root_signature(bytecode->pShaderBytecode, bytecode->BytecodeLength))
+            continue;
+
+        if (FAILED(hr = ID3D12Device12_CreateRootSignature(&device->ID3D12Device_iface, 0,
+                bytecode->pShaderBytecode, bytecode->BytecodeLength,
+                &IID_ID3D12RootSignature, (void **)&object)))
+            return hr;
+
+        if (*root_signature)
+        {
+            struct d3d12_root_signature *rs = impl_from_ID3D12RootSignature(object);
+            vkd3d_shader_hash_t compat = rs->pso_compatibility_hash;
+            ID3D12RootSignature_Release(object);
+
+            if ((*root_signature)->pso_compatibility_hash != compat)
+            {
+                WARN("Incompatible private root signatures.\n");
+                d3d12_root_signature_dec_ref(*root_signature);
+                return E_INVALIDARG;
+            }
+        }
+        else
+        {
+            *root_signature = impl_from_ID3D12RootSignature(object);
+            d3d12_root_signature_inc_ref(*root_signature);
+            ID3D12RootSignature_Release(object);
+        }
+    }
+
+    if (!*root_signature)
         return E_INVALIDARG;
 
-    if (FAILED(hr = ID3D12Device12_CreateRootSignature(&device->ID3D12Device_iface, 0,
-            bytecode->pShaderBytecode, bytecode->BytecodeLength,
-            &IID_ID3D12RootSignature, (void**)&object)))
-        return hr;
-
-    *root_signature = impl_from_ID3D12RootSignature(object);
-    d3d12_root_signature_inc_ref(*root_signature);
-    ID3D12RootSignature_Release(object);
-    return hr;
+    return S_OK;
 }
 
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
