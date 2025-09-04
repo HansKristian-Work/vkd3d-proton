@@ -483,3 +483,4 @@ decl_test(test_derivative_hoisting_dxbc);
 decl_test(test_derivative_hoisting_dxil);
 decl_test(test_null_descriptor_resinfo_dxbc);
 decl_test(test_null_descriptor_resinfo_dxil);
+decl_test(test_root_signature_embedded);

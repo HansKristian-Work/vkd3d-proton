@@ -1842,3 +1842,69 @@ void test_root_signature_empty_blob(void)
     ok(hr == E_FAIL, "Unexpected hr #%x.\n", hr);
     destroy_test_context(&context);
 }
+
+void test_root_signature_embedded(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/root_signature/headers/embedded_rs_vs_space0.h"
+#include "shaders/root_signature/headers/embedded_rs_vs_space1.h"
+#include "shaders/root_signature/headers/embedded_rs_gs_space0.h"
+#include "shaders/root_signature/headers/embedded_rs_gs_space1.h"
+#include "shaders/root_signature/headers/embedded_rs_ps_space0.h"
+#include "shaders/root_signature/headers/embedded_rs_ps_space1.h"
+#include "shaders/root_signature/headers/embedded_rs_vs_space0_naked.h"
+#include "shaders/root_signature/headers/embedded_rs_vs_space1_naked.h"
+#include "shaders/root_signature/headers/embedded_rs_gs_space0_naked.h"
+#include "shaders/root_signature/headers/embedded_rs_gs_space1_naked.h"
+#include "shaders/root_signature/headers/embedded_rs_ps_space0_naked.h"
+#include "shaders/root_signature/headers/embedded_rs_ps_space1_naked.h"
+
+    static const struct test
+    {
+        const D3D12_SHADER_BYTECODE *vs;
+        const D3D12_SHADER_BYTECODE *gs;
+        const D3D12_SHADER_BYTECODE *ps;
+        HRESULT hr;
+        /* Empty output GS breaks internal validation at the moment. Trivial to fix, but depends on dxil-spirv update. */
+        bool is_todo;
+    } tests[] = {
+        /* Trivial cases, any shader can alone define the RS. */
+        { &embedded_rs_vs_space0_naked_dxbc, &embedded_rs_gs_space0_naked_dxbc, &embedded_rs_ps_space0_naked_dxbc, E_INVALIDARG },
+        { &embedded_rs_vs_space0_dxbc, NULL, &embedded_rs_ps_space0_naked_dxbc, S_OK },
+        { &embedded_rs_vs_space0_naked_dxbc, NULL, &embedded_rs_ps_space0_dxbc, S_OK },
+        { &embedded_rs_vs_space0_dxbc, NULL, &embedded_rs_ps_space0_dxbc, S_OK },
+        { &embedded_rs_vs_space0_dxbc, &embedded_rs_gs_space0_dxbc, &embedded_rs_ps_space0_dxbc, S_OK, true },
+        { &embedded_rs_vs_space0_naked_dxbc, &embedded_rs_gs_space0_dxbc, &embedded_rs_ps_space0_naked_dxbc, S_OK, true },
+
+        /* If root signatures define an RS, they have to agree. */
+        { &embedded_rs_vs_space1_dxbc, &embedded_rs_gs_space0_dxbc, &embedded_rs_ps_space0_dxbc, E_INVALIDARG },
+        { &embedded_rs_vs_space0_dxbc, &embedded_rs_gs_space1_dxbc, &embedded_rs_ps_space0_dxbc, E_INVALIDARG },
+        { &embedded_rs_vs_space0_dxbc, &embedded_rs_gs_space0_dxbc, &embedded_rs_ps_space1_dxbc, E_INVALIDARG },
+        { &embedded_rs_vs_space0_dxbc, &embedded_rs_gs_space0_dxbc, &embedded_rs_ps_space0_naked_dxbc, S_OK, true },
+        { &embedded_rs_vs_space0_dxbc, &embedded_rs_gs_space0_dxbc, &embedded_rs_ps_space1_naked_dxbc, E_INVALIDARG, true },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+        init_pipeline_state_desc(&pso_desc, NULL, DXGI_FORMAT_UNKNOWN, tests[i].vs, tests[i].ps, NULL);
+        if (tests[i].gs)
+            pso_desc.GS = *tests[i].gs;
+        pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+        todo_if(tests[i].is_todo) ok(hr == tests[i].hr, "Expected hr #%x, got hr #%x\n", tests[i].hr, hr);
+        if (SUCCEEDED(hr))
+            ID3D12PipelineState_Release(pso);
+    }
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
