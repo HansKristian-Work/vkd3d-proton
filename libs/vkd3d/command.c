@@ -3205,7 +3205,7 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
     }
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
-    VKD3D_BREADCRUMB_COOKIE(view->cookie);
+    VKD3D_BREADCRUMB_COOKIE(view->cookie.index);
     VKD3D_BREADCRUMB_RESOURCE(resource);
     VKD3D_BREADCRUMB_COMMAND(CLEAR_INLINE);
 }
@@ -3948,7 +3948,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
     }
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
-    VKD3D_BREADCRUMB_COOKIE(view->cookie);
+    VKD3D_BREADCRUMB_COOKIE(view->cookie.index);
     VKD3D_BREADCRUMB_RESOURCE(resource);
     VKD3D_BREADCRUMB_COMMAND(CLEAR_PASS);
 
@@ -9783,8 +9783,8 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         d3d12_command_list_update_subresource_data(list, dst_resource, resolve->dstSubresource);
 
-    VKD3D_BREADCRUMB_COOKIE(src_resource->res.cookie);
-    VKD3D_BREADCRUMB_COOKIE(dst_resource->res.cookie);
+    VKD3D_BREADCRUMB_COOKIE(src_resource->res.cookie.index);
+    VKD3D_BREADCRUMB_COOKIE(dst_resource->res.cookie.index);
     VKD3D_BREADCRUMB_AUX32(format);
     VKD3D_BREADCRUMB_AUX32(mode);
     VKD3D_BREADCRUMB_COMMAND(RESOLVE);
@@ -10686,7 +10686,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     continue;
                 }
 
-                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->res.cookie : 0);
+                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->res.cookie.index : 0);
                 VKD3D_BREADCRUMB_AUX32(transition->Subresource);
                 VKD3D_BREADCRUMB_AUX32(transition->StateBefore);
                 VKD3D_BREADCRUMB_AUX32(transition->StateAfter);
@@ -10780,8 +10780,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                 preserve_resource = impl_from_ID3D12Resource(uav->pResource);
 
-                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->res.cookie : 0);
-                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->mem.resource.cookie : 0);
+                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->res.cookie.index : 0);
+                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->mem.resource.cookie.index : 0);
                 VKD3D_BREADCRUMB_TAG("UAV Barrier");
 
                 /* The only way to synchronize an RTAS is UAV barriers,
@@ -11509,7 +11509,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
     VKD3D_BREADCRUMB_AUX32(index_type == VK_INDEX_TYPE_UINT32 ? 32 : 16);
     VKD3D_BREADCRUMB_AUX64(view->BufferLocation);
     VKD3D_BREADCRUMB_AUX64(view->SizeInBytes);
-    VKD3D_BREADCRUMB_COOKIE(resource ? resource->cookie : 0);
+    VKD3D_BREADCRUMB_COOKIE(resource ? resource->cookie.index : 0);
     VKD3D_BREADCRUMB_COMMAND_STATE(IBO);
 }
 
@@ -11574,7 +11574,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
         VKD3D_BREADCRUMB_AUX64(views[i].BufferLocation);
         VKD3D_BREADCRUMB_AUX32(views[i].StrideInBytes);
         VKD3D_BREADCRUMB_AUX64(views[i].SizeInBytes);
-        VKD3D_BREADCRUMB_COOKIE(resource ? resource->cookie : 0);
+        VKD3D_BREADCRUMB_COOKIE(resource ? resource->cookie.index : 0);
         VKD3D_BREADCRUMB_COMMAND_STATE(VBO);
 
         invalidate |= dyn_state->vertex_strides[start_slot + i] != stride;
@@ -11803,7 +11803,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             continue;
         }
 
-        VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie);
+        VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie.index);
         VKD3D_BREADCRUMB_AUX32(i);
         VKD3D_BREADCRUMB_TAG("RTV bind");
 
@@ -11817,7 +11817,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         {
             list->dsv = *rtv_desc;
 
-            VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie);
+            VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie.index);
             VKD3D_BREADCRUMB_TAG("DSV bind");
         }
         else
@@ -13348,7 +13348,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     VKD3D_BREADCRUMB_AUX32(start_index);
     VKD3D_BREADCRUMB_AUX32(query_count);
     VKD3D_BREADCRUMB_AUX64(aligned_dst_buffer_offset);
-    VKD3D_BREADCRUMB_COOKIE(query_heap->cookie);
+    VKD3D_BREADCRUMB_COOKIE(query_heap->cookie.index);
     VKD3D_BREADCRUMB_RESOURCE(buffer);
     VKD3D_BREADCRUMB_COMMAND(RESOLVE_QUERY);
 }
@@ -14362,9 +14362,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
     VKD3D_BREADCRUMB_TAG("ExecuteIndirect [MaxCommandCount, ArgBuffer cookie, ArgBuffer offset, Count cookie, Count offset]");
     VKD3D_BREADCRUMB_AUX32(max_command_count);
-    VKD3D_BREADCRUMB_COOKIE(arg_impl->res.cookie);
+    VKD3D_BREADCRUMB_COOKIE(arg_impl->res.cookie.index);
     VKD3D_BREADCRUMB_AUX64(arg_buffer_offset);
-    VKD3D_BREADCRUMB_COOKIE(count_impl ? count_impl->res.cookie : 0);
+    VKD3D_BREADCRUMB_COOKIE(count_impl ? count_impl->res.cookie.index : 0);
     VKD3D_BREADCRUMB_AUX64(count_buffer_offset);
 
     if (sig_impl->requires_state_template)
@@ -16018,7 +16018,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
             {
                 list->rtvs[rt_index] = *rtv_desc;
 
-                VKD3D_BREADCRUMB_AUX64(rtv_desc->view->cookie);
+                VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie.index);
                 VKD3D_BREADCRUMB_AUX32(i);
                 VKD3D_BREADCRUMB_TAG("RTV bind");
 
@@ -16049,7 +16049,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
             {
                 list->dsv = *rtv_desc;
 
-                VKD3D_BREADCRUMB_AUX64(rtv_desc->view->cookie);
+                VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie.index);
                 VKD3D_BREADCRUMB_TAG("DSV bind");
 
                 if (!(flags & D3D12_RENDER_PASS_FLAG_RESUMING_PASS))
@@ -19366,12 +19366,16 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     unsigned int command_index;
     VkDependencyInfo dep_info;
     uint32_t need_transition;
+    bool qa_checks;
     size_t i;
 
     pool->barriers_count = 0;
     pool->query_heaps_count = 0;
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS) && !count)
+    qa_checks = (vkd3d_config_flags & (VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS |
+            VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS)) != 0;
+
+    if (!qa_checks && !count)
     {
         *vk_cmd_buffer = VK_NULL_HANDLE;
         return;
@@ -19404,8 +19408,7 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
         }
     }
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS) &&
-            !pool->barriers_count && !pool->query_heaps_count)
+    if (!qa_checks && !pool->barriers_count && !pool->query_heaps_count)
     {
         *vk_cmd_buffer = VK_NULL_HANDLE;
         return;
@@ -19432,9 +19435,18 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
     {
         /* Every ExecuteCommandLists is an implicit barrier, so flush the bloom filter automatically. */
-        uint32_t value = vkd3d_descriptor_debug_clear_bloom_filter(device->descriptor_qa_global_info, device, pool->cmd[command_index]);
+        uint32_t value = vkd3d_descriptor_debug_clear_bloom_filter(
+                device->descriptor_qa_global_info, device, pool->cmd[command_index]);
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
             INFO("QA: Updating sync-val iteration to %u (#%x) between submission.\n", value, value);
+    }
+    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS)
+    {
+        /* Every ExecuteCommandLists is an implicit barrier, so flush the bloom filter automatically. */
+        uint32_t value = vkd3d_descriptor_debug_update_va_timestamp(
+                device->descriptor_qa_global_info, device, pool->cmd[command_index]);
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
+            INFO("QA: Updating VA timestamp to %u (#%x) between submission.\n", value, value);
     }
 
     if (pool->barriers_count)
@@ -22049,16 +22061,16 @@ bool vk_image_memory_barrier_for_initial_transition(const struct d3d12_resource 
     {
         if (d3d12_resource_get_sub_resource_count(resource) == 1)
         {
-            ERR("Application uses placed resource (1 subresource) (cookie %"PRIu64", fmt: %s, flags: #%x)"
+            ERR("Application uses placed resource (1 subresource) (cookie %u, fmt: %s, flags: #%x)"
                     " that must be initialized explicitly.\n",
-                    resource->res.cookie, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
+                    resource->res.cookie.index, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
         }
         else
         {
-            WARN("Application uses placed resource (>1 subresources) (cookie %"PRIu64", fmt: %s, flags: #%x)"
+            WARN("Application uses placed resource (>1 subresources) (cookie %u, fmt: %s, flags: #%x)"
                     " that must be initialized explicitly. "
                     "This warning may be a false positive due to lack of sub-resource level tracking.\n",
-                    resource->res.cookie, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
+                    resource->res.cookie.index, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
         }
         return false;
     }

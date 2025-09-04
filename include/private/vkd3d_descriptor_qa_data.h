@@ -41,6 +41,7 @@ typedef uint32_t vkd3d_descriptor_qa_flags;
 struct vkd3d_descriptor_qa_cookie_descriptor
 {
     uint32_t cookie;
+    uint32_t va_map_timestamp;
     uint32_t descriptor_type;
 };
 
@@ -48,7 +49,8 @@ enum vkd3d_descriptor_debug_fault_type
 {
     VKD3D_DESCRIPTOR_FAULT_TYPE_HEAP_OF_OF_RANGE = 1 << 0,
     VKD3D_DESCRIPTOR_FAULT_TYPE_MISMATCH_DESCRIPTOR_TYPE = 1 << 1,
-    VKD3D_DESCRIPTOR_FAULT_TYPE_DESTROYED_RESOURCE = 1 << 2
+    VKD3D_DESCRIPTOR_FAULT_TYPE_DESTROYED_RESOURCE = 1 << 2,
+    VKD3D_DESCRIPTOR_FAULT_TYPE_VA_TIMESTAMP_INVALID = 1 << 3
 };
 
 /* Physical layout of QA buffer. */
@@ -63,6 +65,7 @@ struct vkd3d_descriptor_qa_global_buffer_data
     uint32_t failed_descriptor_type_mask;
     uint32_t actual_descriptor_type_mask;
     uint32_t fault_type;
+    uint32_t va_map_timestamp;
     uint32_t live_status_table[];
 };
 
@@ -107,6 +110,7 @@ enum vkd3d_descriptor_qa_global_buffer_data_member
     VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_ACTUAL_DESCRIPTOR_TYPE_MASK,
     VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAULT_TYPE,
     VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_LIVE_STATUS_TABLE,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_VA_MAP_TIMESTAMP,
     VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_COUNT
 };
 
@@ -120,6 +124,7 @@ VKD3D_UNUSED static const char *vkd3d_descriptor_qa_global_buffer_data_names[VKD
     "failed_descriptor_type_mask",
     "actual_descriptor_type_mask",
     "fault_type",
+    "va_map_timestamp",
     "live_status_table",
 };
 
