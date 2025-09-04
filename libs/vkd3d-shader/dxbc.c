@@ -2935,6 +2935,16 @@ static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *cont
     return VKD3D_OK;
 }
 
+bool vkd3d_shader_contains_root_signature(const void *code, size_t size)
+{
+    struct vkd3d_shader_code raw_payload;
+    int ret;
+    memset(&raw_payload, 0, sizeof(raw_payload));
+    if ((ret = parse_dxbc(code, size, rts0_handler, &raw_payload)) < 0)
+        return false;
+    return raw_payload.size != 0;
+}
+
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *root_signature,
         vkd3d_shader_hash_t *compatibility_hash)
