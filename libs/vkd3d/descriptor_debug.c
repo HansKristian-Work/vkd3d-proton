@@ -144,32 +144,32 @@ VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
 }
 
 static void vkd3d_descriptor_debug_set_live_status_bit(
-        struct vkd3d_descriptor_qa_global_info *global_info, uint64_t cookie)
+        struct vkd3d_descriptor_qa_global_info *global_info, struct vkd3d_cookie cookie)
 {
     if (!global_info || !descriptor_debug_active_descriptor_checks ||
             !global_info->active || !global_info->payload_data)
         return;
 
-    if (cookie < global_info->num_cookies)
+    if (cookie.index < global_info->num_cookies)
     {
-        vkd3d_atomic_uint32_or(&global_info->payload_data->live_status_table[cookie / 32],
-                1u << (cookie & 31), vkd3d_memory_order_relaxed);
+        vkd3d_atomic_uint32_or(&global_info->payload_data->live_status_table[cookie.index / 32],
+                1u << (cookie.index & 31), vkd3d_memory_order_relaxed);
     }
     else
-        INFO("Cookie index %"PRIu64" is out of range, cannot be tracked.\n", cookie);
+        INFO("Cookie index %u is out of range, cannot be tracked.\n", cookie.index);
 }
 
 static void vkd3d_descriptor_debug_unset_live_status_bit(
-        struct vkd3d_descriptor_qa_global_info *global_info, uint64_t cookie)
+        struct vkd3d_descriptor_qa_global_info *global_info, struct vkd3d_cookie cookie)
 {
     if (!global_info || !descriptor_debug_active_descriptor_checks ||
             !global_info->active || !global_info->payload_data)
         return;
 
-    if (cookie < global_info->num_cookies)
+    if (cookie.index < global_info->num_cookies)
     {
-        vkd3d_atomic_uint32_and(&global_info->payload_data->live_status_table[cookie / 32],
-                ~(1u << (cookie & 31)), vkd3d_memory_order_relaxed);
+        vkd3d_atomic_uint32_and(&global_info->payload_data->live_status_table[cookie.index / 32],
+                ~(1u << (cookie.index & 31)), vkd3d_memory_order_relaxed);
     }
 }
 
@@ -202,6 +202,32 @@ void vkd3d_descriptor_debug_sync_validation_barrier(
     vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
 
     VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep));
+}
+
+uint32_t vkd3d_descriptor_debug_update_va_timestamp(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    uint32_t ts;
+    if (!global_info)
+        return 0;
+
+    /* It's possible this is called out of order, but it should fine in practice.
+     * We cannot get false positives this way if application allocates resource before calling ExecuteCommandLists. */
+    ts = vkd3d_allocate_cookie_va_timestamp() - 1;
+
+    vk_procs = &device->vk_procs;
+
+    /* Technically needs cross-queue sync too, but there's practically no reason this will ever cause sliced
+     * writes, so just YOLO it. */
+    vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer);
+    VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
+            global_info->vk_payload_buffer,
+            offsetof(struct vkd3d_descriptor_qa_global_buffer_data, va_map_timestamp),
+            sizeof(uint32_t), ts));
+    vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer);
+    return ts;
 }
 
 uint32_t vkd3d_descriptor_debug_clear_bloom_filter(
@@ -625,7 +651,8 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
 
     /* host-visible device memory */
     memset(&heap_info, 0, sizeof(heap_info));
-    heap_info.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_info.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_info.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
 
     heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
@@ -750,9 +777,11 @@ static void vkd3d_descriptor_debug_qa_check_report_fault(
         APPEND_SNPRINTF("Fault type: MISMATCH_DESCRIPTOR_TYPE\n");
     if (global_info->payload_data->fault_type & VKD3D_DESCRIPTOR_FAULT_TYPE_DESTROYED_RESOURCE)
         APPEND_SNPRINTF("Fault type: DESTROYED_RESOURCE\n");
+    if (global_info->payload_data->fault_type & VKD3D_DESCRIPTOR_FAULT_TYPE_VA_TIMESTAMP_INVALID)
+        APPEND_SNPRINTF("Fault type: INVALID_TIMESTAMP\n");
 
     APPEND_SNPRINTF("CBV_SRV_UAV heap cookie: %u\n", global_info->payload_data->failed_heap);
-    APPEND_SNPRINTF("Shader hash and instruction: %"PRIx64" (%u)\n",
+    APPEND_SNPRINTF("Shader hash and instruction: %016"PRIx64" (%u)\n",
             global_info->payload_data->failed_hash, global_info->payload_data->failed_instruction);
     APPEND_SNPRINTF("Accessed resource/view cookie: %u\n", global_info->payload_data->failed_cookie);
     APPEND_SNPRINTF("Shader desired descriptor type: %u (%s)\n",
@@ -769,7 +798,7 @@ static void vkd3d_descriptor_debug_qa_check_report_fault(
 }
 
 void vkd3d_descriptor_debug_register_heap(
-        struct vkd3d_descriptor_qa_heap_buffer_data *heap, uint64_t cookie,
+        struct vkd3d_descriptor_qa_heap_buffer_data *heap, struct vkd3d_cookie cookie,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
     unsigned int i;
@@ -778,7 +807,7 @@ void vkd3d_descriptor_debug_register_heap(
     if (heap)
     {
         heap->num_descriptors = desc->NumDescriptors;
-        heap->heap_index = cookie <= UINT32_MAX ? (uint32_t)cookie : 0u;
+        heap->heap_index = cookie.index;
         for (i = 0; i < desc->NumDescriptors; i++)
         {
             heap->desc[i].cookie = 0;
@@ -789,7 +818,7 @@ void vkd3d_descriptor_debug_register_heap(
     if (!vkd3d_descriptor_debug_active_log())
         return;
 
-    APPEND_SNPRINTF("REGISTER HEAP %"PRIu64" || COUNT = %u", cookie, desc->NumDescriptors);
+    APPEND_SNPRINTF("REGISTER HEAP %u || COUNT = %u", cookie.index, desc->NumDescriptors);
     if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
         APPEND_SNPRINTF(" || SHADER");
 
@@ -819,18 +848,18 @@ void vkd3d_descriptor_debug_register_heap(
     FLUSH_BUFFER();
 }
 
-void vkd3d_descriptor_debug_unregister_heap(uint64_t cookie)
+void vkd3d_descriptor_debug_unregister_heap(struct vkd3d_cookie cookie)
 {
     DECL_BUFFER();
     if (!vkd3d_descriptor_debug_active_log())
         return;
 
-    APPEND_SNPRINTF("DESTROY HEAP %"PRIu64, cookie);
+    APPEND_SNPRINTF("DESTROY HEAP %u", cookie.index);
     FLUSH_BUFFER();
 }
 
 void vkd3d_descriptor_debug_register_query_heap_cookie(struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, const D3D12_QUERY_HEAP_DESC *desc)
+        struct vkd3d_cookie cookie, const D3D12_QUERY_HEAP_DESC *desc)
 {
     const char *type_desc;
     DECL_BUFFER();
@@ -838,7 +867,7 @@ void vkd3d_descriptor_debug_register_query_heap_cookie(struct vkd3d_descriptor_q
     if (!vkd3d_descriptor_debug_active_log())
         return;
 
-    APPEND_SNPRINTF("QUERY HEAP CREATE #%"PRIu64" || ", cookie);
+    APPEND_SNPRINTF("QUERY HEAP CREATE %u || ", cookie.index);
 
     switch (desc->Type)
     {
@@ -876,7 +905,7 @@ void vkd3d_descriptor_debug_register_query_heap_cookie(struct vkd3d_descriptor_q
 }
 
 void vkd3d_descriptor_debug_register_resource_cookie(struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, const D3D12_RESOURCE_DESC1 *desc)
+        struct vkd3d_cookie cookie, const D3D12_RESOURCE_DESC1 *desc)
 {
     const char *fmt;
     DECL_BUFFER();
@@ -886,7 +915,7 @@ void vkd3d_descriptor_debug_register_resource_cookie(struct vkd3d_descriptor_qa_
     if (!vkd3d_descriptor_debug_active_log())
         return;
 
-    APPEND_SNPRINTF("RESOURCE CREATE #%"PRIu64" || ", cookie);
+    APPEND_SNPRINTF("RESOURCE CREATE %u || ", cookie.index);
 
     fmt = debug_dxgi_format(desc->Format);
 
@@ -932,7 +961,7 @@ void vkd3d_descriptor_debug_register_resource_cookie(struct vkd3d_descriptor_qa_
 
 void vkd3d_descriptor_debug_register_allocation_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, const struct vkd3d_allocate_memory_info *info)
+        struct vkd3d_cookie cookie, const struct vkd3d_allocate_memory_info *info)
 {
     D3D12_RESOURCE_DESC1 desc;
 
@@ -944,7 +973,7 @@ void vkd3d_descriptor_debug_register_allocation_cookie(
 
 void vkd3d_descriptor_debug_register_view_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, uint64_t resource_cookie)
+        struct vkd3d_cookie cookie, struct vkd3d_cookie resource_cookie)
 {
     DECL_BUFFER();
 
@@ -952,28 +981,29 @@ void vkd3d_descriptor_debug_register_view_cookie(
 
     if (!vkd3d_descriptor_debug_active_log())
         return;
-    APPEND_SNPRINTF("VIEW CREATE #%"PRIu64" <- RESOURCE #%"PRIu64, cookie, resource_cookie);
+    APPEND_SNPRINTF("VIEW CREATE %u <- RESOURCE %u", cookie.index, resource_cookie.index);
     FLUSH_BUFFER();
 }
 
 void vkd3d_descriptor_debug_unregister_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie)
+        struct vkd3d_cookie cookie)
 {
     DECL_BUFFER();
 
     /* Don't unset the null descriptor by mistake. */
-    if (cookie != 0)
+    if (cookie.index != 0)
         vkd3d_descriptor_debug_unset_live_status_bit(global_info, cookie);
 
     if (!vkd3d_descriptor_debug_active_log())
         return;
-    APPEND_SNPRINTF("COOKIE DESTROY #%"PRIu64, cookie);
+    APPEND_SNPRINTF("COOKIE DESTROY %u", cookie.index);
     FLUSH_BUFFER();
 }
 
-void vkd3d_descriptor_debug_write_descriptor(struct vkd3d_descriptor_qa_heap_buffer_data *heap, uint64_t heap_cookie,
-        uint32_t offset, vkd3d_descriptor_qa_flags type_flags, uint64_t cookie)
+void vkd3d_descriptor_debug_write_descriptor(struct vkd3d_descriptor_qa_heap_buffer_data *heap,
+        struct vkd3d_cookie heap_cookie,
+        uint32_t offset, vkd3d_descriptor_qa_flags type_flags, struct vkd3d_cookie cookie)
 {
     DECL_BUFFER();
 
@@ -982,21 +1012,25 @@ void vkd3d_descriptor_debug_write_descriptor(struct vkd3d_descriptor_qa_heap_buf
         /* Should never overflow here except if game is literally spamming allocations every frame and we
          * wait around for hours/days.
          * This case will trigger warnings either way. */
-        heap->desc[offset].cookie = cookie <= UINT32_MAX ? (uint32_t)cookie : 0u;
+        heap->desc[offset].cookie = cookie.index;
         heap->desc[offset].descriptor_type = type_flags;
+        /* Could overflow, but most likely won't be an issue ... */
+        heap->desc[offset].va_map_timestamp = cookie.va_map_timestamp;
     }
 
     if (!vkd3d_descriptor_debug_active_log())
         return;
-    APPEND_SNPRINTF("WRITE HEAP %"PRIu64" || OFFSET = %u || TYPE = %s || COOKIE = #%"PRIu64,
-            heap_cookie, offset, debug_descriptor_type(type_flags), cookie);
+    APPEND_SNPRINTF("WRITE HEAP %u || OFFSET = %u || TYPE = %s || COOKIE = %u",
+            heap_cookie.index, offset, debug_descriptor_type(type_flags), cookie.index);
     FLUSH_BUFFER();
 }
 
 void vkd3d_descriptor_debug_copy_descriptor(
-        struct vkd3d_descriptor_qa_heap_buffer_data *dst_heap, uint64_t dst_heap_cookie, uint32_t dst_offset,
-        struct vkd3d_descriptor_qa_heap_buffer_data *src_heap, uint64_t src_heap_cookie, uint32_t src_offset,
-        uint64_t cookie)
+        struct vkd3d_descriptor_qa_heap_buffer_data *dst_heap,
+        struct vkd3d_cookie dst_heap_cookie, uint32_t dst_offset,
+        struct vkd3d_descriptor_qa_heap_buffer_data *src_heap,
+        struct vkd3d_cookie src_heap_cookie, uint32_t src_offset,
+        struct vkd3d_cookie cookie)
 {
     DECL_BUFFER();
 
@@ -1005,7 +1039,8 @@ void vkd3d_descriptor_debug_copy_descriptor(
 
     if (!vkd3d_descriptor_debug_active_log())
         return;
-    APPEND_SNPRINTF("COPY DST HEAP %"PRIu64" || DST OFFSET = %u || COOKIE = #%"PRIu64" || SRC HEAP %"PRIu64" || SRC OFFSET = %u",
-            dst_heap_cookie, dst_offset, cookie, src_heap_cookie, src_offset);
+
+    APPEND_SNPRINTF("COPY DST HEAP %u || DST OFFSET = %u || COOKIE = %u || SRC HEAP %u || SRC OFFSET = %u",
+            dst_heap_cookie.index, dst_offset, cookie.index, src_heap_cookie.index, src_offset);
     FLUSH_BUFFER();
 }

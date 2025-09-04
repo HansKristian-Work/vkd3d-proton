@@ -769,6 +769,12 @@ float vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY d3d12prio);
 
 struct vkd3d_view_map;
 
+struct vkd3d_cookie
+{
+    uint32_t index;
+    uint32_t va_map_timestamp;
+};
+
 struct vkd3d_unique_resource
 {
     union
@@ -776,7 +782,7 @@ struct vkd3d_unique_resource
         VkBuffer vk_buffer;
         VkImage vk_image;
     };
-    uint64_t cookie;
+    struct vkd3d_cookie cookie;
     VkDeviceAddress va;
     VkDeviceSize size;
 
@@ -1036,7 +1042,7 @@ struct vkd3d_view_map
     spinlock_t spinlock;
     struct hash_map map;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    uint64_t resource_cookie;
+    struct vkd3d_cookie resource_cookie;
 #endif
 };
 
@@ -1127,7 +1133,14 @@ static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resour
 ULONG d3d12_resource_incref(struct d3d12_resource *resource);
 ULONG d3d12_resource_decref(struct d3d12_resource *resource);
 
-LONG64 vkd3d_allocate_cookie();
+struct vkd3d_cookie vkd3d_allocate_cookie(void);
+UINT vkd3d_allocate_cookie_va_timestamp(void);
+
+static inline struct vkd3d_cookie vkd3d_null_cookie(void)
+{
+    struct vkd3d_cookie cookie = { 0 };
+    return cookie;
+}
 
 bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource);
 void d3d12_resource_promote_desc(const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_DESC1 *desc1);
@@ -1211,7 +1224,7 @@ struct vkd3d_view
 {
     LONG refcount;
     enum vkd3d_view_type type;
-    uint64_t cookie;
+    struct vkd3d_cookie cookie;
 
     union
     {
@@ -1342,7 +1355,7 @@ struct vkd3d_descriptor_metadata_image_view
 struct vkd3d_descriptor_metadata_view
 {
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    uint64_t qa_cookie;
+    struct vkd3d_cookie qa_cookie;
 #endif
     union
     {
@@ -1355,7 +1368,7 @@ struct vkd3d_descriptor_metadata_view
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
 STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_view) == 24);
 static inline void vkd3d_descriptor_metadata_view_set_qa_cookie(
-        struct vkd3d_descriptor_metadata_view *view, uint64_t cookie)
+        struct vkd3d_descriptor_metadata_view *view, struct vkd3d_cookie cookie)
 {
     view->qa_cookie = cookie;
 }
@@ -1525,7 +1538,7 @@ struct d3d12_descriptor_heap
     struct vkd3d_host_visible_buffer_range buffer_ranges;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     struct vkd3d_host_visible_buffer_range descriptor_heap_info;
-    uint64_t cookie;
+    struct vkd3d_cookie cookie;
 #endif
 
     struct d3d12_null_descriptor_template null_descriptor_template;
@@ -1704,7 +1717,7 @@ struct d3d12_query_heap
     struct vkd3d_device_memory_allocation device_allocation;
     VkBuffer vk_buffer;
     VkDeviceAddress va;
-    uint64_t cookie;
+    struct vkd3d_cookie cookie;
     uint32_t initialized;
 
     struct d3d12_device *device;
@@ -3847,7 +3860,7 @@ static inline void vkd3d_breadcrumb_image(
 {
     const D3D12_RESOURCE_DESC1 *desc = &resource->desc;
     VKD3D_BREADCRUMB_TAG("ImageDesc [Cookie, DXGI_FORMAT, D3D12_RESOURCE_DIMENSION, width, height, DepthOrArraySize, MipLevels, Flags]");
-    VKD3D_BREADCRUMB_COOKIE(resource->res.cookie);
+    VKD3D_BREADCRUMB_COOKIE(resource->res.cookie.index);
     VKD3D_BREADCRUMB_AUX32(desc->Format);
     VKD3D_BREADCRUMB_AUX32(desc->Dimension);
     VKD3D_BREADCRUMB_AUX64(desc->Width);
@@ -3863,8 +3876,8 @@ static inline void vkd3d_breadcrumb_buffer(
     VKD3D_BREADCRUMB_TAG("BufferDesc [VkBuffer VA, SuballocatedOffset, Cookie, GlobalCookie, Size, Flags]");
     VKD3D_BREADCRUMB_AUX64(resource->mem.resource.va);
     VKD3D_BREADCRUMB_AUX64(resource->mem.offset);
-    VKD3D_BREADCRUMB_COOKIE(resource->res.cookie);
-    VKD3D_BREADCRUMB_COOKIE(resource->mem.resource.cookie);
+    VKD3D_BREADCRUMB_COOKIE(resource->res.cookie.index);
+    VKD3D_BREADCRUMB_COOKIE(resource->mem.resource.cookie.index);
     VKD3D_BREADCRUMB_AUX64(resource->desc.Width);
     VKD3D_BREADCRUMB_AUX32(resource->desc.Flags);
 }

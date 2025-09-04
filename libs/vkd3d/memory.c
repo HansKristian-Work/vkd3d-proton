@@ -1290,8 +1290,6 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
      * only HOST_VISIBLE types and we use NO_FALLBACK allocation mode. */
     type_flags &= ~info->optional_memory_properties;
 
-    allocation->resource.cookie = vkd3d_allocate_cookie();
-
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
     {
         if (info->explicit_global_buffer_usage)
@@ -1327,7 +1325,8 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         if (vkd3d_address_binding_tracker_active(&device->address_binding_tracker))
         {
             vkd3d_address_binding_tracker_assign_cookie(&device->address_binding_tracker,
-                    VK_OBJECT_TYPE_BUFFER, (uint64_t)allocation->resource.vk_buffer, allocation->resource.cookie);
+                    VK_OBJECT_TYPE_BUFFER, (uint64_t)allocation->resource.vk_buffer,
+                    allocation->resource.cookie.index);
         }
     }
     else
@@ -1490,13 +1489,14 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
         {
             char name_buffer[1024];
-            snprintf(name_buffer, sizeof(name_buffer), "GlobalBuffer (cookie %"PRIu64")",
-                    allocation->resource.cookie);
+            snprintf(name_buffer, sizeof(name_buffer), "GlobalBuffer (cookie %u)",
+                    allocation->resource.cookie.index);
             vkd3d_set_vk_object_name(device, (uint64_t)allocation->resource.vk_buffer,
                     VK_OBJECT_TYPE_BUFFER, name_buffer);
         }
     }
 
+    allocation->resource.cookie = vkd3d_allocate_cookie();
     vkd3d_descriptor_debug_register_allocation_cookie(device->descriptor_qa_global_info,
             allocation->resource.cookie, info);
 
@@ -1708,8 +1708,8 @@ static HRESULT vkd3d_memory_chunk_create(struct d3d12_device *device, struct vkd
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
     {
         char name_buffer[1024];
-        snprintf(name_buffer, sizeof(name_buffer), "Chunk (cookie %"PRIu64")",
-                object->allocation.resource.cookie);
+        snprintf(name_buffer, sizeof(name_buffer), "Chunk (cookie %u)",
+                object->allocation.resource.cookie.index);
         vkd3d_set_vk_object_name(device, (uint64_t)object->allocation.device_allocation.vk_memory,
                 VK_OBJECT_TYPE_DEVICE_MEMORY, name_buffer);
     }
@@ -2164,9 +2164,9 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     if (SUCCEEDED(hr) && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && !allocation->chunk)
     {
         char name_buffer[1024];
-        snprintf(name_buffer, sizeof(name_buffer), "Heap %s (cookie %"PRIu64")",
+        snprintf(name_buffer, sizeof(name_buffer), "Heap %s (cookie %u)",
                 (info->heap_desc.Flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) ? "(not-zeroed)" : "(zeroed)",
-                allocation->resource.cookie);
+                allocation->resource.cookie.index);
         vkd3d_set_vk_object_name(device, (uint64_t)allocation->device_allocation.vk_memory,
                 VK_OBJECT_TYPE_DEVICE_MEMORY, name_buffer);
     }

@@ -42,6 +42,9 @@ void vkd3d_descriptor_debug_sync_validation_barrier(
 uint32_t vkd3d_descriptor_debug_clear_bloom_filter(
         struct vkd3d_descriptor_qa_global_info *global_info,
         struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer);
+uint32_t vkd3d_descriptor_debug_update_va_timestamp(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer);
 
 HRESULT vkd3d_descriptor_debug_alloc_global_info(
         struct vkd3d_descriptor_qa_global_info **global_info,
@@ -68,33 +71,33 @@ bool vkd3d_descriptor_debug_active_instruction_qa_checks(void);
 bool vkd3d_descriptor_debug_active_descriptor_qa_checks(void);
 
 void vkd3d_descriptor_debug_register_heap(
-        struct vkd3d_descriptor_qa_heap_buffer_data *heap, uint64_t cookie,
+        struct vkd3d_descriptor_qa_heap_buffer_data *heap, struct vkd3d_cookie cookie,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc);
-void vkd3d_descriptor_debug_unregister_heap(uint64_t cookie);
+void vkd3d_descriptor_debug_unregister_heap(struct vkd3d_cookie cookie);
 
 void vkd3d_descriptor_debug_register_resource_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, const D3D12_RESOURCE_DESC1 *desc);
+        struct vkd3d_cookie cookie, const D3D12_RESOURCE_DESC1 *desc);
 void vkd3d_descriptor_debug_register_query_heap_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, const D3D12_QUERY_HEAP_DESC *desc);
+        struct vkd3d_cookie cookie, const D3D12_QUERY_HEAP_DESC *desc);
 void vkd3d_descriptor_debug_register_allocation_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, const struct vkd3d_allocate_memory_info *info);
+        struct vkd3d_cookie cookie, const struct vkd3d_allocate_memory_info *info);
 void vkd3d_descriptor_debug_register_view_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, uint64_t resource_cookie);
+        struct vkd3d_cookie cookie, struct vkd3d_cookie resource_cookie);
 void vkd3d_descriptor_debug_unregister_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie);
+        struct vkd3d_cookie cookie);
 
 void vkd3d_descriptor_debug_write_descriptor(
-        struct vkd3d_descriptor_qa_heap_buffer_data *heap, uint64_t heap_cookie, uint32_t offset,
-        vkd3d_descriptor_qa_flags type_flags, uint64_t cookie);
+        struct vkd3d_descriptor_qa_heap_buffer_data *heap, struct vkd3d_cookie heap_cookie, uint32_t offset,
+        vkd3d_descriptor_qa_flags type_flags, struct vkd3d_cookie cookie);
 void vkd3d_descriptor_debug_copy_descriptor(
-        struct vkd3d_descriptor_qa_heap_buffer_data *dst_heap, uint64_t dst_heap_cookie, uint32_t dst_offset,
-        struct vkd3d_descriptor_qa_heap_buffer_data *src_heap, uint64_t src_heap_cookie, uint32_t src_offset,
-        uint64_t cookie);
+        struct vkd3d_descriptor_qa_heap_buffer_data *dst_heap, struct vkd3d_cookie dst_heap_cookie, uint32_t dst_offset,
+        struct vkd3d_descriptor_qa_heap_buffer_data *src_heap, struct vkd3d_cookie src_heap_cookie, uint32_t src_offset,
+        struct vkd3d_cookie cookie);
 
 VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors);
 #else
@@ -120,6 +123,7 @@ VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
 #define vkd3d_descriptor_debug_get_shader_interface_flags(global_info, code, size) 0
 #define vkd3d_descriptor_debug_sync_validation_barrier(global_info, device, vk_cmd_buffer) ((void)0)
 #define vkd3d_descriptor_debug_clear_bloom_filter(global_info, device, vk_cmd_buffer) (0)
+#define vkd3d_descriptor_debug_update_va_timestamp(global_info, device, vk_cmd_buffer) (0)
 #endif
 
 #endif
