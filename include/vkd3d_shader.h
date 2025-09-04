@@ -997,6 +997,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 void vkd3d_shader_free_shader_code_debug(struct vkd3d_shader_code_debug *code);
 
+bool vkd3d_shader_contains_root_signature(const void *code, size_t size);
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *root_signature,
         vkd3d_shader_hash_t *compatibility_hash);
