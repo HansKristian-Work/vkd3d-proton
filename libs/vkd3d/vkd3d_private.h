@@ -995,7 +995,8 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
     VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
     VKD3D_RESOURCE_GENERAL_LAYOUT         = (1u << 7),
-    VKD3D_RESOURCE_ZERO_INITIALIZED       = (1u << 8)
+    VKD3D_RESOURCE_ZERO_INITIALIZED       = (1u << 8),
+    VKD3D_RESOURCE_RETAINED_GPU_REFERENCE = (1u << 9)
 };
 
 #define VKD3D_INVALID_TILE_INDEX (~0u)
@@ -1072,6 +1073,7 @@ struct d3d12_resource
     d3d12_resource_iface ID3D12Resource_iface;
     LONG refcount;
     LONG internal_refcount;
+    LONG weak_count;
 
     D3D12_RESOURCE_DESC1 desc;
     D3D12_HEAP_PROPERTIES heap_properties;
@@ -1088,6 +1090,7 @@ struct d3d12_resource
     VkImageLayout common_layout;
     D3D12_RESOURCE_STATES initial_state;
     uint32_t initial_layout_transition;
+
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     bool initial_layout_transition_validate_only;
 #endif
@@ -1132,6 +1135,10 @@ static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resour
 
 ULONG d3d12_resource_incref(struct d3d12_resource *resource);
 ULONG d3d12_resource_decref(struct d3d12_resource *resource);
+/* Only called by fence worker. Adds detection for use-after-free in debug builds. */
+void d3d12_resource_decref_retained(struct d3d12_resource *resource);
+void d3d12_resource_incref_weak(struct d3d12_resource *resource);
+void d3d12_resource_decref_weak(struct d3d12_resource *resource);
 
 struct vkd3d_cookie vkd3d_allocate_cookie(void);
 UINT vkd3d_allocate_cookie_va_timestamp(void);
@@ -3085,6 +3092,10 @@ struct d3d12_command_list
     size_t query_resolve_count;
     size_t query_resolve_size;
 
+    struct d3d12_resource **retained_resources;
+    size_t retained_resources_size;
+    size_t retained_resources_count;
+
     struct hash_map query_resolve_lut;
 
     struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
@@ -3301,6 +3312,9 @@ struct d3d12_command_queue_submission_execute
 
     struct vkd3d_initial_transition *transitions;
     size_t transition_count;
+
+    struct d3d12_resource **retained_resources;
+    UINT num_retained_resources;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* Replays commands in submission order for heavy debug. */
