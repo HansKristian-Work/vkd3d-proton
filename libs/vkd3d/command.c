@@ -6718,7 +6718,8 @@ static void d3d12_command_list_update_descriptors_post_indirect_buffer(struct d3
         list->descriptor_heap.buffers.heap_dirty = old_heap_dirty;
 }
 
-static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_list *list);
+static void d3d12_command_list_check_pre_compute_barrier(
+        struct d3d12_command_list *list, VkPipelineStageFlagBits2 vk_dst_stage);
 
 static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
 {
@@ -6727,7 +6728,7 @@ static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *l
     if (!d3d12_command_list_update_compute_pipeline(list))
         return false;
 
-    d3d12_command_list_check_pre_compute_barrier(list);
+    d3d12_command_list_check_pre_compute_barrier(list, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
     d3d12_command_list_update_descriptors(list);
 
     return true;
@@ -7509,7 +7510,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
     VKD3D_BREADCRUMB_COMMAND(DRAW_INDEXED);
 }
 
-static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_list *list)
+static void d3d12_command_list_check_pre_compute_barrier(
+        struct d3d12_command_list *list, VkPipelineStageFlagBits2 vk_dst_stage)
 {
     vkd3d_descriptor_debug_sync_validation_barrier(list->device->descriptor_qa_global_info,
             list->device, list->cmd.vk_command_buffer);
@@ -7533,14 +7535,14 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
             vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT |
                     VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
                     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_barrier.dstStageMask = vk_dst_stage;
             vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
         }
         else if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH)
         {
             vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT;
             vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-            vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_barrier.dstStageMask = vk_dst_stage;
             vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
         }
 
@@ -7548,7 +7550,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
         {
             vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             vk_barrier.srcAccessMask |= VK_ACCESS_2_SHADER_WRITE_BIT;
-            vk_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_barrier.dstStageMask |= vk_dst_stage;
             vk_barrier.dstAccessMask |= VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
         }
 
