@@ -914,6 +914,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Death Stranding  */
     { VKD3D_STRING_COMPARE_EXACT, "ds.exe", &death_stranding_quirks },
     { VKD3D_STRING_COMPARE_EXACT, "DeathStranding.exe", &death_stranding_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "3DMarkPortRoyal.exe", &heap_robustness_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
