@@ -6744,6 +6744,7 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
 
     /* DXR uses compute bind point for descriptors, we will redirect internally to
      * raygen bind point in Vulkan. */
+    d3d12_command_list_check_pre_compute_barrier(list, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR);
     d3d12_command_list_update_descriptors(list);
 
     /* If we have a static sampler set for local root signatures, bind it now.
@@ -16737,6 +16738,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
     /* SetPSO and SetPSO1 alias the same internal active pipeline state even if they are completely different types. */
     list->state = NULL;
     list->rt_state = state;
+    list->current_meta_flags = 0;
 
     /* DXR uses compute bind points for descriptors. When binding an RTPSO, invalidate all state
      * to make sure we broadcast state correctly to COMPUTE or RT bind points in Vulkan. */
