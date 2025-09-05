@@ -654,6 +654,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Endless Legend 2.exe", VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV, 0 },
     /* Red Dead Redemption 2 (1174180). Broken shader compilation with legacy compiler. */
     { VKD3D_STRING_COMPARE_EXACT, "RDR2.exe", VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV, 0 },
+    /* Broken UAV clear without sync before RT. There's also a missing clear UAV barrier before render pass ROV.
+     * Extremely rare case ... */
+    { VKD3D_STRING_COMPARE_EXACT, "3DMarkPortRoyal.exe", VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
