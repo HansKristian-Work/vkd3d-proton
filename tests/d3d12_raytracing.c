@@ -2092,7 +2092,7 @@ void test_raytracing(void)
     vkd3d_test_set_context(NULL);
 }
 
-static void test_rayquery_pipeline(enum rt_test_mode mode)
+static void test_rayquery_pipeline(enum rt_test_mode mode, bool root_table)
 {
     /* Intended to mirror the test case for RTPSO closely. */
 #define THREADGROUP_SIZE 64
@@ -2104,11 +2104,13 @@ static void test_rayquery_pipeline(enum rt_test_mode mode)
     ID3D12RootSignature *root_signature;
     const float miss_color_x = 1000.0f;
     const float miss_color_y = 2000.0f;
+    D3D12_DESCRIPTOR_RANGE rs_range[1];
     struct test_geometry test_geom;
     unsigned int i, instance, geom;
     ID3D12Resource *ray_positions;
     ID3D12Resource *ray_results;
     struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
     ID3D12CommandQueue *queue;
     ID3D12PipelineState *pso;
     ID3D12Device *device;
@@ -2121,14 +2123,31 @@ static void test_rayquery_pipeline(enum rt_test_mode mode)
     command_list = context.context.list;
     queue = context.context.queue;
 
+    heap = create_gpu_descriptor_heap(context.context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
     root_signature_desc.pParameters = root_parameters;
 
-    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    root_parameters[0].Descriptor.ShaderRegister = 0;
-    root_parameters[0].Descriptor.RegisterSpace = 0;
+    if (root_table)
+    {
+        root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        root_parameters[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_range);
+        root_parameters[0].DescriptorTable.pDescriptorRanges = rs_range;
+
+        memset(rs_range, 0, sizeof(rs_range));
+        rs_range[0].NumDescriptors = 1;
+        rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    }
+    else
+    {
+        root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        root_parameters[0].Descriptor.ShaderRegister = 0;
+        root_parameters[0].Descriptor.RegisterSpace = 0;
+    }
+
     root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     root_parameters[1].Descriptor.ShaderRegister = 1;
@@ -2177,10 +2196,36 @@ static void test_rayquery_pipeline(enum rt_test_mode mode)
                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
 
+    if (root_table)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+        srv_desc.RaytracingAccelerationStructure.Location =
+                ID3D12Resource_GetGPUVirtualAddress(test_rtases.top_acceleration_structures[0]);
+        ID3D12Device_CreateShaderResourceView(context.context.device,
+                test_rtases.top_acceleration_structures[0],
+                &srv_desc,
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
-    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(command_list, 0,
-            ID3D12Resource_GetGPUVirtualAddress(test_rtases.top_acceleration_structures[0]));
+
+    if (root_table)
+    {
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0,
+                ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    }
+    else
+    {
+        ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(command_list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(test_rtases.top_acceleration_structures[0]));
+    }
+
     ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(command_list, 1,
             ID3D12Resource_GetGPUVirtualAddress(ray_positions));
     ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 2,
@@ -2272,10 +2317,11 @@ static void test_rayquery_pipeline(enum rt_test_mode mode)
     ID3D12Resource_Release(ray_results);
     ID3D12RootSignature_Release(root_signature);
     ID3D12PipelineState_Release(pso);
+    ID3D12DescriptorHeap_Release(heap);
     destroy_raytracing_test_context(&context);
 }
 
-void test_rayquery(void)
+static void test_rayquery(bool root_table)
 {
     struct test
     {
@@ -2296,9 +2342,19 @@ void test_rayquery(void)
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
         vkd3d_test_set_context("Test: %s", tests[i].desc);
-        test_rayquery_pipeline(tests[i].mode);
+        test_rayquery_pipeline(tests[i].mode, root_table);
     }
     vkd3d_test_set_context(NULL);
+}
+
+void test_rayquery_root_desc(void)
+{
+    test_rayquery(false);
+}
+
+void test_rayquery_root_table(void)
+{
+    test_rayquery(true);
 }
 
 static void test_raytracing_local_rs_static_sampler_inner(bool use_libraries)
