@@ -2633,22 +2633,6 @@ static HRESULT d3d12_state_object_init(struct d3d12_rt_state_object *object,
     object->device = device;
     object->type = desc->Type;
 
-    if (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION) &&
-            !device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
-    {
-        /* It seems to be valid to query shader identifiers from a COLLECTION which is pure insanity.
-         * We can fake this behavior if we pretend we have ALLOW_STATE_OBJECT_ADDITIONS and RTPSO.
-         * We will validate that the "COLLECTION" matches the consuming RTPSO.
-         * If the collection does not contain an RGEN shader, we're technically out of spec here. */
-
-        /* If we have pipeline library group handles feature however,
-         * we can ignore this workaround and do it properly. */
-        INFO("Promoting COLLECTION to RAYTRACING_PIPELINE as workaround.\n");
-        object->type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-        object->flags |= D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
-    }
-
     memset(&data, 0, sizeof(data));
 
     if (FAILED(hr = d3d12_state_object_parse_subobjects(object, desc, parent, &data)))

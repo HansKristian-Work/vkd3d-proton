@@ -572,7 +572,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION | VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0 },
     /* Cyberpunk 2077 (1091500). For whatever reason, anti-lag is always used if it is supported (impossible to disable),
      * leading to bad performance in some cases. Currently only affects Proton-GE which ships amdxc64.dll shim by default. */
-    { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION, 0, VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG },
+    { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", 0, 0, VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG },
     /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
     { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", 0, 0, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
     /* Hellblade: Senua's Sacrifice (414340). Enables RT by default if supported which is ... jarring and particularly jarring on Deck. */
@@ -654,6 +654,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Endless Legend 2.exe", VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV, 0 },
     /* Red Dead Redemption 2 (1174180). Broken shader compilation with legacy compiler. */
     { VKD3D_STRING_COMPARE_EXACT, "RDR2.exe", VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV, 0 },
+    /* NBA2K26 (3472040). Uses an extreme number of queues which trip bad submission paths. */
+    { VKD3D_STRING_COMPARE_EXACT, "NBA2K26.exe", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -1107,7 +1109,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"pipeline_library_app_cache", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY},
     {"shader_cache_sync", VKD3D_CONFIG_FLAG_SHADER_CACHE_SYNC},
     {"force_raw_va_cbv", VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV},
-    {"allow_sbt_collection", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION},
     {"host_import_fallback", VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK},
     {"preallocate_srv_mip_clamps", VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS},
     {"force_initial_transition", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION},
