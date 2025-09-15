@@ -1,5 +1,5 @@
 # For maintainers: remember to update vcs_tag(fallback) as well
-project('vkd3d-proton', ['c', 'cpp'], version : '2.14.1', meson_version : '>= 0.49', default_options : [
+project('vkd3d-proton', ['c', 'cpp'], version : '3.0', meson_version : '>= 0.49', default_options : [
   'warning_level=2', 'c_std=c11', 'cpp_std=c++17'
 ])
 
