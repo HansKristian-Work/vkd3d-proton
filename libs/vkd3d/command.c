@@ -7032,25 +7032,42 @@ static bool d3d12_command_list_fixup_null_xfb_buffers(struct d3d12_command_list 
 
 static void d3d12_command_list_check_render_pass_barrier(struct d3d12_command_list *list)
 {
-    if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS)
+    if ((list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS) ||
+            list->cmd.clear_uav_pending)
     {
         const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-        VkMemoryBarrier2 vk_barrier;
+        VkMemoryBarrier2 vk_barriers[2];
+        VkMemoryBarrier2 *vk_barrier;
         VkDependencyInfo dep_info;
 
-        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        memset(vk_barriers, 0, sizeof(vk_barriers));
         memset(&dep_info, 0, sizeof(dep_info));
-        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT |
-                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-        vk_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
-                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+
+        if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS)
+        {
+            vk_barrier = &vk_barriers[dep_info.memoryBarrierCount++];
+            vk_barrier->sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            vk_barrier->srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT |
+                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            vk_barrier->srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            vk_barrier->dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            vk_barrier->dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        }
+
+        if (list->cmd.clear_uav_pending)
+        {
+            vk_barrier = &vk_barriers[dep_info.memoryBarrierCount++];
+            vk_barrier->srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_barrier->srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+            vk_barrier->dstStageMask = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT |
+                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            vk_barrier->dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            list->cmd.clear_uav_pending = false;
+        }
 
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep_info.memoryBarrierCount = 1;
-        dep_info.pMemoryBarriers = &vk_barrier;
+        dep_info.pMemoryBarriers = vk_barriers;
 
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
         VKD3D_BREADCRUMB_TAG("ForceRenderPassBarrier");
@@ -7547,7 +7564,8 @@ static void d3d12_command_list_check_pre_compute_barrier(
             vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
         }
 
-        if ((list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH) || list->cmd.clear_uav_pending)
+        if ((list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_BEFORE_DISPATCH) ||
+                list->cmd.clear_uav_pending)
         {
             vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             vk_barrier.srcAccessMask |= VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -10467,10 +10485,14 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
 
     if (list->cmd.clear_uav_pending)
     {
+        const VkPipelineStageFlagBits2 uav_stages =
+                VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT |
+                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+
         if ((batch->vk_memory_barrier.srcStageMask &
             (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) &&
-            (batch->vk_memory_barrier.dstStageMask &
-            (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)))
+            (batch->vk_memory_barrier.dstStageMask & uav_stages))
         {
             list->cmd.clear_uav_pending = false;
         }
@@ -10482,8 +10504,7 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
             {
                 if ((batch->vk_image_barriers[i].srcStageMask &
                     (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) &&
-                    (batch->vk_image_barriers[i].dstStageMask &
-                    (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)))
+                    (batch->vk_image_barriers[i].dstStageMask & uav_stages))
                 {
                     list->cmd.clear_uav_pending = false;
                     break;
