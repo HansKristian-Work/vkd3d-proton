@@ -1485,18 +1485,19 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
                 return hresult_from_vk_result(vr);
             }
         }
-
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
-        {
-            char name_buffer[1024];
-            snprintf(name_buffer, sizeof(name_buffer), "GlobalBuffer (cookie %u)",
-                    allocation->resource.cookie.index);
-            vkd3d_set_vk_object_name(device, (uint64_t)allocation->resource.vk_buffer,
-                    VK_OBJECT_TYPE_BUFFER, name_buffer);
-        }
     }
 
     allocation->resource.cookie = vkd3d_allocate_cookie();
+
+    if (allocation->resource.vk_buffer && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS))
+    {
+        char name_buffer[1024];
+        snprintf(name_buffer, sizeof(name_buffer), "GlobalBuffer (cookie %u)",
+                allocation->resource.cookie.index);
+        vkd3d_set_vk_object_name(device, (uint64_t)allocation->resource.vk_buffer,
+                VK_OBJECT_TYPE_BUFFER, name_buffer);
+    }
+
     vkd3d_descriptor_debug_register_allocation_cookie(device->descriptor_qa_global_info,
             allocation->resource.cookie, info);
 
