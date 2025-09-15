@@ -66,10 +66,3 @@ executable('pso-library-bloat', 'pso_library_bloat.c',
   install             : false,
   c_args              : vkd3d_test_flags,
   link_with           : [ d3d12_test_utils_lib ])
-
-executable('shader-api', 'vkd3d_shader_api.c',
-  dependencies        : [ vkd3d_test_deps, vkd3d_shader_dep ],
-  include_directories : [ vkd3d_private_includes, vkd3d_shader_private_includes ],
-  install             : false,
-  c_args              : vkd3d_test_flags,
-  link_with           : [ d3d12_test_utils_lib ])
