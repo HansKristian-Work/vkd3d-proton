@@ -650,10 +650,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "DeathStranding.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* AC: Valhalla (2208920). Very ugly use-after-free in some cases. The main culprit seems a sparse resource. */
     { VKD3D_STRING_COMPARE_EXACT, "ACValhalla.exe", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION, 0 },
-    /* Endless Legend 2 (3407390) and its demo (3596660). Broken tessellation shaders with legacy compiler. */
-    { VKD3D_STRING_COMPARE_EXACT, "Endless Legend 2.exe", VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV, 0 },
-    /* Red Dead Redemption 2 (1174180). Broken shader compilation with legacy compiler. */
-    { VKD3D_STRING_COMPARE_EXACT, "RDR2.exe", VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV, 0 },
     /* Broken UAV clear without sync before RT. There's also a missing clear UAV barrier before render pass ROV.
      * Extremely rare case ... */
     { VKD3D_STRING_COMPARE_EXACT, "3DMarkPortRoyal.exe", VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC, 0 },
@@ -1031,7 +1027,7 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
     static const struct override overrides[] =
     {
         { VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, VKD3D_SHADER_QUIRK_INVARIANT_POSITION, true },
-        { VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV, VKD3D_SHADER_QUIRK_DXBC_SPIRV, false },
+        { VKD3D_CONFIG_FLAG_DISABLE_DXBC_SPIRV, VKD3D_SHADER_QUIRK_DXBC_SPIRV, true },
     };
     uint64_t eq_test;
     unsigned int i;
@@ -1090,7 +1086,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"dxr12", VKD3D_CONFIG_FLAG_DXR_1_2},
     {"nodxr", VKD3D_CONFIG_FLAG_NO_DXR},
     {"single_queue", VKD3D_CONFIG_FLAG_SINGLE_QUEUE},
-    {"descriptor_qa_checks", VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS | VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV},
+    {"descriptor_qa_checks", VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS},
     {"no_upload_hvv", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV},
     {"log_memory_budget", VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET},
     {"force_host_cached", VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED},
@@ -1129,7 +1125,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"no_staggered_submit", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT},
     {"clear_uav_sync", VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC},
     {"force_dynamic_msaa", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA},
-    {"instruction_qa_checks", VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS | VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV},
+    {"instruction_qa_checks", VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS},
     {"transfer_queue", VKD3D_CONFIG_FLAG_TRANSFER_QUEUE},
     {"no_gpu_upload_heap", VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP},
     {"one_time_submit", VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT},
@@ -1137,7 +1133,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"queue_profile_extra", VKD3D_CONFIG_FLAG_QUEUE_PROFILE_EXTRA},
     {"damage_not_zeroed_allocations", VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS},
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
-    {"dxbc_spirv", VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV},
+    {"disable_dxbc_spirv", VKD3D_CONFIG_FLAG_DISABLE_DXBC_SPIRV},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -1146,12 +1142,6 @@ static void vkd3d_config_flags_init_once(void)
 
     vkd3d_get_env_var("VKD3D_CONFIG", config, sizeof(config));
     vkd3d_config_flags = vkd3d_parse_debug_options(config, vkd3d_config_options, ARRAY_SIZE(vkd3d_config_options));
-
-    if (vkd3d_debug_control_is_test_suite())
-    {
-        INFO("Running test suite, enabling dxbc-spirv.\n");
-        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_ENABLE_DXBC_SPIRV;
-    }
 
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS))
         vkd3d_instance_apply_application_workarounds();
