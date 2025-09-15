@@ -2,7 +2,6 @@ vkd3d_shader_src = [
   'checksum.c',
   'dxil.c',
   'dxbc.c',
-  'spirv.c',
   'vkd3d_shader_main.c',
   '3rdparty/md5/md5.c',
 ]
