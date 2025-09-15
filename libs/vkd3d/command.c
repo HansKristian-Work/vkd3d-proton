@@ -10465,18 +10465,6 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
 #endif
     }
 
-    if (dep_info.imageMemoryBarrierCount || dep_info.memoryBarrierCount)
-    {
-        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
-
-        batch->vk_memory_barrier.srcStageMask = 0;
-        batch->vk_memory_barrier.srcAccessMask = 0;
-        batch->vk_memory_barrier.dstStageMask = 0;
-        batch->vk_memory_barrier.dstAccessMask = 0;
-
-        batch->image_barrier_count = 0;
-    }
-
     if (list->cmd.clear_uav_pending)
     {
         if ((batch->vk_memory_barrier.srcStageMask &
@@ -10502,6 +10490,18 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
                 }
             }
         }
+    }
+
+    if (dep_info.imageMemoryBarrierCount || dep_info.memoryBarrierCount)
+    {
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        batch->vk_memory_barrier.srcStageMask = 0;
+        batch->vk_memory_barrier.srcAccessMask = 0;
+        batch->vk_memory_barrier.dstStageMask = 0;
+        batch->vk_memory_barrier.dstAccessMask = 0;
+
+        batch->image_barrier_count = 0;
     }
 }
 
