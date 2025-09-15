@@ -27,6 +27,8 @@
 #include <stdio.h>
 #include <inttypes.h>
 
+#include "spirv/unified1/spirv.h"
+
 static void vkd3d_shader_dump_blob(const char *path, vkd3d_shader_hash_t hash, const void *data, size_t size, const char *ext)
 {
     char filename[1024];
@@ -174,44 +176,6 @@ void vkd3d_shader_dump_spirv_shader_export(vkd3d_shader_hash_t hash, const struc
     vkd3d_shader_dump_blob(path, hash, shader->code, shader->size, tag);
 }
 
-struct vkd3d_shader_parser
-{
-    struct vkd3d_shader_desc shader_desc;
-    struct vkd3d_shader_version shader_version;
-    void *data;
-    const DWORD *ptr;
-};
-
-static int vkd3d_shader_parser_init(struct vkd3d_shader_parser *parser,
-        const struct vkd3d_shader_code *dxbc)
-{
-    struct vkd3d_shader_desc *shader_desc = &parser->shader_desc;
-    int ret;
-
-    if ((ret = shader_extract_from_dxbc(dxbc->code, dxbc->size, shader_desc)) < 0)
-    {
-        WARN("Failed to extract shader, vkd3d result %d.\n", ret);
-        return ret;
-    }
-
-    if (!(parser->data = shader_sm4_init(shader_desc->byte_code,
-            shader_desc->byte_code_size, &shader_desc->output_signature)))
-    {
-        WARN("Failed to initialize shader parser.\n");
-        free_shader_desc(shader_desc);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
-
-    shader_sm4_read_header(parser->data, &parser->ptr, &parser->shader_version);
-    return VKD3D_OK;
-}
-
-static void vkd3d_shader_parser_destroy(struct vkd3d_shader_parser *parser)
-{
-    shader_sm4_free(parser->data);
-    free_shader_desc(&parser->shader_desc);
-}
-
 static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_arguments *compile_args)
 {
     if (!compile_args)
@@ -229,140 +193,6 @@ static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_
     return VKD3D_OK;
 }
 
-struct vkd3d_shader_scan_key
-{
-    enum vkd3d_shader_register_type register_type;
-    unsigned int register_id;
-};
-
-struct vkd3d_shader_scan_entry
-{
-    struct hash_map_entry entry;
-    struct vkd3d_shader_scan_key key;
-    unsigned int flags;
-    unsigned required_components;
-};
-
-static uint32_t vkd3d_shader_scan_entry_hash(const void *key)
-{
-    const struct vkd3d_shader_scan_key *k = key;
-    return hash_combine(k->register_type, k->register_id);
-}
-
-static bool vkd3d_shader_scan_entry_compare(const void *key, const struct hash_map_entry *entry)
-{
-    const struct vkd3d_shader_scan_entry *e = (const struct vkd3d_shader_scan_entry*) entry;
-    const struct vkd3d_shader_scan_key *k = key;
-    return e->key.register_type == k->register_type && e->key.register_id == k->register_id;
-}
-
-unsigned int vkd3d_shader_scan_get_register_flags(const struct vkd3d_shader_scan_info *scan_info,
-        enum vkd3d_shader_register_type type, unsigned int id)
-{
-    const struct vkd3d_shader_scan_entry *e;
-    struct vkd3d_shader_scan_key key;
-
-    key.register_type = type;
-    key.register_id = id;
-
-    e = (const struct vkd3d_shader_scan_entry *)hash_map_find(&scan_info->register_map, &key);
-    return e ? e->flags : 0u;
-}
-
-unsigned int vkd3d_shader_scan_get_idxtemp_components(const struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_register *reg)
-{
-    const struct vkd3d_shader_scan_entry *e;
-    struct vkd3d_shader_scan_key key;
-
-    key.register_type = reg->type;
-    key.register_id = reg->idx[0].offset;
-
-    e = (const struct vkd3d_shader_scan_entry *)hash_map_find(&scan_info->register_map, &key);
-    return e ? e->required_components : 4u;
-}
-
-static void vkd3d_shader_scan_set_register_flags(struct vkd3d_shader_scan_info *scan_info,
-        enum vkd3d_shader_register_type type, unsigned int id, unsigned int flags)
-{
-    struct vkd3d_shader_scan_entry entry;
-    struct vkd3d_shader_scan_entry *e;
-    struct vkd3d_shader_scan_key key;
-
-    key.register_type = type;
-    key.register_id = id;
-
-    if ((e = (struct vkd3d_shader_scan_entry *)hash_map_find(&scan_info->register_map, &key)))
-    {
-        e->flags |= flags;
-    }
-    else
-    {
-        entry.key = key;
-        entry.flags = flags;
-        entry.required_components = 0;
-        hash_map_insert(&scan_info->register_map, &key, &entry.entry);
-    }
-}
-
-static void vkd3d_shader_scan_record_idxtemp_components(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_register *reg, unsigned int required_components)
-{
-    struct vkd3d_shader_scan_entry entry;
-    struct vkd3d_shader_scan_entry *e;
-    struct vkd3d_shader_scan_key key;
-
-    key.register_type = reg->type;
-    key.register_id = reg->idx[0].offset;
-
-    if ((e = (struct vkd3d_shader_scan_entry *)hash_map_find(&scan_info->register_map, &key)))
-    {
-        e->required_components = max(required_components, e->required_components);
-    }
-    else
-    {
-        entry.key = key;
-        entry.flags = 0;
-        entry.required_components = required_components;
-        hash_map_insert(&scan_info->register_map, &key, &entry.entry);
-    }
-}
-
-static void vkd3d_shader_scan_init(struct vkd3d_shader_scan_info *scan_info)
-{
-    memset(scan_info, 0, sizeof(*scan_info));
-    hash_map_init(&scan_info->register_map, &vkd3d_shader_scan_entry_hash,
-            &vkd3d_shader_scan_entry_compare, sizeof(struct vkd3d_shader_scan_entry));
-}
-
-static void vkd3d_shader_scan_destroy(struct vkd3d_shader_scan_info *scan_info)
-{
-    hash_map_free(&scan_info->register_map);
-}
-
-static int vkd3d_shader_validate_shader_type(enum vkd3d_shader_type type, VkShaderStageFlagBits stages)
-{
-    static const VkShaderStageFlagBits table[VKD3D_SHADER_TYPE_COUNT] = {
-        VK_SHADER_STAGE_FRAGMENT_BIT,
-        VK_SHADER_STAGE_VERTEX_BIT,
-        VK_SHADER_STAGE_GEOMETRY_BIT,
-        VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
-        VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
-        VK_SHADER_STAGE_COMPUTE_BIT,
-    };
-
-    if (type >= VKD3D_SHADER_TYPE_COUNT)
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-
-    if (table[type] != stages)
-    {
-        ERR("Expected VkShaderStage #%x, but got VkShaderStage #%x.\n", stages, table[type]);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
-
-    return 0;
-}
-
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         struct vkd3d_shader_code_debug *spirv_debug,
@@ -370,12 +200,6 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compile_args)
 {
-    struct vkd3d_shader_instruction instruction;
-    struct vkd3d_dxbc_compiler *spirv_compiler;
-    struct vkd3d_shader_scan_info scan_info;
-    struct vkd3d_shader_parser parser;
-    vkd3d_shader_hash_t hash;
-    uint32_t quirks;
     bool is_dxil;
     int ret;
 
@@ -386,320 +210,9 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return ret;
 
     is_dxil = shader_is_dxil(dxbc->code, dxbc->size);
-
-    /* DXIL is handled externally through dxil-spirv. */
-    hash = vkd3d_shader_hash(dxbc);
-    quirks = vkd3d_shader_compile_arguments_select_quirks(compile_args, hash);
-
-    if (is_dxil || (quirks & VKD3D_SHADER_QUIRK_DXBC_SPIRV))
-    {
-        spirv->meta.hash = 0;
-        return vkd3d_shader_compile_dxil(dxbc, spirv, spirv_debug, shader_interface_info, compile_args, is_dxil);
-    }
-
-    memset(&spirv->meta, 0, sizeof(spirv->meta));
-
-    spirv->meta.hash = hash;
-    if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
-    {
-        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
-        return VKD3D_OK;
-    }
-
-    vkd3d_shader_dump_shader(hash, dxbc, "dxbc");
-
-    vkd3d_shader_scan_init(&scan_info);
-
-    if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
-    {
-        vkd3d_shader_scan_destroy(&scan_info);
-        return ret;
-    }
-
-    spirv->meta.patch_vertex_count = scan_info.patch_vertex_count;
-
-    if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
-    {
-        vkd3d_shader_scan_destroy(&scan_info);
-        return ret;
-    }
-
-    if (shader_interface_info)
-    {
-        if ((ret = vkd3d_shader_validate_shader_type(parser.shader_version.type, shader_interface_info->stage)) < 0)
-        {
-            vkd3d_shader_scan_destroy(&scan_info);
-            vkd3d_shader_parser_destroy(&parser);
-            return ret;
-        }
-    }
-
-    if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
-            &parser.shader_desc, compiler_options, shader_interface_info, compile_args, &scan_info,
-            spirv->meta.hash)))
-    {
-        ERR("Failed to create DXBC compiler.\n");
-        vkd3d_shader_scan_destroy(&scan_info);
-        vkd3d_shader_parser_destroy(&parser);
-        return VKD3D_ERROR;
-    }
-
-    while (!shader_sm4_is_end(parser.data, &parser.ptr))
-    {
-        shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
-
-        if (instruction.handler_idx == VKD3DSIH_INVALID)
-        {
-            WARN("Encountered unrecognized or invalid instruction.\n");
-            vkd3d_dxbc_compiler_destroy(spirv_compiler);
-            vkd3d_shader_scan_destroy(&scan_info);
-            vkd3d_shader_parser_destroy(&parser);
-            return VKD3D_ERROR_INVALID_ARGUMENT;
-        }
-
-        if ((ret = vkd3d_dxbc_compiler_handle_instruction(spirv_compiler, &instruction)) < 0)
-            break;
-    }
-
-    if (ret >= 0)
-        ret = vkd3d_dxbc_compiler_generate_spirv(spirv_compiler, spirv);
-
-    if (ret == 0)
-        vkd3d_shader_dump_spirv_shader(hash, spirv);
-
-    if (spirv_debug)
-        memset(spirv_debug, 0, sizeof(*spirv_debug));
-
-    vkd3d_dxbc_compiler_destroy(spirv_compiler);
-    vkd3d_shader_scan_destroy(&scan_info);
-    vkd3d_shader_parser_destroy(&parser);
-    return ret;
-}
-
-static bool vkd3d_shader_instruction_is_uav_read(const struct vkd3d_shader_instruction *instruction)
-{
-    enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx = instruction->handler_idx;
-    return (VKD3DSIH_ATOMIC_AND <= handler_idx && handler_idx <= VKD3DSIH_ATOMIC_XOR)
-            || (VKD3DSIH_IMM_ATOMIC_ALLOC <= handler_idx && handler_idx <= VKD3DSIH_IMM_ATOMIC_XOR)
-            || handler_idx == VKD3DSIH_LD_UAV_TYPED || handler_idx == VKD3DSIH_LD_UAV_TYPED_FEEDBACK
-            || ((handler_idx == VKD3DSIH_LD_RAW || handler_idx == VKD3DSIH_LD_RAW_FEEDBACK) && instruction->src[1].reg.type == VKD3DSPR_UAV)
-            || ((handler_idx == VKD3DSIH_LD_STRUCTURED || handler_idx == VKD3DSIH_LD_STRUCTURED_FEEDBACK) && instruction->src[2].reg.type == VKD3DSPR_UAV);
-}
-
-static bool vkd3d_shader_instruction_is_uav_write(const struct vkd3d_shader_instruction *instruction)
-{
-    enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx = instruction->handler_idx;
-    return (VKD3DSIH_ATOMIC_AND <= handler_idx && handler_idx <= VKD3DSIH_ATOMIC_XOR)
-            || (VKD3DSIH_IMM_ATOMIC_ALLOC <= handler_idx && handler_idx <= VKD3DSIH_IMM_ATOMIC_XOR)
-            || handler_idx == VKD3DSIH_STORE_UAV_TYPED
-            || handler_idx == VKD3DSIH_STORE_RAW
-            || handler_idx == VKD3DSIH_STORE_STRUCTURED;
-}
-
-static bool vkd3d_shader_instruction_is_uav_atomic(const struct vkd3d_shader_instruction *instruction)
-{
-    enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx = instruction->handler_idx;
-    return ((VKD3DSIH_ATOMIC_AND <= handler_idx && handler_idx <= VKD3DSIH_ATOMIC_XOR) ||
-            (VKD3DSIH_IMM_ATOMIC_AND <= handler_idx && handler_idx <= VKD3DSIH_IMM_ATOMIC_XOR)) &&
-            handler_idx != VKD3DSIH_IMM_ATOMIC_CONSUME;
-}
-
-static void vkd3d_shader_scan_record_uav_read(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_register *reg)
-{
-    vkd3d_shader_scan_set_register_flags(scan_info, VKD3DSPR_UAV,
-            reg->idx[0].offset, VKD3D_SHADER_UAV_FLAG_READ_ACCESS);
-}
-
-static void vkd3d_shader_scan_record_uav_write(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_register *reg)
-{
-    vkd3d_shader_scan_set_register_flags(scan_info, VKD3DSPR_UAV,
-            reg->idx[0].offset, VKD3D_SHADER_UAV_FLAG_WRITE_ACCESS);
-}
-
-static void vkd3d_shader_scan_record_uav_atomic(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_register *reg)
-{
-    vkd3d_shader_scan_set_register_flags(scan_info, VKD3DSPR_UAV,
-            reg->idx[0].offset, VKD3D_SHADER_UAV_FLAG_ATOMIC_ACCESS);
-}
-
-static bool vkd3d_shader_instruction_is_uav_counter(const struct vkd3d_shader_instruction *instruction)
-{
-    enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx = instruction->handler_idx;
-    return handler_idx == VKD3DSIH_IMM_ATOMIC_ALLOC
-            || handler_idx == VKD3DSIH_IMM_ATOMIC_CONSUME;
-}
-
-static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_register *reg)
-{
-    scan_info->has_side_effects = true;
-    scan_info->has_uav_counter = true;
-    vkd3d_shader_scan_set_register_flags(scan_info, VKD3DSPR_UAV,
-            reg->idx[0].offset, VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER);
-}
-
-static void vkd3d_shader_scan_input_declaration(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_instruction *instruction)
-{
-    const struct vkd3d_shader_dst_param *dst = &instruction->declaration.dst;
-
-    if (dst->reg.type == VKD3DSPR_OUTCONTROLPOINT)
-        scan_info->use_vocp = true;
-}
-
-static void vkd3d_shader_scan_output_declaration(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_instruction *instruction)
-{
-    switch (instruction->declaration.dst.reg.type)
-    {
-        case VKD3DSPR_DEPTHOUT:
-        case VKD3DSPR_DEPTHOUTLE:
-        case VKD3DSPR_DEPTHOUTGE:
-        case VKD3DSPR_STENCILREFOUT:
-        case VKD3DSPR_SAMPLEMASK:
-            scan_info->needs_late_zs = true;
-            break;
-
-        default:
-            break;
-    }
-}
-
-static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_info,
-        const struct vkd3d_shader_instruction *instruction)
-{
-    unsigned int i;
-    bool is_atomic;
-
-    switch (instruction->handler_idx)
-    {
-        case VKD3DSIH_DCL_INPUT:
-            vkd3d_shader_scan_input_declaration(scan_info, instruction);
-            break;
-        case VKD3DSIH_DCL_OUTPUT:
-            vkd3d_shader_scan_output_declaration(scan_info, instruction);
-            break;
-        case VKD3DSIH_DISCARD:
-            scan_info->discards = true;
-            break;
-        case VKD3DSIH_DCL_GLOBAL_FLAGS:
-            if (instruction->flags & VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL)
-                scan_info->early_fragment_tests = true;
-            break;
-        case VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT:
-            scan_info->patch_vertex_count = instruction->declaration.count;
-            break;
-        case VKD3DSIH_DCL_UAV_RAW:
-        case VKD3DSIH_DCL_UAV_STRUCTURED:
-        case VKD3DSIH_DCL_UAV_TYPED:
-            /* See test_memory_model_uav_coherent_thread_group() for details. */
-            if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
-                scan_info->declares_globally_coherent_uav = true;
-            if (instruction->flags & VKD3DSUF_RASTERIZER_ORDERED)
-                scan_info->requires_rov = true;
-            break;
-        case VKD3DSIH_SYNC:
-            /* See test_memory_model_uav_coherent_thread_group() for details. */
-            if (instruction->flags & (VKD3DSSF_UAV_MEMORY_LOCAL | VKD3DSSF_UAV_MEMORY_GLOBAL))
-                scan_info->requires_thread_group_uav_coherency = true;
-            break;
-        default:
-            break;
-    }
-
-    /* If we do nothing, we will have to assume that IDXTEMP is an array of vec4.
-     * This is problematic for performance if shader only accesses the first 1, 2 or 3 components.
-     * The dcl_indexableTemp instruction specifies number of components but FXC does not seem to
-     * care, so we have to analyze write masks instead. */
-    for (i = 0; i < instruction->dst_count; ++i)
-    {
-        if (instruction->dst[i].reg.type == VKD3DSPR_IDXTEMP)
-        {
-            unsigned int write_mask, required_components;
-            write_mask = instruction->dst[i].write_mask;
-            write_mask |= write_mask >> 2;
-            write_mask |= write_mask >> 1;
-            required_components = vkd3d_write_mask_component_count(write_mask);
-            vkd3d_shader_scan_record_idxtemp_components(scan_info,
-                    &instruction->dst[i].reg, required_components);
-        }
-    }
-
-    if (vkd3d_shader_instruction_is_uav_read(instruction))
-    {
-        is_atomic = vkd3d_shader_instruction_is_uav_atomic(instruction);
-
-        for (i = 0; i < instruction->dst_count; ++i)
-        {
-            if (instruction->dst[i].reg.type == VKD3DSPR_UAV)
-            {
-                vkd3d_shader_scan_record_uav_read(scan_info, &instruction->dst[i].reg);
-                if (is_atomic)
-                    vkd3d_shader_scan_record_uav_atomic(scan_info, &instruction->dst[i].reg);
-            }
-        }
-        for (i = 0; i < instruction->src_count; ++i)
-        {
-            if (instruction->src[i].reg.type == VKD3DSPR_UAV)
-            {
-                vkd3d_shader_scan_record_uav_read(scan_info, &instruction->src[i].reg);
-                if (is_atomic)
-                    vkd3d_shader_scan_record_uav_atomic(scan_info, &instruction->src[i].reg);
-            }
-        }
-    }
-
-    if (vkd3d_shader_instruction_is_uav_write(instruction))
-    {
-        scan_info->has_side_effects = true;
-        for (i = 0; i < instruction->dst_count; ++i)
-            if (instruction->dst[i].reg.type == VKD3DSPR_UAV)
-                vkd3d_shader_scan_record_uav_write(scan_info, &instruction->dst[i].reg);
-    }
-
-    if (vkd3d_shader_instruction_is_uav_counter(instruction))
-        vkd3d_shader_scan_record_uav_counter(scan_info, &instruction->src[0].reg);
-}
-
-int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_scan_info *scan_info)
-{
-    struct vkd3d_shader_instruction instruction;
-    struct vkd3d_shader_parser parser;
-    int ret;
-
-    TRACE("dxbc {%p, %zu}, scan_info %p.\n", dxbc->code, dxbc->size, scan_info);
-
-    if (shader_is_dxil(dxbc->code, dxbc->size))
-    {
-        /* There is nothing interesting to scan. DXIL does this internally. */
-        return VKD3D_OK;
-    }
-    else
-    {
-        if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
-            return ret;
-
-        while (!shader_sm4_is_end(parser.data, &parser.ptr))
-        {
-            shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
-
-            if (instruction.handler_idx == VKD3DSIH_INVALID)
-            {
-                WARN("Encountered unrecognized or invalid instruction.\n");
-                vkd3d_shader_parser_destroy(&parser);
-                return VKD3D_ERROR_INVALID_ARGUMENT;
-            }
-
-            vkd3d_shader_scan_instruction(scan_info, &instruction);
-        }
-
-        vkd3d_shader_parser_destroy(&parser);
-        return VKD3D_OK;
-    }
+    /* Shader models 4 through 6.x are handled externally through dxil-spirv. */
+    spirv->meta.hash = 0;
+    return vkd3d_shader_compile_dxil(dxbc, spirv, spirv_debug, shader_interface_info, compile_args, is_dxil);
 }
 
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
@@ -1209,4 +722,249 @@ bool vkd3d_shader_hash_range_parse_line(char *line,
     }
 
     return true;
+}
+
+void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
+{
+    SpvExecutionModel execution_model = SpvExecutionModelMax;
+    size_t spirv_words = code->size / sizeof(uint32_t);
+    unsigned int i, tracked_builtin_count = 0;
+    const uint32_t *spirv = code->code;
+    SpvExecutionMode execution_mode;
+    SpvStorageClass storage_class;
+    SpvCapability capability;
+    SpvDecoration decoration;
+    SpvBuiltIn builtin;
+    size_t offset = 5;
+    uint32_t meta = 0;
+    uint32_t var_id;
+
+    /* This array must be large enough to hold all variable IDs that may
+     * be decorated with relevant built-ins in a valid SPIR-V module */
+    struct vkd3d_tracked_builtin
+    {
+        uint32_t var_id;
+        SpvBuiltIn builtin;
+    }
+    tracked_builtins[2];
+
+    while (offset < spirv_words)
+    {
+        unsigned count = (spirv[offset] >> 16) & 0xffff;
+        SpvOp op = spirv[offset] & 0xffff;
+
+        if (count == 0 || offset + count > spirv_words)
+            break;
+
+        if (op == SpvOpCapability && count == 2)
+        {
+            capability = spirv[offset + 1];
+            switch (capability)
+            {
+                case SpvCapabilityShaderViewportIndexLayerEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SHADER_VIEWPORT_INDEX_LAYER;
+                    break;
+
+                case SpvCapabilitySparseResidency:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SPARSE_RESIDENCY;
+                    break;
+
+                case SpvCapabilityFragmentFullyCoveredEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_FRAGMENT_FULLY_COVERED;
+                    break;
+
+                case SpvCapabilityInt64:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_INT64;
+                    break;
+
+                case SpvCapabilityStencilExportEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_STENCIL_EXPORT;
+                    break;
+
+                case SpvCapabilityFloat64:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_FP64;
+                    break;
+
+                case SpvCapabilityStorageUniform16:
+                case SpvCapabilityStorageUniformBufferBlock16:
+                case SpvCapabilityStorageInputOutput16:
+                case SpvCapabilityFloat16:
+                    /* Int16 is hard requirement, and should not affect this check. */
+                    meta |= VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS;
+                    break;
+
+                case SpvCapabilityInt64Atomics:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS;
+                    break;
+
+                case SpvCapabilityInt64ImageEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS_IMAGE;
+                    break;
+
+                case SpvCapabilityFragmentBarycentricKHR:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_FRAGMENT_BARYCENTRIC;
+                    break;
+
+                case SpvCapabilitySampleRateShading:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SAMPLE_RATE_SHADING;
+                    break;
+
+                case SpvCapabilityFragmentShaderPixelInterlockEXT:
+                case SpvCapabilityFragmentShaderSampleInterlockEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS;
+                    break;
+
+                case SpvCapabilityGroupNonUniform:
+                case SpvCapabilityGroupNonUniformVote:
+                case SpvCapabilityGroupNonUniformArithmetic:
+                case SpvCapabilityGroupNonUniformBallot:
+                case SpvCapabilityGroupNonUniformShuffle:
+                case SpvCapabilityGroupNonUniformShuffleRelative:
+                case SpvCapabilityGroupNonUniformClustered:
+                case SpvCapabilityGroupNonUniformQuad:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS;
+                    break;
+
+                case SpvCapabilityCooperativeMatrixKHR:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX;
+                    /* Semi-correct, since we use subgroup scope. We need this for wave size fixups. */
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS;
+                    break;
+
+                case SpvCapabilityFloat8CooperativeMatrixEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX_FP8;
+                    break;
+
+                default:
+                    break;
+            }
+        }
+        else if (op == SpvOpEntryPoint && count >= 2)
+        {
+            /* Assume only one entry point per module */
+            execution_model = spirv[offset + 1];
+        }
+        else if (op == SpvOpExecutionMode && count == 3)
+        {
+            execution_mode = spirv[offset + 2];
+            switch (execution_mode)
+            {
+                case SpvExecutionModeIsolines:
+                case SpvExecutionModeOutputLineStrip:
+                case SpvExecutionModeOutputLinesEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_EMITS_LINES;
+                    break;
+
+                case SpvExecutionModeInputPoints:
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+                    break;
+
+                case SpvExecutionModeInputLines:
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+                    break;
+
+                case SpvExecutionModeInputLinesAdjacency:
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY;
+                    break;
+
+                case SpvExecutionModeTriangles:
+                    /* For GS, this defines the input topology since the corresponding output
+                     * topology would have to be TriangleStrip instead. For TES, this actually
+                     * declares the output topology. */
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                    else
+                        meta |= VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
+                    break;
+
+                case SpvExecutionModeInputTrianglesAdjacency:
+                    if (execution_model == SpvExecutionModelGeometry)
+                        code->meta.gs_input_topology = (uint8_t)VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY;
+                    break;
+
+                case SpvExecutionModeQuads:
+                case SpvExecutionModeOutputTriangleStrip:
+                case SpvExecutionModeOutputTrianglesEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
+                    break;
+
+                case SpvExecutionModeDepthGreater:
+                case SpvExecutionModeDepthLess:
+                case SpvExecutionModeDepthReplacing:
+                case SpvExecutionModeDepthUnchanged:
+                case SpvExecutionModeStencilRefReplacingEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_DEPTH_STENCIL_WRITE;
+                    break;
+
+                case SpvExecutionModePointMode:
+                    meta |= VKD3D_SHADER_META_FLAG_POINT_MODE_TESSELLATION;
+                    break;
+
+                default:
+                    break;
+            }
+        }
+        else if ((op == SpvOpDecorate && count == 4) ||
+                (op == SpvOpMemberDecorate && count == 5))
+        {
+            unsigned int delta = op == SpvOpMemberDecorate ? 1 : 0;
+            decoration = spirv[offset + delta + 2];
+
+            if (decoration == SpvDecorationBuiltIn)
+            {
+                builtin = spirv[offset + delta + 3];
+
+                if (builtin == SpvBuiltInSampleMask)
+                {
+                    if (tracked_builtin_count < ARRAY_SIZE(tracked_builtins))
+                    {
+                        struct vkd3d_tracked_builtin *entry = &tracked_builtins[tracked_builtin_count++];
+                        entry->var_id = spirv[offset + 1];
+                        entry->builtin = builtin;
+                    }
+                    else
+                        ERR("Too many tracked built-in variables.\n");
+                }
+            }
+        }
+        else if (op == SpvOpVariable && count >= 4)
+        {
+            storage_class = spirv[offset + 3];
+
+            if (storage_class == SpvStorageClassOutput || storage_class == SpvStorageClassInput)
+            {
+                var_id = spirv[offset + 2];
+
+                for (i = 0; i < tracked_builtin_count; i++)
+                {
+                    const struct vkd3d_tracked_builtin *entry = &tracked_builtins[i];
+
+                    if (entry->var_id != var_id)
+                        continue;
+
+                    switch (entry->builtin)
+                    {
+                        case SpvBuiltInSampleMask:
+                            if (storage_class == SpvStorageClassOutput)
+                                meta |= VKD3D_SHADER_META_FLAG_EXPORTS_SAMPLE_MASK;
+                            break;
+
+                        default:;
+                    }
+                }
+            }
+        }
+        else if (op == SpvOpFunction)
+        {
+            /* We're now declaring code, so just stop parsing, there cannot be any capability ops after this. */
+            break;
+        }
+
+        offset += count;
+    }
+
+    code->meta.flags |= meta;
 }
