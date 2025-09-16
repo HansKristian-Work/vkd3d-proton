@@ -502,6 +502,204 @@ void test_buffers_oob_behavior_dxil(void)
     test_buffers_oob_behavior(true);
 }
 
+static void test_undefined_structured_raw_alias(bool use_dxil)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *output[16];
+    ID3D12Resource *input;
+    unsigned int i, j;
+    bool is_nv;
+
+#include "shaders/robustness/headers/undefined_structured_raw_alias.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+    is_nv = is_nvidia_device(context.device);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 32);
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    memset(descriptor_ranges, 0, sizeof(descriptor_ranges));
+    memset(root_parameters, 0, sizeof(root_parameters));
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.pParameters = root_parameters;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(descriptor_ranges);
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_ranges[0].NumDescriptors = 16;
+    descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[1].NumDescriptors = 16;
+    descriptor_ranges[1].OffsetInDescriptorsFromTableStart = 16;
+
+    create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+            use_dxil ? undefined_structured_raw_alias_dxil : undefined_structured_raw_alias_dxbc);
+
+    {
+        uint32_t buffer[1024];
+        for (i = 0; i < ARRAY_SIZE(buffer); i++)
+            buffer[i] = i;
+        input = create_upload_buffer(context.device, sizeof(buffer), buffer);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(output); i++)
+    {
+        output[i] = create_default_buffer(context.device, 1024 * sizeof(uint32_t),
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
+    for (i = 0; i < 8; i++)
+    {
+        srv_desc.Buffer.StructureByteStride = 4 * (i + 1);
+        srv_desc.Buffer.FirstElement = 1;
+        srv_desc.Buffer.NumElements = 16;
+
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, i));
+
+        uav_desc.Buffer.StructureByteStride = 4 * (i + 1);
+        uav_desc.Buffer.FirstElement = 0;
+        uav_desc.Buffer.NumElements = 17;
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, output[i], NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, i + 16));
+    }
+
+    for (i = 0; i < 8; i++)
+    {
+        srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        srv_desc.Buffer.StructureByteStride = 0;
+        srv_desc.Buffer.FirstElement = 4;
+        srv_desc.Buffer.NumElements = 4 * (i + 1);
+
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, i + 8));
+
+        uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        uav_desc.Buffer.StructureByteStride = 0;
+        uav_desc.Buffer.FirstElement = 0;
+        uav_desc.Buffer.NumElements = 4 * (i + 2);
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, output[i + 8], NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, i + 24));
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+    /* Validate RAW aliasing. */
+    for (i = 0; i < 8; i++)
+    {
+        unsigned int vecsize = (i / 2) + 1;
+        unsigned int stride_dwords = i + 1;
+        bool expected_failure;
+
+        transition_resource_state(context.list, output[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output[i], DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        /* This will fail. */
+        expected_failure = is_nv && vecsize % stride_dwords && vecsize != 3;
+
+        if (!expected_failure)
+        {
+            for (j = 0; j < 256; j++)
+            {
+                unsigned int element_index = j / stride_dwords;
+                uint32_t value, expected = 0;
+
+                if (element_index < 16)
+                    expected = stride_dwords + j;
+                if (element_index < 17)
+                    expected |= (j / vecsize) << 24;
+
+                value = get_readback_uint(&rb, j, 0, 0);
+                ok(value == expected, "Structured: output %u, index %u, expected %u, got %u\n", i, j, expected, value);
+            }
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    /* Validate Structured aliasing. */
+    for (i = 0; i < 8; i++)
+    {
+        unsigned int output_dword_range = 4 * (i + 2);
+        unsigned int input_dword_range = 4 * (i + 1);
+        unsigned int vecsize = (i / 2) + 1;
+        bool expected_failure;
+
+        transition_resource_state(context.list, output[i + 8], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output[i + 8], DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+        for (j = 0; j < 256; j++)
+        {
+            uint32_t value, expected = 0;
+            unsigned int base_j;
+
+            base_j = j - j % vecsize;
+
+            /* This will fail. NV bounds check is all or nothing, and this would require partial OOB checks. */
+            expected_failure = is_nv &&
+                    ((base_j < input_dword_range && base_j + vecsize > input_dword_range) ||
+                    (base_j < output_dword_range && base_j + vecsize > output_dword_range));
+            if (expected_failure)
+                continue;
+
+            if (j < input_dword_range)
+                expected |= 4 + j;
+            if (j < output_dword_range)
+                expected |= (j / vecsize) << 24;
+
+            value = get_readback_uint(&rb, j, 0, 0);
+            ok(value == expected, "RAW: output %u, index %u, expected %u, got %u\n", i, j, expected, value);
+        }
+
+        reset_command_list(context.list, context.allocator);
+        release_resource_readback(&rb);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(output); i++)
+        ID3D12Resource_Release(output[i]);
+    ID3D12Resource_Release(input);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+void test_undefined_structured_raw_alias_dxbc(void)
+{
+    test_undefined_structured_raw_alias(false);
+}
+
+void test_undefined_structured_raw_alias_dxil(void)
+{
+    test_undefined_structured_raw_alias(true);
+}
+
 static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
