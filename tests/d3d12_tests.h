@@ -283,6 +283,8 @@ decl_test(test_undefined_read_typed_buffer_as_untyped_dxbc);
 decl_test(test_undefined_read_typed_buffer_as_untyped_dxil);
 decl_test(test_undefined_structured_raw_alias_dxbc);
 decl_test(test_undefined_structured_raw_alias_dxil);
+decl_test(test_undefined_structured_raw_read_typed_dxbc);
+decl_test(test_undefined_structured_raw_read_typed_dxil);
 decl_test(test_undefined_descriptor_heap_mismatch_types);
 decl_test(test_virtual_queries);
 decl_test(test_vrs);
