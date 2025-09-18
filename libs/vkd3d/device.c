@@ -1039,7 +1039,6 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
     static const struct override overrides[] =
     {
         { VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, VKD3D_SHADER_QUIRK_INVARIANT_POSITION, true },
-        { VKD3D_CONFIG_FLAG_DISABLE_DXBC_SPIRV, VKD3D_SHADER_QUIRK_DXBC_SPIRV, true },
     };
     uint64_t eq_test;
     unsigned int i;
@@ -1145,7 +1144,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"queue_profile_extra", VKD3D_CONFIG_FLAG_QUEUE_PROFILE_EXTRA},
     {"damage_not_zeroed_allocations", VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS},
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
-    {"disable_dxbc_spirv", VKD3D_CONFIG_FLAG_DISABLE_DXBC_SPIRV},
 };
 
 static void vkd3d_config_flags_init_once(void)

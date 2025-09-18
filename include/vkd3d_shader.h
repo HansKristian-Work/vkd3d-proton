@@ -514,8 +514,7 @@ enum vkd3d_shader_quirk
      * CBV value. */
     VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25),
 
-    /* Use DXBC-SPIRV if the shader is Shader Model 5.1 or below. */
-    VKD3D_SHADER_QUIRK_DXBC_SPIRV = (1 << 26),
+    /* Bit 26 is vacant */
 
     /* Enforce a subgroup size of 32 or more. Can be used to work around
      * issues in shaders that are buggy with small subgroups (Intel). */
