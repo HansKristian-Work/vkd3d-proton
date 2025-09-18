@@ -906,7 +906,170 @@ void test_undefined_structured_raw_read_typed_dxil(void)
     test_undefined_structured_raw_read_typed(true);
 }
 
-static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
+static void test_undefined_typed_read_structured_raw(bool use_dxil)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *output[16];
+    ID3D12Resource *input;
+    unsigned int i, j;
+
+#include "shaders/robustness/headers/undefined_typed_read_structured_raw.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 32);
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    memset(descriptor_ranges, 0, sizeof(descriptor_ranges));
+    memset(root_parameters, 0, sizeof(root_parameters));
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.pParameters = root_parameters;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(descriptor_ranges);
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_ranges[0].NumDescriptors = 16;
+    descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[1].NumDescriptors = 16;
+    descriptor_ranges[1].OffsetInDescriptorsFromTableStart = 16;
+
+    create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+            use_dxil ? undefined_typed_read_structured_raw_dxil : undefined_typed_read_structured_raw_dxbc);
+
+    {
+        uint32_t buffer[1024];
+        for (i = 0; i < ARRAY_SIZE(buffer); i++)
+            buffer[i] = i;
+        input = create_upload_buffer(context.device, sizeof(buffer), buffer);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(output); i++)
+    {
+        output[i] = create_default_buffer(context.device, 1024 * sizeof(uint32_t),
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
+    uav_desc.Buffer.StructureByteStride = 16;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = 64;
+
+    for (i = 0; i < 16; i++)
+    {
+        /* Commit every possible GPU crime. */
+        static const DXGI_FORMAT formats[] = {
+            DXGI_FORMAT_R8G8B8A8_UINT,
+            DXGI_FORMAT_R16G16_UINT,
+            DXGI_FORMAT_R16G16B16A16_UINT,
+            DXGI_FORMAT_R32G32_UINT,
+            DXGI_FORMAT_R32G32B32_UINT,
+            DXGI_FORMAT_R32G32B32_FLOAT,
+            DXGI_FORMAT_R32G32B32A32_UINT,
+            DXGI_FORMAT_R32G32B32A32_FLOAT,
+            DXGI_FORMAT_R8G8B8A8_UNORM,
+            DXGI_FORMAT_R16G16_UNORM,
+            DXGI_FORMAT_R16G16B16A16_UNORM,
+            DXGI_FORMAT_R32G32_SINT,
+            DXGI_FORMAT_R32G32B32_SINT,
+            DXGI_FORMAT_R32G32B32_FLOAT,
+            DXGI_FORMAT_R32G32B32A32_SINT,
+            DXGI_FORMAT_R32G32B32A32_FLOAT,
+        };
+
+        srv_desc.Format = formats[i];
+        srv_desc.Buffer.FirstElement = 4;
+        srv_desc.Buffer.NumElements = 12;
+
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, i));
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, output[i], NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, i + 16));
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+    /* Validate the buffer read. */
+    for (i = 0; i < 16; i++)
+    {
+        unsigned int vecsize = ((i & 7) / 2) + 1;
+
+        transition_resource_state(context.list, output[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output[i], DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (j = 0; j < 64; j++)
+        {
+            struct uvec4 expected = {0};
+            const struct uvec4 *value;
+
+            if (j < 12)
+            {
+                /* Assuming effective offset / size of the texel buffer can translate into raw domain as well. */
+                expected.x = vecsize * (4 + j);
+                expected.y = expected.x + 1;
+                expected.z = expected.y + 1;
+                expected.w = expected.z + 1;
+            }
+
+            if (vecsize <= 1)
+                expected.y = expected.x;
+            if (vecsize <= 2)
+                expected.z = expected.y;
+            if (vecsize <= 3)
+                expected.w = expected.z;
+
+            value = get_readback_uvec4(&rb, j, 0);
+            ok(compare_uvec4(value, &expected),
+                    "output %u, index %u, expected (%u, %u, %u, %u), got (%u, %u, %u, %u)\n", i, j,
+                    expected.x, expected.y, expected.z, expected.w,
+                    value->x, value->y, value->z, value->w);
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(output); i++)
+        ID3D12Resource_Release(output[i]);
+    ID3D12Resource_Release(input);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+void test_undefined_typed_read_structured_raw_dxbc(void)
+{
+    test_undefined_typed_read_structured_raw(false);
+}
+
+void test_undefined_typed_read_structured_raw_dxil(void)
+{
+    test_undefined_typed_read_structured_raw(true);
+}
+
+/* Older test. Only tests a very narrow subset. */
+static void test_undefined_read_typed_buffer_as_untyped_simple(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[1];
@@ -1016,14 +1179,14 @@ static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
     destroy_test_context(&context);
 }
 
-void test_undefined_read_typed_buffer_as_untyped_dxbc(void)
+void test_undefined_read_typed_buffer_as_untyped_simple_dxbc(void)
 {
-    test_undefined_read_typed_buffer_as_untyped(false);
+    test_undefined_read_typed_buffer_as_untyped_simple(false);
 }
 
-void test_undefined_read_typed_buffer_as_untyped_dxil(void)
+void test_undefined_read_typed_buffer_as_untyped_simple_dxil(void)
 {
-    test_undefined_read_typed_buffer_as_untyped(true);
+    test_undefined_read_typed_buffer_as_untyped_simple(true);
 }
 
 void test_null_descriptor_mismatch_type(void)
