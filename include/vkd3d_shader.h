@@ -514,7 +514,8 @@ enum vkd3d_shader_quirk
      * CBV value. */
     VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25),
 
-    /* Bit 26 is vacant */
+    /* Replaces some undef inputs to phi with 0. */
+    VKD3D_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS = (1 << 26),
 
     /* Enforce a subgroup size of 32 or more. Can be used to work around
      * issues in shaders that are buggy with small subgroups (Intel). */
