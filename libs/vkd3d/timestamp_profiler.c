@@ -478,12 +478,14 @@ static void vkd3d_timestamp_profiler_free(struct vkd3d_timestamp_profiler *profi
 static void vkd3d_timestamp_profiler_flush_active_state(struct vkd3d_timestamp_profiler *profiler,
         struct d3d12_command_list *list)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &profiler->device->vk_procs;
     struct vkd3d_timestamp_profiler_submitted_work work;
+    const struct vkd3d_vk_device_procs *vk_procs;
 
     /* Have to end the timestamp here. */
     if (!list->timestamp_profiler.active_timestamp_state)
         return;
+
+    vk_procs = &profiler->device->vk_procs;
 
     assert(list->timestamp_profiler.timestamp_index != UINT32_MAX);
     TS_TRACE("Write timestamp query pool %u\n", list->timestamp_profiler.timestamp_index);
