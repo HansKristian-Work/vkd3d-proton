@@ -515,6 +515,7 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
     ID3D12Resource *output[16];
     ID3D12Resource *input;
     unsigned int i, j;
+    bool is_amd_win;
     bool is_nv;
 
 #include "shaders/robustness/headers/undefined_structured_raw_alias.h"
@@ -609,6 +610,10 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
     ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
 
+    /* AMD behavior: RAW emits a descriptor without stride. Typed always reads same value at offset = 0.
+     * Structured: Passed down as stride to typed. */
+    is_amd_win = is_amd_windows_device(context.device);
+
     /* Validate RAW aliasing. */
     for (i = 0; i < 8; i++)
     {
@@ -631,9 +636,10 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
                 unsigned int element_index = j / stride_dwords;
                 uint32_t value, expected = 0;
 
-                if (element_index < 16)
+                /* We bypass any robustness here. */
+                if (element_index < 16 || (is_amd_win && j < 64 * vecsize))
                     expected = stride_dwords + j;
-                if (element_index < 17)
+                if (element_index < 17 || (is_amd_win && j < 64 * vecsize))
                     expected |= (j / vecsize) << 24;
 
                 value = get_readback_uint(&rb, j, 0, 0);
@@ -670,10 +676,20 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
             if (expected_failure)
                 continue;
 
-            if (j < input_dword_range)
-                expected |= 4 + j;
-            if (j < output_dword_range)
-                expected |= (j / vecsize) << 24;
+            if (is_amd_win)
+            {
+                /* Very quirky behavior. Stride = 0 here, so all threads write and race. Last thread seems to win (9070xt).
+                 * Thread 63 reads at offset = 0 since stride = 0, so this is working as expected. */
+                if (j < vecsize)
+                    expected = (0x3f << 24) | (4 + j);
+            }
+            else
+            {
+                if (j < input_dword_range)
+                    expected |= 4 + j;
+                if (j < output_dword_range)
+                    expected |= (j / vecsize) << 24;
+            }
 
             value = get_readback_uint(&rb, j, 0, 0);
             ok(value == expected, "RAW: output %u, index %u, expected %u, got %u\n", i, j, expected, value);
@@ -713,6 +729,7 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     ID3D12Resource *output[16];
     ID3D12Resource *input;
     unsigned int i, j;
+    bool is_amd_win;
 
 #include "shaders/robustness/headers/undefined_structured_raw_read_typed.h"
 
@@ -799,6 +816,10 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
     ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
 
+    /* AMD behavior: RAW emits a descriptor without stride. Typed always reads same value at offset = 0.
+     * Structured: Passed down as stride to typed. */
+    is_amd_win = is_amd_windows_device(context.device);
+
     /* Validate structured. */
     for (i = 0; i < 8; i++)
     {
@@ -818,10 +839,28 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
             struct uvec4 expected = {0};
             const struct uvec4 *value;
 
-            if (j < in_bounds_dwords)
+            if (is_amd_win)
             {
-                /* Assuming that typed side is a R32_UINT texel buffer. */
-                expected.x = stride_dwords + j;
+                /* Robustness is in terms of elements. */
+                if (j < 5)
+                    expected.x = stride_dwords + j * stride_dwords;
+
+                if (stride_dwords > 4)
+                {
+                    /* Seems to be some kind of HW quirk. Observed on 9070xt.
+                     * This implies more than 4 components for a texel buffer, which is bogus. */
+                    expected.y = expected.x;
+                    expected.z = expected.x;
+                    expected.w = expected.x;
+                }
+            }
+            else
+            {
+                if (j < in_bounds_dwords)
+                {
+                    /* Assuming that typed side is a R32_UINT texel buffer. */
+                    expected.x = stride_dwords + j;
+                }
             }
 
             if (vecsize <= 1)
@@ -862,10 +901,21 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
             struct uvec4 expected = {0};
             const struct uvec4 *value;
 
-            if (j < in_bounds_dwords)
+            if (is_amd_win)
             {
-                /* Assuming that typed side is a R32_UINT texel buffer. */
-                expected.x = 4 + j;
+                /* No stride, so it reads same data. */
+                expected.x = 4;
+                expected.y = 4;
+                expected.z = 4;
+                expected.w = 4;
+            }
+            else
+            {
+                if (j < in_bounds_dwords)
+                {
+                    /* Assuming that typed side is a R32_UINT texel buffer. */
+                    expected.x = 4 + j;
+                }
             }
 
             if (vecsize <= 1)
@@ -875,7 +925,7 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
             if (vecsize <= 3)
                 expected.w = expected.z;
 
-            if (vecsize == 4)
+            if (vecsize == 4 && !is_amd_win)
                 expected.w = 1;
 
             value = get_readback_uvec4(&rb, j, 0);
@@ -919,6 +969,7 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
     ID3D12Resource *output[16];
     ID3D12Resource *input;
     unsigned int i, j;
+    bool is_amd_win;
 
 #include "shaders/robustness/headers/undefined_typed_read_structured_raw.h"
 
@@ -1010,6 +1061,10 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
     ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
 
+    /* AMD behavior: Typed buffer has stride + element count. Structured buffer works as expected.
+     * RAW access works as expected, except that robustness is completely disabled. */
+    is_amd_win = is_amd_windows_device(context.device);
+
     /* Validate the buffer read. */
     for (i = 0; i < 16; i++)
     {
@@ -1025,7 +1080,7 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
             struct uvec4 expected = {0};
             const struct uvec4 *value;
 
-            if (j < 12)
+            if (j < 12 || (is_amd_win && i < 8))
             {
                 /* Assuming effective offset / size of the texel buffer can translate into raw domain as well. */
                 expected.x = vecsize * (4 + j);
