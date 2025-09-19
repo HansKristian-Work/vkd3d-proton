@@ -859,6 +859,10 @@ static const struct vkd3d_shader_quirk_info wuthering_waves_quirks = {
     wuthering_waves_hashes, ARRAY_SIZE(wuthering_waves_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_info dune_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -921,6 +925,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "ds.exe", &death_stranding_quirks },
     { VKD3D_STRING_COMPARE_EXACT, "DeathStranding.exe", &death_stranding_quirks },
     { VKD3D_STRING_COMPARE_EXACT, "3DMarkPortRoyal.exe", &heap_robustness_quirks },
+    /* Dune: Awakening (1172710) */
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "DuneSandbox", &dune_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
@@ -1039,7 +1045,6 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
     static const struct override overrides[] =
     {
         { VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, VKD3D_SHADER_QUIRK_INVARIANT_POSITION, true },
-        { VKD3D_CONFIG_FLAG_DISABLE_DXBC_SPIRV, VKD3D_SHADER_QUIRK_DXBC_SPIRV, true },
     };
     uint64_t eq_test;
     unsigned int i;
@@ -1145,7 +1150,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"queue_profile_extra", VKD3D_CONFIG_FLAG_QUEUE_PROFILE_EXTRA},
     {"damage_not_zeroed_allocations", VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS},
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
-    {"disable_dxbc_spirv", VKD3D_CONFIG_FLAG_DISABLE_DXBC_SPIRV},
 };
 
 static void vkd3d_config_flags_init_once(void)
