@@ -1876,7 +1876,7 @@ HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
         return hr;
     }
 
-    if (FAILED(hr = vkd3d_create_timeline_semaphore(device, 0, true, &object->timeline_semaphore)))
+    if (FAILED(hr = vkd3d_create_timeline_semaphore(device, initial_value, true, &object->timeline_semaphore)))
     {
         vkd3d_private_store_destroy(&object->private_store);
         vkd3d_free(object);
