@@ -516,6 +516,7 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
     ID3D12Resource *input;
     unsigned int i, j;
     bool is_amd_win;
+    bool is_nv_win;
     bool is_nv;
 
 #include "shaders/robustness/headers/undefined_structured_raw_alias.h"
@@ -614,6 +615,9 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
      * Structured: Passed down as stride to typed. */
     is_amd_win = is_amd_windows_device(context.device);
 
+    /* NV behavior: This mostly comes down to how robustness is determined. */
+    is_nv_win = is_nvidia_windows_device(context.device);
+
     /* Validate RAW aliasing. */
     for (i = 0; i < 8; i++)
     {
@@ -627,7 +631,7 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
         reset_command_list(context.list, context.allocator);
 
         /* This will fail. */
-        expected_failure = is_nv && vecsize % stride_dwords && vecsize != 3;
+        expected_failure = is_nv && !is_nv_win && vecsize % stride_dwords && vecsize != 3;
 
         if (!expected_failure)
         {
@@ -636,11 +640,57 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
                 unsigned int element_index = j / stride_dwords;
                 uint32_t value, expected = 0;
 
-                /* We bypass any robustness here. */
-                if (element_index < 16 || (is_amd_win && j < 64 * vecsize))
-                    expected = stride_dwords + j;
-                if (element_index < 17 || (is_amd_win && j < 64 * vecsize))
-                    expected |= (j / vecsize) << 24;
+                if (is_nv_win)
+                {
+                    /* Extremely awkward behavior. I cannot deduce HW behavior from this alone. */
+                    if (stride_dwords <= 4)
+                    {
+                        if (j < 16)
+                            expected = stride_dwords + j;
+
+                        /* The dummy UAV texel buffer seems to always be scalar. */
+                        if (element_index < 17)
+                            expected |= (j / vecsize) << 24;
+
+                        /* Unexplainable behavior. Might have something to do with edge condition, since 17 * 3 == 51?
+                         * Another theory is that 17 * 3 is realigned to 2 elements in descriptor for whatever reason.
+                         * Possibly related to 16-bit storage support since it can split a dword in two ... ? */
+                        if (j == 50 && stride_dwords == 3)
+                            expected = 0;
+                    }
+                    else if (stride_dwords == 6 || stride_dwords == 8)
+                    {
+                        /* 32, not 16. Likely caused by the equivalent texel buffer format being chosen as RGB32 and RGBA32, splitting the stride in half. */
+                        if (j < 32)
+                            expected = stride_dwords + j;
+                        if (element_index < 17)
+                            expected |= (j / vecsize) << 24;
+                    }
+                    else if (stride_dwords == 7)
+                    {
+                        /* Driver picks R32_UINT here, and likely adjusts the element count appropriately. */
+                        if (element_index < 16)
+                            expected = stride_dwords + j;
+                        if (j < 16 * stride_dwords + 4) /* This makes zero sense. This implies some kind of sliced write. */
+                            expected |= (j / vecsize) << 24;
+                    }
+                    else if (stride_dwords == 5)
+                    {
+                        /* Driver picks R32_UINT here. */
+                        if (element_index < 16)
+                            expected = stride_dwords + j;
+                        if (element_index < 17)
+                            expected |= (j / vecsize) << 24;
+                    }
+                }
+                else
+                {
+                    /* We bypass any robustness here on AMD. */
+                    if (element_index < 16 || (is_amd_win && j < 64 * vecsize))
+                        expected = stride_dwords + j;
+                    if (element_index < 17 || (is_amd_win && j < 64 * vecsize))
+                        expected |= (j / vecsize) << 24;
+                }
 
                 value = get_readback_uint(&rb, j, 0, 0);
                 ok(value == expected, "Structured: output %u, index %u, expected %u, got %u\n", i, j, expected, value);
@@ -670,16 +720,28 @@ static void test_undefined_structured_raw_alias(bool use_dxil)
             base_j = j - j % vecsize;
 
             /* This will fail. NV bounds check is all or nothing, and this would require partial OOB checks. */
-            expected_failure = is_nv &&
+            expected_failure = is_nv && !is_nv_win &&
                     ((base_j < input_dword_range && base_j + vecsize > input_dword_range) ||
                     (base_j < output_dword_range && base_j + vecsize > output_dword_range));
             if (expected_failure)
                 continue;
 
-            if (is_amd_win)
+            if (is_nv_win)
+            {
+                /* NumElements seems to be interpreted 1:1 for SRV. Stride is pulled from shader. */
+                if (j / vecsize < input_dword_range)
+                    expected = 4 + j;
+
+                /* For UAV, it seems more like driver is doing byte based checks? Somehow it seems to be able to do per-component robustness, which is very surprising. */
+                if (j < output_dword_range)
+                    expected |= (j / vecsize) << 24;
+                else
+                    expected = 0;
+            }
+            else if (is_amd_win)
             {
                 /* Very quirky behavior. Stride = 0 here, so all threads write and race. Last thread seems to win (9070xt).
-                 * Thread 63 reads at offset = 0 since stride = 0, so this is working as expected. */
+                 * Thread 63 reads and writes at offset = 0 since stride = 0, so this is working as expected. */
                 if (j < vecsize)
                     expected = (0x3f << 24) | (4 + j);
             }
@@ -730,6 +792,7 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     ID3D12Resource *input;
     unsigned int i, j;
     bool is_amd_win;
+    bool is_nv_win;
 
 #include "shaders/robustness/headers/undefined_structured_raw_read_typed.h"
 
@@ -820,6 +883,8 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
      * Structured: Passed down as stride to typed. */
     is_amd_win = is_amd_windows_device(context.device);
 
+    is_nv_win = is_nvidia_windows_device(context.device);
+
     /* Validate structured. */
     for (i = 0; i < 8; i++)
     {
@@ -839,7 +904,51 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
             struct uvec4 expected = {0};
             const struct uvec4 *value;
 
-            if (is_amd_win)
+            if (is_nv_win)
+            {
+                if (i >= 4 && i < 8)
+                {
+                    /* Odd-ball case for structured stride > 16.
+                     * The driver behavior seems to be that the largest texel buffer format that aligns to the stride is chosen. */
+
+                    if (stride_dwords == 5 || stride_dwords == 7)
+                    {
+                        if (j < in_bounds_dwords)
+                        {
+                            /* R32_UINT */
+                            expected.x = stride_dwords + j;
+                        }
+                    }
+                    else if (stride_dwords == 6)
+                    {
+                        if (j < in_bounds_dwords / 3)
+                        {
+                            /* R32G32B32_UINT */
+                            expected.x = stride_dwords + j * 3;
+                            expected.y = expected.x + 1;
+                            expected.z = expected.y + 1;
+                        }
+                    }
+                    else if (stride_dwords == 8)
+                    {
+                        /* R32G32B32A32_UINT */
+                        if (j < in_bounds_dwords / 4)
+                        {
+                            expected.x = stride_dwords + j * 4;
+                            expected.y = expected.x + 1;
+                            expected.z = expected.y + 1;
+                            expected.w = expected.z + 1;
+                        }
+                    }
+                }
+                else
+                {
+                    /* Robustness is in terms of elements. Texel buffer format seems 1:1 with stride. */
+                    if (j < 5)
+                        expected.x = stride_dwords + j * stride_dwords;
+                }
+            }
+            else if (is_amd_win)
             {
                 /* Robustness is in terms of elements. */
                 if (j < 5)
@@ -876,7 +985,7 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
 
             value = get_readback_uvec4(&rb, j, 0);
             ok(compare_uvec4(value, &expected),
-                    "Structured: output %u, index %u, expected (%u, %u, %u, %u), got (%u, %u, %u, %u)\n", i, j,
+                    "output %u, index %u, expected (%u, %u, %u, %u), got (%u, %u, %u, %u)\n", i, j,
                     expected.x, expected.y, expected.z, expected.w,
                     value->x, value->y, value->z, value->w);
         }
@@ -913,7 +1022,7 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
             {
                 if (j < in_bounds_dwords)
                 {
-                    /* Assuming that typed side is a R32_UINT texel buffer. */
+                    /* Assuming that typed side is a R32_UINT texel buffer. This seems to match NV behavior too. */
                     expected.x = 4 + j;
                 }
             }
@@ -970,6 +1079,7 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
     ID3D12Resource *input;
     unsigned int i, j;
     bool is_amd_win;
+    bool is_nv_win;
 
 #include "shaders/robustness/headers/undefined_typed_read_structured_raw.h"
 
@@ -1065,6 +1175,8 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
      * RAW access works as expected, except that robustness is completely disabled. */
     is_amd_win = is_amd_windows_device(context.device);
 
+    is_nv_win = is_nvidia_windows_device(context.device);
+
     /* Validate the buffer read. */
     for (i = 0; i < 16; i++)
     {
@@ -1080,7 +1192,18 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
             struct uvec4 expected = {0};
             const struct uvec4 *value;
 
-            if (j < 12 || (is_amd_win && i < 8))
+            if (is_nv_win && i < 8)
+            {
+                /* For raw buffer, number of elements is treated as number of dwords. */
+                if (j < 12 / vecsize)
+                {
+                    expected.x = vecsize * (4 + j);
+                    expected.y = expected.x + 1;
+                    expected.z = expected.y + 1;
+                    expected.w = expected.z + 1;
+                }
+            }
+            else if (j < 12 || (is_amd_win && i < 8))
             {
                 /* Assuming effective offset / size of the texel buffer can translate into raw domain as well. */
                 expected.x = vecsize * (4 + j);
