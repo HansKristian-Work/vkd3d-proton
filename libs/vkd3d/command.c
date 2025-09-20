@@ -4027,14 +4027,14 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
             (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
     {
         stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
         layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }
     else if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
             (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
         stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-        access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
         layout = is_bound && list->dsv_layout ?
                 list->dsv_layout :
                 d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
