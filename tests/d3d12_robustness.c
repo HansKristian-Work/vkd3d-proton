@@ -905,7 +905,6 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     ID3D12Resource *input;
     unsigned int i, j;
     bool is_amd_win;
-    bool is_nv_win;
 
 #include "shaders/robustness/headers/undefined_structured_raw_read_typed.h"
 
@@ -996,8 +995,6 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
      * Structured: Passed down as stride to typed. */
     is_amd_win = is_amd_windows_device(context.device);
 
-    is_nv_win = is_nvidia_windows_device(context.device);
-
     /* Validate structured. */
     for (i = 0; i < 8; i++)
     {
@@ -1017,8 +1014,24 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
             struct uvec4 expected = {0};
             const struct uvec4 *value;
 
-            if (is_nv_win)
+            if (is_amd_win)
             {
+                /* Robustness is in terms of elements. */
+                if (j < 5)
+                    expected.x = stride_dwords + j * stride_dwords;
+
+                if (stride_dwords > 4)
+                {
+                    /* Seems to be some kind of HW quirk. Observed on 9070xt.
+                     * This implies more than 4 components for a texel buffer, which is bogus. */
+                    expected.y = expected.x;
+                    expected.z = expected.x;
+                    expected.w = expected.x;
+                }
+            }
+            else
+            {
+                /* NV native behavior. We try to match this in vkd3d-proton since it's implementable. */
                 if (i >= 4 && i < 8)
                 {
                     /* Odd-ball case for structured stride > 16.
@@ -1059,29 +1072,6 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
                     /* Robustness is in terms of elements. Texel buffer format seems 1:1 with stride. */
                     if (j < 5)
                         expected.x = stride_dwords + j * stride_dwords;
-                }
-            }
-            else if (is_amd_win)
-            {
-                /* Robustness is in terms of elements. */
-                if (j < 5)
-                    expected.x = stride_dwords + j * stride_dwords;
-
-                if (stride_dwords > 4)
-                {
-                    /* Seems to be some kind of HW quirk. Observed on 9070xt.
-                     * This implies more than 4 components for a texel buffer, which is bogus. */
-                    expected.y = expected.x;
-                    expected.z = expected.x;
-                    expected.w = expected.x;
-                }
-            }
-            else
-            {
-                if (j < in_bounds_dwords)
-                {
-                    /* Assuming that typed side is a R32_UINT texel buffer. */
-                    expected.x = stride_dwords + j;
                 }
             }
 
