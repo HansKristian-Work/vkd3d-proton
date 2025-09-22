@@ -22,6 +22,119 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+void test_buffers_oob_behavior_vectorized_structured_16bit(void)
+{
+    static const unsigned int strides[] = { 2, 4, 6, 8, 4, 6, 8 };
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
+    D3D12_FEATURE_DATA_D3D12_OPTIONS4 options4;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_ROOT_PARAMETER root_parameters[1];
+    ID3D12Resource *output_buffers[7];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    unsigned int i, j;
+    HRESULT hr;
+
+#include "shaders/robustness/headers/oob_behavior_vectorized_structured_16bit_write.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    shader_model.HighestShaderModel = D3D_SHADER_MODEL_6_2;
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &shader_model, sizeof(shader_model));
+    if (FAILED(hr) || shader_model.HighestShaderModel < D3D_SHADER_MODEL_6_2)
+    {
+        skip("Shader model 6.2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&options4, 0, sizeof(options4));
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS4, &options4, sizeof(options4));
+    if (FAILED(hr))
+        options4.Native16BitShaderOpsSupported = FALSE;
+
+    if (!options4.Native16BitShaderOpsSupported)
+        skip("Skipping 16-bit robustness tests.\n");
+
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.Flags = 0;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.pParameters = root_parameters;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    descriptor_ranges[0].NumDescriptors = UINT_MAX;
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(output_buffers));
+
+    for (i = 0; i < ARRAY_SIZE(output_buffers); i++)
+    {
+        output_buffers[i] = create_default_buffer(context.device, 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Buffer.StructureByteStride = strides[i];
+        uav_desc.Buffer.NumElements = 9;
+        uav_desc.Buffer.FirstElement = 1;
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, output_buffers[i], NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, i));
+    }
+
+    context.pipeline_state = create_compute_pipeline_state(context.device,
+        context.root_signature, oob_behavior_vectorized_structured_16bit_write_dxil);
+    ok(context.pipeline_state, "Failed to create PSO.\n");
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+    for (i = 0; i < ARRAY_SIZE(output_buffers); i++)
+    {
+        transition_resource_state(context.list, output_buffers[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output_buffers[i], DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+        for (j = 0; j < 256; j++)
+        {
+            uint16_t value = get_readback_uint16(&rb, j, 0);
+            uint16_t expected = j - strides[i] / 2;
+
+            if (expected & 0x8000)
+                expected = 0;
+            else if (expected >= strides[i] / 2 * 9)
+                expected = 0;
+
+            ok(value == expected, "UAV %u, u16 index %u, expected %u, got %u\n", i, j, expected, value);
+        }
+
+        reset_command_list(context.list, context.allocator);
+        release_resource_readback(&rb);
+    }
+
+    ID3D12DescriptorHeap_Release(heap);
+    for (i = 0; i < ARRAY_SIZE(output_buffers); i++)
+        ID3D12Resource_Release(output_buffers[i]);
+    destroy_test_context(&context);
+}
+
 void test_buffers_oob_behavior_vectorized_byte_address(void)
 {
     /* Vectorized structured buffers are handled by other tests, but
