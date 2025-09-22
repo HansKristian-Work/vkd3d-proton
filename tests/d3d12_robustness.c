@@ -91,6 +91,7 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
         memset(&uav_desc, 0, sizeof(uav_desc));
         uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uav_desc.Buffer.StructureByteStride = strides[i];
+        /* Very spicy test. */
         uav_desc.Buffer.NumElements = 9;
         uav_desc.Buffer.FirstElement = 1;
 
@@ -116,12 +117,19 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
         {
             uint16_t value = get_readback_uint16(&rb, j, 0);
             uint16_t expected = j - strides[i] / 2;
+            bool is_todo;
 
             if (expected & 0x8000)
                 expected = 0;
             else if (expected >= strides[i] / 2 * 9)
                 expected = 0;
 
+            /* For RAW buffers, AMD robustness is 4 byte aligned.
+             * This is theoretically out of spec, but this is so minor, that we can let it slide.
+             * Intel has similar issues even on native too. (TODO: verify with this test). */
+            is_todo = strides[i] % 4 != 0 && j == (strides[i] / 2) * 10;
+
+            todo_if(is_todo)
             ok(value == expected, "UAV %u, u16 index %u, expected %u, got %u\n", i, j, expected, value);
         }
 
