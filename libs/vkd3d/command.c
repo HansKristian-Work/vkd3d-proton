@@ -20483,7 +20483,7 @@ static void d3d12_command_queue_acquire_serialized(struct d3d12_command_queue *q
     current_drain = ++queue->drain_count;
     d3d12_command_queue_add_submission_locked(queue, &sub);
 
-    while (current_drain != queue->queue_drain_count)
+    while (current_drain < queue->queue_drain_count)
         pthread_cond_wait(&queue->queue_cond, &queue->queue_lock);
 }
 
