@@ -663,8 +663,14 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
     }
 
     {
-        const struct dxil_spv_option_ssbo_alignment helper =
+        struct dxil_spv_option_ssbo_alignment helper =
                 { { DXIL_SPV_OPTION_SSBO_ALIGNMENT }, shader_interface_info->min_ssbo_alignment };
+
+        /* If we don't have an offset buffer, never enter a situation where it may be used by dxil-spirv.
+         * This is relevant for e.g. 16-bit structured buffers with awkward alignments. */
+        if ((shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER) == 0)
+            helper.alignment = 1;
+
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             ERR("dxil-spirv does not support SSBO_ALIGNMENT.\n");
