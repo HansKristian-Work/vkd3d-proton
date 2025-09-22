@@ -4925,6 +4925,7 @@ bool vkd3d_create_opacity_micromap_view(struct d3d12_device *device, const struc
 }
 
 #define VKD3D_VIEW_RAW_BUFFER 0x1
+#define VKD3D_VIEW_BUFFER_SRV 0x2
 
 static void vkd3d_get_metadata_buffer_view_for_resource(struct d3d12_device *device,
         struct d3d12_resource *resource, DXGI_FORMAT view_format,
@@ -4947,6 +4948,40 @@ static void vkd3d_get_metadata_buffer_view_for_resource(struct d3d12_device *dev
             view->dxgi_format = DXGI_FORMAT_R32_UINT;
 }
 
+static DXGI_FORMAT vkd3d_structured_srv_to_texel_buffer_dxgi_format(unsigned int stride)
+{
+    /* If AMD reads a structured buffer as a texel buffer, it's effectively
+     * the same stride that is read. NV seems to use the largest texel buffer type
+     * that cleanly subdivides the large stride. For strides <= 16, this is easy,
+     * but for strides > 16, it gets a little more complicated. */
+    if ((stride & 15) == 0)
+        return DXGI_FORMAT_R32G32B32A32_UINT;
+    if (stride % 12 == 0)
+        return DXGI_FORMAT_R32G32B32_UINT;
+    if ((stride & 7) == 0)
+        return DXGI_FORMAT_R32G32_UINT;
+    if ((stride & 3) == 0)
+        return DXGI_FORMAT_R32_UINT;
+
+    /* It's a bit unclear what happens with strides 2 and 6.
+     * This basically never comes up in practice, so just pick something safe-ish. */
+    return DXGI_FORMAT_R16_UINT;
+}
+
+static DXGI_FORMAT vkd3d_structured_uav_to_texel_buffer_dxgi_format(unsigned int stride)
+{
+    /* If AMD reads a structured buffer as a texel buffer, it's effectively
+     * the same stride that is read.
+     * For UAVs, NV uses the scalar type, so it's not really possible for applications to rely on UB
+     * except for the simplest R32_UINT base case.
+     * NV possibly does this to support writing individual elements using the texel buffer descriptor?
+     * Just keep it simple here. */
+    if ((stride & 3) == 0)
+        return DXGI_FORMAT_R32_UINT;
+    else
+        return DXGI_FORMAT_R16_UINT;
+}
+
 static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
         struct d3d12_resource *resource, DXGI_FORMAT view_format,
         VkDeviceSize offset, VkDeviceSize size, VkDeviceSize structure_stride,
@@ -4963,7 +4998,14 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
     }
     else if (view_format == DXGI_FORMAT_UNKNOWN && structure_stride)
     {
-        format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
+        DXGI_FORMAT dxgi_format;
+
+        if (flags & VKD3D_VIEW_BUFFER_SRV)
+            dxgi_format = vkd3d_structured_srv_to_texel_buffer_dxgi_format(structure_stride);
+        else
+            dxgi_format = vkd3d_structured_uav_to_texel_buffer_dxgi_format(structure_stride);
+
+        format = vkd3d_get_format(device, dxgi_format, false);
         element_size = structure_stride;
     }
     else if ((format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, view_format)))
@@ -5641,10 +5683,10 @@ void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
 static unsigned int vkd3d_view_flags_from_d3d12_buffer_srv_flags(D3D12_BUFFER_SRV_FLAGS flags)
 {
     if (flags == D3D12_BUFFER_SRV_FLAG_RAW)
-        return VKD3D_VIEW_RAW_BUFFER;
+        return VKD3D_VIEW_RAW_BUFFER | VKD3D_VIEW_BUFFER_SRV;
     if (flags)
         FIXME("Unhandled buffer SRV flags %#x.\n", flags);
-    return 0;
+    return VKD3D_VIEW_BUFFER_SRV;
 }
 
 static void vkd3d_buffer_view_get_bound_range_ssbo(
@@ -5829,7 +5871,19 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     addr_info.format = vkd3d_internal_get_vk_format(device, view.dxgi_format);
     /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
     if (addr_info.format == VK_FORMAT_UNDEFINED)
-        addr_info.format = VK_FORMAT_R32_UINT;
+    {
+        /* Raw buffer is always emitted as R32_UINT on native.
+         * Try to match behavior observed on native drivers as close as possible here. */
+        if (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW)
+        {
+            addr_info.format = VK_FORMAT_R32_UINT;
+        }
+        else
+        {
+            addr_info.format = vkd3d_internal_get_vk_format(device,
+                    vkd3d_structured_srv_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+        }
+    }
     VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
             device->device_info.descriptor_buffer_properties.robustUniformTexelBufferDescriptorSize,
             d.payload));
@@ -6013,7 +6067,17 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
             addr_info.format = vkd3d_internal_get_vk_format(device, d.view->info.buffer.dxgi_format);
             /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
             if (addr_info.format == VK_FORMAT_UNDEFINED)
-                addr_info.format = VK_FORMAT_R32_UINT;
+            {
+                if (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW)
+                {
+                    addr_info.format = VK_FORMAT_R32_UINT;
+                }
+                else
+                {
+                    addr_info.format = vkd3d_internal_get_vk_format(device,
+                            vkd3d_structured_srv_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                }
+            }
             payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
             VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
                     device->device_info.descriptor_buffer_properties.robustUniformTexelBufferDescriptorSize,
@@ -6588,9 +6652,21 @@ static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, 
     else
     {
         addr_info.format = vkd3d_internal_get_vk_format(device, view.dxgi_format);
-        /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
+
         if (addr_info.format == VK_FORMAT_UNDEFINED)
-            addr_info.format = VK_FORMAT_R32_UINT;
+        {
+            /* Raw buffer is always emitted as R32_UINT on native.
+             * Try to match behavior observed on native drivers as close as possible here. */
+            if (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW)
+            {
+                addr_info.format = VK_FORMAT_R32_UINT;
+            }
+            else
+            {
+                addr_info.format = vkd3d_internal_get_vk_format(device,
+                        vkd3d_structured_uav_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+            }
+        }
     }
 
     VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
@@ -6746,9 +6822,21 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
             addr_info.address = d.view->info.buffer.va;
             addr_info.range = d.view->info.buffer.range;
             addr_info.format = vkd3d_internal_get_vk_format(device, d.view->info.buffer.dxgi_format);
-            /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
+
             if (addr_info.format == VK_FORMAT_UNDEFINED)
-                addr_info.format = VK_FORMAT_R32_UINT;
+            {
+                /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
+                if (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW)
+                {
+                    addr_info.format = VK_FORMAT_R32_UINT;
+                }
+                else
+                {
+                    addr_info.format = vkd3d_internal_get_vk_format(device,
+                            vkd3d_structured_uav_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                }
+            }
+
             payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
             VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
                     device->device_info.descriptor_buffer_properties.robustStorageTexelBufferDescriptorSize,
