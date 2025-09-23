@@ -248,9 +248,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx(d3d
     TRACE("iface %p, queue %p, vk_queue %p, vk_queue_index %p, vk_queue_flags %p vk_queue_family %p.\n",
             iface, queue, vk_queue, vk_queue_index, vk_queue_flags, vk_queue_family);
 
-    /* This only gets called during D3D11 device creation */
-    *vk_queue = vkd3d_acquire_vk_queue(queue);
-    vkd3d_release_vk_queue(queue);
+    *vk_queue = vkd3d_lock_vk_queue(queue);
+    vkd3d_unlock_vk_queue(queue);
 
     *vk_queue_index = vkd3d_get_vk_queue_index(queue);
     *vk_queue_flags = vkd3d_get_vk_queue_flags(queue);
@@ -384,9 +383,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanQueueInfo(d3
 {
     TRACE("iface %p, queue %p, vk_queue %p, vk_queue_family %p.\n", iface, queue, vk_queue, vk_queue_family);
 
-    /* This only gets called during D3D11 device creation */
-    *vk_queue = vkd3d_acquire_vk_queue(queue);
-    vkd3d_release_vk_queue(queue);
+    *vk_queue = vkd3d_lock_vk_queue(queue);
+    vkd3d_unlock_vk_queue(queue);
 
     *vk_queue_family = vkd3d_get_vk_queue_family_index(queue);
     return S_OK;
