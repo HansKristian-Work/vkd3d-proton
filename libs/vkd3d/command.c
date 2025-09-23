@@ -20814,6 +20814,25 @@ VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
     return vk_queue;
 }
 
+VkQueue vkd3d_lock_vk_queue(ID3D12CommandQueue *queue)
+{
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+    VkQueue vk_queue;
+
+    VKD3D_REGION_DECL(lock_vk_queue);
+    VKD3D_REGION_BEGIN(lock_vk_queue);
+    vk_queue = vkd3d_queue_acquire(d3d12_queue->vkd3d_queue);
+    VKD3D_REGION_END(lock_vk_queue);
+    return vk_queue;
+}
+
+void vkd3d_unlock_vk_queue(ID3D12CommandQueue *queue)
+{
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+
+    vkd3d_queue_release(d3d12_queue->vkd3d_queue);
+}
+
 void vkd3d_release_vk_queue(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);

@@ -178,6 +178,8 @@ uint32_t vkd3d_get_vk_queue_index(ID3D12CommandQueue *queue);
 uint32_t vkd3d_get_vk_queue_flags(ID3D12CommandQueue *queue);
 VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_release_vk_queue(ID3D12CommandQueue *queue);
+VkQueue vkd3d_lock_vk_queue(ID3D12CommandQueue *queue);
+void vkd3d_unlock_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource *resource);
 
 HRESULT vkd3d_create_image_resource(ID3D12Device *device,

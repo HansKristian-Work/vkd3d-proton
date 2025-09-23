@@ -71,6 +71,20 @@ interface ID3D12DXVKInteropDevice1 : ID3D12DXVKInteropDevice
 }
 
 [
+    uuid(90ecf26e-b212-43f5-b62a-825ad7b1385e),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DXVKInteropDevice2 : ID3D12DXVKInteropDevice1
+{
+    /* Unlike LockCommandQueue this doesn't drain or lock d3d12 queue but only locks the access to the underlying
+     * Vulkan queue so it can be used outside of d3d12. */
+    HRESULT LockVulkanQueue(ID3D12CommandQueue *queue);
+    HRESULT UnlockVulkanQueue(ID3D12CommandQueue *queue);
+}
+
+[
     uuid(f3112584-41f9-348d-a59b-00b7e1d285d6),
     object,
     local,

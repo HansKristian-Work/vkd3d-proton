@@ -530,7 +530,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_EndVkCommandBufferInt
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12DXVKInteropDevice1Vtbl d3d12_dxvk_interop_device_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_LockVulkanQueue(d3d12_dxvk_interop_device_iface *iface, ID3D12CommandQueue *queue)
+{
+    TRACE("iface %p, queue %p.\n", iface, queue);
+
+    vkd3d_lock_vk_queue(queue);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_UnlockVulkanQueue(d3d12_dxvk_interop_device_iface *iface, ID3D12CommandQueue *queue)
+{
+    TRACE("iface %p, queue %p.\n", iface, queue);
+
+    vkd3d_unlock_vk_queue(queue);
+    return S_OK;
+}
+
+CONST_VTBL struct ID3D12DXVKInteropDevice2Vtbl d3d12_dxvk_interop_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_dxvk_interop_device_QueryInterface,
@@ -555,6 +571,10 @@ CONST_VTBL struct ID3D12DXVKInteropDevice1Vtbl d3d12_dxvk_interop_device_vtbl =
     d3d12_dxvk_interop_device_CreateInteropCommandAllocator,
     d3d12_dxvk_interop_device_BeginVkCommandBufferInterop,
     d3d12_dxvk_interop_device_EndVkCommandBufferInterop,
+
+    /* ID3D12DXVKInteropDevice2 methods */
+    d3d12_dxvk_interop_device_LockVulkanQueue,
+    d3d12_dxvk_interop_device_UnlockVulkanQueue,
 };
 
 static inline struct d3d12_device *d3d12_device_from_ID3DLowLatencyDevice(d3d_low_latency_device_iface *iface)
