@@ -4984,7 +4984,7 @@ struct vkd3d_timestamp_profiler;
 typedef ID3D12DeviceExt1 d3d12_device_vkd3d_ext_iface;
 
 /* ID3D12DXVKInteropDevice */
-typedef ID3D12DXVKInteropDevice1 d3d12_dxvk_interop_device_iface;
+typedef ID3D12DXVKInteropDevice2 d3d12_dxvk_interop_device_iface;
 
 /* ID3DLowLatencyDevice */
 typedef ID3DLowLatencyDevice d3d_low_latency_device_iface;
