@@ -12307,7 +12307,11 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         }
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC)
+    /* Applications are supposed to use barriers here, but native drivers inherited some
+     * very unfortunate behavior from 11on12 where ClearUAV are implicitly barriers, similar to how
+     * transfer ops work. Too many cases in the wild where this stuff just breaks,
+     * so be conservative. */
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_CLEAR_UAV_SYNC))
         list->cmd.clear_uav_pending = true;
 
     d3d12_command_list_debug_mark_end_region(list);
