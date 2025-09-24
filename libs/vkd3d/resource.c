@@ -4576,58 +4576,6 @@ fail:
     return hr;
 }
 
-HRESULT vkd3d_create_image_resource(ID3D12Device *device,
-        const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource)
-{
-    struct d3d12_device *d3d12_device = impl_from_ID3D12Device((d3d12_device_iface *)device);
-    struct d3d12_resource *object;
-    HRESULT hr;
-
-    TRACE("device %p, create_info %p, resource %p.\n", device, create_info, resource);
-
-    if (!create_info || !resource)
-        return E_INVALIDARG;
-
-    if (!(object = vkd3d_malloc(sizeof(*object))))
-        return E_OUTOFMEMORY;
-
-    memset(object, 0, sizeof(*object));
-
-    object->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
-    object->refcount = 1;
-    object->internal_refcount = 1;
-    object->res.vk_image = create_info->vk_image;
-    object->flags = create_info->flags;
-    object->flags |= VKD3D_RESOURCE_EXTERNAL;
-    object->initial_layout_transition = 1;
-    object->common_layout = vk_common_image_layout_from_d3d12_desc(d3d12_device, &object->desc);
-
-    memset(&object->sparse, 0, sizeof(object->sparse));
-
-    d3d12_resource_promote_desc(&create_info->desc, &object->desc);
-    object->format = vkd3d_format_from_d3d12_resource_desc(d3d12_device, &object->desc, 0);
-
-    if (FAILED(hr = vkd3d_view_map_init(&object->view_map)))
-    {
-        vkd3d_free(object);
-        return hr;
-    }
-
-    if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
-    {
-        vkd3d_free(object);
-        return hr;
-    }
-
-    d3d12_device_add_ref(object->device = d3d12_device);
-
-    TRACE("Created resource %p.\n", object);
-
-    *resource = (ID3D12Resource *)&object->ID3D12Resource_iface;
-
-    return S_OK;
-}
-
 ULONG vkd3d_resource_incref(ID3D12Resource *resource)
 {
     TRACE("resource %p.\n", resource);
