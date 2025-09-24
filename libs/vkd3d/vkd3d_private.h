@@ -147,6 +147,7 @@ struct vkd3d_vulkan_info
     bool KHR_compute_shader_derivatives;
     bool KHR_calibrated_timestamps;
     bool KHR_cooperative_matrix;
+    bool KHR_unified_image_layouts;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -4900,6 +4901,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
+    VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unified_image_layouts_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
