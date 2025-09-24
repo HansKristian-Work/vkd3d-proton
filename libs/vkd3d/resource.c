@@ -985,7 +985,8 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     {
         /* Cases where we need to force images into GENERAL layout at all times.
          * Read/WriteFromSubresource essentialy require simultaneous access. */
-        if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) ||
+        if (device->device_info.unified_image_layouts_features.unifiedImageLayouts ||
+                (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) ||
                 (image_info->tiling == VK_IMAGE_TILING_LINEAR) ||
                 (heap_properties && is_cpu_accessible_heap(heap_properties)))
         {
@@ -4010,7 +4011,17 @@ HRESULT d3d12_resource_create_borrowed(struct d3d12_device *device, const D3D12_
     object->res.vk_image = (VkImage)vk_handle;
     if (!object->desc.MipLevels)
         object->desc.MipLevels = max_miplevel_count(desc);
-    object->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
+
+    if (device->device_info.unified_image_layouts_features.unifiedImageLayouts)
+    {
+        object->flags |= VKD3D_RESOURCE_GENERAL_LAYOUT;
+        object->common_layout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+    else
+    {
+        object->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
+    }
+
     *resource = object;
     return hr;
 }
