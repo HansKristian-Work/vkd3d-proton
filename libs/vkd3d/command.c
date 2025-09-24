@@ -10664,7 +10664,7 @@ static void d3d12_command_list_barrier_batch_add_layout_transition(
         struct d3d12_command_list_barrier_batch *batch,
         const VkImageMemoryBarrier2 *image_barrier)
 {
-    bool layout_match, exact_match;
+    bool layout_match, exact_match, skip_transition;
     uint32_t i;
 
     if (batch->image_barrier_count == ARRAY_SIZE(batch->vk_image_barriers))
@@ -10686,12 +10686,16 @@ static void d3d12_command_list_barrier_batch_add_layout_transition(
              * overlap like the latter. */
             layout_match = image_barrier->oldLayout == batch->vk_image_barriers[i].oldLayout &&
                     image_barrier->newLayout == batch->vk_image_barriers[i].newLayout;
+
+            /* No need to split the barrier if we're not actually doing RMW layout transition. */
+            skip_transition = image_barrier->oldLayout == image_barrier->newLayout;
+
             if (exact_match && layout_match)
             {
                 /* Exact duplicate, skip this barrier. */
                 return;
             }
-            else
+            else if (!skip_transition)
             {
                 /* Overlap, break the batch and add barrier. */
                 d3d12_command_list_barrier_batch_end(list, batch);
