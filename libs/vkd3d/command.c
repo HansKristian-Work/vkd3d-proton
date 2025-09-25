@@ -7129,6 +7129,7 @@ static void d3d12_command_list_check_render_pass_barrier(struct d3d12_command_li
         if (list->cmd.clear_uav_pending)
         {
             vk_barrier = &vk_barriers[dep_info.memoryBarrierCount++];
+            vk_barrier->sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
             vk_barrier->srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             vk_barrier->srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
             vk_barrier->dstStageMask = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT |
