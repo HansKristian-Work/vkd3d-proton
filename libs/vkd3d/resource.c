@@ -439,6 +439,9 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
 
 static bool d3d12_device_prefers_general_depth_stencil(const struct d3d12_device *device)
 {
+    if (device->device_info.unified_image_layouts_features.unifiedImageLayouts)
+        return true;
+
     if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
     {
         /* NVIDIA doesn't really care about layouts for the most part. */
