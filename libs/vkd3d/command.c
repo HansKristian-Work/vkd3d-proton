@@ -7884,12 +7884,13 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
     }
 }
 
-static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2 *copy,
+static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2 *copy, VkDeviceSize *footprint_size,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *footprint, unsigned int sub_resource_idx,
         const D3D12_RESOURCE_DESC1 *image_desc,
         const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
         const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
+    VkDeviceSize extent_row_count;
     VkDeviceSize row_count;
     copy->bufferImageHeight = align(footprint->Footprint.Height, dst_format->block_height);
     row_count = copy->bufferImageHeight / dst_format->block_height;
@@ -7914,6 +7915,14 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2 *copy,
     {
         copy->imageExtent = d3d12_resource_desc_get_vk_subresource_extent(image_desc, src_format, &copy->imageSubresource);
     }
+
+    extent_row_count = align(copy->imageExtent.height, dst_format->block_height) /
+            dst_format->block_height;
+    *footprint_size = extent_row_count * footprint->Footprint.RowPitch;
+
+    /* PLACED_FOOTPRINT isn't necessarily a tightly packed copy. */
+    if (copy->imageExtent.depth > 1)
+        *footprint_size += row_count * footprint->Footprint.RowPitch * (copy->imageExtent.depth - 1);
 }
 
 static bool vk_image_copy_from_d3d12(VkImageCopy2 *image_copy,
@@ -8479,7 +8488,8 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
             return false;
         }
 
-        vk_image_buffer_copy_from_d3d12(&out->copy.buffer_image, &dst->PlacedFootprint, src->SubresourceIndex,
+        vk_image_buffer_copy_from_d3d12(&out->copy.buffer_image, &out->buffer_footprint_size,
+                &dst->PlacedFootprint, src->SubresourceIndex,
                 &src_resource->desc, out->src_format, out->dst_format, src_box, dst_x, dst_y, dst_z);
         out->copy.buffer_image.bufferOffset += dst_resource->mem.offset;
 
