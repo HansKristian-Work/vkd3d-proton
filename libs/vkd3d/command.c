@@ -7890,13 +7890,14 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2 *copy,
         const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
         const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
-    VkDeviceSize row_count = footprint->Footprint.Height / dst_format->block_height;
+    VkDeviceSize row_count;
+    copy->bufferImageHeight = align(footprint->Footprint.Height, dst_format->block_height);
+    row_count = copy->bufferImageHeight / dst_format->block_height;
 
     copy->bufferOffset = footprint->Offset + vkd3d_format_get_data_offset(dst_format,
             footprint->Footprint.RowPitch, row_count * footprint->Footprint.RowPitch, dst_x, dst_y, dst_z);
     copy->bufferRowLength = footprint->Footprint.RowPitch /
             (dst_format->byte_count * dst_format->block_byte_count) * dst_format->block_width;
-    copy->bufferImageHeight = align(footprint->Footprint.Height, dst_format->block_height);
     copy->imageSubresource = vk_image_subresource_layers_from_d3d12(
             src_format, sub_resource_idx, image_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(image_desc));
