@@ -5508,6 +5508,24 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_TIGHT_ALIGNMENT:
+        {
+            D3D12_FEATURE_DATA_TIGHT_ALIGNMENT *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* Trivial vulkan catch-up, always supported */
+            data->SupportTier = D3D12_TIGHT_ALIGNMENT_TIER_1;
+
+            TRACE("SupportTier %#x\n", data->SupportTier);
+
+            return S_OK;
+        }
+
         case D3D12_FEATURE_QUERY_META_COMMAND:
         {
             D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
