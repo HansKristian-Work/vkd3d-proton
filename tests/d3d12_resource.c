@@ -5363,3 +5363,380 @@ void test_committed_non_zeroed_behavior_stress(void)
 {
     test_non_zeroed_behavior(false);
 }
+
+void test_tight_resource_alignment(void)
+{
+    D3D12_FEATURE_DATA_TIGHT_ALIGNMENT tight_alignment;
+    D3D12_RESOURCE_DESC res_desc[8], queried_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12;
+    D3D12_RESOURCE_ALLOCATION_INFO1 res_infos[8];
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5;
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info;
+    D3D12_GPU_VIRTUAL_ADDRESS gpu_va, heap_va;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    UINT64 pack_offset, max_resource_align;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *resource;
+    ID3D12Device4 *device4;
+    ID3D12Device *device;
+    ID3D12Heap *heap;
+    ULONG ref_count;
+    unsigned int i;
+    HRESULT hr;
+
+    static const UINT64 max_alignments[] =
+    {
+        256u,
+        256u,
+        256u,
+        D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
+    };
+
+    static const UINT64 invalid_alignments[] =
+    {
+        8, 256u, D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
+        D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+    };
+
+    device = create_device();
+
+    if (!device)
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device4, (void**)&device4);
+
+    if (hr != S_OK)
+    {
+        skip("ID3D12Device4 not supported by implementation.");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    memset(&options, 0, sizeof(options));
+    ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    memset(&options5, 0, sizeof(options5));
+    ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5));
+    memset(&options12, 0, sizeof(options12));
+    ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS12, &options12, sizeof(options12));
+    memset(&tight_alignment, 0, sizeof(tight_alignment));
+    ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_TIGHT_ALIGNMENT, &tight_alignment, sizeof(tight_alignment));
+
+    if (tight_alignment.SupportTier < D3D12_TIGHT_ALIGNMENT_TIER_1)
+    {
+        skip("Tight resource alignment not supported.\n");
+        ID3D12Device4_Release(device4);
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    memset(res_desc, 0, sizeof(res_desc));
+
+    memset(&heap_properties, 0u, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    /* For buffers, reported alignment must not be greater than 256 bytes and not pad the aligned buffer size */
+    res_desc[0].Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    res_desc[0].Width = 25600u;
+    res_desc[0].Height = 1u;
+    res_desc[0].DepthOrArraySize = 1u;
+    res_desc[0].MipLevels = 1u;
+    res_desc[0].Format = DXGI_FORMAT_UNKNOWN;
+    res_desc[0].SampleDesc.Count = 1u;
+    res_desc[0].Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    res_desc[0].Flags = D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT;
+
+    /* Passing an explicit alignment with the tight alignment flag is invalid */
+    for (i = 0; i < ARRAY_SIZE(invalid_alignments); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+        res_desc[0].Alignment = invalid_alignments[i];
+
+        memset(res_infos, 0, sizeof(res_infos));
+        alloc_info = ID3D12Device4_GetResourceAllocationInfo1(device4, 0, 1, res_desc, res_infos);
+
+        ok(alloc_info.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Got buffer alignment %"PRIu64", expected 65536.\n", alloc_info.Alignment);
+        ok(alloc_info.SizeInBytes == -1ull, "Got allocation size %"PRIu64", expected -1.\n", alloc_info.SizeInBytes);
+
+        hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &res_desc[0], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+        ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    }
+
+    vkd3d_test_set_context(NULL);
+
+    res_desc[0].Alignment = 0;
+
+    /* Reserved buffer creation does work for some reason, and alignment can be anything. Just
+     * check that it works and that the returned desc still has the flag set. */
+    hr = ID3D12Device_CreateReservedResource(device, &res_desc[0], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+
+    queried_desc = ID3D12Resource_GetDesc(resource);
+    ok(queried_desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT, "Missing D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT in flags %#x.\n", queried_desc.Flags);
+
+    ID3D12Resource_Release(resource);
+
+    /* Pack multiple small buffers back to back */
+    res_desc[1] = res_desc[0];
+    res_desc[1].Width = 4u;
+
+    res_desc[2] = res_desc[0];
+    res_desc[2].Width = 65536u;
+
+    /* Test small image, alignment requirements must not exceed the default but can be as low as 8 bytes. */
+    res_desc[3].Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    res_desc[3].Width = 16;
+    res_desc[3].Height = 16;
+    res_desc[3].DepthOrArraySize = 1u;
+    res_desc[3].MipLevels = 5u;
+    res_desc[3].Format = DXGI_FORMAT_R8_UNORM;
+    res_desc[3].SampleDesc.Count = 1u;
+    res_desc[3].Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    res_desc[3].Flags = D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT;
+
+    /* Add a default-aligned buffer to the mix as well */
+    res_desc[4] = res_desc[0];
+    res_desc[4].Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    res_desc[4].Width = 49152u;
+    res_desc[4].Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    /* Test large MSAA render target, alignment may be as large as 4 MiB. */
+    res_desc[5].Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    res_desc[5].Width = 2560;
+    res_desc[5].Height = 1440;
+    res_desc[5].DepthOrArraySize = 1u;
+    res_desc[5].MipLevels = 1u;
+    res_desc[5].Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    res_desc[5].SampleDesc.Count = 4u;
+    res_desc[5].Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    res_desc[5].Flags = D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    /* Test regular image, alignment must not be greater than 64k. */
+    res_desc[6].Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    res_desc[6].Width = 64;
+    res_desc[6].Height = 64;
+    res_desc[6].DepthOrArraySize = 64;
+    res_desc[6].MipLevels = 1u;
+    res_desc[6].Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    res_desc[6].SampleDesc.Count = 1u;
+    res_desc[6].Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    res_desc[6].Flags = D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    /* Regular image that meets small alignment requirements */
+    res_desc[7].Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    res_desc[7].Width = 256;
+    res_desc[7].Height = 256;
+    res_desc[7].DepthOrArraySize = 1;
+    res_desc[7].MipLevels = 1u;
+    res_desc[7].Format = DXGI_FORMAT_R8_UNORM;
+    res_desc[7].SampleDesc.Count = 1u;
+    res_desc[7].Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    res_desc[7].Flags = D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT;
+
+    for (i = 0; i < ARRAY_SIZE(res_desc); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        memset(res_infos, 0, sizeof(res_infos));
+        alloc_info = ID3D12Device4_GetResourceAllocationInfo1(device4, 0, 1, &res_desc[i], res_infos);
+
+        if (res_desc[i].Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+        {
+            ok(alloc_info.Alignment >= 8u && alloc_info.Alignment <= max_alignments[i],
+                    "Got allocation alignment %"PRIu64", expected range is [8..%"PRIu64"].\n", alloc_info.Alignment, max_alignments[i]);
+        }
+        else
+        {
+            ok(alloc_info.Alignment == max_alignments[i], "Got allocation alignment %"PRIu64", expected %"PRIu64".\n", alloc_info.Alignment, max_alignments[i]);
+        }
+
+        ok(alloc_info.SizeInBytes && !(alloc_info.SizeInBytes & (alloc_info.Alignment - 1u)),
+                "Got allocation size %"PRIu64", which is not a multiple of alignment %"PRIu64".\n", alloc_info.SizeInBytes, alloc_info.Alignment);
+
+        if (res_desc[i].Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        {
+            UINT64 aligned_size = align(res_desc[i].Width, alloc_info.Alignment);
+            ok(alloc_info.SizeInBytes == aligned_size, "Buffer size %"PRIu64" does not match aligned size %"PRIu64".\n",
+                    alloc_info.SizeInBytes, aligned_size);
+        }
+
+        ok(!res_infos[0].Offset, "Got resource offset %"PRIu64", expected 0.\n", res_infos[0].Offset);
+        ok(res_infos[0].Alignment == alloc_info.Alignment,
+                "Got resource alignment %"PRIu64", which differs from allocation alignment %"PRIu64".\n", res_infos[0].Alignment, alloc_info.Alignment);
+        ok(res_infos[0].SizeInBytes == alloc_info.SizeInBytes,
+                "Got resource size %"PRIu64", which differs from allocation size %"PRIu64".\n", res_infos[0].SizeInBytes, alloc_info.SizeInBytes);
+
+        /* Test committed resource creation. Allocation alignment is 4k per spec, but reported alignment may be smaller. */
+        if (res_desc[i].Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+        {
+            UINT64 max_alignment = max(max_alignments[i], D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT);
+
+            hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                    &res_desc[i], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+            ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+
+            queried_desc = ID3D12Resource_GetDesc(resource);
+
+            ok(queried_desc.Alignment >= 8 && queried_desc.Alignment <= max_alignment,
+                    "Got alignment %"PRIu64", expected range is [8..%"PRIu64"].\n", queried_desc.Alignment, max_alignment);
+            ok(queried_desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT, "Missing D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT in flags %#x.\n", queried_desc.Flags);
+
+            ID3D12Resource_Release(resource);
+        }
+    }
+
+    /* Test querying multiple resources with tight alignment */
+    memset(res_infos, 0, sizeof(res_infos));
+    alloc_info = ID3D12Device4_GetResourceAllocationInfo1(device4, 0, ARRAY_SIZE(res_desc), res_desc, res_infos);
+
+    pack_offset = 0;
+    max_resource_align = 0;
+
+    for (i = 0; i < ARRAY_SIZE(res_desc); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        if (res_desc[i].Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+        {
+            ok(res_infos[i].Alignment >= 8u && res_infos[i].Alignment <= max_alignments[i],
+                    "Got resource alignment %"PRIu64", expected range is [8..%"PRIu64"].\n", res_infos[i].Alignment, max_alignments[i]);
+        }
+        else
+        {
+            ok(res_infos[i].Alignment == max_alignments[i], "Got resource alignment %"PRIu64", expected %"PRIu64".\n", res_infos[i].Alignment, max_alignments[i]);
+        }
+
+        ok(res_infos[i].SizeInBytes && !(res_infos[i].SizeInBytes & (res_infos[i].Alignment - 1u)),
+                "Got allocation size %"PRIu64", which is not a multiple of alignment %"PRIu64".\n", res_infos[i].SizeInBytes, res_infos[i].Alignment);
+
+        if (res_desc[i].Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        {
+            UINT64 aligned_size = align(res_desc[i].Width, res_infos[i].Alignment);
+            ok(res_infos[i].SizeInBytes == aligned_size, "Buffer size %"PRIu64" does not match aligned size %"PRIu64".\n",
+                    res_infos[i].SizeInBytes, aligned_size);
+        }
+
+        pack_offset = align(pack_offset, res_infos[i].Alignment);
+        ok(res_infos[i].Offset == pack_offset, "Got resource offset %"PRIu64", expected %"PRIu64".\n", res_infos[i].Offset, pack_offset);
+        pack_offset += res_infos[i].SizeInBytes;
+        max_resource_align = max(max_resource_align, res_infos[i].Alignment);
+    }
+
+    pack_offset = align(pack_offset, max_resource_align);
+    ok(alloc_info.Alignment == max_resource_align, "Got allocation alignment %"PRIu64", expected %"PRIu64".\n", alloc_info.Alignment, max_resource_align);
+    ok(alloc_info.SizeInBytes == pack_offset, "Got allocation size %"PRIu64", expected %"PRIu64".\n", alloc_info.SizeInBytes, pack_offset);
+
+    vkd3d_test_set_context(NULL);
+
+    if (options.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2)
+    {
+        /* Create heap and place each resource at the computed offsets */
+        memset(&heap_desc, 0, sizeof(heap_desc));
+        heap_desc.SizeInBytes = alloc_info.SizeInBytes;
+        heap_desc.Properties = heap_properties;
+        heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
+
+        hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+        ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+        heap_va = 0u;
+
+        for (i = 0; i < ARRAY_SIZE(res_desc); i++)
+        {
+            vkd3d_test_set_context("Test %u", i);
+
+            hr = ID3D12Device_CreatePlacedResource(device, heap, res_infos[i].Offset, &res_desc[i],
+                    D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
+            ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+
+            queried_desc = ID3D12Resource_GetDesc(resource);
+            ok(queried_desc.Alignment == res_infos[i].Alignment, "Got resource aligment %"PRIu64", expected %"PRIu64".\n",
+                    queried_desc.Alignment, res_infos[i].Alignment);
+
+            if (res_desc[i].Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+            {
+                gpu_va = ID3D12Resource_GetGPUVirtualAddress(resource);
+
+                if (!heap_va)
+                    heap_va = gpu_va - res_infos[i].Offset;
+
+                ok(gpu_va == heap_va + res_infos[i].Offset, "Got VA %"PRIx64", expected %"PRIx64".\n",
+                        gpu_va, heap_va + res_infos[i].Offset);
+            }
+
+            ID3D12Resource_Release(resource);
+
+            /* Ensure that we can successfully place the resource at the end of the heap too */
+            hr = ID3D12Device_CreatePlacedResource(device, heap, heap_desc.SizeInBytes - res_infos[i].SizeInBytes,
+                    &res_desc[i], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
+            ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+
+            ID3D12Resource_Release(resource);
+
+            if (res_desc[i].Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+            {
+                /* Passing a non-zero alignment is still invalid */
+                res_desc[i].Alignment = res_infos[i].Alignment;
+
+                hr = ID3D12Device_CreatePlacedResource(device, heap, res_infos[i].Offset, &res_desc[i],
+                        D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
+                ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+
+                res_desc[i].Alignment = 0u;
+            }
+        }
+
+        if (options5.RaytracingTier)
+        {
+            /* Create RTAS resource and query alignment. This has no impact on reported alignment on native. */
+            res_desc[0].Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            hr = ID3D12Device_CreatePlacedResource(device, heap, 0u, &res_desc[0],
+                    D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
+            ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", hr);
+
+            queried_desc = ID3D12Resource_GetDesc(resource);
+            ok(queried_desc.Alignment >= 8u && queried_desc.Alignment <= 256u,
+                    "Got RTAS alignment %"PRIu64", expected between 8 and 256.\n", queried_desc.Alignment);
+        }
+
+        ID3D12Resource_Release(resource);
+
+        ID3D12Heap_Release(heap);
+    }
+    else
+    {
+        skip("Heap tier 2 not supported, skipping placed resource tests.\n");
+    }
+
+    if (options5.RaytracingTier && options12.EnhancedBarriersSupported)
+    {
+        /* Test querying explicit RTAS resource. Again, no observed impact. */
+        res_desc[0].Flags |= D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
+        alloc_info = ID3D12Device4_GetResourceAllocationInfo(device4, 0, 1, &res_desc[0]);
+        ok(alloc_info.Alignment >= 8u && alloc_info.Alignment <= 256u, "Got RTAS alignment %"PRIu64", expected between 8 and 256.\n", alloc_info.Alignment);
+    }
+
+    /* Heaps cannot be created with smaller alignments, and there is no heap flag to opt in. */
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Properties = heap_properties;
+    heap_desc.Alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+    ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Device4_Release(device4);
+    ref_count = ID3D12Device_Release(device);
+    ok(!ref_count, "Device has %u references left.\n", ref_count);
+}
