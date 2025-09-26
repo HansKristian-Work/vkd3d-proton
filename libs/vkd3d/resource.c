@@ -2659,7 +2659,8 @@ static HRESULT d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
             | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
             | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE
             | D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER
-            | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS);
+            | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS
+            | D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT);
 
     if (unknown_flags)
         FIXME("Unknown resource flags %#x.\n", unknown_flags);
@@ -2773,6 +2774,12 @@ static HRESULT d3d12_resource_validate_usage(const D3D12_RESOURCE_DESC1 *desc,
         required_image_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) || desc->SampleDesc.Count > 1)
         required_image_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+
+    if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) && desc->Alignment)
+    {
+        WARN("Tight alignment and explicit alignment set simultaneously.\n");
+        return E_INVALIDARG;
+    }
 
     if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -4118,7 +4125,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
         memset(&allocate_info, 0, sizeof(allocate_info));
         allocate_info.heap_desc.Properties = *heap_properties;
-        allocate_info.heap_desc.Alignment = desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        allocate_info.heap_desc.Alignment = object->desc.Alignment;
         allocate_info.heap_desc.SizeInBytes = align(desc->Width, allocate_info.heap_desc.Alignment);
         allocate_info.heap_desc.Flags = heap_flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         allocate_info.vk_memory_priority = object->priority.residency_count ? vkd3d_convert_to_vk_prio(object->priority.d3d12priority) : 0.f;
@@ -9535,6 +9542,11 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     VK_CALL(vkGetDeviceBufferMemoryRequirements(device->vk_device, &buffer_requirement_info, &memory_requirements));
     buffer_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
+    /* The reported alignment requirement for the buffer covers all possible usages,
+     * so be conservative and use that as the minimum required alignment for buffer
+     * allocations with tight alignment. */
+    info->min_buffer_alignment = max(memory_requirements.memoryRequirements.alignment, VKD3D_MIN_BUFFER_ALIGNMENT);
+
     memset(&image_info, 0, sizeof(image_info));
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -9619,6 +9631,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
           info->cpu_accessible_domain.sampled_type_mask);
     TRACE("Device supports CPU visible render targets on memory types 0x%#x.\n",
           info->cpu_accessible_domain.rt_ds_type_mask);
+    TRACE("Device requires buffer alignment of %"PRIu64" bytes.\n", info->min_buffer_alignment);
     return S_OK;
 }
 

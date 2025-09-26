@@ -68,6 +68,10 @@
 
 #define VKD3D_TILE_SIZE (65536ull)
 
+/* Minimum required buffer alignment. D3D12 requires at least 8 bytes for 64-bit
+ * atomics. We have stricter requirements due to shader alignment hints. */
+#define VKD3D_MIN_BUFFER_ALIGNMENT (16ull)
+
 /* Minimum required maxBufferSize in Vulkan */
 #define VKD3D_MAX_FILL_BUFFER_SIZE (1ull << 30)
 
@@ -4173,6 +4177,8 @@ struct vkd3d_memory_info
 
     VkMemoryPropertyFlags upload_heap_memory_properties;
     VkMemoryPropertyFlags descriptor_heap_memory_properties;
+
+    VkDeviceSize min_buffer_alignment;
 
     uint32_t rebar_budget_mask;
     VkDeviceSize rebar_budget;
