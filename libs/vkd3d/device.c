@@ -7824,7 +7824,11 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
         if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
         {
             resource_info.SizeInBytes = desc->Width;
-            resource_info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+            if (desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+                resource_info.Alignment = VKD3D_MIN_BUFFER_ALIGNMENT;
+            else
+                resource_info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
         }
         else
         {
@@ -7836,8 +7840,11 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
                 goto invalid;
             }
 
-            requested_alignment = desc->Alignment
-                    ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            requested_alignment = desc->Alignment;
+
+            if (!desc->Alignment && !(desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT))
+                requested_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
             resource_info.Alignment = max(resource_info.Alignment, requested_alignment);
         }
 
