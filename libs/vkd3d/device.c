@@ -5508,6 +5508,42 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_TIGHT_ALIGNMENT:
+        {
+            D3D12_FEATURE_DATA_TIGHT_ALIGNMENT *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* Trivial vulkan catch-up, always supported */
+            data->SupportTier = D3D12_TIGHT_ALIGNMENT_TIER_1;
+
+            TRACE("SupportTier %#x\n", data->SupportTier);
+
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_APPLICATION_SPECIFIC_DRIVER_STATE:
+        {
+            D3D12_FEATURE_DATA_APPLICATION_SPECIFIC_DRIVER_STATE *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* Trivial vulkan catch-up, always supported */
+            data->Supported = FALSE;
+
+            TRACE("Supported %u\n", data->Supported);
+
+            return S_OK;
+        }
+
         case D3D12_FEATURE_QUERY_META_COMMAND:
         {
             D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
@@ -7824,7 +7860,11 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
         if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
         {
             resource_info.SizeInBytes = desc->Width;
-            resource_info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+            if (desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+                resource_info.Alignment = device->memory_info.min_buffer_alignment;
+            else
+                resource_info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
         }
         else
         {
@@ -7836,8 +7876,11 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
                 goto invalid;
             }
 
-            requested_alignment = desc->Alignment
-                    ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            requested_alignment = desc->Alignment;
+
+            if (!desc->Alignment && !(desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT))
+                requested_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
             resource_info.Alignment = max(resource_info.Alignment, requested_alignment);
         }
 
@@ -7855,6 +7898,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
         info->Alignment = max(info->Alignment, resource_info.Alignment);
     }
 
+    info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
     return info;
 
 invalid:

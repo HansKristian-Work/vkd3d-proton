@@ -1222,7 +1222,7 @@ void test_update_tile_mappings(void)
 
         for (i = 0; i < (unsigned int)(resource_desc.MipLevels * resource_desc.DepthOrArraySize); i++)
         {
-            UINT clear_value[4] = {};
+            UINT clear_value[4] = { 0, 0, 0, 0 };
             clear_value[0] = i;
 
             uav_desc.Format = DXGI_FORMAT_R32_UINT;

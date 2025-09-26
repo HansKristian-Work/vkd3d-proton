@@ -33,6 +33,9 @@
 static UINT global_cookie_counter;
 static UINT global_cookie_va_timestamp;
 
+static bool d3d12_resource_supports_small_resource_alignment(const D3D12_RESOURCE_DESC1 *desc,
+        const struct vkd3d_format *format);
+
 struct vkd3d_cookie vkd3d_allocate_cookie(void)
 {
     struct vkd3d_cookie cookie;
@@ -992,8 +995,13 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     {
         const uint32_t supported_alignment =
                 device->device_info.image_alignment_control_properties.supportedImageAlignmentMask;
-        uint32_t candidate_alignment = desc->Alignment ?
-                desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        uint32_t candidate_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+        if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) && d3d12_resource_supports_small_resource_alignment(desc, format))
+            candidate_alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+
+        if (desc->Alignment)
+            candidate_alignment = desc->Alignment;
 
         if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PLACED_TEXTURE_ALIASING) &&
                 resource && (resource->flags & VKD3D_RESOURCE_PLACED) &&
@@ -1121,6 +1129,12 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
      * since that might confuse apps. Instead, pad the allocation so that we can
      * align the image ourselves. */
     target_alignment = desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    /* Tight alignment enforces small alignment for eligible resources */
+    if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) &&
+            d3d12_resource_supports_small_resource_alignment(desc, vkd3d_get_format(device, desc->Format,
+                    !!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))))
+        target_alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
 
     pad_allocation = allocation_info->Alignment > target_alignment &&
             (allocation_info->Alignment > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT ||
@@ -2659,7 +2673,8 @@ static HRESULT d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
             | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
             | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE
             | D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER
-            | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS);
+            | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS
+            | D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT);
 
     if (unknown_flags)
         FIXME("Unknown resource flags %#x.\n", unknown_flags);
@@ -2700,11 +2715,24 @@ static bool d3d12_resource_validate_texture_format(const D3D12_RESOURCE_DESC1 *d
     return true;
 }
 
-static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC1 *desc,
+static bool d3d12_resource_supports_small_resource_alignment(const D3D12_RESOURCE_DESC1 *desc,
         const struct vkd3d_format *format)
 {
     uint64_t estimated_size;
 
+    if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
+        return false;
+
+    /* Windows uses the slice size to determine small alignment eligibility. DepthOrArraySize is ignored. */
+    estimated_size = desc->Width * desc->Height * format->byte_count * format->block_byte_count
+            / (format->block_width * format->block_height);
+
+    return estimated_size <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+}
+
+static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC1 *desc,
+        const struct vkd3d_format *format)
+{
     if (!desc->Alignment)
         return true;
 
@@ -2716,17 +2744,12 @@ static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC1
         return false;
     }
 
-    if (desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+    if ((desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT) &&
+            !d3d12_resource_supports_small_resource_alignment(desc, format))
     {
-        /* Windows uses the slice size to determine small alignment eligibility. DepthOrArraySize is ignored. */
-        estimated_size = desc->Width * desc->Height * format->byte_count * format->block_byte_count
-                / (format->block_width * format->block_height);
-        if (estimated_size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-        {
-            WARN("Invalid resource alignment %#"PRIx64" (required %#x).\n",
-                    desc->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
-            return false;
-        }
+        WARN("Invalid resource alignment %#"PRIx64" (required %#x).\n",
+                desc->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+        return false;
     }
 
     /* The size check for MSAA textures with D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT is probably
@@ -2773,6 +2796,12 @@ static HRESULT d3d12_resource_validate_usage(const D3D12_RESOURCE_DESC1 *desc,
         required_image_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) || desc->SampleDesc.Count > 1)
         required_image_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+
+    if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) && desc->Alignment)
+    {
+        WARN("Tight alignment and explicit alignment set simultaneously.\n");
+        return E_INVALIDARG;
+    }
 
     if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -3750,6 +3779,36 @@ static size_t d3d12_resource_init_subresource_layouts(struct d3d12_resource *res
     return vkd3d_compute_resource_layouts_from_desc(device, &resource->desc, resource->subresource_layouts);
 }
 
+static UINT64 d3d12_resource_determine_alignment(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO allocation_info;
+    HRESULT hr;
+
+    if (desc->Alignment)
+        return desc->Alignment;
+
+    if (desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+    {
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+            return device->memory_info.min_buffer_alignment;
+
+        if (SUCCEEDED(hr = vkd3d_get_image_allocation_info(device, desc, num_castable_formats, castable_formats, &allocation_info)))
+            return allocation_info.Alignment;
+        else
+            ERR("Failed to query image alignment, hr %#x.\n", hr);
+    }
+
+    if (desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE ||
+            desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE)
+        return D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    if (desc->SampleDesc.Count > 1u)
+        return D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    return D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+}
+
 static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags,
         const D3D12_RESOURCE_DESC1 *desc, const D3D12_HEAP_PROPERTIES *heap_properties,
         D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
@@ -3794,6 +3853,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     object->internal_refcount = 1;
     object->weak_count = 1;
     object->desc = *desc;
+    object->desc.Alignment = d3d12_resource_determine_alignment(device, desc, num_castable_formats, castable_formats);
     object->device = device;
     object->flags = flags;
     object->format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
@@ -4087,7 +4147,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
         memset(&allocate_info, 0, sizeof(allocate_info));
         allocate_info.heap_desc.Properties = *heap_properties;
-        allocate_info.heap_desc.Alignment = desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        allocate_info.heap_desc.Alignment = object->desc.Alignment;
         allocate_info.heap_desc.SizeInBytes = align(desc->Width, allocate_info.heap_desc.Alignment);
         allocate_info.heap_desc.Flags = heap_flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         allocate_info.vk_memory_priority = object->priority.residency_count ? vkd3d_convert_to_vk_prio(object->priority.d3d12priority) : 0.f;
@@ -9504,6 +9564,11 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     VK_CALL(vkGetDeviceBufferMemoryRequirements(device->vk_device, &buffer_requirement_info, &memory_requirements));
     buffer_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
+    /* The reported alignment requirement for the buffer covers all possible usages,
+     * so be conservative and use that as the minimum required alignment for buffer
+     * allocations with tight alignment. */
+    info->min_buffer_alignment = max(memory_requirements.memoryRequirements.alignment, VKD3D_MIN_BUFFER_ALIGNMENT);
+
     memset(&image_info, 0, sizeof(image_info));
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -9588,6 +9653,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
           info->cpu_accessible_domain.sampled_type_mask);
     TRACE("Device supports CPU visible render targets on memory types 0x%#x.\n",
           info->cpu_accessible_domain.rt_ds_type_mask);
+    TRACE("Device requires buffer alignment of %"PRIu64" bytes.\n", info->min_buffer_alignment);
     return S_OK;
 }
 
