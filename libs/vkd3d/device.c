@@ -7855,6 +7855,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
         info->Alignment = max(info->Alignment, resource_info.Alignment);
     }
 
+    info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
     return info;
 
 invalid:
