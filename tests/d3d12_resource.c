@@ -26,8 +26,8 @@ void test_create_committed_resource(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
     ID3D12Device *device, *tmp_device;
+    D3D12_RESOURCE_DESC resource_desc;
     bool is_gpu_upload_heap_supported;
     D3D12_CLEAR_VALUE clear_value;
     D3D12_RESOURCE_STATES state;
@@ -115,7 +115,11 @@ void test_create_committed_resource(void)
     ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.MipLevels == 6, "Got unexpected miplevels %u.\n", resource_desc.MipLevels);
+    ok(resource_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+            "Got aligment %"PRIu64", expected D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
+
     ID3D12Resource_Release(resource);
+    resource_desc.Alignment = 0;
     resource_desc.MipLevels = 10;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
@@ -123,10 +127,13 @@ void test_create_committed_resource(void)
     ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.MipLevels == 10, "Got unexpected miplevels %u.\n", resource_desc.MipLevels);
+    ok(resource_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+            "Got aligment %"PRIu64", expected D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
     ID3D12Resource_Release(resource);
+    resource_desc.Alignment = 0;
     resource_desc.MipLevels = 1;
-
     resource_desc.SampleDesc.Count = 0;
+
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
@@ -204,9 +211,13 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
+    resource_desc = ID3D12Resource_GetDesc(resource);
+    ok(resource_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+            "Got aligment %"PRIu64", expected D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
     ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
     ID3D12Resource_Release(resource);
 
+    resource_desc.Alignment = 0;
     resource_desc.Height = 31;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
@@ -254,6 +265,52 @@ void test_create_committed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
+    /* Texture that meets small alignment requirements */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Width = 32;
+    resource_desc.Height = 32;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    resource_desc = ID3D12Resource_GetDesc(resource);
+    ok(resource_desc.Alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
+            "Got aligment %"PRIu64", expected D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
+    ID3D12Resource_Release(resource);
+
+    /* Texture too large for small alignment */
+    resource_desc.Width = 512;
+    resource_desc.Height = 256;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    /* MSAA with large alignment */
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 16;
+    resource_desc.Height = 16;
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    resource_desc = ID3D12Resource_GetDesc(resource);
+    ok(resource_desc.Alignment == D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT,
+            "Got aligment %"PRIu64", expected D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
+    ID3D12Resource_Release(resource);
+
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -271,6 +328,9 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Resource, (void **)&resource);
+    resource_desc = ID3D12Resource_GetDesc(resource);
+    ok(resource_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
+            "Got aligment %"PRIu64", expected D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
     ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
 
     check_interface(resource, &IID_ID3D12Object, true);
@@ -283,6 +343,7 @@ void test_create_committed_resource(void)
 
     refcount = ID3D12Resource_Release(resource);
     ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    resource_desc.Alignment = 0;
 
     heap_properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
