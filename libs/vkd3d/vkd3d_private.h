@@ -2833,6 +2833,7 @@ struct vkd3d_image_copy_info
     bool overlapping_subresource;
     VkImageLayout src_layout;
     VkImageLayout dst_layout;
+    VkDeviceSize buffer_footprint_size;
 };
 
 struct vkd3d_query_resolve_entry
