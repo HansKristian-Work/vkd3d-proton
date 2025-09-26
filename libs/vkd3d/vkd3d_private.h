@@ -68,6 +68,11 @@
 
 #define VKD3D_TILE_SIZE (65536ull)
 
+/* Align all buffers to 256 to meet requirements for RTAS. Native drivers don't do this,
+ * but intended interactions are unclear. This is the maximum allowed buffer alignment
+ * per D3D12 spec. */
+#define VKD3D_MIN_BUFFER_ALIGNMENT (256u)
+
 /* Minimum required maxBufferSize in Vulkan */
 #define VKD3D_MAX_FILL_BUFFER_SIZE (1ull << 30)
 
