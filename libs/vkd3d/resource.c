@@ -33,6 +33,9 @@
 static UINT global_cookie_counter;
 static UINT global_cookie_va_timestamp;
 
+static bool d3d12_resource_supports_small_resource_alignment(const D3D12_RESOURCE_DESC1 *desc,
+        const struct vkd3d_format *format);
+
 struct vkd3d_cookie vkd3d_allocate_cookie(void)
 {
     struct vkd3d_cookie cookie;
@@ -992,8 +995,13 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     {
         const uint32_t supported_alignment =
                 device->device_info.image_alignment_control_properties.supportedImageAlignmentMask;
-        uint32_t candidate_alignment = desc->Alignment ?
-                desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        uint32_t candidate_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+        if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) && d3d12_resource_supports_small_resource_alignment(desc, format))
+            candidate_alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+
+        if (desc->Alignment)
+            candidate_alignment = desc->Alignment;
 
         if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PLACED_TEXTURE_ALIASING) &&
                 resource && (resource->flags & VKD3D_RESOURCE_PLACED) &&
@@ -1129,6 +1137,12 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
      * since that might confuse apps. Instead, pad the allocation so that we can
      * align the image ourselves. */
     target_alignment = desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    /* Tight alignment enforces small alignment for eligible resources */
+    if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) &&
+            d3d12_resource_supports_small_resource_alignment(desc, vkd3d_get_format(device, desc->Format,
+                    !!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))))
+        target_alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
 
     pad_allocation = allocation_info->Alignment > target_alignment &&
             (allocation_info->Alignment > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT ||
@@ -2709,11 +2723,24 @@ static bool d3d12_resource_validate_texture_format(const D3D12_RESOURCE_DESC1 *d
     return true;
 }
 
-static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC1 *desc,
+static bool d3d12_resource_supports_small_resource_alignment(const D3D12_RESOURCE_DESC1 *desc,
         const struct vkd3d_format *format)
 {
     uint64_t estimated_size;
 
+    if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
+        return false;
+
+    /* Windows uses the slice size to determine small alignment eligibility. DepthOrArraySize is ignored. */
+    estimated_size = desc->Width * desc->Height * format->byte_count * format->block_byte_count
+            / (format->block_width * format->block_height);
+
+    return estimated_size <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+}
+
+static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC1 *desc,
+        const struct vkd3d_format *format)
+{
     if (!desc->Alignment)
         return true;
 
@@ -2725,17 +2752,12 @@ static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC1
         return false;
     }
 
-    if (desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+    if ((desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT) &&
+            !d3d12_resource_supports_small_resource_alignment(desc, format))
     {
-        /* Windows uses the slice size to determine small alignment eligibility. DepthOrArraySize is ignored. */
-        estimated_size = desc->Width * desc->Height * format->byte_count * format->block_byte_count
-                / (format->block_width * format->block_height);
-        if (estimated_size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-        {
-            WARN("Invalid resource alignment %#"PRIx64" (required %#x).\n",
-                    desc->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
-            return false;
-        }
+        WARN("Invalid resource alignment %#"PRIx64" (required %#x).\n",
+                desc->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+        return false;
     }
 
     /* The size check for MSAA textures with D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT is probably
