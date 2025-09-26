@@ -5508,6 +5508,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_TIGHT_ALIGNMENT:
+        {
+            D3D12_FEATURE_DATA_TIGHT_ALIGNMENT *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.tight_alignment;
+
+            TRACE("SupportTier %#x\n", data->SupportTier);
+
+            return S_OK;
+        }
+
         case D3D12_FEATURE_QUERY_META_COMMAND:
         {
             D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
@@ -8992,6 +9009,18 @@ static void d3d12_device_caps_init_feature_options21(struct d3d12_device *device
     options21->ExtendedCommandInfoSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_8;
 }
 
+static void d3d12_device_caps_init_feature_tight_alignment(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_TIGHT_ALIGNMENT *tight_alignment = &device->d3d12_caps.tight_alignment;
+    const VkPhysicalDeviceLimits *limits = &device->device_info.properties2.properties.limits;
+
+    /* Tight alignment requires 4k alignment for small resources. This should only be
+     * an issue on some very old Nvidia GPUs. */
+    tight_alignment->SupportTier = limits->bufferImageGranularity <= D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT
+            ? D3D12_TIGHT_ALIGNMENT_TIER_1
+            : D3D12_TIGHT_ALIGNMENT_TIER_NOT_SUPPORTED;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -9410,6 +9439,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options19(device);
     d3d12_device_caps_init_feature_options20(device);
     d3d12_device_caps_init_feature_options21(device);
+    d3d12_device_caps_init_feature_tight_alignment(device);
     d3d12_device_caps_init_feature_level(device);
 
     d3d12_device_caps_override(device);
