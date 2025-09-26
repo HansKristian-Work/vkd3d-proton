@@ -5525,6 +5525,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_APPLICATION_SPECIFIC_DRIVER_STATE:
+        {
+            D3D12_FEATURE_DATA_APPLICATION_SPECIFIC_DRIVER_STATE *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->Supported = FALSE;
+
+            TRACE("Supported %u\n", data->Supported);
+
+            return S_OK;
+        }
+
         case D3D12_FEATURE_QUERY_META_COMMAND:
         {
             D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
