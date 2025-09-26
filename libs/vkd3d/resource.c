@@ -3750,6 +3750,36 @@ static size_t d3d12_resource_init_subresource_layouts(struct d3d12_resource *res
     return vkd3d_compute_resource_layouts_from_desc(device, &resource->desc, resource->subresource_layouts);
 }
 
+static UINT64 d3d12_resource_determine_alignment(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO allocation_info;
+    HRESULT hr;
+
+    if (desc->Alignment)
+        return desc->Alignment;
+
+    if (desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+    {
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+            return device->memory_info.min_buffer_alignment;
+
+        if (SUCCEEDED(hr = vkd3d_get_image_allocation_info(device, desc, num_castable_formats, castable_formats, &allocation_info)))
+            return allocation_info.Alignment;
+        else
+            ERR("Failed to query image alignment, hr %#x.\n", hr);
+    }
+
+    if (desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE ||
+            desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE)
+        return D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    if (desc->SampleDesc.Count > 1u)
+        return D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    return D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+}
+
 static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags,
         const D3D12_RESOURCE_DESC1 *desc, const D3D12_HEAP_PROPERTIES *heap_properties,
         D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
@@ -3794,6 +3824,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     object->internal_refcount = 1;
     object->weak_count = 1;
     object->desc = *desc;
+    object->desc.Alignment = d3d12_resource_determine_alignment(device, desc, num_castable_formats, castable_formats);
     object->device = device;
     object->flags = flags;
     object->format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
