@@ -15005,3 +15005,112 @@ void test_derivative_hoisting_dxil(void)
 {
     test_derivative_hoisting(true);
 }
+
+
+static void test_root_constant_indexing(bool use_dxil)
+{
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_args[2];
+    uint32_t constant_data[12 * 4];
+    ID3D12Resource *uav_resource;
+    struct resource_readback rb;
+    struct test_context context;
+    HRESULT hr, expected;
+    unsigned int i;
+
+#include "shaders/shaders/headers/cs_root_constant_indexing.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(constant_data, 0, sizeof(constant_data));
+
+    for (i = 0u; i < 12u; i++)
+        constant_data[4u * i] = 0x80000000u + i;
+
+    memset(rs_args, 0, sizeof(rs_args));
+    rs_args[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_args[0].Constants.Num32BitValues = ARRAY_SIZE(constant_data);
+    rs_args[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    rs_args[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_args[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_args);
+    rs_desc.pParameters = rs_args;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    memset(&pso_desc, 0, sizeof(pso_desc));
+    pso_desc.pRootSignature = context.root_signature;
+    pso_desc.CS = use_dxil ? cs_root_constant_indexing_dxil : cs_root_constant_indexing_dxbc;
+
+    /* For DXIL, there seems to be some runtime validation going on */
+    hr = ID3D12Device_CreateComputePipelineState(context.device,
+            &pso_desc, &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+
+    expected = use_dxil ? E_INVALIDARG : S_OK;
+
+    todo_if(use_dxil)
+    ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = 12u * sizeof(uint32_t);
+    resource_desc.Height = 1u;
+    resource_desc.DepthOrArraySize = 1u;
+    resource_desc.MipLevels = 1u;
+    resource_desc.SampleDesc.Count = 1u;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+        D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        NULL, &IID_ID3D12Resource, (void**)&uav_resource);
+    ok(hr == S_OK, "Failed to create UAV resource, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 0u, ARRAY_SIZE(constant_data), constant_data, 0u);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1u, ID3D12Resource_GetGPUVirtualAddress(uav_resource));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 12u, 1u, 1u);
+
+    /* Nvidia native implements proper indexing, AMD and WARP return 0 */
+    get_buffer_readback_with_command_list(uav_resource, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0u; i < 12u; i++)
+    {
+        uint32_t got = get_readback_uint(&rb, i, 0u, 0u);
+
+        bug_if(!got)
+        ok(got == constant_data[4u * i], "Got %#x, expected 0 or %#x at %u.x.\n", got, constant_data[4u * i], i);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(uav_resource);
+    destroy_test_context(&context);
+}
+
+void test_root_constant_indexing_dxbc()
+{
+    test_root_constant_indexing(false);
+}
+
+void test_root_constant_indexing_dxil()
+{
+    test_root_constant_indexing(true);
+}
