@@ -501,3 +501,5 @@ decl_test(test_custom_border_color_srgb);
 decl_test(test_large_buffer_descriptors);
 decl_test(test_uav_clear_exhaustive_descriptors);
 decl_test(test_resolve_image_exhaustive_descriptors);
+decl_test(test_root_constant_indexing_dxil);
+decl_test(test_root_constant_indexing_dxbc);
