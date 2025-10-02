@@ -2682,7 +2682,8 @@ static HRESULT d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
             | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE
             | D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER
             | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS
-            | D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT);
+            | D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT
+            | D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE);
 
     if (unknown_flags)
         FIXME("Unknown resource flags %#x.\n", unknown_flags);
@@ -2702,6 +2703,12 @@ static HRESULT d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
     if ((flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) && (flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
         ERR("ALLOW_RENDER_TARGET and ALLOW_DEPTH_STENCIL is not allowed.\n");
+        return E_INVALIDARG;
+    }
+
+    if ((flags & D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE) && !(flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+    {
+        ERR("RAYTRACING_ACCELERATION_STRUCTURE requires ALLOW_UNORDERED_ACCESS.\n");
         return E_INVALIDARG;
     }
 
@@ -3133,6 +3140,24 @@ static HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC
     return S_OK;
 }
 
+static HRESULT d3d12_resource_validate_initial_resource_state(D3D12_RESOURCE_STATES initial_state, const D3D12_RESOURCE_DESC1 *desc)
+{
+    if (!is_valid_resource_state(initial_state))
+    {
+        WARN("Invalid initial resource state %#x.\n", initial_state);
+        return E_INVALIDARG;
+    }
+
+    if (initial_state == D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE &&
+            !(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+    {
+        WARN("Initial state %#x requires D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS.\n", initial_state);
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value,
@@ -3174,11 +3199,8 @@ static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC1 *d
         TRACE("Ignoring optimized clear value.\n");
     }
 
-    if (!is_valid_resource_state(initial_state))
-    {
-        WARN("Invalid initial resource state %#x.\n", initial_state);
-        return E_INVALIDARG;
-    }
+    if (FAILED(hr = d3d12_resource_validate_initial_resource_state(initial_state, desc)))
+        return hr;
 
     return S_OK;
 }
