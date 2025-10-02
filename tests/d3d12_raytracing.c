@@ -4693,3 +4693,109 @@ void test_raytracing_opacity_micro_map(void)
     destroy_test_geometry(&test_geom);
     destroy_raytracing_test_context(&context);
 }
+
+void test_raytracing_acceleration_structure_validation()
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC1 desc1;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Device10 *device10;
+    ID3D12Resource *rtas;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    device = create_device();
+
+    if (!device)
+        return;
+
+    memset(&options5, 0, sizeof(options5));
+    ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5));
+    memset(&options12, 0, sizeof(options12));
+    ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS12, &options12, sizeof(options12));
+
+    if (!options5.RaytracingTier)
+    {
+        skip("Raytracing not supported.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    if (FAILED(hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void**)&device10)))
+        device10 = NULL;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    desc.Height = 1u;
+    desc.DepthOrArraySize = 1u;
+    desc.MipLevels = 1u;
+    desc.SampleDesc.Count = 1u;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, NULL, &IID_ID3D12Resource, (void**)&rtas);
+    ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(rtas);
+
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, NULL, &IID_ID3D12Resource, (void**)&rtas);
+    ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", hr);
+
+    desc = ID3D12Resource_GetDesc(rtas);
+    ok(!(desc.Flags & D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE),
+            "Unexpected RTAS flag in %#x.\n", desc.Flags);
+
+    ID3D12Resource_Release(rtas);
+
+    if (options12.EnhancedBarriersSupported)
+    {
+        memset(&desc1, 0, sizeof(desc1));
+        desc1.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc1.Width = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        desc1.Height = 1u;
+        desc1.DepthOrArraySize = 1u;
+        desc1.MipLevels = 1u;
+        desc1.SampleDesc.Count = 1u;
+        desc1.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc1.Flags = D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
+
+        hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties, D3D12_HEAP_FLAG_NONE, &desc1,
+                D3D12_BARRIER_LAYOUT_UNDEFINED, NULL, NULL, 0, NULL, &IID_ID3D12Resource, (void**)&rtas);
+        ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+
+        desc1.Flags = D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
+
+        if (SUCCEEDED(hr))
+            ID3D12Resource_Release(rtas);
+
+        desc1.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties, D3D12_HEAP_FLAG_NONE, &desc1,
+                D3D12_BARRIER_LAYOUT_UNDEFINED, NULL, NULL, 0, NULL, &IID_ID3D12Resource, (void**)&rtas);
+        ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", hr);
+
+        desc = ID3D12Resource_GetDesc(rtas);
+        ok(desc.Flags & D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE,
+                "Missing RTAS flag in %#x.\n", desc.Flags);
+
+        ID3D12Resource_Release(rtas);
+    }
+    else
+    {
+        skip("Enhanced barriers not supported.\n");
+    }
+
+    if (device10)
+        ID3D12Device10_Release(device10);
+
+    ID3D12Device_Release(device);
+}
