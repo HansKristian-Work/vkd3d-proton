@@ -145,6 +145,7 @@ struct vkd3d_vulkan_info
     bool KHR_compute_shader_derivatives;
     bool KHR_calibrated_timestamps;
     bool KHR_cooperative_matrix;
+    bool KHR_unified_image_layouts;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -2788,13 +2789,20 @@ struct vkd3d_subresource_tracking
     VkImageSubresourceLayers subresource;
 };
 
-#define VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT 4
-struct d3d12_buffer_copy_tracked_buffer
+#define VKD3D_TRACKED_BUFFER_COPY_COUNT 4
+struct d3d12_tracked_buffer_copy
 {
     /* Need to track on VkBuffer level to handle aliasing. For ID3D12Heap, all resources share one VkBuffer. */
     VkBuffer vk_buffer;
     VkDeviceSize hazard_begin;
     VkDeviceSize hazard_end;
+};
+
+#define VKD3D_TRACKED_TEXTURE_COPY_COUNT 64
+struct d3d12_tracked_texture_copy
+{
+    VkImage vk_image;
+    uint32_t subresource_index; /* If UINT32_MAX, the entire image was touched. */
 };
 
 enum vkd3d_batch_type
@@ -2821,6 +2829,7 @@ struct vkd3d_image_copy_info
     bool overlapping_subresource;
     VkImageLayout src_layout;
     VkImageLayout dst_layout;
+    VkDeviceSize buffer_footprint_size;
 };
 
 struct vkd3d_query_resolve_entry
@@ -2858,9 +2867,22 @@ struct vkd3d_query_lookup_entry
 
 struct d3d12_transfer_batch_state
 {
+    /* This keeps track of pending image copies which are yet to be recorded.
+     * Batching is necessary when image layout transitions are required. */
     enum vkd3d_batch_type batch_type;
     struct vkd3d_image_copy_info batch[VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE];
     size_t batch_len;
+
+    /* These keep track of already recorded copies. If there are hazards, they will be resolved
+     * with a TRANSFER -> TRANSFER global barrier. */
+    struct d3d12_tracked_buffer_copy tracked_copy_buffers[VKD3D_TRACKED_BUFFER_COPY_COUNT];
+    unsigned int tracked_copy_buffer_count;
+
+    struct d3d12_tracked_texture_copy tracked_copy_textures[VKD3D_TRACKED_TEXTURE_COPY_COUNT];
+    unsigned int tracked_copy_texture_count;
+
+    /* COPY and RESOLVE are relevant here. */
+    VkPipelineStageFlags2 vk_stages;
 };
 
 #define VKD3D_MAX_WBI_BATCH_SIZE 128
@@ -3111,9 +3133,6 @@ struct d3d12_command_list
     size_t retained_resources_count;
 
     struct hash_map query_resolve_lut;
-
-    struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
-    unsigned int tracked_copy_buffer_count;
 
     struct d3d12_transfer_batch_state transfer_batch;
     struct d3d12_wbi_batch_state wbi_batch;
@@ -4887,6 +4906,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
+    VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unified_image_layouts_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
@@ -5593,6 +5613,11 @@ UINT d3d12_determine_shading_rate_image_tile_size(struct d3d12_device *device);
 bool d3d12_device_supports_required_subgroup_size_for_stage(
         struct d3d12_device *device, VkShaderStageFlagBits stage);
 bool d3d12_device_supports_workgraphs(const struct d3d12_device *device);
+
+static inline bool d3d12_device_supports_unified_layouts(const struct d3d12_device *device)
+{
+    return device->device_info.unified_image_layouts_features.unifiedImageLayouts == VK_TRUE;
+}
 
 static inline void d3d12_device_register_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
 {

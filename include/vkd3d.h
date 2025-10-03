@@ -182,8 +182,6 @@ VkQueue vkd3d_lock_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_unlock_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource *resource);
 
-HRESULT vkd3d_create_image_resource(ID3D12Device *device,
-        const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource);
 ULONG vkd3d_resource_decref(ID3D12Resource *resource);
 ULONG vkd3d_resource_incref(ID3D12Resource *resource);
 
