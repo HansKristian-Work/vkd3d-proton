@@ -7838,7 +7838,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
     debug_ignored_node_mask(visible_mask);
 
     info->SizeInBytes = 0;
-    info->Alignment = 0;
+    info->Alignment = 1;
 
     for (i = 0; i < count; i++)
     {
