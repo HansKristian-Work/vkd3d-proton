@@ -495,3 +495,4 @@ decl_test(test_root_signature_embedded);
 decl_test(test_tight_resource_alignment);
 decl_test(test_raytracing_acceleration_structure_validation);
 decl_test(test_copy_batch);
+decl_test(test_resolve_batch);
