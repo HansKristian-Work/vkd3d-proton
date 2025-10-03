@@ -1916,6 +1916,11 @@ void test_resource_allocation_info(void)
     if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12Device4, (void**)&device4)))
         skip("GetResourceAllocationInfo1 not supported by device.\n");
 
+    info = ID3D12Device_GetResourceAllocationInfo(device, 0, 0, NULL);
+
+    ok(!info.SizeInBytes, "Got unexpected size %"PRIu64".\n", info.SizeInBytes);
+    ok(info.Alignment == 1u, "Got unexpected alignment %"PRIu64".\n", info.Alignment);
+
     desc[0].Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     desc[0].Alignment = 0;
     desc[0].Width = 32;
