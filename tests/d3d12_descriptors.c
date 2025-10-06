@@ -6424,3 +6424,190 @@ void test_custom_border_color_srgb(void)
     ID3D12Resource_Release(tex);
     destroy_test_context(&context);
 }
+
+void test_large_buffer_descriptors(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS4 options4;
+    D3D12_TILED_RESOURCE_COORDINATE tile_coord;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_TILE_REGION_SIZE tile_region_size;
+    D3D12_DESCRIPTOR_RANGE desc_range[1];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    D3D12_RESOURCE_DESC res_desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *srvs;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *sparse;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    ID3D12Heap *heap;
+    unsigned int i;
+    uint32_t *ptr;
+    HRESULT hr;
+
+#include "shaders/descriptors/headers/large_buffer_descriptors.h"
+
+    static const uint32_t offsets[4] = {
+        3ull * 1024 * 1024 * 1024 / 4 - 1,
+        3ull * 1024 * 1024 * 1024 / 2 - 1,
+        1ull * 1024 * 1024 * 1024 / 2 - 1 - 32 * 1024,
+        3ull * 1024 * 1024 * 1024,
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) ||
+        options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_1)
+    {
+        skip("Sparse not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS4, &options4, sizeof(options4))) ||
+        !options4.Native16BitShaderOpsSupported)
+    {
+        skip("Native 16-bit not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&res_desc, 0, sizeof(res_desc));
+    res_desc.Width = 4ull * 1024ull * 1024ull * 1024ull;
+    res_desc.Height = 1;
+    res_desc.DepthOrArraySize = 1;
+    res_desc.MipLevels = 1;
+    res_desc.SampleDesc.Count = 1;
+    res_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    res_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+
+    if (is_radv_device(context.device))
+        vkd3d_mute_validation_message("06409", "Exceeding max buffer size on RADV (but it works anyway).");
+    hr = ID3D12Device_CreateReservedResource(context.device, &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&sparse);
+    if (is_radv_device(context.device))
+        vkd3d_unmute_validation_message("06409");
+    ok(SUCCEEDED(hr), "Failed to create reserved resource, hr #%x\n", hr);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+    heap_desc.SizeInBytes = 128 * 1024;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", hr);
+
+    res_desc.Width = 128 * 1024;
+    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0, &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&input);
+    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", hr);
+
+    hr = ID3D12Resource_Map(input, 0, NULL, (void **)&ptr);
+    ok(SUCCEEDED(hr), "Failed to map buffer.\n");
+    if (SUCCEEDED(hr))
+    {
+        for (i = 0; i < 32 * 1024; i++)
+            ptr[i] = i;
+        ID3D12Resource_Unmap(input, 0, NULL);
+    }
+
+    output = create_default_buffer(context.device, 128 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    tile_coord.Subresource = 0;
+    tile_coord.X = 3ull * 1024 * 1024 * 1024 / (64 * 1024);
+    tile_coord.Y = 0;
+    tile_coord.Z = 0;
+    memset(&tile_region_size, 0, sizeof(tile_region_size));
+    tile_region_size.NumTiles = 2;
+
+    if (is_nvidia_device(context.device))
+        vkd3d_mute_validation_message("01096", "NV doesn't expose sparse against UPLOAD heap, but it works anyways?");
+
+    ID3D12CommandQueue_UpdateTileMappings(context.queue, sparse, 1, &tile_coord, &tile_region_size, heap, 1, NULL, NULL, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
+    tile_coord.X = 1ull * 1024 * 1024 * 1024 / (64 * 1024) - 1; /* Avoid any case where we pass and driver masks off the MSB. */
+    ID3D12CommandQueue_UpdateTileMappings(context.queue, sparse, 1, &tile_coord, &tile_region_size, heap, 1, NULL, NULL, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[0].Constants.Num32BitValues = ARRAY_SIZE(offsets);
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[2].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+    rs_params[2].DescriptorTable.pDescriptorRanges = desc_range;
+
+    desc_range[0].NumDescriptors = 4;
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, large_buffer_descriptors_dxil);
+
+    srvs = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4);
+    memset(&srv_desc, 0, sizeof(srv_desc));
+
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+
+    vkd3d_mute_validation_message("09427", "Deliberatively testing chungus buffers.");
+
+    srv_desc.Buffer.FirstElement = 1;
+    srv_desc.Buffer.StructureByteStride = 4;
+    srv_desc.Buffer.NumElements = 1ull * 1024 * 1024 * 1024 - 9; /* Maximum D3D12 runtime allows without breaking. */
+    ID3D12Device_CreateShaderResourceView(context.device, sparse, &srv_desc, get_cpu_descriptor_handle(&context, srvs, 0));
+
+    srv_desc.Buffer.FirstElement = 1;
+    srv_desc.Buffer.StructureByteStride = 2;
+    srv_desc.Buffer.NumElements = 2ull * 1024 * 1024 * 1024 - 9; /* Maximum D3D12 runtime allows without breaking. */
+    ID3D12Device_CreateShaderResourceView(context.device, sparse, &srv_desc, get_cpu_descriptor_handle(&context, srvs, 1));
+
+    srv_desc.Buffer.FirstElement = 0;
+    srv_desc.Buffer.StructureByteStride = 0;
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+    srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    /* Make the buffer slightly larger than 4 GB. */
+    srv_desc.Buffer.NumElements = 1ull * 1024 * 1024 * 1024 - 8; /* Maximum D3D12 runtime allows without breaking. */
+    ID3D12Device_CreateShaderResourceView(context.device, sparse, &srv_desc, get_cpu_descriptor_handle(&context, srvs, 2));
+    ID3D12Device_CreateShaderResourceView(context.device, sparse, &srv_desc, get_cpu_descriptor_handle(&context, srvs, 3));
+
+    vkd3d_unmute_validation_message("09427");
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &srvs);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 0, ARRAY_SIZE(offsets), offsets, 0);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(srvs));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    if (is_nvidia_device(context.device))
+        vkd3d_unmute_validation_message("01096");
+
+    for (i = 0; i < 64 * 5; i++)
+    {
+        uint32_t value = get_readback_uint(&rb, i, 0, 0);
+        uint32_t expected = i % 64;
+        /* NV fails to read beyond 2 GB if using stride = 2. This is puzzling since texel buffer limit would suggest it fails after 1 GB. */
+        bug_if(i / 64 == 1 && is_nvidia_windows_device(context.device))
+        ok(value == expected, "Desc %u, index %u, got %u, expected %u\n", i / 64, i % 64, value, expected);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(srvs);
+    ID3D12Resource_Release(sparse);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(input);
+    ID3D12Heap_Release(heap);
+    destroy_test_context(&context);
+}
+
