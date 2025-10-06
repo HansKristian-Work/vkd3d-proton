@@ -4,7 +4,7 @@ d3d12_src = [
 
 if vkd3d_platform == 'windows'
   d3d12_name_prefix = ''
-  d3d12_dependencies = [ vkd3d_common_dep, lib_dxgi ]
+  d3d12_dependencies = [ vkd3d_common_dep, lib_gdi32, lib_dxgi ]
 else
   d3d12_name_prefix = 'libvkd3d-proton-'
   # Link explicitly against d3d12core here so that we can alway find it
