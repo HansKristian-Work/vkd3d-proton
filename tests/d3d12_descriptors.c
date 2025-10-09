@@ -6030,3 +6030,169 @@ void test_rwtex1d_array_reinterpretation_dxil(void)
 {
     test_tex_array_reinterpretation(true, D3D12_RESOURCE_DIMENSION_TEXTURE1D, true);
 }
+
+void test_custom_border_color_limits(void)
+{
+    ID3D12DescriptorHeap *sampler_heaps[4];
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    ID3D12DescriptorHeap *tex_heap;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *tex;
+    unsigned int i, j;
+
+#include "shaders/descriptors/headers/custom_border_color.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[1].DescriptorTable.pDescriptorRanges = &desc_range[0];
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[2].DescriptorTable.pDescriptorRanges = &desc_range[1];
+
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[0].NumDescriptors = 1;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    desc_range[1].NumDescriptors = 2048;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, custom_border_color_dxbc);
+
+    tex = create_default_texture2d(context.device, 1, 1, 1, 1,
+            DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    output = create_default_buffer(context.device, 2048 * sizeof(struct vec4) * ARRAY_SIZE(sampler_heaps),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    {
+        const uint32_t init = UINT32_MAX;
+        D3D12_SUBRESOURCE_DATA data;
+
+        data.pData = &init;
+        data.RowPitch = 4;
+        data.SlicePitch = 4;
+        upload_texture_data(tex, &data, 1, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    tex_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    for (i = 0; i < ARRAY_SIZE(sampler_heaps); i++)
+        sampler_heaps[i] = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 2048);
+
+    if (is_nvidia_device(context.device))
+        vkd3d_mute_validation_message("04110", "Intentionally trying to allocate beyond vkCreateSampler limits.");
+
+    for (j = 0; j < ARRAY_SIZE(sampler_heaps); j++)
+    {
+        D3D12_SAMPLER_DESC sampler_desc;
+        memset(&sampler_desc, 0, sizeof(sampler_desc));
+        sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+
+        /* Intended to stress AMD which has a fixed 4K palette of custom border colors.
+         * When we run out, we'll need to handle this in some way without crashing and burning,
+         * but there is currently no way to make this test pass. */
+        for (i = 0; i < 2048; i++)
+        {
+            /* Get some overlap so we can test de-duplication. */
+            uint32_t flat_index = j * 1024 + i;
+            sampler_desc.BorderColor[0] = (flat_index & 255) / 255.0f;
+            sampler_desc.BorderColor[1] = ((flat_index >> 8) & 255) / 255.0f;
+            sampler_desc.BorderColor[2] = ((flat_index >> 16) & 255) / 255.0f;
+            sampler_desc.BorderColor[3] = 128.0f / 255.0f;
+
+            ID3D12Device_CreateSampler(context.device, &sampler_desc,
+                    get_cpu_sampler_handle(&context, sampler_heaps[j], i));
+        }
+    }
+
+    if (is_nvidia_device(context.device))
+        vkd3d_unmute_validation_message("04110");
+
+    ID3D12Device_CreateShaderResourceView(context.device, tex, NULL,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(tex_heap));
+
+    for (i = 0; i < ARRAY_SIZE(sampler_heaps); i++)
+    {
+        ID3D12DescriptorHeap *heaps[2] = { tex_heap, sampler_heaps[i] };
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 2, heaps);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(output) + 2048 * i * sizeof(struct vec4));
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 1,
+                ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(tex_heap));
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2,
+                ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heaps[i]));
+        ID3D12GraphicsCommandList_Dispatch(context.list, 2048 / 64, 1, 1);
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(sampler_heaps) * 2048; i++)
+    {
+        uint32_t flat_index = (i / 2048) * 1024 + (i % 2048);
+        const struct vec4 *value;
+        struct vec4 expected;
+        bool is_todo;
+
+        expected.x = (flat_index & 255) / 255.0f;
+        expected.y = ((flat_index >> 8) & 255) / 255.0f;
+        expected.z = ((flat_index >> 16) & 255) / 255.0f;
+        expected.w = 128.0f / 255.0f;
+
+        value = get_readback_vec4(&rb, i, 0);
+
+        /* NV will fail around 4k unique samplers. */
+        if (is_nvidia_device(context.device))
+            is_todo = flat_index >= 4000;
+        else if (is_amd_vulkan_device(context.device))
+            is_todo = flat_index >= 4096;
+        else
+            is_todo = false;
+
+        /* Apparently, even native AMD breaks here too! :D */
+        if (is_amd_windows_device(context.device))
+        {
+            if (flat_index >= 4096)
+                memset(&expected, 0, sizeof(expected));
+
+            ok(compare_vec4(value, &expected, 1), "Value %u, expected %f, %f, %f, %f, got %f, %f, %f, %f\n",
+                    i, expected.x, expected.y, expected.z, expected.w, value->x, value->y, value->z, value->w);
+        }
+        else
+        {
+            todo_if(is_todo)
+            ok(compare_vec4(value, &expected, 1), "Value %u, expected %f, %f, %f, %f, got %f, %f, %f, %f\n",
+                    i, expected.x, expected.y, expected.z, expected.w, value->x, value->y, value->z, value->w);
+        }
+    }
+
+    release_resource_readback(&rb);
+
+    for (i = 0; i < ARRAY_SIZE(sampler_heaps); i++)
+        ID3D12DescriptorHeap_Release(sampler_heaps[i]);
+    ID3D12DescriptorHeap_Release(tex_heap);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(tex);
+    destroy_test_context(&context);
+}
