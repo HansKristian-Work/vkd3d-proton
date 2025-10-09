@@ -1052,6 +1052,13 @@ struct vkd3d_view_map
 #endif
 };
 
+struct vkd3d_sampler_view_map
+{
+    struct vkd3d_view_map map;
+    uint32_t custom_border_color_count;
+    uint32_t live_object_count;
+};
+
 HRESULT vkd3d_view_map_init(struct vkd3d_view_map *view_map);
 void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device *device);
 
@@ -5305,7 +5312,7 @@ struct d3d12_device
     struct vkd3d_queue_timeline_trace queue_timeline_trace;
     struct vkd3d_memory_info memory_info;
     struct vkd3d_meta_ops meta_ops;
-    struct vkd3d_view_map sampler_map;
+    struct vkd3d_sampler_view_map sampler_map;
     struct vkd3d_sampler_state sampler_state;
     struct vkd3d_shader_debug_ring debug_ring;
     struct vkd3d_pipeline_library_disk_cache disk_cache;

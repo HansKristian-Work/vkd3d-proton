@@ -7385,6 +7385,7 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSamplerReductionModeCreateInfoEXT reduction_desc;
     VkSamplerCreateInfo sampler_desc;
+    uint32_t num_live_objects;
     VkResult vr;
 
     reduction_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT;
@@ -7423,6 +7424,21 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
             device->device_info.vulkan_1_2_features.samplerFilterMinmax)
         vk_prepend_struct(&sampler_desc, &reduction_desc);
 
+    if (vkd3d_atomic_uint32_load_explicit(&device->sampler_map.live_object_count, vkd3d_memory_order_relaxed) <
+        device->device_info.properties2.properties.limits.maxSamplerAllocationCount)
+    {
+        /* Avoid theoretical situation where the counter wraps around. */
+        num_live_objects = vkd3d_atomic_uint32_increment(&device->sampler_map.live_object_count,
+                vkd3d_memory_order_relaxed);
+    }
+    else
+    {
+        num_live_objects = UINT32_MAX;
+    }
+
+    if (num_live_objects > device->device_info.properties2.properties.limits.maxSamplerAllocationCount)
+        FIXME_ONCE("Trying to create a sampler, but device limits are exhausted. Creation may fail.\n");
+
     if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, vk_sampler))) < 0)
         WARN("Failed to create Vulkan sampler, vr %d.\n", vr);
 
@@ -7436,6 +7452,7 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
     VkSamplerCustomBorderColorCreateInfoEXT border_color_info;
     VkSamplerReductionModeCreateInfoEXT reduction_desc;
     VkSamplerCreateInfo sampler_desc;
+    uint32_t num_live_objects;
     VkResult vr;
 
     border_color_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT;
@@ -7476,10 +7493,54 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
     if (d3d12_sampler_needs_border_color(desc->AddressU, desc->AddressV, desc->AddressW))
         sampler_desc.borderColor = vk_border_color_from_d3d12(device, desc->UintBorderColor, desc->Flags);
 
+    if (vkd3d_atomic_uint32_load_explicit(&device->sampler_map.live_object_count, vkd3d_memory_order_relaxed) <
+        device->device_info.properties2.properties.limits.maxSamplerAllocationCount)
+    {
+        /* Avoid theoretical situation where the counter wraps around. */
+        num_live_objects = vkd3d_atomic_uint32_increment(&device->sampler_map.live_object_count,
+                vkd3d_memory_order_relaxed);
+    }
+    else
+    {
+        num_live_objects = UINT32_MAX;
+    }
+
+    if (num_live_objects > device->device_info.properties2.properties.limits.maxSamplerAllocationCount)
+        FIXME_ONCE("Trying to create a sampler, but device limits are exhausted. Creation may fail.\n");
+
     if (sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT ||
             sampler_desc.borderColor == VK_BORDER_COLOR_INT_CUSTOM_EXT)
     {
-        vk_prepend_struct(&sampler_desc, &border_color_info);
+        uint32_t num_border_colors;
+
+        /* Once a sampler is created, we keep it alive forever.
+         * There's a theoretical false positive here if samplers are created in parallel before they are inserted
+         * into the hashmaps. Some samplers may be destroyed right away,
+         * and we don't decrement the counters in that scenario, but the chance of this causing issues in the wild are nil. */
+        if (vkd3d_atomic_uint32_load_explicit(&device->sampler_map.custom_border_color_count, vkd3d_memory_order_relaxed) <
+            device->device_info.custom_border_color_properties.maxCustomBorderColorSamplers)
+        {
+            /* Avoid theoretical situation where the counter wraps around. */
+            num_border_colors = vkd3d_atomic_uint32_increment(&device->sampler_map.custom_border_color_count,
+                    vkd3d_memory_order_relaxed);
+        }
+        else
+        {
+            num_border_colors = UINT32_MAX;
+        }
+
+        if (num_border_colors > device->device_info.custom_border_color_properties.maxCustomBorderColorSamplers)
+        {
+            FIXME_ONCE("Trying to create custom border color, but device limits are exhausted, replacing with TRANSPARENT_BLACK.\n");
+            if (sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT)
+                sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+            else
+                sampler_desc.borderColor = VK_BORDER_COLOR_INT_TRANSPARENT_BLACK;
+        }
+        else
+        {
+            vk_prepend_struct(&sampler_desc, &border_color_info);
+        }
     }
 
     if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE &&
@@ -7509,7 +7570,7 @@ void d3d12_desc_create_sampler_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
     key.u.sampler = *desc;
 
-    if (!(view = vkd3d_view_map_create_view(&device->sampler_map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view(&device->sampler_map.map, device, &key)))
         return;
 
     get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
@@ -7546,7 +7607,7 @@ void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t desc_va,
     key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
     key.u.sampler = *desc;
 
-    if (!(view = vkd3d_view_map_create_view(&device->sampler_map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view(&device->sampler_map.map, device, &key)))
         return;
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, vkd3d_null_cookie());
