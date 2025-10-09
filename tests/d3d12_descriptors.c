@@ -6196,3 +6196,231 @@ void test_custom_border_color_limits(void)
     ID3D12Resource_Release(tex);
     destroy_test_context(&context);
 }
+
+static float decode_srgb(float v)
+{
+    if (v < 0.0404482362f)
+        return v / 12.92f;
+    else
+        return powf((v + 0.055f) / 1.055f, 2.4f);
+}
+
+static float encode_srgb(float v)
+{
+    if (v < 0.0031308f)
+        return v * 12.92f;
+    else
+        return 1.055f * powf(v, 1.0f / 2.4f) - 0.055f;
+}
+
+void test_custom_border_color_srgb(void)
+{
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    ID3D12DescriptorHeap *sampler_heap;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    D3D12_SAMPLER_DESC sampler_desc;
+    ID3D12DescriptorHeap *tex_heap;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *tex;
+    unsigned int i;
+
+#include "shaders/descriptors/headers/custom_border_color_swizzle.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[1].DescriptorTable.pDescriptorRanges = &desc_range[0];
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[2].DescriptorTable.pDescriptorRanges = &desc_range[1];
+
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[0].NumDescriptors = 256;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    desc_range[1].NumDescriptors = 1;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+            custom_border_color_swizzle_dxbc);
+
+    tex = create_default_texture2d(context.device, 1, 1, 1, 1,
+            DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    output = create_default_buffer(context.device, 256 * sizeof(struct vec4),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    {
+        const uint32_t init = UINT32_MAX;
+        D3D12_SUBRESOURCE_DATA data;
+
+        data.pData = &init;
+        data.RowPitch = 4;
+        data.SlicePitch = 4;
+        upload_texture_data(tex, &data, 1, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    tex_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 256);
+    sampler_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 1);
+
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler_desc.BorderColor[0] = 32.0f / 255.0f;
+    sampler_desc.BorderColor[1] = 64.0f / 255.0f;
+    sampler_desc.BorderColor[2] = 96.0f / 255.0f;
+    sampler_desc.BorderColor[3] = 128.0f / 255.0f;
+    ID3D12Device_CreateSampler(context.device, &sampler_desc,
+            get_cpu_sampler_handle(&context, sampler_heap, 0));
+
+    for (i = 0; i < 256; i++)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+        memset(&srv_desc, 0, sizeof(srv_desc));
+
+        srv_desc.Format = i & 1 ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv_desc.Shader4ComponentMapping = D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+            (i >> 0) & 3, (i >> 2) & 3, (i >> 4) & 3, (i >> 6) & 3);
+        srv_desc.Texture2D.MipLevels = 1;
+        ID3D12Device_CreateShaderResourceView(context.device, tex, &srv_desc,
+                get_cpu_descriptor_handle(&context, tex_heap, i));
+    }
+
+    {
+        ID3D12DescriptorHeap *heaps[2] = { tex_heap, sampler_heap };
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 2, heaps);
+    }
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 1,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(tex_heap));
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heap));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 256 / 64, 1, 1);
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 256; i++)
+    {
+        static const char *swiz[] = { "R", "G", "B", "A" };
+        /* NV seems to quantize the border color to sRGB or something?
+         * Have to be quite lax on precision here. */
+        const float epsilon_unorm = 0.01f / 255.0f;
+        const float epsilon_srgb = 0.5f / 255.0f;
+        struct vec4 nv_swiz_expected;
+        struct vec4 swiz_expected;
+        const struct vec4 *value;
+        bool in_valid_range_swiz;
+        bool in_valid_range_nv;
+        unsigned int observed;
+        unsigned int oc, ic;
+
+        const float epsilon = i & 1 ? epsilon_unorm : epsilon_srgb;
+
+        value = get_readback_vec4(&rb, i, 0);
+
+        /* Normally, we expect to swizzle the border color.
+         * However, NV does not seem to behave like this.
+         * D3D12 does not define this behavior. NV behavior is extremely funky and unintutive, so this makes sense.
+           https://github.com/microsoft/DirectX-Specs/pull/137/files#diff-1a8ee35b61ff1a43cf9c8e81d24a154eb6d1822fa99505bb374cb7fe6c34ca62
+         */
+        swiz_expected.x = 32.0f * (((i >> 0) & 3) + 1) / 255.0f;
+        swiz_expected.y = 32.0f * (((i >> 2) & 3) + 1) / 255.0f;
+        swiz_expected.z = 32.0f * (((i >> 4) & 3) + 1) / 255.0f;
+        swiz_expected.w = 32.0f * (((i >> 6) & 3) + 1) / 255.0f;
+
+        /* NV behavior is bizarre. The basic idea seems to be that the output is not swizzled,
+         * but if there are shared swizzles, all input components see the same swizzle.
+         * Find the first component that is shared, and use the position of that first component to determine swizzle. */
+        nv_swiz_expected.x = 32.0f / 255.0f;
+        nv_swiz_expected.y = 64.0f / 255.0f;
+        nv_swiz_expected.z = 96.0f / 255.0f;
+        nv_swiz_expected.w = 128.0f / 255.0f;
+
+        if ((i & 1) == 0)
+        {
+            /* sRGB format + border color is "speshul".
+             * The descriptor payload encodes the border color as u32 = OETF(BorderColor).
+             * This impacts swizzle in weird ways. If the first use of A channel reads a non-A channel, it will read sRGB encoded value.
+             * If the first use of a non-A channel reads a A channel, it will read sRGB decoded value. */
+            observed = 0;
+            for (ic = 0; ic < 4; ic++)
+            {
+                unsigned int input_channel = (i >> (2 * ic)) & 3;
+                if ((observed & (1u << input_channel)) == 0)
+                {
+                    observed |= 1u << input_channel;
+                    if (input_channel == 3 && ic != 3)
+                    {
+                        /* Reading A, which does not apply gamma, but border color payload did. */
+                        (&nv_swiz_expected.x)[ic] = encode_srgb((&nv_swiz_expected.x)[ic]);
+                    }
+                    else if (input_channel != 3 && ic == 3)
+                    {
+                        /* Reading RGB, which applies gamma, but border color payload did not ... */
+                        (&nv_swiz_expected.x)[ic] = decode_srgb((&nv_swiz_expected.x)[ic]);
+                    }
+                }
+            }
+        }
+
+        for (oc = 3; oc >= 1; oc--)
+        {
+            for (ic = 0; ic < oc; ic++)
+            {
+                if (((i >> (oc * 2)) & 3) == ((i >> (2 * ic)) & 3))
+                {
+                    (&nv_swiz_expected.x)[oc] = (&nv_swiz_expected.x)[ic];
+                    break;
+                }
+            }
+        }
+
+        in_valid_range_swiz =
+                fabsf(value->x - swiz_expected.x) <= epsilon &&
+                fabsf(value->y - swiz_expected.y) <= epsilon &&
+                fabsf(value->z - swiz_expected.z) <= epsilon &&
+                fabsf(value->w - swiz_expected.w) <= epsilon;
+
+        in_valid_range_nv =
+            fabsf(value->x - nv_swiz_expected.x) <= epsilon &&
+            fabsf(value->y - nv_swiz_expected.y) <= epsilon &&
+            fabsf(value->z - nv_swiz_expected.z) <= epsilon &&
+            fabsf(value->w - nv_swiz_expected.w) <= epsilon;
+
+        ok(in_valid_range_swiz || in_valid_range_nv, "Value %u (%s, %s, %s, %s), expected (%f, %f, %f, %f) or (%f, %f, %f, %f), got: (%f, %f, %f, %f)\n",
+                i, swiz[(i >> 0) & 3], swiz[(i >> 2) & 3], swiz[(i >> 4) & 3], swiz[(i >> 6) & 3],
+                swiz_expected.x, swiz_expected.y, swiz_expected.z, swiz_expected.w,
+                nv_swiz_expected.x, nv_swiz_expected.y, nv_swiz_expected.z, nv_swiz_expected.w,
+                value->x, value->y, value->z, value->w);
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(sampler_heap);
+    ID3D12DescriptorHeap_Release(tex_heap);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(tex);
+    destroy_test_context(&context);
+}
