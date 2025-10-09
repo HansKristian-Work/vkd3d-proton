@@ -4244,7 +4244,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 #endif
     vkd3d_pipeline_library_flush_disk_cache(&device->disk_cache);
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
-    vkd3d_view_map_destroy(&device->sampler_map, device);
+    vkd3d_view_map_destroy(&device->sampler_map.map, device);
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
     d3d12_device_destroy_vkd3d_queues(device);
@@ -9902,7 +9902,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_bindless_state_init(&device->bindless_state, device)))
         goto out_cleanup_global_descriptor_buffer;
 
-    if (FAILED(hr = vkd3d_view_map_init(&device->sampler_map)))
+    if (FAILED(hr = vkd3d_view_map_init(&device->sampler_map.map)))
         goto out_cleanup_bindless_state;
 
     if (FAILED(hr = vkd3d_sampler_state_init(&device->sampler_state, device)))
@@ -10002,7 +10002,7 @@ out_cleanup_sparse_timeline:
 out_cleanup_sampler_state:
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
 out_cleanup_view_map:
-    vkd3d_view_map_destroy(&device->sampler_map, device);
+    vkd3d_view_map_destroy(&device->sampler_map.map, device);
 out_cleanup_bindless_state:
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
 out_cleanup_global_descriptor_buffer:

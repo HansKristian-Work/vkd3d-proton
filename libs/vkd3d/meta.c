@@ -71,7 +71,7 @@ static VkResult vkd3d_meta_create_sampler(struct d3d12_device *device, VkFilter 
 
     view_key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
     view_key.u.sampler = desc;
-    view = vkd3d_view_map_create_view(&device->sampler_map, device, &view_key);
+    view = vkd3d_view_map_create_view(&device->sampler_map.map, device, &view_key);
     if (!view)
         return VK_ERROR_OUT_OF_HOST_MEMORY;
 
