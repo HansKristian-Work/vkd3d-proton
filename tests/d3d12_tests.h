@@ -496,3 +496,4 @@ decl_test(test_tight_resource_alignment);
 decl_test(test_raytracing_acceleration_structure_validation);
 decl_test(test_placed_msaa_alignment_workaround);
 decl_test(test_custom_border_color_limits);
+decl_test(test_custom_border_color_srgb);
