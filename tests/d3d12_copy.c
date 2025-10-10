@@ -2457,3 +2457,117 @@ void test_copy_buffer_overlap(void)
     destroy_test_context(&context);
 }
 
+void test_resolve_image_exhaustive_descriptors(void)
+{
+    struct test_context_desc context_desc;
+    D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12GraphicsCommandList1 *list1;
+    D3D12_RESOURCE_DESC res_desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12DescriptorHeap *rtv;
+    ID3D12Resource *output;
+    ID3D12Resource *msaa;
+    unsigned int i, j;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList1, (void **)&list1)))
+    {
+        skip("GCL1 not supported (what?)\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&res_desc, 0, sizeof(res_desc));
+    res_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    res_desc.Width = 16;
+    res_desc.Height = 16;
+    res_desc.DepthOrArraySize = 1024;
+    res_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    res_desc.MipLevels = 1;
+    res_desc.SampleDesc.Count = 4;
+    res_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    res_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &res_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&msaa);
+
+    res_desc.SampleDesc.Count = 1;
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &res_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void **)&output);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1000000);
+    rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1024);
+
+    for (i = 0; i < 1024; i++)
+    {
+        float values[4] = { (float)(i & 0xff) / 255.0f, (float)((i >> 8) & 0xff) / 255.0f, 0.0f, 1.0f };
+        D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
+        rtv_desc.Texture2DMSArray.FirstArraySlice = i;
+        rtv_desc.Texture2DMSArray.ArraySize = 1;
+
+        ID3D12Device_CreateRenderTargetView(context.device, msaa, &rtv_desc,
+                get_cpu_rtv_handle(&context, rtv, i));
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+                get_cpu_rtv_handle(&context, rtv, i), values, 0, NULL);
+    }
+
+    transition_resource_state(context.list, msaa,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+    /* Ensure driver cannot get cheeky with resolve forwarding or something like that. */
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+
+    for (j = 0; j < 64; j++)
+    {
+        for (i = 0; i < 1024; i++)
+        {
+            if (j & 1)
+            {
+                /* Mix HW resolves with shader resolves. */
+                ID3D12GraphicsCommandList1_ResolveSubresource(list1, output, i, msaa, i ^ j,
+                        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+            }
+            else
+            {
+                /* Absolute torture. Make it as hard as possible to use HW resolves. */
+                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, output, i, 0, 0,
+                        msaa, i ^ j, NULL, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOLVE_MODE_MAX);
+            }
+        }
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < 1024; i++)
+    {
+        vkd3d_test_set_context("Layer %u", i);
+        check_sub_resource_uint(output, i, context.queue, context.list, 0xff000000 | (i ^ 63), 0);
+        reset_command_list(context.list, context.allocator);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12GraphicsCommandList1_Release(list1);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12DescriptorHeap_Release(rtv);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(msaa);
+    destroy_test_context(&context);
+}
+

@@ -1157,3 +1157,4 @@ void test_uav_clear_exhaustive_descriptors(void)
     ID3D12Resource_Release(tex);
     destroy_test_context(&context);
 }
+
