@@ -4288,6 +4288,24 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
      * Placed resources hold a reference on the heap. */
     d3d12_heap_incref(object->heap = heap);
 
+    /* Normally it is illegal to place a resource with higher alignment over a heap with lower alignment,
+     * but FH4 hits a scenario in which this is just expected to work.
+     * First it queries the allocation for a 1080p MSAA texture with 64k alignment.
+     * Then it places the resource over a heap with Alignment = 0 in desc.
+     * We end up deducing 4M alignment (native runtime also does this).
+     * This breaks since the 4M alignment requires larger size than what app allocated.
+     * As a workaround, demote the resource's alignment to match the heap for MSAA. */
+    if (desc->Alignment == 0 && desc->SampleDesc.Count > 1)
+        object->desc.Alignment = min(object->desc.Alignment, heap->desc.Alignment);
+
+    if (object->desc.Alignment > heap->desc.Alignment)
+    {
+        WARN("Resource alignment is %"PRIu64", but heap alignment is %"PRIu64". This is not allowed.\n",
+                object->desc.Alignment, heap->desc.Alignment);
+        hr = E_INVALIDARG;
+        goto fail;
+    }
+
     if (d3d12_resource_is_texture(object))
     {
         if (FAILED(hr = d3d12_resource_create_vk_resource(object, num_castable_formats, castable_formats, device)))
