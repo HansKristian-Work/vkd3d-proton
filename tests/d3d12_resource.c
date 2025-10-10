@@ -5806,3 +5806,55 @@ void test_tight_resource_alignment(void)
     ref_count = ID3D12Device_Release(device);
     ok(!ref_count, "Device has %u references left.\n", ref_count);
 }
+
+void test_placed_msaa_alignment_workaround(void)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO info;
+    D3D12_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC desc;
+    unsigned int refcount;
+    ID3D12Device *device;
+    ID3D12Resource *res;
+    ID3D12Heap *heap;
+    HRESULT hr;
+
+    device = create_device();
+    if (!device)
+        return;
+
+    /* Reproduce Forza Horizon 4 game bug. It is supposed to fail, but there must be some kind of workaround in place. */
+    memset(&desc, 0, sizeof(desc));
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.Width = 1920;
+    desc.Height = 1080;
+    desc.DepthOrArraySize = 1;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.SampleDesc.Count = 4;
+    desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.MipLevels = 1;
+
+    info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+    ok(info.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Expected alignment DEFAULT, got %"PRIu64"\n", info.Alignment);
+    ok(info.SizeInBytes != UINT64_MAX, "Expected valid size.\n");
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    heap_desc.SizeInBytes = info.SizeInBytes;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Alignment = 0;
+    ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+
+    desc.Alignment = 0;
+    hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&res);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(res);
+
+    /* This fails on native. As a workaround, we have to make it work anyway. */
+    todo ok(hr == E_INVALIDARG, "Unexpected hr #%x, expected E_INVALIDARG.\n", hr);
+
+    ID3D12Heap_Release(heap);
+    refcount = ID3D12Device_Release(device);
+    ok(refcount == 0, "Expected refcount to hit 0.\n");
+}
