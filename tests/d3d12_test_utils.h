@@ -1842,4 +1842,7 @@ union d3d12_view_instancing_subobject
     void *dummy_align;
 };
 
+float half_to_float(uint16_t u16_value);
+uint16_t float_to_half(float v);
+
 #endif  /* __VKD3D_D3D12_TEST_UTILS_H */
