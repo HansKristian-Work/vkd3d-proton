@@ -978,3 +978,122 @@ void destroy_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds
     ID3D12DescriptorHeap_Release(ds->heap);
     ID3D12Resource_Release(ds->texture);
 }
+
+float half_to_float(uint16_t u16_value)
+{
+    /* Based on the GLM implementation. */
+    int s = (u16_value >> 15) & 0x1;
+    int e = (u16_value >> 10) & 0x1f;
+    int m = (u16_value >> 0) & 0x3ff;
+
+    union
+    {
+        float f32;
+        uint32_t u32;
+    } u;
+
+    if (e == 0)
+    {
+        if (m == 0)
+        {
+            u.u32 = (uint32_t)s << 31;
+            return u.f32;
+        }
+        else
+        {
+            while ((m & 0x400) == 0)
+            {
+                m <<= 1;
+                e--;
+            }
+
+            e++;
+            m &= ~0x400;
+        }
+    }
+    else if (e == 31)
+    {
+        if (m == 0)
+        {
+            u.u32 = ((uint32_t)s << 31) | 0x7f800000u;
+            return u.f32;
+        }
+        else
+        {
+            u.u32 = ((uint32_t)s << 31) | 0x7f800000u | (m << 13);
+            return u.f32;
+        }
+    }
+
+    e += 127 - 15;
+    m <<= 13;
+    u.u32 = ((uint32_t)s << 31) | (e << 23) | m;
+    return u.f32;
+}
+
+uint16_t float_to_half(float v)
+{
+    union
+    {
+        float f32;
+        int32_t s32;
+    } u;
+    int i, s, e, m;
+
+    u.f32 = v;
+    i = u.s32;
+    s = (i >> 16) & 0x00008000;
+    e = ((i >> 23) & 0x000000ff) - (127 - 15);
+    m = i & 0x007fffff;
+
+    if (e <= 0)
+    {
+        int round_up;
+        int shamt;
+
+        if (e < -10)
+            return (uint16_t)s;
+
+        shamt = 1 - e;
+
+        round_up = m & ((1 << shamt) - 1);
+        m = (m | 0x00800000) >> shamt;
+        round_up |= m & 0x2fff;
+
+        if ((m & 0x00001000) && round_up)
+            m += 0x00002000;
+
+        return (uint16_t)(s | (m >> 13));
+    }
+    else if (e == 0xff - (127 - 15))
+    {
+        if (m == 0)
+            return (uint16_t)(s | 0x7c00);
+        else
+        {
+            m >>= 13;
+            return (uint16_t)(s | 0x7c00 | m | (m == 0));
+        }
+    }
+    else
+    {
+        int round_up;
+        round_up = m & 0x2fff;
+
+        if ((m & 0x00001000) && round_up)
+        {
+            m += 0x00002000;
+
+            if (m & 0x00800000)
+            {
+                m = 0;
+                e += 1;
+            }
+        }
+
+        if (e > 30)
+            return (uint16_t)(s | 0x7c00);
+
+        return (uint16_t)(s | (e << 10) | (m >> 13));
+    }
+}
