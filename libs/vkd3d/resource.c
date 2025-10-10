@@ -4315,8 +4315,11 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 
         if (heap_offset + memory_requirements.size > heap->allocation.resource.size)
         {
-            ERR("Heap too small for the texture (heap=%"PRIu64", res=%"PRIu64".\n",
-                heap->allocation.resource.size, heap_offset + memory_requirements.size);
+            ERR("Heap too small for the texture (heap=%"PRIu64", offset=%"PRIu64", size=%"PRIu64", align=%"PRIu64").\n",
+                heap->allocation.resource.size, heap_offset, memory_requirements.size, memory_requirements.alignment);
+            ERR("  Desc: %u x %u x %u, levels %u, samples %u, dim %u, fmt #%x, align %"PRIu64", flags #%x.\n",
+                    (unsigned int)desc->Width, desc->Height, desc->DepthOrArraySize, desc->MipLevels, desc->SampleDesc.Count,
+                    desc->Dimension, desc->Format, desc->Alignment, desc->Flags);
             hr = E_INVALIDARG;
             goto fail;
         }
@@ -4349,8 +4352,8 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     {
         if (heap_offset + desc->Width > heap->allocation.resource.size)
         {
-            ERR("Heap too small for the buffer (heap=%"PRIu64", res=%"PRIu64".\n",
-                heap->allocation.resource.size, heap_offset + desc->Width);
+            ERR("Heap too small for the buffer (heap=%"PRIu64", offset=%"PRIu64", size=%"PRIu64").\n",
+                heap->allocation.resource.size, heap_offset, memory_requirements.size);
             hr = E_INVALIDARG;
             goto fail;
         }
