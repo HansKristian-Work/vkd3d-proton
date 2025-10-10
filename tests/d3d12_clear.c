@@ -917,3 +917,243 @@ void test_clear_unordered_access_view_image(void)
 #undef IMAGE_SIZE
 }
 
+void test_uav_clear_exhaustive_descriptors(void)
+{
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *gpu;
+    ID3D12DescriptorHeap *cpu;
+    ID3D12Resource *buffer;
+    ID3D12Resource *tex;
+    unsigned int i, j;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    /* See what happens if we try to stress implementations which have to deal with meta descriptors. */
+    gpu = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1000000);
+    cpu = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1000000);
+    buffer = create_default_buffer(context.device, 1024 * 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    /* Pick a format that is deliberately hard to deal with w.r.t. NaN clears. */
+    tex = create_default_texture2d(context.device, 64, 64, 1024, 1, DXGI_FORMAT_R16G16B16A16_FLOAT,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    /* 64k descriptors. */
+    for (j = 0; j < 64; j++)
+    {
+        for (i = 0; i < 1024; i++)
+        {
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+            memset(&uav_desc, 0, sizeof(uav_desc));
+
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+            uav_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            uav_desc.Texture2DArray.FirstArraySlice = i;
+            uav_desc.Texture2DArray.ArraySize = 1;
+
+            ID3D12Device_CreateUnorderedAccessView(context.device, tex, NULL, &uav_desc,
+                    get_cpu_descriptor_handle(&context, cpu, i + 1024 * j));
+            ID3D12Device_CreateUnorderedAccessView(context.device, tex, NULL, &uav_desc,
+                    get_cpu_descriptor_handle(&context, gpu, i + 1024 * j));
+        }
+    }
+
+    /* Typed buffer desc. */
+    for (i = 0; i < 64 * 1024; i++)
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        uav_desc.Buffer.FirstElement = i;
+        uav_desc.Buffer.NumElements = 1;
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, buffer, NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, cpu, i + 64 * 1024));
+        ID3D12Device_CreateUnorderedAccessView(context.device, buffer, NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, gpu, i + 64 * 1024));
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu);
+
+    /* ClearUAV with float. It should be possible to use the GPU descriptor as-is. */
+    for (i = 0; i < 32 * 1024; i++)
+    {
+        const float values[4] = { (float)((i >> 0) & 0xff), (float)((i >> 8) & 0xff), 0.0f, 0.0f };
+        D3D12_RECT rect;
+
+        rect.left = 0;
+        rect.right = 64;
+        rect.top = i / 1024;
+        rect.bottom = rect.top + 1;
+
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(context.list,
+                get_gpu_descriptor_handle(&context, gpu, i),
+                get_cpu_descriptor_handle(&context, cpu, i), tex,
+                values, 1, &rect);
+    }
+
+    /* ClearUAV with uint. It's unlikely driver can use the descriptor as-is. */
+    for (i = 32 * 1024; i < 64 * 1024; i++)
+    {
+        uint32_t values[4] = { (i >> 0) & 0xff, (i >> 8) & 0xff, 0, 0 };
+        D3D12_RECT rect;
+
+        rect.left = 0;
+        rect.right = 64;
+        rect.top = i / 1024;
+        rect.bottom = rect.top + 1;
+
+        if (rect.top == 63)
+        {
+            values[0] = 0xfffc;
+            values[1] = 0xfffd;
+            values[2] = 0xfffe;
+            values[3] = 0xffff;
+        }
+
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                get_gpu_descriptor_handle(&context, gpu, i),
+                get_cpu_descriptor_handle(&context, cpu, i), tex,
+                values, 1, &rect);
+    }
+
+    /* ClearUAV with float. It should be possible to use the GPU descriptor as-is. */
+    for (i = 0; i < 32 * 1024; i++)
+    {
+        const float values[4] = { (float)((i >> 0) & 0xff), (float)((i >> 8) & 0xff), 0.0f, 0.0f };
+        D3D12_RECT rect;
+
+        rect.left = 0;
+        rect.right = 1;
+        rect.top = 0;
+        rect.bottom = 1;
+
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(context.list,
+                get_gpu_descriptor_handle(&context, gpu, i + 64 * 1024),
+                get_cpu_descriptor_handle(&context, cpu, i + 64 * 1024), buffer,
+                values, 1, &rect);
+    }
+
+    /* ClearUAV with uint. It's unlikely driver can use the descriptor as-is. */
+    for (i = 32 * 1024; i < 64 * 1024; i++)
+    {
+        uint32_t values[4] = { (i >> 0) & 0xff, (i >> 8) & 0xff, 0, 0 };
+        D3D12_RECT rect;
+
+        rect.left = 0;
+        rect.right = 1;
+        rect.top = 0;
+        rect.bottom = 1;
+
+        if (i >= 48 * 1024)
+        {
+            values[0] = 0xfffc;
+            values[1] = 0xfffd;
+            values[2] = 0xfffe;
+            values[3] = 0xffff;
+        }
+
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                get_gpu_descriptor_handle(&context, gpu, i + 64 * 1024),
+                get_cpu_descriptor_handle(&context, cpu, i + 64 * 1024), buffer,
+                values, 1, &rect);
+    }
+
+    transition_resource_state(context.list, buffer,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, tex,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < 1024; i++)
+    {
+        uint32_t y;
+        get_texture_readback_with_command_list(tex, i, &rb, context.queue, context.list);
+
+        for (y = 0; y < 64; y++)
+        {
+            unsigned int descriptor_index;
+            uint64_t expected;
+            uint64_t value;
+
+            descriptor_index = i + y * 1024;
+
+            if (descriptor_index < 32 * 1024)
+            {
+                expected = float_to_half((float)(descriptor_index & 0xff));
+                expected |= float_to_half((float)(descriptor_index >> 8)) << 16;
+            }
+            else if (y != 63)
+            {
+                expected = descriptor_index & 0xff;
+                expected |= (descriptor_index >> 8) << 16;
+            }
+            else
+            {
+                expected = 0xfffffffefffdfffc;
+            }
+
+            value = get_readback_uint64(&rb, 0, y);
+            ok(expected == value, "desc %u, line %u: Expected %"PRIx64", got %"PRIx64".\n",
+                    i, y, expected, value);
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* Verify typed buffer UAV clears. */
+    for (i = 0; i < 64 * 1024; i++)
+    {
+        uint32_t value0 = get_readback_uint(&rb, 2 * i + 0, 0, 0);
+        uint32_t value1 = get_readback_uint(&rb, 2 * i + 1, 0, 0);
+
+        if (i < 32 * 1024)
+        {
+            float expected_x, expected_y;
+            float x, y;
+
+            x = half_to_float(value0 & 0xffff);
+            y = half_to_float(value0 >> 16);
+            expected_x = (float)((i >> 0) & 0xff);
+            expected_y = (float)((i >> 8) & 0xff);
+
+            ok(x == expected_x && y == expected_y,
+                    "%u: expected (%f, %f), got (%f, %f)\n",
+                    i, expected_x, expected_y, x, y);
+            ok(value1 == 0, "%u: Expected 0, got #%x.\n", i, value1);
+        }
+        else if (i < 48 * 1024)
+        {
+            uint32_t expected_x, expected_y;
+            uint32_t x, y;
+
+            x = value0 & 0xffff;
+            y = value0 >> 16;
+            expected_x = (i >> 0) & 0xff;
+            expected_y = (i >> 8) & 0xff;
+
+            ok(x == expected_x && y == expected_y,
+                    "%u: expected (%u, %u), got (%u, %u)\n",
+                    i, expected_x, expected_y, x, y);
+            ok(value1 == 0, "%u: Expected 0, got #%x.\n", i, value1);
+        }
+        else
+        {
+            /* NaN pattern. */
+            ok(value0 == 0xfffdfffc && value1 == 0xfffffffe,
+                        "%u: Expected NaN pattern, got #%x, #%x\n",
+                        i, value0, value1);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(gpu);
+    ID3D12DescriptorHeap_Release(cpu);
+    ID3D12Resource_Release(buffer);
+    ID3D12Resource_Release(tex);
+    destroy_test_context(&context);
+}
