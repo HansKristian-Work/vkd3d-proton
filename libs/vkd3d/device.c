@@ -7895,11 +7895,18 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
             resource_infos[i].Alignment = resource_info.Alignment;
         }
 
+        TRACE("Offset = %"PRIu64", size = %"PRIu64", alignment = %"PRIu64
+                ", desc: %u x %u x %u, levels %u, samples %u, dim %u, fmt #%x, align %"PRIu64", flags #%x.\n",
+                resource_offset, resource_info.SizeInBytes, resource_info.Alignment,
+                desc->Width, desc->Height, desc->DepthOrArraySize, desc->MipLevels, desc->SampleDesc.Count,
+                desc->Dimension, desc->Format, desc->Alignment, desc->Flags);
+
         info->SizeInBytes = resource_offset + resource_info.SizeInBytes;
         info->Alignment = max(info->Alignment, resource_info.Alignment);
     }
 
     info->SizeInBytes = align(info->SizeInBytes, info->Alignment);
+    TRACE("total size = %"PRIu64", alignment = %"PRIu64"\n", info->SizeInBytes, info->Alignment);
     return info;
 
 invalid:
