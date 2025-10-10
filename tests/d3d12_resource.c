@@ -5852,7 +5852,7 @@ void test_placed_msaa_alignment_workaround(void)
         ID3D12Resource_Release(res);
 
     /* This fails on native. As a workaround, we have to make it work anyway. */
-    todo ok(hr == E_INVALIDARG, "Unexpected hr #%x, expected E_INVALIDARG.\n", hr);
+    ok(hr == (is_vkd3d_proton_device(device) ? S_OK : E_INVALIDARG), "Unexpected hr #%x.\n", hr);
 
     ID3D12Heap_Release(heap);
     refcount = ID3D12Device_Release(device);
