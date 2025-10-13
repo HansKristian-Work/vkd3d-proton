@@ -863,6 +863,17 @@ static const struct vkd3d_shader_quirk_info dune_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS,
 };
 
+static const struct vkd3d_shader_quirk_hash bl4_hashes[] = {
+    /* See Mesa issue 13981. Impossible looking HW bug on RDNA2 specifically
+     * caused by NSA image_sample_d. */
+    { 0x3b9937c41027ca73, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
+    { 0x0bf58981278d2126, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
+};
+
+static const struct vkd3d_shader_quirk_info bl4_quirks = {
+    bl4_hashes, ARRAY_SIZE(bl4_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -927,6 +938,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "3DMarkPortRoyal.exe", &heap_robustness_quirks },
     /* Dune: Awakening (1172710) */
     { VKD3D_STRING_COMPARE_STARTS_WITH, "DuneSandbox", &dune_quirks },
+    /* Borderlands 4 (1285190) */
+    { VKD3D_STRING_COMPARE_EXACT, "Borderlands4.exe", &bl4_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
