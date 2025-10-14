@@ -5771,9 +5771,8 @@ void test_tight_resource_alignment(void)
             queried_desc = ID3D12Resource_GetDesc(resource);
             ok(queried_desc.Alignment >= 8u && queried_desc.Alignment <= 256u,
                     "Got RTAS alignment %"PRIu64", expected between 8 and 256.\n", queried_desc.Alignment);
+            ID3D12Resource_Release(resource);
         }
-
-        ID3D12Resource_Release(resource);
 
         ID3D12Heap_Release(heap);
     }
