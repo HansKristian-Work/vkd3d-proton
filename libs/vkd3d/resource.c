@@ -1130,6 +1130,21 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         allocation_info->Alignment = max(requirements.memoryRequirements.alignment, allocation_info->Alignment);
     }
 
+    /* For MSAA, it's possible that application may request requirements for 64k, but end up placing it on 4M anyway.
+     * 4M aligned image may require more space on AMD due to 256k alignment layout.
+     * This situation is high risk of breakage, and we have no good way of preventing that other than just magically
+     * make it so that 4M and 64k are size compatible. Try querying memory requirements without image alignment
+     * control to get the maximum. Do not pad the allocation based on this, since we select between 64k and 4M
+     * alignment at resource creation time based on the heap and creation infos. */
+    if (create_info.image_alignment_control.maximumRequestedAlignment != 0 && desc->SampleDesc.Count > 1 &&
+        desc->Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+    {
+        /* 0 is effectively an ignore. */
+        create_info.image_alignment_control.maximumRequestedAlignment = 0;
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &requirement_info, &requirements));
+        allocation_info->SizeInBytes = max(requirements.memoryRequirements.size, allocation_info->SizeInBytes);
+    }
+
     /* Do not report alignments greater than DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
      * since that might confuse apps. Instead, pad the allocation so that we can
      * align the image ourselves. */
