@@ -683,14 +683,12 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         return E_NOTIMPL;
     }
 
+    memset(create_info, 0, sizeof(*create_info));
     image_info->sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info->pNext = NULL;
-    image_info->flags = 0;
 
     if (resource && (resource->heap_flags & D3D12_HEAP_FLAG_SHARED))
     {
         external_info->sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-        external_info->pNext = NULL;
         external_info->handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
         vk_prepend_struct(image_info, external_info);
     }
@@ -1021,7 +1019,6 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             candidate_alignment >>= 1;
 
         alignment_control->sType = VK_STRUCTURE_TYPE_IMAGE_ALIGNMENT_CONTROL_CREATE_INFO_MESA;
-        alignment_control->pNext = NULL;
         /* 0 is fine, it's basically same as ignored. */
         alignment_control->maximumRequestedAlignment = candidate_alignment;
         vk_prepend_struct(image_info, alignment_control);
