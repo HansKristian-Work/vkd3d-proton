@@ -5857,3 +5857,43 @@ void test_placed_msaa_alignment_workaround(void)
     refcount = ID3D12Device_Release(device);
     ok(refcount == 0, "Expected refcount to hit 0.\n");
 }
+
+void test_placed_msaa_alignments(void)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO info;
+    D3D12_RESOURCE_DESC desc;
+    unsigned int refcount;
+    ID3D12Device *device;
+
+    device = create_device();
+    if (!device)
+        return;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.Width = 420;
+    desc.Height = 270;
+    desc.DepthOrArraySize = 1;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.SampleDesc.Count = 4;
+    desc.Alignment = 0;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.MipLevels = 1;
+
+    info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+    ok(info.Alignment == D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT, "Expected default MSAA alignment, got %"PRIu64"\n", info.Alignment);
+    ok(info.SizeInBytes != UINT64_MAX, "Expected valid size.\n");
+    ok((info.SizeInBytes & (info.Alignment - 1)) == 0, "Expected aligned SizeInBytes.\n");
+
+    /* If we don't ask for it, we never get < 4M alignment it seems. */
+    desc.Width = 32;
+    desc.Height = 32;
+    info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+    ok(info.Alignment == D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT, "Expected default MSAA alignment, got %"PRIu64"\n", info.Alignment);
+    ok(info.SizeInBytes != UINT64_MAX, "Expected valid size.\n");
+    ok((info.SizeInBytes & (info.Alignment - 1)) == 0, "Expected aligned SizeInBytes.\n");
+
+    refcount = ID3D12Device_Release(device);
+    ok(refcount == 0, "Expected refcount to hit 0.\n");
+}
