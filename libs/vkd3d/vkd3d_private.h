@@ -1096,6 +1096,7 @@ struct d3d12_resource
     struct vkd3d_memory_allocation mem;
     struct vkd3d_memory_allocation private_mem;
     struct vkd3d_unique_resource res;
+    D3DKMT_HANDLE kmt_local;
 
     struct d3d12_heap *heap;
 
