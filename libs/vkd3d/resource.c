@@ -2738,6 +2738,10 @@ static bool d3d12_resource_supports_small_resource_alignment(const D3D12_RESOURC
     if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
         return false;
 
+    /* MSAA does not support 4K alignment at all (but it would most likely be covered by RTV/DSV check). */
+    if (desc->SampleDesc.Count > 1)
+        return false;
+
     /* Windows uses the slice size to determine small alignment eligibility. DepthOrArraySize is ignored. */
     estimated_size = desc->Width * desc->Height * format->byte_count * format->block_byte_count
             / (format->block_width * format->block_height);
