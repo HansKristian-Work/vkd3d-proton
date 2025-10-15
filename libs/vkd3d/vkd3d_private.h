@@ -6456,6 +6456,64 @@ typedef enum D3D11_RESOURCE_MISC_FLAG
     D3D11_RESOURCE_MISC_HW_PROTECTED                     = 0x80000,
 } D3D11_RESOURCE_MISC_FLAG;
 
+typedef enum D3D11_RESOURCE_DIMENSION
+{
+    D3D11_RESOURCE_DIMENSION_UNKNOWN,
+    D3D11_RESOURCE_DIMENSION_BUFFER,
+    D3D11_RESOURCE_DIMENSION_TEXTURE1D,
+    D3D11_RESOURCE_DIMENSION_TEXTURE2D,
+    D3D11_RESOURCE_DIMENSION_TEXTURE3D,
+} D3D11_RESOURCE_DIMENSION;
+
+typedef struct D3D11_BUFFER_DESC
+{
+    UINT ByteWidth;
+    D3D11_USAGE Usage;
+    UINT BindFlags;
+    UINT CPUAccessFlags;
+    UINT MiscFlags;
+    UINT StructureByteStride;
+} D3D11_BUFFER_DESC;
+
+typedef struct D3D11_TEXTURE1D_DESC
+{
+    UINT Width;
+    UINT MipLevels;
+    UINT ArraySize;
+    DXGI_FORMAT Format;
+    D3D11_USAGE Usage;
+    UINT BindFlags;
+    UINT CPUAccessFlags;
+    UINT MiscFlags;
+} D3D11_TEXTURE1D_DESC;
+
+typedef struct D3D11_TEXTURE2D_DESC
+{
+    UINT Width;
+    UINT Height;
+    UINT MipLevels;
+    UINT ArraySize;
+    DXGI_FORMAT Format;
+    DXGI_SAMPLE_DESC SampleDesc;
+    D3D11_USAGE Usage;
+    UINT BindFlags;
+    UINT CPUAccessFlags;
+    UINT MiscFlags;
+} D3D11_TEXTURE2D_DESC;
+
+typedef struct D3D11_TEXTURE3D_DESC
+{
+    UINT Width;
+    UINT Height;
+    UINT Depth;
+    UINT MipLevels;
+    DXGI_FORMAT Format;
+    D3D11_USAGE Usage;
+    UINT BindFlags;
+    UINT CPUAccessFlags;
+    UINT MiscFlags;
+} D3D11_TEXTURE3D_DESC;
+
 struct DxvkSharedTextureMetadata {
     UINT             Width;
     UINT             Height;
