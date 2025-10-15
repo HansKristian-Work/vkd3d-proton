@@ -23,6 +23,7 @@
 #include "vkd3d_descriptor_debug.h"
 #include "vkd3d_timestamp_profiler.h"
 #include "vkd3d_platform.h"
+#include "vkd3d_d3dkmt.h"
 
 #ifdef VKD3D_ENABLE_RENDERDOC
 #include "vkd3d_renderdoc.h"
@@ -4218,6 +4219,36 @@ static void vkd3d_null_rtas_allocation_cleanup(
     }
 }
 
+static void d3d12_device_open_kmt(struct d3d12_device *device)
+{
+#ifdef _WIN32
+    D3DKMT_OPENADAPTERFROMLUID open_adapter = {0};
+    open_adapter.AdapterLuid = device->adapter_luid;
+
+    if (!D3DKMTOpenAdapterFromLuid(&open_adapter))
+    {
+        D3DKMT_CREATEDEVICE create_device = {0};
+        D3DKMT_CLOSEADAPTER close_adapter = {0};
+
+        close_adapter.hAdapter = open_adapter.hAdapter;
+        create_device.hAdapter = open_adapter.hAdapter;
+        if (!D3DKMTCreateDevice(&create_device))
+            device->kmt_local = create_device.hDevice;
+
+        D3DKMTCloseAdapter(&close_adapter);
+    }
+#endif
+}
+
+static void d3d12_device_close_kmt(struct d3d12_device *device)
+{
+#ifdef _WIN32
+    D3DKMT_DESTROYDEVICE destroy = {0};
+    destroy.hDevice = device->kmt_local;
+    D3DKMTDestroyDevice(&destroy);
+#endif
+}
+
 static void d3d12_device_destroy(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -4282,6 +4313,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     rwlock_destroy(&device->vertex_input_lock);
     pthread_mutex_destroy(&device->mutex);
     pthread_mutex_destroy(&device->global_submission_mutex);
+    d3d12_device_close_kmt(device);
     if (device->parent)
         IUnknown_Release(device->parent);
     vkd3d_instance_decref(device->vkd3d_instance);
@@ -10000,6 +10032,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     d3d12_device_reserve_internal_sparse_queue(device);
     d3d_destruction_notifier_init(&device->destruction_notifier, (IUnknown*)&device->ID3D12Device_iface);
+    d3d12_device_open_kmt(device);
     return S_OK;
 
 out_cleanup_descriptor_qa_global_info:

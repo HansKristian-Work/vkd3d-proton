@@ -76,6 +76,8 @@
 /* Minimum required maxBufferSize in Vulkan */
 #define VKD3D_MAX_FILL_BUFFER_SIZE (1ull << 30)
 
+typedef UINT D3DKMT_HANDLE;
+
 typedef ID3D12Fence1 d3d12_fence_iface;
 
 struct d3d12_command_list;
@@ -5277,6 +5279,7 @@ struct d3d12_device
 
     IUnknown *parent;
     LUID adapter_luid;
+    D3DKMT_HANDLE kmt_local;
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
