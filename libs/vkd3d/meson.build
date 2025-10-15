@@ -71,6 +71,7 @@ vkd3d_src = [
   'command.c',
   'command_list_vkd3d_ext.c',
   'command_queue_vkd3d_ext.c',
+  'd3dkmt.c',
   'device.c',
   'device_vkd3d_ext.c',
   'heap.c',
