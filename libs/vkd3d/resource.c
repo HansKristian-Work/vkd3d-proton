@@ -3837,10 +3837,7 @@ static UINT64 d3d12_resource_determine_alignment(struct d3d12_device *device, co
             desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE)
         return D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
-    if (desc->SampleDesc.Count > 1u)
-        return D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
-
-    return D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    return d3d12_resource_desc_default_alignment(desc);
 }
 
 static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags,
