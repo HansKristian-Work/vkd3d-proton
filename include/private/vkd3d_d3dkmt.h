@@ -167,6 +167,25 @@ typedef struct _D3DDDI_OPENALLOCATIONINFO2
     ULONG_PTR Reserved[6];
 } D3DDDI_OPENALLOCATIONINFO2;
 
+typedef struct _D3DKMT_OPENRESOURCE
+{
+    D3DKMT_HANDLE hDevice;
+    D3DKMT_HANDLE hGlobalShare;
+    UINT NumAllocations;
+    union
+    {
+        D3DDDI_OPENALLOCATIONINFO *pOpenAllocationInfo;
+        D3DDDI_OPENALLOCATIONINFO2 *pOpenAllocationInfo2;
+    };
+    void *pPrivateRuntimeData;
+    UINT PrivateRuntimeDataSize;
+    void *pResourcePrivateDriverData;
+    UINT ResourcePrivateDriverDataSize;
+    void *pTotalPrivateDriverDataBuffer;
+    UINT TotalPrivateDriverDataBufferSize;
+    D3DKMT_HANDLE hResource;
+} D3DKMT_OPENRESOURCE;
+
 typedef struct _D3DKMT_OPENRESOURCEFROMNTHANDLE
 {
     D3DKMT_HANDLE hDevice;
@@ -191,6 +210,28 @@ typedef struct _D3DKMT_OPENSYNCOBJECTFROMNTHANDLE
     HANDLE hNtHandle;
     D3DKMT_HANDLE hSyncObject;
 } D3DKMT_OPENSYNCOBJECTFROMNTHANDLE;
+
+typedef struct _D3DKMT_QUERYRESOURCEINFO
+{
+    D3DKMT_HANDLE hDevice;
+    D3DKMT_HANDLE hGlobalShare;
+    void *pPrivateRuntimeData;
+    UINT PrivateRuntimeDataSize;
+    UINT TotalPrivateDriverDataSize;
+    UINT ResourcePrivateDriverDataSize;
+    UINT NumAllocations;
+} D3DKMT_QUERYRESOURCEINFO;
+
+typedef struct _D3DKMT_QUERYRESOURCEINFOFROMNTHANDLE
+{
+    D3DKMT_HANDLE hDevice;
+    HANDLE hNtHandle;
+    void *pPrivateRuntimeData;
+    UINT PrivateRuntimeDataSize;
+    UINT TotalPrivateDriverDataSize;
+    UINT ResourcePrivateDriverDataSize;
+    UINT NumAllocations;
+} D3DKMT_QUERYRESOURCEINFOFROMNTHANDLE;
 
 typedef struct _UNICODE_STRING {
     USHORT Length;        /* bytes */
@@ -316,9 +357,14 @@ EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTDestroyKeyedMutex(const D3DKMT_DESTROY
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTDestroySynchronizationObject(const D3DKMT_DESTROYSYNCHRONIZATIONOBJECT *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTEscape(const D3DKMT_ESCAPE *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenAdapterFromLuid(D3DKMT_OPENADAPTERFROMLUID *desc);
+EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenResource2(D3DKMT_OPENRESOURCE *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenResourceFromNtHandle(D3DKMT_OPENRESOURCEFROMNTHANDLE *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenSyncObjectFromNtHandle(D3DKMT_OPENSYNCOBJECTFROMNTHANDLE *desc);
+EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTQueryResourceInfo(D3DKMT_QUERYRESOURCEINFO *desc);
+EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTQueryResourceInfoFromNtHandle(D3DKMT_QUERYRESOURCEINFOFROMNTHANDLE *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTShareObjects(UINT count, const D3DKMT_HANDLE *handles, OBJECT_ATTRIBUTES *attr, UINT access, HANDLE *handle);
+
+extern HRESULT d3d12_device_open_resource_descriptor(struct d3d12_device *device, HANDLE handle, D3D12_RESOURCE_DESC1 *desc);
 
 #endif  /* _WIN32 */
 
