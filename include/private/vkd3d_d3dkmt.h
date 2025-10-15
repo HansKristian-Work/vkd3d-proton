@@ -94,20 +94,36 @@ typedef struct _D3DKMT_DESTROYDEVICE
     D3DKMT_HANDLE hDevice;
 } D3DKMT_DESTROYDEVICE;
 
+typedef struct _D3DKMT_DESTROYSYNCHRONIZATIONOBJECT
+{
+    D3DKMT_HANDLE hSyncObject;
+} D3DKMT_DESTROYSYNCHRONIZATIONOBJECT;
+
 typedef struct _D3DKMT_OPENADAPTERFROMLUID
 {
     LUID AdapterLuid;
     D3DKMT_HANDLE hAdapter;
 } D3DKMT_OPENADAPTERFROMLUID;
 
+typedef struct _D3DKMT_OPENSYNCOBJECTFROMNTHANDLE
+{
+    HANDLE hNtHandle;
+    D3DKMT_HANDLE hSyncObject;
+} D3DKMT_OPENSYNCOBJECTFROMNTHANDLE;
+
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTCloseAdapter(const D3DKMT_CLOSEADAPTER *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTCreateDevice(D3DKMT_CREATEDEVICE *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTDestroyDevice(const D3DKMT_DESTROYDEVICE *desc);
+EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTDestroySynchronizationObject(const D3DKMT_DESTROYSYNCHRONIZATIONOBJECT *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenAdapterFromLuid(D3DKMT_OPENADAPTERFROMLUID *desc);
+EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenSyncObjectFromNtHandle(D3DKMT_OPENSYNCOBJECTFROMNTHANDLE *desc);
 
 #endif  /* _WIN32 */
 
 extern void d3d12_device_open_kmt(struct d3d12_device *device);
 extern void d3d12_device_close_kmt(struct d3d12_device *device);
+
+extern void d3d12_shared_fence_open_export_kmt(struct d3d12_shared_fence *fence, struct d3d12_device *device);
+extern void d3d12_shared_fence_close_export_kmt(struct d3d12_shared_fence *fence);
 
 #endif  /* __VKD3D_D3DKMT_H */
