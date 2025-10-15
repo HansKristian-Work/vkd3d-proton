@@ -23,6 +23,7 @@
 #include "vkd3d_descriptor_debug.h"
 #include "vkd3d_timestamp_profiler.h"
 #include "vkd3d_platform.h"
+#include "vkd3d_d3dkmt.h"
 
 #ifdef VKD3D_ENABLE_RENDERDOC
 #include "vkd3d_renderdoc.h"
@@ -4295,6 +4296,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     rwlock_destroy(&device->vertex_input_lock);
     pthread_mutex_destroy(&device->mutex);
     pthread_mutex_destroy(&device->global_submission_mutex);
+    d3d12_device_close_kmt(device);
     if (device->parent)
         IUnknown_Release(device->parent);
     vkd3d_instance_decref(device->vkd3d_instance);
@@ -10013,6 +10015,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     d3d12_device_reserve_internal_sparse_queue(device);
     d3d_destruction_notifier_init(&device->destruction_notifier, (IUnknown*)&device->ID3D12Device_iface);
+    d3d12_device_open_kmt(device);
     return S_OK;
 
 out_cleanup_descriptor_qa_global_info:
