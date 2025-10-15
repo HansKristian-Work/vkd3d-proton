@@ -48,6 +48,37 @@ void d3d12_device_close_kmt(struct d3d12_device *device)
     D3DKMTDestroyDevice(&destroy);
 }
 
+void d3d12_shared_fence_open_export_kmt(struct d3d12_shared_fence *fence, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSemaphoreGetWin32HandleInfoKHR win32_handle_info;
+    D3DKMT_OPENSYNCOBJECTFROMNTHANDLE open = {0};
+    VkResult vr;
+
+    if (!device->kmt_local) return; /* D3DKMT API isn't supported */
+
+    win32_handle_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR;
+    win32_handle_info.pNext = NULL;
+    win32_handle_info.semaphore = fence->timeline_semaphore;
+    win32_handle_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT;
+
+    if ((vr = VK_CALL(vkGetSemaphoreWin32HandleKHR(device->vk_device, &win32_handle_info, &open.hNtHandle))))
+        ERR("Failed to get exported semaphore handle, vr %d.\n", vr);
+    else
+    {
+        if (D3DKMTOpenSyncObjectFromNtHandle(&open) == STATUS_SUCCESS)
+            fence->kmt_local = open.hSyncObject;
+        CloseHandle(open.hNtHandle);
+    }
+}
+
+void d3d12_shared_fence_close_export_kmt(struct d3d12_shared_fence *fence)
+{
+    D3DKMT_DESTROYSYNCHRONIZATIONOBJECT destroy = {0};
+    destroy.hSyncObject = fence->kmt_local;
+    D3DKMTDestroySynchronizationObject(&destroy);
+}
+
 #else /* _WIN32 */
 
 void d3d12_device_open_kmt(struct d3d12_device *device)
@@ -56,6 +87,15 @@ void d3d12_device_open_kmt(struct d3d12_device *device)
 }
 
 void d3d12_device_close_kmt(struct d3d12_device *device)
+{
+}
+
+void d3d12_shared_fence_open_export_kmt(struct d3d12_shared_fence *fence, struct d3d12_device *device)
+{
+    WARN("Not implemented on this platform\n");
+}
+
+void d3d12_shared_fence_close_export_kmt(struct d3d12_shared_fence *fence)
 {
 }
 

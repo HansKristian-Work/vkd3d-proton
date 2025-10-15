@@ -20,6 +20,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include "vkd3d_private.h"
+#include "vkd3d_d3dkmt.h"
 #include "vkd3d_swapchain_factory.h"
 #include "vkd3d_descriptor_debug.h"
 #include "vkd3d_timestamp_profiler.h"
@@ -1543,6 +1544,7 @@ static void d3d12_shared_fence_dec_ref(struct d3d12_shared_fence *fence)
 
         pthread_mutex_destroy(&fence->mutex);
         pthread_cond_destroy(&fence->cond_var);
+        d3d12_shared_fence_close_export_kmt(fence);
 
         vk_procs = &fence->device->vk_procs;
         VK_CALL(vkDestroySemaphore(fence->device->vk_device, fence->timeline_semaphore, NULL));
@@ -1883,6 +1885,7 @@ HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
         return hr;
     }
 
+    d3d12_shared_fence_open_export_kmt(object, device);
     d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12Fence_iface);
     d3d12_device_add_ref(object->device = device);
 
