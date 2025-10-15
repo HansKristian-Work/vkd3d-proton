@@ -526,6 +526,9 @@ enum vkd3d_shader_quirk
     VKD3D_SHADER_QUIRK_PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER = (1 << 28),
 
     VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS = (1 << 29),
+
+    /* Replaces dodgy normalize(0) patterns. */
+    VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN = (1 << 30),
 };
 
 struct vkd3d_shader_quirk_hash
