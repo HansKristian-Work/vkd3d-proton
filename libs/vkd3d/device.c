@@ -874,6 +874,17 @@ static const struct vkd3d_shader_quirk_info bl4_quirks = {
     bl4_hashes, ARRAY_SIZE(bl4_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash control_hashes[] = {
+    /* A closest hit shader is doing x / sqrt(dot(x, x)) where X is 0.
+     * It's fetching positions from a buffer from SBT root descriptors, so
+     * this doesn't 100% prove a game bug, but it's overwhelmingly likely. */
+    { 0xdb22fce4505969f2, VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN },
+};
+
+static const struct vkd3d_shader_quirk_info control_quirks = {
+    control_hashes, ARRAY_SIZE(control_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -940,6 +951,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "DuneSandbox", &dune_quirks },
     /* Borderlands 4 (1285190) */
     { VKD3D_STRING_COMPARE_EXACT, "Borderlands4.exe", &bl4_quirks },
+    /* Control (870780). */
+    { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", &control_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
