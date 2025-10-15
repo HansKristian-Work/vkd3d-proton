@@ -6546,12 +6546,32 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
     const struct vkd3d_vk_device_procs *vk_procs;
     struct DxvkSharedTextureMetadata metadata;
     ID3D12Resource *resource_iface;
+    OBJECT_ATTRIBUTES attr = {0};
     ID3D12Fence *fence_iface;
+    UNICODE_STRING name_str;
+    WCHAR buffer[MAX_PATH];
 
     vk_procs = &device->vk_procs;
 
     TRACE("iface %p, object %p, attributes %p, access %#x, name %s, handle %p\n",
             iface, object, attributes, access, debugstr_w(name), handle);
+
+    attr.Length = sizeof(attr);
+    attr.SecurityDescriptor = (void *)attributes;
+    if (name)
+    {
+        DWORD session, len, name_len = wcslen(name);
+
+        ProcessIdToSessionId(GetCurrentProcessId(), &session);
+        len = swprintf(buffer, ARRAY_SIZE(buffer), L"\\Sessions\\%u\\BaseNamedObjects\\", session);
+        memcpy(buffer + len, name, (name_len + 1) * sizeof(WCHAR));
+        name_str.MaximumLength = name_str.Length = (len + name_len) * sizeof(WCHAR);
+        name_str.MaximumLength += sizeof(WCHAR);
+        name_str.Buffer = buffer;
+
+        attr.ObjectName = &name_str;
+        attr.Attributes = OBJ_CASE_INSENSITIVE;
+    }
 
     if (SUCCEEDED(ID3D12DeviceChild_QueryInterface(object, &IID_ID3D12Resource, (void**)&resource_iface)))
     {
@@ -6563,6 +6583,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
         {
             ID3D12Resource_Release(resource_iface);
             return DXGI_ERROR_INVALID_CALL;
+        }
+
+        if (D3DKMTShareObjects(1, &resource->kmt_local, &attr, access, handle) == STATUS_SUCCESS)
+        {
+            ID3D12Resource_Release(resource_iface);
+            return S_OK;
         }
 
         if (attributes)
@@ -6629,6 +6655,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
         }
 
         fence = shared_impl_from_ID3D12Fence(fence_iface);
+
+        if (D3DKMTShareObjects(1, &fence->kmt_local, &attr, access, handle) == STATUS_SUCCESS)
+        {
+            ID3D12Fence_Release(fence_iface);
+            return S_OK;
+        }
 
         if (attributes)
             FIXME("attributes %p not handled\n", attributes);
