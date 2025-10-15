@@ -671,6 +671,7 @@ struct d3d12_shared_fence
     D3D12_FENCE_FLAGS d3d12_flags;
 
     VkSemaphore timeline_semaphore;
+    D3DKMT_HANDLE kmt_local;
 
     pthread_t thread;
     pthread_mutex_t mutex;

@@ -20,6 +20,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include "vkd3d_private.h"
+#include "vkd3d_d3dkmt.h"
 #include "vkd3d_swapchain_factory.h"
 #include "vkd3d_descriptor_debug.h"
 #include "vkd3d_timestamp_profiler.h"
@@ -1508,6 +1509,43 @@ static ULONG STDMETHODCALLTYPE d3d12_shared_fence_AddRef(d3d12_fence_iface *ifac
     return refcount;
 }
 
+static void d3d12_shared_fence_open_kmt(struct d3d12_shared_fence *fence, struct d3d12_device *device)
+{
+#ifdef _WIN32
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSemaphoreGetWin32HandleInfoKHR win32_handle_info;
+    D3DKMT_OPENSYNCOBJECTFROMNTHANDLE open = {0};
+    NTSTATUS status;
+    VkResult vr;
+
+    win32_handle_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR;
+    win32_handle_info.pNext = NULL;
+    win32_handle_info.semaphore = fence->timeline_semaphore;
+    win32_handle_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT;
+
+    if ((vr = VK_CALL(vkGetSemaphoreWin32HandleKHR(device->vk_device, &win32_handle_info, &open.hNtHandle))))
+        ERR("Failed to get exported semaphore handle, vr %d.\n", vr);
+    else
+    {
+        if ((status = D3DKMTOpenSyncObjectFromNtHandle(&open)))
+            ERR("Failed to open shared fence NT handle, status %#x\n", status);
+        else
+            fence->kmt_local = open.hSyncObject;
+
+        CloseHandle(open.hNtHandle);
+    }
+#endif
+}
+
+static void d3d12_shared_fence_close_kmt(struct d3d12_shared_fence *fence)
+{
+#ifdef _WIN32
+    D3DKMT_DESTROYSYNCHRONIZATIONOBJECT destroy = {0};
+    destroy.hSyncObject = fence->kmt_local;
+    D3DKMTDestroySynchronizationObject(&destroy);
+#endif
+}
+
 static void d3d12_shared_fence_inc_ref(struct d3d12_shared_fence *fence)
 {
     InterlockedIncrement(&fence->refcount_internal);
@@ -1543,6 +1581,7 @@ static void d3d12_shared_fence_dec_ref(struct d3d12_shared_fence *fence)
 
         pthread_mutex_destroy(&fence->mutex);
         pthread_cond_destroy(&fence->cond_var);
+        d3d12_shared_fence_close_kmt(fence);
 
         vk_procs = &fence->device->vk_procs;
         VK_CALL(vkDestroySemaphore(fence->device->vk_device, fence->timeline_semaphore, NULL));
@@ -1883,6 +1922,7 @@ HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
         return hr;
     }
 
+    d3d12_shared_fence_open_kmt(object, device);
     d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12Fence_iface);
     d3d12_device_add_ref(object->device = device);
 
