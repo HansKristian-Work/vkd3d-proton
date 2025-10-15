@@ -993,7 +993,8 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     {
         const uint32_t supported_alignment =
                 device->device_info.image_alignment_control_properties.supportedImageAlignmentMask;
-        uint32_t candidate_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+        uint32_t candidate_alignment = d3d12_resource_desc_default_alignment(desc);
 
         if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) && d3d12_resource_supports_small_resource_alignment(desc, format))
             candidate_alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -1148,7 +1149,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     /* Do not report alignments greater than DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
      * since that might confuse apps. Instead, pad the allocation so that we can
      * align the image ourselves. */
-    target_alignment = desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    target_alignment = desc->Alignment ? desc->Alignment : d3d12_resource_desc_default_alignment(desc);
 
     /* Tight alignment enforces small alignment for eligible resources */
     if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) &&

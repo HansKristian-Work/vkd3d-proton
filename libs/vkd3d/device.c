@@ -7893,7 +7893,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
             requested_alignment = desc->Alignment;
 
             if (!desc->Alignment && !(desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT))
-                requested_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+                requested_alignment = d3d12_resource_desc_default_alignment(desc);
 
             resource_info.Alignment = max(resource_info.Alignment, requested_alignment);
         }
