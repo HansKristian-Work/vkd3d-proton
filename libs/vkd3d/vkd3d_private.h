@@ -6233,6 +6233,12 @@ static inline unsigned int d3d12_resource_get_sub_resource_count(const struct d3
             (resource->format ? vkd3d_popcount(resource->format->vk_aspect_mask) : 1);
 }
 
+static inline uint32_t d3d12_resource_desc_default_alignment(const D3D12_RESOURCE_DESC1 *desc)
+{
+    return desc->SampleDesc.Count > 1 ?
+           D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+}
+
 static inline void vkd3d_get_depth_bias_representation(VkDepthBiasRepresentationInfoEXT *info,
         const struct d3d12_device *device, DXGI_FORMAT dsv_format)
 {
