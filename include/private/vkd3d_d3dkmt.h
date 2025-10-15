@@ -25,6 +25,8 @@
 typedef LONG NTSTATUS;
 #define STATUS_SUCCESS 0
 
+typedef ULONGLONG D3DGPU_VIRTUAL_ADDRESS;
+
 typedef struct _D3DKMT_CLOSEADAPTER
 {
     D3DKMT_HANDLE hAdapter;
@@ -89,10 +91,23 @@ typedef struct _D3DKMT_CREATEDEVICE
     UINT PatchLocationListSize;
 } D3DKMT_CREATEDEVICE;
 
+typedef struct _D3DKMT_DESTROYALLOCATION
+{
+    D3DKMT_HANDLE hDevice;
+    D3DKMT_HANDLE hResource;
+    const D3DKMT_HANDLE *phAllocationList;
+    UINT AllocationCount;
+} D3DKMT_DESTROYALLOCATION;
+
 typedef struct _D3DKMT_DESTROYDEVICE
 {
     D3DKMT_HANDLE hDevice;
 } D3DKMT_DESTROYDEVICE;
+
+typedef struct _D3DKMT_DESTROYKEYEDMUTEX
+{
+    D3DKMT_HANDLE hKeyedMutex;
+} D3DKMT_DESTROYKEYEDMUTEX;
 
 typedef struct _D3DKMT_DESTROYSYNCHRONIZATIONOBJECT
 {
@@ -105,6 +120,41 @@ typedef struct _D3DKMT_OPENADAPTERFROMLUID
     D3DKMT_HANDLE hAdapter;
 } D3DKMT_OPENADAPTERFROMLUID;
 
+typedef struct _D3DDDI_OPENALLOCATIONINFO
+{
+    D3DKMT_HANDLE hAllocation;
+    const void *pPrivateDriverData;
+    UINT PrivateDriverDataSize;
+} D3DDDI_OPENALLOCATIONINFO;
+
+typedef struct _D3DDDI_OPENALLOCATIONINFO2
+{
+    D3DKMT_HANDLE hAllocation;
+    const void *pPrivateDriverData;
+    UINT PrivateDriverDataSize;
+    D3DGPU_VIRTUAL_ADDRESS GpuVirtualAddress;
+    ULONG_PTR Reserved[6];
+} D3DDDI_OPENALLOCATIONINFO2;
+
+typedef struct _D3DKMT_OPENRESOURCEFROMNTHANDLE
+{
+    D3DKMT_HANDLE hDevice;
+    HANDLE hNtHandle;
+    UINT NumAllocations;
+    D3DDDI_OPENALLOCATIONINFO2 *pOpenAllocationInfo2;
+    UINT PrivateRuntimeDataSize;
+    void *pPrivateRuntimeData;
+    UINT ResourcePrivateDriverDataSize;
+    void *pResourcePrivateDriverData;
+    UINT TotalPrivateDriverDataBufferSize;
+    void *pTotalPrivateDriverDataBuffer;
+    D3DKMT_HANDLE hResource;
+    D3DKMT_HANDLE hKeyedMutex;
+    void *pKeyedMutexPrivateRuntimeData;
+    UINT KeyedMutexPrivateRuntimeDataSize;
+    D3DKMT_HANDLE hSyncObject;
+} D3DKMT_OPENRESOURCEFROMNTHANDLE;
+
 typedef struct _D3DKMT_OPENSYNCOBJECTFROMNTHANDLE
 {
     HANDLE hNtHandle;
@@ -113,9 +163,12 @@ typedef struct _D3DKMT_OPENSYNCOBJECTFROMNTHANDLE
 
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTCloseAdapter(const D3DKMT_CLOSEADAPTER *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTCreateDevice(D3DKMT_CREATEDEVICE *desc);
+EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTDestroyAllocation(const D3DKMT_DESTROYALLOCATION *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTDestroyDevice(const D3DKMT_DESTROYDEVICE *desc);
+EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTDestroyKeyedMutex(const D3DKMT_DESTROYKEYEDMUTEX *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTDestroySynchronizationObject(const D3DKMT_DESTROYSYNCHRONIZATIONOBJECT *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenAdapterFromLuid(D3DKMT_OPENADAPTERFROMLUID *desc);
+EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenResourceFromNtHandle(D3DKMT_OPENRESOURCEFROMNTHANDLE *desc);
 EXTERN_C WINBASEAPI NTSTATUS WINAPI D3DKMTOpenSyncObjectFromNtHandle(D3DKMT_OPENSYNCOBJECTFROMNTHANDLE *desc);
 
 #endif  /* _WIN32 */
@@ -125,5 +178,9 @@ extern void d3d12_device_close_kmt(struct d3d12_device *device);
 
 extern void d3d12_shared_fence_open_export_kmt(struct d3d12_shared_fence *fence, struct d3d12_device *device);
 extern void d3d12_shared_fence_close_export_kmt(struct d3d12_shared_fence *fence);
+
+extern void d3d12_resource_open_export_kmt(struct d3d12_resource *resource, struct d3d12_device *device,
+        struct vkd3d_memory_allocation *allocation);
+extern void d3d12_resource_close_export_kmt(struct d3d12_resource *resource, struct d3d12_device *device);
 
 #endif  /* __VKD3D_D3DKMT_H */
