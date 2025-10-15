@@ -4100,7 +4100,9 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             {
                 import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
                 import_info.pNext = allocate_info.pNext;
-                import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+                import_info.handleType = ((UINT_PTR)shared_handle & 0xc0000000)
+                        ? VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT
+                        : VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
                 import_info.handle = shared_handle;
                 import_info.name = NULL;
                 allocate_info.pNext = &import_info;

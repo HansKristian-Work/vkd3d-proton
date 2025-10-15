@@ -6716,6 +6716,25 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
         D3D12_RESOURCE_DESC1 desc;
         bool kmt_handle = false;
 
+        heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+        heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        heap_props.CreationNodeMask = 0;
+        heap_props.VisibleNodeMask = 0;
+
+        if (SUCCEEDED(hr = d3d12_device_open_resource_descriptor(device, handle, &desc)))
+        {
+            if (FAILED(hr = d3d12_resource_create_committed(device, &desc, &heap_props,
+                    D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL, 0, NULL, handle, &resource)))
+            {
+                WARN("Failed to open shared ID3D12Resource, hr %#x.\n", hr);
+                *object = NULL;
+                return hr;
+            }
+
+            return return_interface(&resource->ID3D12Resource_iface, &IID_ID3D12Resource, riid, object);
+        }
+
         if (handle_is_kmt_style(handle))
         {
             handle = vkd3d_open_kmt_handle(handle);
@@ -6775,12 +6794,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
         desc.SamplerFeedbackMipRegion.Width = 0;
         desc.SamplerFeedbackMipRegion.Height = 0;
         desc.SamplerFeedbackMipRegion.Depth = 0;
-
-        heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
-        heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-        heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-        heap_props.CreationNodeMask = 0;
-        heap_props.VisibleNodeMask = 0;
 
         hr = d3d12_resource_create_committed(device, &desc, &heap_props,
                 D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL, 0, NULL, handle, &resource);
