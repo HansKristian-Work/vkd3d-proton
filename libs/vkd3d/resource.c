@@ -23,6 +23,7 @@
 #include <math.h>
 
 #include "vkd3d_private.h"
+#include "vkd3d_d3dkmt.h"
 #include "vkd3d_rw_spinlock.h"
 #include "vkd3d_descriptor_debug.h"
 #include "hashmap.h"
@@ -3677,6 +3678,72 @@ void d3d12_resource_decref_weak(struct d3d12_resource *resource)
         vkd3d_free(resource);
 }
 
+static void d3d12_resource_open_kmt(struct d3d12_resource *resource, struct d3d12_device *device,
+        struct vkd3d_memory_allocation *allocation)
+{
+#ifdef _WIN32
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryGetWin32HandleInfoKHR win32_handle_info;
+    D3DDDI_OPENALLOCATIONINFO2 alloc = {0};
+    D3DKMT_OPENRESOURCEFROMNTHANDLE open = {0};
+    NTSTATUS status;
+    VkResult vr;
+    char dummy;
+
+    open.hDevice = device->kmt_local;
+    open.NumAllocations = 1;
+    open.pOpenAllocationInfo2 = &alloc;
+    open.pPrivateRuntimeData = &dummy;
+    open.PrivateRuntimeDataSize = 0;
+    open.pTotalPrivateDriverDataBuffer = &dummy;
+    open.TotalPrivateDriverDataBufferSize = 0;
+
+    win32_handle_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
+    win32_handle_info.pNext = NULL;
+    win32_handle_info.memory = allocation->device_allocation.vk_memory;
+    win32_handle_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    if ((vr = VK_CALL(vkGetMemoryWin32HandleKHR(device->vk_device, &win32_handle_info, &open.hNtHandle))))
+        ERR("Failed to get exported image memory handle, vr %d.\n", vr);
+    else
+    {
+        if ((status = D3DKMTOpenResourceFromNtHandle(&open)))
+            ERR("Failed to open shared allocation NT handle, status %#x\n", status);
+        else
+        {
+            resource->kmt_local = open.hResource;
+
+            if (open.hKeyedMutex)
+            {
+                D3DKMT_DESTROYKEYEDMUTEX destroy_mutex = {0};
+                FIXME("Unexpected bundled keyed mutex\n");
+                destroy_mutex.hKeyedMutex = open.hKeyedMutex;
+                D3DKMTDestroyKeyedMutex(&destroy_mutex);
+            }
+            if (open.hSyncObject)
+            {
+                D3DKMT_DESTROYSYNCHRONIZATIONOBJECT destroy_sync = {0};
+                FIXME("Unexpected bundled sync object\n");
+                destroy_sync.hSyncObject = open.hSyncObject;
+                D3DKMTDestroySynchronizationObject(&destroy_sync);
+            }
+        }
+
+        CloseHandle(open.hNtHandle);
+    }
+#endif
+}
+
+static void d3d12_resource_close_kmt(struct d3d12_resource *resource, struct d3d12_device *device)
+{
+#ifdef _WIN32
+    D3DKMT_DESTROYALLOCATION destroy = {0};
+    destroy.hDevice = device->kmt_local;
+    destroy.hResource = resource->kmt_local;
+    D3DKMTDestroyAllocation(&destroy);
+#endif
+}
+
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -3707,6 +3774,8 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         VK_CALL(vkDestroyImage(device->vk_device, resource->res.vk_image, NULL));
     else if (resource->flags & VKD3D_RESOURCE_RESERVED)
         VK_CALL(vkDestroyBuffer(device->vk_device, resource->res.vk_buffer, NULL));
+
+    d3d12_resource_close_kmt(resource, device);
 
     if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.device_allocation.vk_memory)
         vkd3d_free_memory(device, &device->memory_allocator, &resource->mem);
@@ -4023,6 +4092,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
     {
         VkMemoryDedicatedRequirements dedicated_requirements;
         struct vkd3d_allocate_memory_info allocate_info;
+        VkExportMemoryAllocateInfo export_info = {0};
         VkMemoryDedicatedAllocateInfo dedicated_info;
         struct vkd3d_memory_allocation *allocation;
         VkImageMemoryRequirementsInfo2 image_info;
@@ -4032,7 +4102,6 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
 #ifdef _WIN32
         VkImportMemoryWin32HandleInfoKHR import_info;
-        VkExportMemoryAllocateInfo export_info;
 #endif
 
         if (FAILED(hr = d3d12_resource_create_vk_resource(object, num_castable_formats, castable_formats, device)))
@@ -4145,6 +4214,9 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
         if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, allocation)))
             goto fail;
+
+        if (heap_flags & D3D12_HEAP_FLAG_SHARED && export_info.handleTypes == VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT)
+            d3d12_resource_open_kmt(object, device, allocation);
 
         bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
         bind_info.pNext = NULL;
