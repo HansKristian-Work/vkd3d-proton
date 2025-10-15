@@ -6710,6 +6710,216 @@ static inline bool handle_is_kmt_style(HANDLE handle)
 {
     return ((ULONG_PTR)handle & 0x40000000) && ((ULONG_PTR)handle - 2) % 4 == 0;
 }
+
+static HRESULT d3d12_device_open_resource_descriptor(struct d3d12_device *device, HANDLE handle, D3D12_RESOURCE_DESC1 *desc)
+{
+    D3DKMT_DESTROYALLOCATION destroy = {0};
+    union d3dkmt_desc d3dkmt = {0};
+    NTSTATUS status;
+    UINT size;
+
+    if ((UINT_PTR)handle & 0xc0000000)
+    {
+        D3DDDI_OPENALLOCATIONINFO2 alloc = {0};
+        D3DKMT_QUERYRESOURCEINFO query = {0};
+        D3DKMT_OPENRESOURCE open = {0};
+
+        query.hDevice = device->kmt_local;
+        query.hGlobalShare = (UINT_PTR)handle;
+        query.pPrivateRuntimeData = &d3dkmt;
+        query.PrivateRuntimeDataSize = sizeof(d3dkmt);
+
+        if ((status = D3DKMTQueryResourceInfo(&query)))
+        {
+            WARN("Failed to query shared resource handle %p, status %#lx\n", handle, status);
+            return E_INVALIDARG;
+        }
+        if (query.PrivateRuntimeDataSize < sizeof(d3dkmt.dxgi) || query.PrivateRuntimeDataSize > sizeof(d3dkmt))
+        {
+            WARN("Unsupported shared resource runtime data size %#x\n", query.PrivateRuntimeDataSize);
+            return E_NOTIMPL;
+        }
+
+        open.hDevice = device->kmt_local;
+        open.hGlobalShare = (UINT_PTR)handle;
+        open.NumAllocations = 1;
+        open.pOpenAllocationInfo2 = &alloc;
+        open.pPrivateRuntimeData = &d3dkmt;
+        open.PrivateRuntimeDataSize = query.PrivateRuntimeDataSize;
+
+        if ((status = D3DKMTOpenResource2(&open)))
+        {
+            WARN("Failed to open shared resource handle %p, status %#lx\n", handle, status);
+            return E_INVALIDARG;
+        }
+        size = open.PrivateRuntimeDataSize;
+        destroy.hResource = open.hResource;
+    }
+    else
+    {
+        D3DKMT_QUERYRESOURCEINFOFROMNTHANDLE query = {0};
+        D3DKMT_OPENRESOURCEFROMNTHANDLE open = {0};
+        D3DDDI_OPENALLOCATIONINFO2 alloc = {0};
+        char dummy;
+
+        query.hDevice = device->kmt_local;
+        query.hNtHandle = handle;
+        query.pPrivateRuntimeData = &d3dkmt;
+        query.PrivateRuntimeDataSize = sizeof(d3dkmt);
+
+        if ((status = D3DKMTQueryResourceInfoFromNtHandle(&query)))
+        {
+            WARN("Failed to query shared resource handle %p, status %#lx\n", handle, status);
+            return E_INVALIDARG;
+        }
+        if (query.PrivateRuntimeDataSize < sizeof(d3dkmt.dxgi) || query.PrivateRuntimeDataSize > sizeof(d3dkmt))
+        {
+            WARN("Unsupported shared resource runtime data size %#x\n", query.PrivateRuntimeDataSize);
+            return E_NOTIMPL;
+        }
+
+        open.hDevice = device->kmt_local;
+        open.hNtHandle = handle;
+        open.NumAllocations = 1;
+        open.pOpenAllocationInfo2 = &alloc;
+        open.pPrivateRuntimeData = &d3dkmt;
+        open.PrivateRuntimeDataSize = query.PrivateRuntimeDataSize;
+        open.pTotalPrivateDriverDataBuffer = &dummy;
+        open.TotalPrivateDriverDataBufferSize = 0;
+
+        if ((status = D3DKMTOpenResourceFromNtHandle(&open)))
+        {
+            WARN("Failed to open shared resource handle %p, status %#lx\n", handle, status);
+            return E_INVALIDARG;
+        }
+        if (open.hKeyedMutex)
+        {
+            D3DKMT_DESTROYKEYEDMUTEX destroy_mutex = {0};
+            FIXME("Ignoring bundled keyed mutex\n");
+            destroy_mutex.hKeyedMutex = open.hKeyedMutex;
+            D3DKMTDestroyKeyedMutex(&destroy_mutex);
+        }
+        if (open.hSyncObject)
+        {
+            D3DKMT_DESTROYSYNCHRONIZATIONOBJECT destroy_sync = {0};
+            FIXME("Ignoring bundled sync object\n");
+            destroy_sync.hSyncObject = open.hSyncObject;
+            D3DKMTDestroySynchronizationObject(&destroy_sync);
+        }
+
+        size = open.PrivateRuntimeDataSize;
+        destroy.hResource = open.hResource;
+    }
+
+    destroy.hDevice = device->kmt_local;
+    D3DKMTDestroyAllocation(&destroy);
+
+    TRACE("Found descriptor with size %u/%u version %u\n", size, d3dkmt.dxgi.size, d3dkmt.dxgi.version);
+    if (size == sizeof(d3dkmt.d3d12) && d3dkmt.dxgi.size == sizeof(d3dkmt.d3d11) && (d3dkmt.dxgi.version == 0 || d3dkmt.dxgi.version == 4))
+    {
+        TRACE("Using D3D12 descriptor\n");
+        *desc = d3dkmt.d3d12.desc1;
+        return S_OK;
+    }
+
+    if (size == sizeof(d3dkmt.d3d11) && d3dkmt.dxgi.size == sizeof(d3dkmt.d3d11) && d3dkmt.dxgi.version == 4)
+    {
+        TRACE("Found D3D11 desc with dimension %u\n", d3dkmt.d3d11.dimension);
+
+        switch (d3dkmt.d3d11.dimension)
+        {
+            case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
+                memset(desc, 0, sizeof(*desc));
+
+                desc->Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                desc->Width = d3dkmt.d3d11.d3d11_2d.Width;
+                desc->Height = d3dkmt.d3d11.d3d11_2d.Height;
+                desc->DepthOrArraySize = d3dkmt.d3d11.d3d11_2d.ArraySize;
+                desc->MipLevels = d3dkmt.d3d11.d3d11_2d.MipLevels;
+                desc->Format = d3dkmt.d3d11.d3d11_2d.Format;
+                desc->SampleDesc = d3dkmt.d3d11.d3d11_2d.SampleDesc;
+
+                desc->Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+                if (d3dkmt.d3d11.d3d11_2d.BindFlags & D3D11_BIND_RENDER_TARGET)
+                    desc->Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+                if (d3dkmt.d3d11.d3d11_2d.BindFlags & D3D11_BIND_DEPTH_STENCIL)
+                {
+                    desc->Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+                    if (!(d3dkmt.d3d11.d3d11_2d.BindFlags & D3D11_BIND_SHADER_RESOURCE))
+                        desc->Flags |= D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+                }
+                else
+                    desc->Flags |= D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+                if (d3dkmt.d3d11.d3d11_2d.BindFlags & D3D11_BIND_UNORDERED_ACCESS)
+                    desc->Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+                return S_OK;
+
+            default:
+                FIXME("D3D11 dimension %#x not implemented!\n", d3dkmt.d3d11.dimension);
+                return E_INVALIDARG;
+        }
+    }
+
+    if (size == sizeof(d3dkmt.d3d9) && d3dkmt.dxgi.size == sizeof(d3dkmt.d3d9) && d3dkmt.dxgi.version == 1)
+    {
+        TRACE("Found D3D9 desc type %#x\n", d3dkmt.d3d9.type);
+        TRACE("  dxgi.width %u\n", d3dkmt.d3d9.dxgi.width);
+        TRACE("  dxgi.height %u\n", d3dkmt.d3d9.dxgi.height);
+        TRACE("  format %#x\n", d3dkmt.d3d9.format);
+        TRACE("  usage %#x\n", d3dkmt.d3d9.usage);
+        if (d3dkmt.d3d9.type == D3DRTYPE_TEXTURE)
+        {
+            TRACE("  texture.width %u\n", d3dkmt.d3d9.texture.width);
+            TRACE("  texture.height %u\n", d3dkmt.d3d9.texture.height);
+            TRACE("  texture.depth %u\n", d3dkmt.d3d9.texture.depth);
+            TRACE("  texture.levels %u\n", d3dkmt.d3d9.texture.levels);
+        }
+        else if (d3dkmt.d3d9.type == D3DRTYPE_SURFACE)
+        {
+            TRACE("  surface.width %u\n", d3dkmt.d3d9.surface.width);
+            TRACE("  surface.height %u\n", d3dkmt.d3d9.surface.height);
+        }
+        else
+        {
+            FIXME("D3D9 type %#x not implemented!\n", d3dkmt.d3d9.type);
+            return E_INVALIDARG;
+        }
+
+        memset(desc, 0, sizeof(*desc));
+        desc->Width = d3dkmt.d3d9.dxgi.width;
+        desc->Height = d3dkmt.d3d9.dxgi.height;
+        desc->DepthOrArraySize = 1;
+        desc->MipLevels = 1;
+        desc->Format = d3dkmt.d3d9.dxgi.format;
+        desc->SampleDesc.Count = 1;
+        desc->SampleDesc.Quality = 0;
+        desc->Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        desc->Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+        switch (d3dkmt.d3d9.type)
+        {
+            case D3DRTYPE_TEXTURE:
+                desc->Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                desc->Width = d3dkmt.d3d9.texture.width;
+                desc->Height = d3dkmt.d3d9.texture.height;
+                desc->MipLevels = d3dkmt.d3d9.texture.levels;
+                desc->DepthOrArraySize = d3dkmt.d3d9.texture.depth ? d3dkmt.d3d9.texture.depth : 1;
+                break;
+            case D3DRTYPE_SURFACE:
+                desc->Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                desc->Width = d3dkmt.d3d9.surface.width;
+                desc->Height = d3dkmt.d3d9.surface.height;
+                break;
+            default:
+                break;
+        }
+
+        return S_OK;
+    }
+
+    FIXME("Unsupported data size %u/%u version %u\n", size, d3dkmt.dxgi.size, d3dkmt.dxgi.version);
+    return E_INVALIDARG;
+}
 #endif
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_iface *iface,
@@ -6732,6 +6942,25 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
         struct d3d12_resource *resource;
         D3D12_RESOURCE_DESC1 desc;
         bool kmt_handle = false;
+
+        heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+        heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        heap_props.CreationNodeMask = 0;
+        heap_props.VisibleNodeMask = 0;
+
+        if (SUCCEEDED(hr = d3d12_device_open_resource_descriptor(device, handle, &desc)))
+        {
+            if (FAILED(hr = d3d12_resource_create_committed(device, &desc, &heap_props,
+                    D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL, 0, NULL, handle, &resource)))
+            {
+                WARN("Failed to open shared ID3D12Resource, hr %#x.\n", hr);
+                *object = NULL;
+                return hr;
+            }
+
+            return return_interface(&resource->ID3D12Resource_iface, &IID_ID3D12Resource, riid, object);
+        }
 
         if (handle_is_kmt_style(handle))
         {
@@ -6792,12 +7021,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
         desc.SamplerFeedbackMipRegion.Width = 0;
         desc.SamplerFeedbackMipRegion.Height = 0;
         desc.SamplerFeedbackMipRegion.Depth = 0;
-
-        heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
-        heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-        heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-        heap_props.CreationNodeMask = 0;
-        heap_props.VisibleNodeMask = 0;
 
         hr = d3d12_resource_create_committed(device, &desc, &heap_props,
                 D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL, 0, NULL, handle, &resource);
