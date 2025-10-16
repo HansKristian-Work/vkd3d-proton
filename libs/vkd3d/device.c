@@ -9796,14 +9796,22 @@ static void vkd3d_scratch_pool_init(struct d3d12_device *device)
         device->scratch_pools[i].scratch_buffer_size = VKD3D_SCRATCH_BUFFER_COUNT_DEFAULT;
     }
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES) &&
-            device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
-            (device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute ||
-                    device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands))
+    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
     {
-        /* DGCC preprocess buffers are gigantic on NV. Starfield requires 27 MB for 4096 dispatches ... */
-        device->scratch_pools[VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS].block_size =
-                VKD3D_SCRATCH_BUFFER_SIZE_DGCC_PREPROCESS_NV;
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES) &&
+            (device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute ||
+             device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands))
+        {
+            /* DGCC preprocess buffers are gigantic on NV. Starfield requires 27 MB for 4096 dispatches ... */
+            device->scratch_pools[VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS].block_size =
+                    VKD3D_SCRATCH_BUFFER_SIZE_DGCC_PREPROCESS_NV;
+        }
+        else
+        {
+            /* Halo Infinite can hit ~2.5 MB DGC calls on NV. Bumping to 4 MiB blocks is known to help. */
+            device->scratch_pools[VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS].block_size =
+                    VKD3D_SCRATCH_BUFFER_SIZE_PREPROCESS_NV;
+        }
     }
 
     /* DGC tends to be pretty spammy with indirect buffers.
