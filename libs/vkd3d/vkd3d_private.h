@@ -76,6 +76,8 @@
 /* Minimum required maxBufferSize in Vulkan */
 #define VKD3D_MAX_FILL_BUFFER_SIZE (1ull << 30)
 
+typedef UINT D3DKMT_HANDLE;
+
 typedef ID3D12Fence1 d3d12_fence_iface;
 
 struct d3d12_command_list;
@@ -669,6 +671,7 @@ struct d3d12_shared_fence
     D3D12_FENCE_FLAGS d3d12_flags;
 
     VkSemaphore timeline_semaphore;
+    D3DKMT_HANDLE kmt_local;
 
     pthread_t thread;
     pthread_mutex_t mutex;
@@ -1093,6 +1096,7 @@ struct d3d12_resource
     struct vkd3d_memory_allocation mem;
     struct vkd3d_memory_allocation private_mem;
     struct vkd3d_unique_resource res;
+    D3DKMT_HANDLE kmt_local;
 
     struct d3d12_heap *heap;
 
@@ -5277,6 +5281,7 @@ struct d3d12_device
 
     IUnknown *parent;
     LUID adapter_luid;
+    D3DKMT_HANDLE kmt_local;
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
@@ -6450,6 +6455,64 @@ typedef enum D3D11_RESOURCE_MISC_FLAG
     D3D11_RESOURCE_MISC_TILED                            = 0x40000,
     D3D11_RESOURCE_MISC_HW_PROTECTED                     = 0x80000,
 } D3D11_RESOURCE_MISC_FLAG;
+
+typedef enum D3D11_RESOURCE_DIMENSION
+{
+    D3D11_RESOURCE_DIMENSION_UNKNOWN,
+    D3D11_RESOURCE_DIMENSION_BUFFER,
+    D3D11_RESOURCE_DIMENSION_TEXTURE1D,
+    D3D11_RESOURCE_DIMENSION_TEXTURE2D,
+    D3D11_RESOURCE_DIMENSION_TEXTURE3D,
+} D3D11_RESOURCE_DIMENSION;
+
+typedef struct D3D11_BUFFER_DESC
+{
+    UINT ByteWidth;
+    D3D11_USAGE Usage;
+    UINT BindFlags;
+    UINT CPUAccessFlags;
+    UINT MiscFlags;
+    UINT StructureByteStride;
+} D3D11_BUFFER_DESC;
+
+typedef struct D3D11_TEXTURE1D_DESC
+{
+    UINT Width;
+    UINT MipLevels;
+    UINT ArraySize;
+    DXGI_FORMAT Format;
+    D3D11_USAGE Usage;
+    UINT BindFlags;
+    UINT CPUAccessFlags;
+    UINT MiscFlags;
+} D3D11_TEXTURE1D_DESC;
+
+typedef struct D3D11_TEXTURE2D_DESC
+{
+    UINT Width;
+    UINT Height;
+    UINT MipLevels;
+    UINT ArraySize;
+    DXGI_FORMAT Format;
+    DXGI_SAMPLE_DESC SampleDesc;
+    D3D11_USAGE Usage;
+    UINT BindFlags;
+    UINT CPUAccessFlags;
+    UINT MiscFlags;
+} D3D11_TEXTURE2D_DESC;
+
+typedef struct D3D11_TEXTURE3D_DESC
+{
+    UINT Width;
+    UINT Height;
+    UINT Depth;
+    UINT MipLevels;
+    DXGI_FORMAT Format;
+    D3D11_USAGE Usage;
+    UINT BindFlags;
+    UINT CPUAccessFlags;
+    UINT MiscFlags;
+} D3D11_TEXTURE3D_DESC;
 
 struct DxvkSharedTextureMetadata {
     UINT             Width;
