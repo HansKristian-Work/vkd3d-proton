@@ -5709,6 +5709,7 @@ void test_tight_resource_alignment(void)
         heap_desc.SizeInBytes = alloc_info.SizeInBytes;
         heap_desc.Properties = heap_properties;
         heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
+        heap_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
 
         hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
         ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
