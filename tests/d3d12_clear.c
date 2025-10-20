@@ -1158,3 +1158,85 @@ void test_uav_clear_exhaustive_descriptors(void)
     destroy_test_context(&context);
 }
 
+void test_clear_uav_mismatch_heap(void)
+{
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *gpu;
+    ID3D12DescriptorHeap *cpu;
+    ID3D12Resource *resource;
+    unsigned int i;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    gpu = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1000000);
+    cpu = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
+
+    resource = create_default_texture2d(context.device, 64, 64, 16, 1,
+            DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    for (i = 0; i < 16; i++)
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+        uav_desc.Texture2DArray.MipSlice = 0;
+        uav_desc.Texture2DArray.FirstArraySlice = i;
+        uav_desc.Texture2DArray.ArraySize = 1;
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, gpu, i));
+        ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, cpu, i));
+    }
+
+    /* AMD behavior:
+     * - The CPU descriptor seems to be the one that's always read.
+         The GPU descriptor can be completely bogus and nothing changes. */
+
+    /* WARP behavior:
+     * - Reads the GPU descriptor as-is. Does not consider that a heap needs to be bound. */
+
+    /* NVIDIA behavior:
+     * - Same as AMD. CPU descriptor is the only one that matters. */
+
+    /* Intel behavior:
+     * - Same as AMD. CPU descriptor is the only one that matters. */
+
+    /* What happens if we just don't bind the heap? Seems to just werk everywhere ... */
+
+    for (i = 0; i < 16; i++)
+    {
+        float clear_value[4] = { i, i + 1, i + 2, i + 3 };
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(context.list,
+            get_gpu_descriptor_handle(&context, gpu, i ^ (use_warp_device ? 0 : 1)),
+            get_cpu_descriptor_handle(&context, cpu, i ^ (use_warp_device ? 1 : 0)),
+            resource, clear_value, 0, NULL);
+    }
+
+    transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < 16; i++)
+    {
+        uint64_t expected, value;
+        get_texture_readback_with_command_list(resource, i, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        expected =
+            ((uint64_t)float_to_half(i + 0) << 0) |
+            ((uint64_t)float_to_half(i + 1) << 16) |
+            ((uint64_t)float_to_half(i + 2) << 32) |
+            ((uint64_t)float_to_half(i + 3) << 48);
+        value = get_readback_uint64(&rb, 0, 0);
+
+        ok(expected == value, "%u: Expected %"PRIx64", got %"PRIx64"\n", i, expected, value);
+        release_resource_readback(&rb);
+    }
+
+    ID3D12DescriptorHeap_Release(gpu);
+    ID3D12DescriptorHeap_Release(cpu);
+    ID3D12Resource_Release(resource);
+    destroy_test_context(&context);
+}
