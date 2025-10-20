@@ -58,7 +58,11 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
         options4.Native16BitShaderOpsSupported = FALSE;
 
     if (!options4.Native16BitShaderOpsSupported)
+    {
         skip("Skipping 16-bit robustness tests.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     root_signature_desc.NumParameters = 1;
     root_signature_desc.Flags = 0;
