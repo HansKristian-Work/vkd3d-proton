@@ -24,6 +24,8 @@
 #define INITGUID
 #define VKD3D_TEST_DECLARE_MAIN
 #include "d3d12_crosstest.h"
+#include "vkd3d_device_vkd3d_ext.h"
+#include "vkd3d_command_list_vkd3d_ext.h"
 
 #define decl_test(x) void x(void);
 #include "d3d12_tests.h"

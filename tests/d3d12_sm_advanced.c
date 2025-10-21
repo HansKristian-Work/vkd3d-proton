@@ -21,6 +21,8 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
+#include "vkd3d_device_vkd3d_ext.h"
+#include "vkd3d_command_list_vkd3d_ext.h"
 
 static void run_64bit_atomics_test(struct test_context *context,
         D3D12_SHADER_BYTECODE cs,
@@ -6425,5 +6427,187 @@ void test_vs_instance_input_nonuniform_workarounds(void)
     ID3D12Resource_Release(cbv);
     ID3D12Resource_Release(output);
 
+    destroy_test_context(&context);
+}
+
+void test_nvx_cubin(void)
+{
+    ID3D12GraphicsCommandListExt *list_ext;
+    D3D12_CUBIN_DATA_HANDLE *handle;
+    D3D12_SAMPLER_DESC sampler_desc;
+    ID3D12DescriptorHeap *sampler;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *gpu;
+    ID3D12DescriptorHeap *cpu;
+    D3D12_UAV_INFO uav_info;
+    UINT cuda_srv_handle[2];
+    UINT cuda_uav_handle[2];
+    ID3D12Resource *tex[4];
+    ID3D12DeviceExt *ext;
+    FLOAT clear_color[4];
+    unsigned int i, x, y;
+    D3D12_RECT rect;
+
+#include "shaders/sm_advanced/headers/cubin.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12DeviceExt, (void **)&ext)))
+    {
+        skip("ID3D12DeviceExt magic interface not exposed, skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(
+            context.list, &IID_ID3D12GraphicsCommandListExt, (void **)&list_ext)))
+    {
+        skip("ID3D12DeviceExt magic interface not exposed, skipping.\n");
+        ID3D12DeviceExt_Release(ext);
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12DeviceExt_GetExtensionSupport(ext, D3D12_VK_NVX_BINARY_IMPORT)) ||
+        FAILED(ID3D12DeviceExt_GetExtensionSupport(ext, D3D12_VK_NVX_IMAGE_VIEW_HANDLE)))
+    {
+        skip("Magic NVX extensions not supported, skipping.\n");
+        ID3D12DeviceExt_Release(ext);
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12DeviceExt_CreateCubinComputeShaderWithName(ext,
+            cubin, sizeof(cubin), 8, 8, 1, "image_copy", &handle)))
+    {
+        skip("Failed to create cubin kernel. Skipping test.\n");
+        ID3D12DeviceExt_Release(ext);
+        destroy_test_context(&context);
+        return;
+    }
+
+    gpu = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
+    cpu = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
+    sampler = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 16);
+
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    ID3D12Device_CreateSampler(context.device, &sampler_desc, get_cpu_descriptor_handle(&context, sampler, 5));
+
+    {
+        ID3D12DescriptorHeap *heaps[] = { gpu, sampler };
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, ARRAY_SIZE(heaps), heaps);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(tex); i++)
+    {
+        tex[i] = create_default_texture2d(context.device, 16, 16, 1, 1,
+                DXGI_FORMAT_R32G32B32A32_FLOAT,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        /* Capture the next handle written to GPU heap. */
+        if (i == 0)
+            ID3D12DeviceExt_CaptureUAVInfo(ext, &uav_info);
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, tex[i], NULL, NULL,
+                get_cpu_descriptor_handle(&context, gpu, i + 1));
+        ID3D12Device_CreateUnorderedAccessView(context.device, tex[i], NULL, NULL,
+                get_cpu_descriptor_handle(&context, cpu, i + 1));
+
+        ID3D12Device_CreateShaderResourceView(context.device, tex[i], NULL,
+                get_cpu_descriptor_handle(&context, gpu, i + 8));
+    }
+
+    for (i = 0; i < 4; i++)
+    {
+        for (y = 0; y < 2; y++)
+        {
+            for (x = 0; x < 2; x++)
+            {
+                set_rect(&rect, 8 * x, 8 * y, 8 * x + 8, 8 * y + 8);
+                clear_color[0] = 100.0f + x;
+                clear_color[1] = 200.0f + y;
+                clear_color[2] = 300.0f + i;
+                clear_color[3] = 400.0f + i;
+                ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(context.list,
+                        get_gpu_descriptor_handle(&context, gpu, 1 + i),
+                        get_cpu_descriptor_handle(&context, cpu, 1 + i),
+                        tex[i], clear_color, 1, &rect);
+            }
+        }
+    }
+
+    uav_barrier(context.list, NULL);
+    transition_resource_state(context.list, tex[2],
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    transition_resource_state(context.list, tex[3],
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+    for (i = 0; i < 2; i++)
+    {
+        ID3D12DeviceExt_GetCudaSurfaceObject(ext,
+                get_cpu_descriptor_handle(&context, gpu, 1 + i),
+                &cuda_uav_handle[i]);
+
+        ID3D12DeviceExt_GetCudaTextureObject(ext,
+                get_cpu_descriptor_handle(&context, gpu, 8 + i),
+                get_cpu_descriptor_handle(&context, sampler, 5),
+                &cuda_srv_handle[i]);
+    }
+
+    ok(cuda_uav_handle[0] == uav_info.surfaceHandle, "Expected equivalent UAV handles.\n");
+
+    for (i = 0; i < 2; i++)
+    {
+        struct
+        {
+            UINT64 uav, srv0, srv1;
+            UINT w, h;
+        } params = { cuda_uav_handle[i], cuda_srv_handle[1 - i], cuda_srv_handle[i], 16, 16 };
+        ID3D12GraphicsCommandListExt_LaunchCubinShader(list_ext, handle, 2, 2, 1, &params, sizeof(params));
+    }
+
+    transition_resource_state(context.list, tex[0],
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, tex[1],
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < 2; i++)
+    {
+        get_texture_readback_with_command_list(tex[i], 0, &rb, context.queue, context.list);
+        for (y = 0; y < 16; y++)
+        {
+            for (x = 0; x < 16; x++)
+            {
+                const struct vec4 *v = get_readback_vec4(&rb, x, y);
+                struct vec4 expected = {0};
+
+                expected.x = 1.5f * (100.0f + (((2 * x) % 16) / 8));
+                expected.y = 1.5f * (200.0f + (((2 * y) % 16) / 8));
+                expected.z = 300.0f + 150.5f + 0.5f * (1 - i);
+                expected.w = 400.0f + 200.5f + 0.5f * (1 - i);
+
+                ok(compare_vec4(v, &expected, 0), "Tex%u: %u, %u, got %f, %f, %f, %f, expected %f, %f, %f, %f\n",
+                        i, x, y, v->x, v->y, v->z, v->w, expected.x, expected.y, expected.z, expected.w);
+            }
+        }
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12DeviceExt_DestroyCubinComputeShader(ext, handle);
+    ID3D12GraphicsCommandListExt_Release(list_ext);
+    ID3D12DeviceExt_Release(ext);
+    ID3D12DescriptorHeap_Release(sampler);
+    ID3D12DescriptorHeap_Release(gpu);
+    ID3D12DescriptorHeap_Release(cpu);
+    for (i = 0; i < ARRAY_SIZE(tex); i++)
+        ID3D12Resource_Release(tex[i]);
     destroy_test_context(&context);
 }
