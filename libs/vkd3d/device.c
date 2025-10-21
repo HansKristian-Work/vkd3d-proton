@@ -5765,7 +5765,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_default(d3d
     {
         struct d3d12_desc_split d = d3d12_desc_decode_va(descriptor.ptr);
 
-        if (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
+        if (desc && desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
         {
             d3d12_uav_info->gpuVAStart = d.view->info.buffer.va;
             d3d12_uav_info->gpuVASize = d.view->info.buffer.range;
