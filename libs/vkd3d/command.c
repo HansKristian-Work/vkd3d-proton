@@ -5293,7 +5293,7 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
         return S_OK;
     }
 
-    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
+    TRACE("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
 
     *object = NULL;
     return E_NOINTERFACE;
