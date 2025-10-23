@@ -6470,11 +6470,12 @@ void test_nvx_cubin(void)
         return;
     }
 
-    if (FAILED(ID3D12DeviceExt_GetExtensionSupport(ext, D3D12_VK_NVX_BINARY_IMPORT)) ||
-        FAILED(ID3D12DeviceExt_GetExtensionSupport(ext, D3D12_VK_NVX_IMAGE_VIEW_HANDLE)))
+    if (!ID3D12DeviceExt_GetExtensionSupport(ext, D3D12_VK_NVX_BINARY_IMPORT) ||
+        !ID3D12DeviceExt_GetExtensionSupport(ext, D3D12_VK_NVX_IMAGE_VIEW_HANDLE))
     {
         skip("Magic NVX extensions not supported, skipping.\n");
         ID3D12DeviceExt_Release(ext);
+        ID3D12GraphicsCommandListExt_Release(list_ext);
         destroy_test_context(&context);
         return;
     }
@@ -6484,6 +6485,7 @@ void test_nvx_cubin(void)
     {
         skip("Failed to create cubin kernel. Skipping test.\n");
         ID3D12DeviceExt_Release(ext);
+        ID3D12GraphicsCommandListExt_Release(list_ext);
         destroy_test_context(&context);
         return;
     }
