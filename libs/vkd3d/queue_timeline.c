@@ -391,7 +391,7 @@ vkd3d_queue_timeline_trace_register_command_list(struct vkd3d_queue_timeline_tra
     struct vkd3d_queue_timeline_trace_cookie cookie = {0};
     struct vkd3d_queue_timeline_trace_state *state;
     uint64_t submission_count;
-    if (!trace->active)
+    if (!trace->active || !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_QUEUE_PROFILE_EXTRA))
         return cookie;
 
     cookie.index = vkd3d_queue_timeline_trace_allocate_index(trace, &submission_count);
