@@ -1012,6 +1012,8 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
 {
     int rc;
 
+    vkd3d_queue_timeline_trace_cpu_signal(&fence->device->queue_timeline_trace, &fence->ID3D12Fence_iface, value);
+
     if ((rc = pthread_mutex_lock(&fence->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
