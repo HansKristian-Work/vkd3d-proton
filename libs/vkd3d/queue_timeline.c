@@ -334,6 +334,34 @@ vkd3d_queue_timeline_trace_register_signal(struct vkd3d_queue_timeline_trace *tr
     return cookie;
 }
 
+void vkd3d_queue_timeline_trace_cpu_signal(struct vkd3d_queue_timeline_trace *trace,
+        d3d12_fence_iface *fence, uint64_t value)
+{
+    struct vkd3d_queue_timeline_trace_state *state;
+    unsigned int index;
+
+    if (!trace->active)
+        return;
+
+    index = vkd3d_queue_timeline_trace_allocate_index(trace, NULL);
+    if (!index)
+        return;
+
+    state = &trace->state[index];
+    state->type = VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CPU_SIGNAL;
+    state->start_ts = vkd3d_get_current_time_ns();
+    state->tid = vkd3d_get_current_thread_id();
+    state->record_cookie = value;
+    snprintf(state->desc, sizeof(state->desc), "SIGNAL %p %"PRIu64, (void*)fence, value);
+
+    /* Defer actual IO until fence workers are doing something. */
+    pthread_mutex_lock(&trace->ready_lock);
+    vkd3d_array_reserve((void**)&trace->ready_command_lists, &trace->ready_command_lists_size,
+            trace->ready_command_lists_count + 1, sizeof(*trace->ready_command_lists));
+    trace->ready_command_lists[trace->ready_command_lists_count++] = index;
+    pthread_mutex_unlock(&trace->ready_lock);
+}
+
 struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_wait(struct vkd3d_queue_timeline_trace *trace,
         d3d12_fence_iface *fence, uint64_t value)
@@ -559,6 +587,12 @@ static void vkd3d_queue_timeline_trace_flush_instantaneous(struct vkd3d_queue_ti
 
                 case VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMITTED_RESOURCE_ALLOCATION:
                     generic_pid = "committed resource alloc";
+                    break;
+
+                case VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CPU_SIGNAL:
+                    fprintf(trace->file,
+                            "{ \"name\": \"%s\", \"ph\": \"i\", \"tid\": \"0x%04x\", \"pid\": \"cpu signal\", \"ts\": %f },\n",
+                            list_state->desc, list_state->tid, start_ts);
                     break;
 
                 default:
