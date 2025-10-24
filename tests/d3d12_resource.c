@@ -21,6 +21,7 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
+#include "vkd3d_device_vkd3d_ext.h"
 
 void test_create_committed_resource(void)
 {
@@ -5897,4 +5898,266 @@ void test_placed_msaa_alignments(void)
 
     refcount = ID3D12Device_Release(device);
     ok(refcount == 0, "Expected refcount to hit 0.\n");
+}
+
+void test_use_before_alloc_stress(void)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12Resource *early_resources[256];
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    ID3D12Resource *late_resources[256];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12DXVKInteropDevice *interop;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *dummy_res;
+    ID3D12Fence *fence;
+    unsigned int i, j;
+
+#include "shaders/resource/headers/use_before_alloc_sentinel.h"
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!vkd3d_test_platform_is_windows() && !is_nvidia_device(context.device))
+    {
+        skip("Skipping exploratory test. It's known to work fine on NVIDIA and Windows, but by default hangs amdgpu.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12DXVKInteropDevice, (void **)&interop)))
+        interop = NULL;
+
+    ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    memset(&desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param.DescriptorTable.pDescriptorRanges = desc_range;
+    rs_param.DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[0].NumDescriptors = 1000000;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    desc_range[1].NumDescriptors = 1000000;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(
+            context.device, context.root_signature, use_before_alloc_sentinel_dxbc);
+
+    heap = create_gpu_descriptor_heap(context.device,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 256 * ARRAY_SIZE(early_resources));
+
+    dummy_res = create_default_buffer(context.device, 2 * 1024 * 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    for (i = 0; i < ARRAY_SIZE(early_resources); i++)
+    {
+        uint64_t start_ts, end_ts;
+
+        start_ts = vkd3d_get_current_time_ns();
+        early_resources[i] = create_default_buffer(context.device, 2 * 1024 * 1024,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        end_ts = vkd3d_get_current_time_ns();
+        skip("Allocating early resource %u took %.3f us.\n", i, (double)(end_ts - start_ts) * 1e-3);
+        memset(&uav_desc, 0, sizeof(uav_desc));
+
+        for (j = 0; j < 256; j++)
+        {
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav_desc.Buffer.StructureByteStride = 4;
+            uav_desc.Buffer.FirstElement = 64 * j;
+            uav_desc.Buffer.NumElements = 64;
+            ID3D12Device_CreateUnorderedAccessView(context.device, early_resources[i], NULL,
+                    &uav_desc, get_cpu_descriptor_handle(&context, heap, 256 * i + j));
+        }
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 16 * 1024, 256 * ARRAY_SIZE(early_resources) / (16 * 1024), 1);
+    ID3D12GraphicsCommandList_Close(context.list);
+
+#define USE_BEFORE_ALLOC 1
+#define TEST_ALLOC_AFTER_FREE_BLOCKING 0
+
+#if USE_BEFORE_ALLOC
+    exec_command_list(context.queue, context.list);
+    ID3D12CommandQueue_Signal(context.queue, fence, 1);
+
+    /* Ensure that vkQueueSubmit has happened so we test use-before-alloc as intended. */
+    if (interop)
+    {
+        ID3D12DXVKInteropDevice_LockCommandQueue(interop, context.queue);
+        ID3D12DXVKInteropDevice_UnlockCommandQueue(interop, context.queue);
+        ID3D12DXVKInteropDevice_Release(interop);
+    }
+#endif
+
+#if TEST_ALLOC_AFTER_FREE_BLOCKING
+    /* On AMDGPU, VM mappings are serialized.
+     * If we attempt to free some memory, it triggers VM unmap which
+     * blocks on all previous submissions. */
+    if (dummy_res)
+        ID3D12Resource_Release(dummy_res);
+    dummy_res = NULL;
+#endif
+
+    /* Deep UB. Update descriptor heap while GPU is in flight.
+     * GPU may end up accessing VAs which were created after vkQueueSubmit, which may trigger page faults. */
+    memset(late_resources, 0, sizeof(late_resources));
+    for (i = ARRAY_SIZE(late_resources); i; i--)
+    {
+        uint64_t start_ts, end_ts;
+
+        start_ts = vkd3d_get_current_time_ns();
+        late_resources[i - 1] = create_default_buffer(context.device, 2 * 1024 * 1024,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        end_ts = vkd3d_get_current_time_ns();
+        skip("Allocating late resource %u took %.3f us.\n", i, (double)(end_ts - start_ts) * 1e-3);
+
+        if (ID3D12Fence_GetCompletedValue(fence) != 0)
+        {
+            skip("GPU is done. Stop allocating.\n");
+            break;
+        }
+
+        memset(&uav_desc, 0, sizeof(uav_desc));
+
+        for (j = 0; j < 256; j++)
+        {
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav_desc.Buffer.StructureByteStride = 4;
+            uav_desc.Buffer.FirstElement = 64 * j;
+            uav_desc.Buffer.NumElements = 64;
+            ID3D12Device_CreateUnorderedAccessView(context.device, late_resources[i - 1], NULL,
+                    &uav_desc, get_cpu_descriptor_handle(&context, heap, 256 * (i - 1) + j));
+        }
+
+        if (ID3D12Fence_GetCompletedValue(fence) != 0)
+        {
+            skip("GPU is done. Stop creating descriptors.\n");
+            break;
+        }
+    }
+
+    /* Check if we had time to allocate resources before the fence signalled.
+     * This gives us an idea if the implementation is doing some kind of wait-before-idle in CreateCommittedResource. */
+    skip("Created %zu resources before breaking out.\n", ARRAY_SIZE(late_resources) - i);
+
+#if !USE_BEFORE_ALLOC
+    exec_command_list(context.queue, context.list);
+#endif
+
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+    for (i = 0; i < ARRAY_SIZE(early_resources); i++)
+    {
+        transition_resource_state(context.list, early_resources[i],
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        if (late_resources[i])
+        {
+            transition_resource_state(context.list, late_resources[i],
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(early_resources); i++)
+    {
+        bool has_zero = false;
+        bool error = false;
+
+        get_buffer_readback_with_command_list(early_resources[i], DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (j = 0; j < 64 * 256; j++)
+        {
+            uint32_t value, expected;
+            uint32_t wrapped_value;
+            uint32_t desc_index;
+
+            desc_index = 256 * i + j / 64;
+            value = get_readback_uint(&rb, j, 0, 0);
+            wrapped_value = j % 64;
+            expected = wrapped_value | (desc_index << 8);
+
+            if (expected != 0 && value == 0)
+                has_zero = true;
+
+            if (value != expected && value)
+            {
+                error = true;
+                break;
+            }
+        }
+
+        release_resource_readback(&rb);
+
+        if (error)
+            ok(!error, "Resource %u has error.\n", i);
+
+        if (has_zero)
+        {
+            skip("Resource %u has zero entries. Good indication that GPU descriptor heap entries can be swapped on the fly.\n", i);
+            ok(late_resources[i] != NULL, "Got zero value, but there was no late resource created.\n");
+
+            if (late_resources[i])
+            {
+                bool has_non_zero = false;
+                get_buffer_readback_with_command_list(late_resources[i], DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+                reset_command_list(context.list, context.allocator);
+
+                error = false;
+                for (j = 0; j < 64 * 256; j++)
+                {
+                    uint32_t value, expected;
+                    uint32_t wrapped_value;
+                    uint32_t desc_index;
+
+                    desc_index = 256 * i + j / 64;
+                    value = get_readback_uint(&rb, j, 0, 0);
+                    wrapped_value = j % 64;
+                    expected = wrapped_value | (desc_index << 8);
+
+                    if (value)
+                        has_non_zero = true;
+
+                    if (value != expected && value)
+                    {
+                        error = true;
+                        break;
+                    }
+                }
+
+                if (error)
+                    ok(!error, "Late resource %u has error.\n", i);
+
+                ok(has_non_zero, "Original resource %u had zero values, but candidate late resource did not.\n", i);
+                release_resource_readback(&rb);
+            }
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(early_resources); i++)
+        ID3D12Resource_Release(early_resources[i]);
+
+    for (i = 0; i < ARRAY_SIZE(late_resources); i++)
+        if (late_resources[i])
+            ID3D12Resource_Release(late_resources[i]);
+
+    if (dummy_res)
+        ID3D12Resource_Release(dummy_res);
+    ID3D12Fence_Release(fence);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
 }
