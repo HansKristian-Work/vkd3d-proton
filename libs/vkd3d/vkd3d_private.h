@@ -5053,6 +5053,8 @@ enum vkd3d_queue_timeline_trace_state_type
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_VK_ALLOCATE_MEMORY,
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CLEAR_ALLOCATION,
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMAND_ALLOCATOR_RESET,
+
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CPU_SIGNAL,
 };
 
 struct vkd3d_queue_timeline_trace_state
@@ -5101,6 +5103,8 @@ vkd3d_queue_timeline_trace_register_event_signal(struct vkd3d_queue_timeline_tra
         vkd3d_native_sync_handle handle, d3d12_fence_iface *fence, uint64_t value);
 struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_signal(struct vkd3d_queue_timeline_trace *trace,
+        d3d12_fence_iface *fence, uint64_t value);
+void vkd3d_queue_timeline_trace_cpu_signal(struct vkd3d_queue_timeline_trace *trace,
         d3d12_fence_iface *fence, uint64_t value);
 struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_wait(struct vkd3d_queue_timeline_trace *trace,
