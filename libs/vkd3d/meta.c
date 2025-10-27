@@ -532,7 +532,7 @@ VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_ty
         }
         case VK_IMAGE_VIEW_TYPE_3D:
         {
-            VkExtent3D result = { 4, 4, 4 };
+            VkExtent3D result = { 8, 8, 8 };
             return result;
         }
         default:
