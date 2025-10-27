@@ -74,9 +74,12 @@ void d3d12_shared_fence_open_export_kmt(struct d3d12_shared_fence *fence, struct
 
 void d3d12_shared_fence_close_export_kmt(struct d3d12_shared_fence *fence)
 {
-    D3DKMT_DESTROYSYNCHRONIZATIONOBJECT destroy = {0};
-    destroy.hSyncObject = fence->kmt_local;
-    D3DKMTDestroySynchronizationObject(&destroy);
+    if (fence->kmt_local)
+    {
+        D3DKMT_DESTROYSYNCHRONIZATIONOBJECT destroy = {0};
+        destroy.hSyncObject = fence->kmt_local;
+        D3DKMTDestroySynchronizationObject(&destroy);
+    }
 }
 
 void d3d12_resource_open_export_kmt(struct d3d12_resource *resource, struct d3d12_device *device,
@@ -187,10 +190,13 @@ void d3d12_resource_open_export_kmt(struct d3d12_resource *resource, struct d3d1
 
 void d3d12_resource_close_export_kmt(struct d3d12_resource *resource, struct d3d12_device *device)
 {
-    D3DKMT_DESTROYALLOCATION destroy = {0};
-    destroy.hDevice = device->kmt_local;
-    destroy.hResource = resource->kmt_local;
-    D3DKMTDestroyAllocation(&destroy);
+    if (resource->kmt_local)
+    {
+        D3DKMT_DESTROYALLOCATION destroy = {0};
+        destroy.hDevice = device->kmt_local;
+        destroy.hResource = resource->kmt_local;
+        D3DKMTDestroyAllocation(&destroy);
+    }
 }
 
 HRESULT d3d12_device_open_resource_descriptor(struct d3d12_device *device, HANDLE handle, D3D12_RESOURCE_DESC1 *desc)
@@ -198,6 +204,8 @@ HRESULT d3d12_device_open_resource_descriptor(struct d3d12_device *device, HANDL
     D3DKMT_DESTROYALLOCATION destroy = {0};
     union d3dkmt_desc d3dkmt = {0};
     UINT size;
+
+    if (!device->kmt_local) return E_NOTIMPL; /* D3DKMT API isn't supported */
 
     if ((UINT_PTR)handle & 0xc0000000)
     {
