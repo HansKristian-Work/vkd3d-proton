@@ -509,3 +509,4 @@ decl_test(test_clear_uav_mismatch_heap);
 decl_test(test_copy_batch);
 decl_test(test_resolve_batch);
 decl_test(test_resolve_subresource_depth);
+decl_test(test_copy_subresource_depth_stencil_batch);
