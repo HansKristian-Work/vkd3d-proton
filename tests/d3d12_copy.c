@@ -2976,3 +2976,148 @@ void test_copy_batch(void)
     destroy_test_context(&context);
 }
 
+void test_resolve_batch(void)
+{
+    static const DXGI_FORMAT formats[] = {
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_R32_FLOAT,
+        DXGI_FORMAT_R32_TYPELESS
+    };
+
+    static const DXGI_FORMAT resolve_formats[] = {
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_R32_FLOAT,
+        DXGI_FORMAT_R32_FLOAT
+    };
+
+    ID3D12Resource *committed_msaa_tex[ARRAY_SIZE(formats)];
+    ID3D12Resource *committed_tex[ARRAY_SIZE(formats)];
+    ID3D12Resource *placed_tex[ARRAY_SIZE(formats)];
+    D3D12_RESOURCE_ALLOCATION_INFO allocation_info;
+    struct test_context_desc context_desc;
+    D3D12_RESOURCE_DESC res_desc;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Heap *texture_heap;
+    unsigned int i, j;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_pipeline = true;
+
+    /* This is less of a functional test, and more of a smoke test intended to be studied in RenderDoc to
+     * verify our batching QoI. */
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    memset(&res_desc, 0, sizeof(res_desc));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    for (i = 0; i < ARRAY_SIZE(formats); i++)
+    {
+        res_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        res_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        res_desc.Width = 64;
+        res_desc.Height = 64;
+        res_desc.DepthOrArraySize = 2;
+        res_desc.MipLevels = 1;
+        res_desc.SampleDesc.Count = 1;
+        res_desc.Format = formats[i];
+        res_desc.Flags = res_desc.Format == DXGI_FORMAT_R32_TYPELESS ?
+                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL : D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+        ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties,
+                D3D12_HEAP_FLAG_NONE, &res_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL,
+                &IID_ID3D12Resource, (void **)&committed_tex[i]);
+
+        res_desc.SampleDesc.Count = 4;
+
+        ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties,
+                D3D12_HEAP_FLAG_NONE, &res_desc, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, NULL,
+                &IID_ID3D12Resource, (void **)&committed_msaa_tex[i]);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(formats); i++)
+    {
+        res_desc = ID3D12Resource_GetDesc(committed_tex[i]);
+        allocation_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &res_desc);
+        heap_desc.SizeInBytes += align(allocation_info.SizeInBytes, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+    }
+
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&texture_heap);
+    heap_desc.SizeInBytes = 0;
+
+    for (i = 0; i < ARRAY_SIZE(placed_tex); i++)
+    {
+        res_desc = ID3D12Resource_GetDesc(committed_tex[i]);
+        allocation_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &res_desc);
+        ID3D12Device_CreatePlacedResource(context.device, texture_heap, heap_desc.SizeInBytes,
+                &res_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void **)&placed_tex[i]);
+        heap_desc.SizeInBytes += align(allocation_info.SizeInBytes, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+    }
+
+    /* Batch committed */
+    for (j = 0; j < 4; j++)
+    {
+        for (i = 0; i < ARRAY_SIZE(formats); i++)
+        {
+            ID3D12GraphicsCommandList_ResolveSubresource(context.list,
+                    committed_tex[i], j % res_desc.DepthOrArraySize,
+                    committed_msaa_tex[i], j % res_desc.DepthOrArraySize,
+                    resolve_formats[i]);
+        }
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Batch placed */
+    for (j = 0; j < 4; j++)
+    {
+        for (i = 0; i < ARRAY_SIZE(formats); i++)
+        {
+            ID3D12GraphicsCommandList_ResolveSubresource(context.list,
+                    placed_tex[i], j % res_desc.DepthOrArraySize,
+                    committed_msaa_tex[i], j % res_desc.DepthOrArraySize,
+                    resolve_formats[i]);
+        }
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Mix and match */
+    for (j = 0; j < 4; j++)
+    {
+        for (i = 0; i < ARRAY_SIZE(formats); i++)
+        {
+            ID3D12GraphicsCommandList_ResolveSubresource(context.list,
+                    placed_tex[i], j % res_desc.DepthOrArraySize,
+                    committed_msaa_tex[i], j % res_desc.DepthOrArraySize,
+                    resolve_formats[i]);
+
+            ID3D12GraphicsCommandList_ResolveSubresource(context.list,
+                    committed_tex[i], j % res_desc.DepthOrArraySize,
+                    committed_msaa_tex[i], j % res_desc.DepthOrArraySize,
+                    resolve_formats[i]);
+        }
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    wait_queue_idle_no_event(context.device, context.queue);
+    ID3D12Heap_Release(texture_heap);
+    for (i = 0; i < ARRAY_SIZE(formats); i++)
+    {
+        ID3D12Resource_Release(committed_msaa_tex[i]);
+        ID3D12Resource_Release(committed_tex[i]);
+        ID3D12Resource_Release(placed_tex[i]);
+    }
+    destroy_test_context(&context);
+}
+
