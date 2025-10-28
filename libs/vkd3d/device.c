@@ -610,8 +610,11 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0 },
     /* World of Warcraft retail. Broken MSAA code where it renders to multi-sampled target with single sampled PSO. */
     { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA, 0 },
-    /* The Last of Us Part I (1888930). Submits hundreds of command buffers per frame. */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
+    /* The Last of Us Part I (1888930). Submits hundreds of command buffers per frame.
+     * Some of the lighting shaders are extremely sensitive to tiling layouts, and using thin tiling for 3D UAVs has profound
+     * performance effects. */
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i",
+            VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT | VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING, 0 },
     /* Skull and Bones (2853730). Seems to require unsupported dcomp when reflex is enabled for some reason *shrug */
     { VKD3D_STRING_COMPARE_EXACT, "skullandbones.exe", 0, 0, VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX },
     /* Star Wars Outlaws (2842040). Attempt to workaround a possible NV driver bug. */
@@ -1177,6 +1180,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"queue_profile_extra", VKD3D_CONFIG_FLAG_QUEUE_PROFILE_EXTRA},
     {"damage_not_zeroed_allocations", VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS},
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
+    {"prefer_thin_uav_tiling", VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING},
 };
 
 static void vkd3d_config_flags_init_once(void)

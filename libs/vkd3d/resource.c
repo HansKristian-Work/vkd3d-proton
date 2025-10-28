@@ -891,10 +891,19 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     /* Additional image flags as necessary. Do not add 2D_ARRAY_COMPATIBLE for sparse due
      * to VUID 09403. */
     if (image_info->imageType == VK_IMAGE_TYPE_3D &&
-            (image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) &&
             !(image_info->flags & VK_IMAGE_CREATE_SPARSE_BINDING_BIT))
     {
-        image_info->flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
+        bool use_2d_array_compatible =
+                (image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) ||
+                ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING) &&
+                 (image_info->usage & VK_IMAGE_USAGE_STORAGE_BIT));
+
+        /* For storage images, we don't actually intend to create 2D views, but adding this flag hints to driver
+         * that we prefer 2D tiling layouts instead of 3D, which can be a performance optimization.
+         * It is valid to use this flag even for non-color attachments, it's just not semantically meaningful
+         * before maintenance9. */
+        if (use_2d_array_compatible)
+            image_info->flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
     }
 
     use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1)) ||
