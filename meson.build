@@ -13,12 +13,13 @@ vkd3d_platform = target_machine.system()
 vkd3d_buildtype = get_option('buildtype')
 vkd3d_debug     = vkd3d_buildtype == 'debug' or vkd3d_buildtype == 'debugoptimized'
 
-enable_tests             = get_option('enable_tests')
-enable_extras            = get_option('enable_extras')
-enable_profiling         = get_option('enable_profiling')
-enable_renderdoc         = get_option('enable_renderdoc')
-enable_descriptor_qa     = get_option('enable_descriptor_qa')
-enable_trace             = get_option('enable_trace')
+enable_tests              = get_option('enable_tests')
+enable_extras             = get_option('enable_extras')
+enable_profiling          = get_option('enable_profiling')
+enable_renderdoc          = get_option('enable_renderdoc')
+enable_descriptor_qa      = get_option('enable_descriptor_qa')
+enable_extended_emulation = get_option('enable_extended_emulation')
+enable_trace              = get_option('enable_trace')
 
 if enable_trace == 'auto'
   enable_trace = vkd3d_debug
@@ -43,6 +44,10 @@ endif
 
 if enable_descriptor_qa
   add_project_arguments('-DVKD3D_ENABLE_DESCRIPTOR_QA', language : 'c')
+endif
+
+if enable_extended_emulation
+  add_project_arguments('-DVKD3D_ENABLE_EXTENDED_EMULATION', language : 'c')
 endif
 
 if not enable_trace

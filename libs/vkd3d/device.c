@@ -2746,8 +2746,13 @@ static bool vkd3d_supports_minimum_coopmat_caps(struct d3d12_device *device)
             if (fmt->CType == VK_COMPONENT_TYPE_FLOAT8_E4M3_EXT)
                 supports_8bit_c = true;
         }
+#ifdef VKD3D_ENABLE_EXTENDED_EMULATION
         else
         {
+            /* Don't expose this by default in official builds.
+             * The decision is above my paygrade.
+             * Pre-RDNA4 build requires extra env-var hacks on top to make it work. */
+
             /* In the fallback, we use u8 as an intermediate format. */
             if (fmt->AType == VK_COMPONENT_TYPE_UINT8_KHR)
                 supports_8bit_a = true;
@@ -2756,6 +2761,7 @@ static bool vkd3d_supports_minimum_coopmat_caps(struct d3d12_device *device)
             if (fmt->CType == VK_COMPONENT_TYPE_UINT8_KHR)
                 supports_8bit_c = true;
         }
+#endif
 
         if (fmt->KSize != 16 || fmt->MSize != 16 || fmt->NSize != 16 || fmt->scope != VK_SCOPE_SUBGROUP_KHR)
             continue;
