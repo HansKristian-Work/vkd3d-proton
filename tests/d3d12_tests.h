@@ -506,3 +506,4 @@ decl_test(test_root_constant_indexing_dxbc);
 decl_test(test_nvx_cubin);
 decl_test(test_copy_batch);
 decl_test(test_resolve_batch);
+decl_test(test_resolve_subresource_depth);
