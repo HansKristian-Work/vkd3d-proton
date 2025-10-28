@@ -2571,3 +2571,408 @@ void test_resolve_image_exhaustive_descriptors(void)
     destroy_test_context(&context);
 }
 
+void test_copy_batch(void)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO allocation_info;
+    ID3D12Resource *committed_textures[256];
+    ID3D12Resource *committed_larger_buffer;
+    ID3D12Resource *committed_buffers[256];
+    struct test_context_desc context_desc;
+    ID3D12Resource *placed_textures[256];
+    ID3D12Resource *placed_buffers[256];
+    ID3D12Resource *committed_ds[2];
+    D3D12_RESOURCE_DESC res_desc;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Heap *texture_heap;
+    ID3D12Heap *buffer_heap;
+    unsigned int mode;
+    unsigned int i, j;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_pipeline = true;
+
+    /* This is less of a functional test, and more of a smoke test intended to be studied in RenderDoc to
+     * verify our batching QoI. */
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    memset(&res_desc, 0, sizeof(res_desc));
+
+    for (i = 0; i < ARRAY_SIZE(committed_buffers); i++)
+    {
+        committed_buffers[i] = create_default_buffer(context.device, 64 * 1024,
+                D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    }
+
+    committed_larger_buffer = create_default_buffer(context.device, 64 * 1024 * ARRAY_SIZE(committed_textures),
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    for (i = 0; i < ARRAY_SIZE(committed_textures); i++)
+    {
+        committed_textures[i] = create_default_texture2d(context.device, 64, 64, 2, 1, DXGI_FORMAT_R32_FLOAT,
+                D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(committed_ds); i++)
+    {
+        committed_ds[i] = create_default_texture2d(context.device, 64, 64, 2, 1, DXGI_FORMAT_D32_FLOAT,
+                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, D3D12_RESOURCE_STATE_COMMON);
+    }
+
+    res_desc = ID3D12Resource_GetDesc(committed_textures[0]);
+    allocation_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &res_desc);
+
+    heap_desc.SizeInBytes = ARRAY_SIZE(placed_textures) * allocation_info.SizeInBytes;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&texture_heap);
+
+    for (i = 0; i < ARRAY_SIZE(placed_textures); i++)
+    {
+        res_desc = ID3D12Resource_GetDesc(committed_textures[i]);
+        ID3D12Device_CreatePlacedResource(context.device, texture_heap, allocation_info.SizeInBytes * i,
+                &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&placed_textures[i]);
+    }
+
+    heap_desc.SizeInBytes = ARRAY_SIZE(placed_buffers) * 64 * 1024;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&buffer_heap);
+
+    for (i = 0; i < ARRAY_SIZE(placed_buffers); i++)
+    {
+        res_desc = ID3D12Resource_GetDesc(committed_buffers[i]);
+        ID3D12Device_CreatePlacedResource(context.device, buffer_heap, 64 * 1024 * i,
+                &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&placed_buffers[i]);
+    }
+
+    /* Test simple CopyResource, wide batching. */
+    for (i = 0; i < ARRAY_SIZE(committed_textures) / 2; i++)
+    {
+        ID3D12GraphicsCommandList_CopyResource(context.list,
+                committed_textures[i + ARRAY_SIZE(committed_textures) / 2],
+                committed_textures[i]);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(committed_buffers) / 2; i++)
+    {
+        ID3D12GraphicsCommandList_CopyResource(context.list,
+                committed_buffers[i + ARRAY_SIZE(committed_buffers) / 2],
+                committed_buffers[i]);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(placed_textures) / 2; i++)
+    {
+        ID3D12GraphicsCommandList_CopyResource(context.list,
+                placed_textures[i + ARRAY_SIZE(placed_textures) / 2],
+                placed_textures[i]);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(placed_buffers) / 2; i++)
+    {
+        ID3D12GraphicsCommandList_CopyResource(context.list,
+                placed_buffers[i + ARRAY_SIZE(placed_buffers) / 2],
+                placed_buffers[i]);
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Test CopyResource hazard tracking. */
+    for (j = 0; j < 4; j++)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            ID3D12GraphicsCommandList_CopyResource(context.list,
+                    committed_textures[i + ARRAY_SIZE(committed_textures) / 2],
+                    committed_textures[i]);
+        }
+    }
+
+    for (j = 0; j < 4; j++)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            ID3D12GraphicsCommandList_CopyResource(context.list,
+                    committed_buffers[i + ARRAY_SIZE(committed_buffers) / 2],
+                    committed_buffers[i]);
+        }
+    }
+
+    for (j = 0; j < 4; j++)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            ID3D12GraphicsCommandList_CopyResource(context.list,
+                    placed_textures[i + ARRAY_SIZE(placed_textures) / 2],
+                    placed_textures[i]);
+        }
+    }
+
+    for (j = 0; j < 4; j++)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            ID3D12GraphicsCommandList_CopyResource(context.list,
+                    placed_buffers[i + ARRAY_SIZE(placed_buffers) / 2],
+                    placed_buffers[i]);
+        }
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Test CopyResource vs CopyTextureRegion hazards */
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+
+        for (i = 32; i; i--)
+        {
+            dst.pResource = committed_textures[i - 1];
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dst.SubresourceIndex = 0;
+
+            src.pResource = committed_textures[32 + i];
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = 0;
+
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+            dst.SubresourceIndex = 1;
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+        }
+
+        /* Hazard */
+        ID3D12GraphicsCommandList_CopyResource(context.list, committed_textures[0], committed_textures[100]);
+        /* Hazard */
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+    }
+
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+
+        for (i = 32; i; i--)
+        {
+            dst.pResource = placed_textures[i - 1];
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dst.SubresourceIndex = 0;
+
+            src.pResource = placed_textures[32 + i];
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = 0;
+
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+            dst.SubresourceIndex = 1;
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+        }
+
+        /* Hazard */
+        ID3D12GraphicsCommandList_CopyResource(context.list, placed_textures[0], placed_textures[100]);
+        /* Hazard */
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Test layout decay behavior */
+    {
+        /* Since we do all the transitions explicitly, there will be no outgoing WAW */
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+
+        ID3D12GraphicsCommandList_CopyResource(context.list, committed_textures[1], committed_textures[0]);
+        ID3D12GraphicsCommandList_CopyResource(context.list, committed_textures[2], committed_textures[0]);
+
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst.pResource = committed_textures[3];
+        dst.SubresourceIndex = 1;
+        src = dst;
+        src.SubresourceIndex = 0;
+
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+
+        transition_resource_state(context.list, committed_textures[1], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_resource_state(context.list, committed_textures[2], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_sub_resource_state(context.list, committed_textures[3], 1, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Test color -> DS (test with and without maint8) */
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+        for (j = 0; j < 2; j++)
+            for (i = 0; i < ARRAY_SIZE(committed_ds); i++)
+                ID3D12GraphicsCommandList_CopyResource(context.list, committed_ds[i], committed_textures[i]);
+
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst.pResource = committed_ds[0];
+
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.pResource = committed_textures[0];
+        src.SubresourceIndex = 0;
+
+        for (j = 0; j < 2; j++)
+        {
+            for (i = 0; i < 2; i++)
+            {
+                dst.SubresourceIndex = i;
+                ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+            }
+        }
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Test DS -> Color (test with and without maint8) */
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+        for (j = 0; j < 2; j++)
+            for (i = 0; i < ARRAY_SIZE(committed_ds); i++)
+                ID3D12GraphicsCommandList_CopyResource(context.list, committed_textures[i], committed_ds[i]);
+
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst.pResource = committed_textures[0];
+
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.pResource = committed_ds[0];
+        src.SubresourceIndex = 0;
+
+        for (j = 0; j < 2; j++)
+        {
+            for (i = 0; i < 2; i++)
+            {
+                dst.SubresourceIndex = i;
+                ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+            }
+        }
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Test image to buffer batching */
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+        memset(&dst, 0, sizeof(dst));
+        memset(&src, 0, sizeof(src));
+
+        for (j = 0; j < 2; j++)
+        {
+            for (i = 0; i < ARRAY_SIZE(committed_textures); i++)
+            {
+                dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                dst.PlacedFootprint.Footprint.RowPitch = 256;
+                dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+                dst.PlacedFootprint.Footprint.Width = 64;
+                dst.PlacedFootprint.Footprint.Height = 64;
+                dst.PlacedFootprint.Footprint.Depth = 1;
+                dst.PlacedFootprint.Offset = 0;
+                dst.pResource = placed_buffers[i];
+
+                src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                src.SubresourceIndex = 0;
+                src.pResource = committed_textures[i];
+                ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+
+                dst.PlacedFootprint.Offset = 64 * 1024 * i;
+                dst.pResource = committed_larger_buffer;
+                ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+            }
+        }
+
+        /* Test that transitioning a buffer clears out all hazard tracking. */
+        ID3D12GraphicsCommandList_CopyResource(context.list, placed_textures[0], committed_textures[0]);
+        transition_resource_state(context.list, placed_buffers[0], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    /* Test buffer to image batching */
+    for (mode = 0; mode < 3; mode++)
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+        memset(&dst, 0, sizeof(dst));
+        memset(&src, 0, sizeof(src));
+
+        for (j = 0; j < 2; j++)
+        {
+            /* Arbitrary prime number to avoid hitting batch limits instead of WAW tracker. */
+            for (i = 0; i < 17; i++)
+            {
+                src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                src.PlacedFootprint.Footprint.RowPitch = 256;
+                src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+                src.PlacedFootprint.Footprint.Width = 64;
+                src.PlacedFootprint.Footprint.Height = 64;
+                src.PlacedFootprint.Footprint.Depth = 1;
+                src.PlacedFootprint.Offset = 0;
+                src.pResource = placed_buffers[i];
+
+                dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+
+                switch (mode)
+                {
+                    case 0:
+                        dst.pResource = committed_textures[i];
+                        dst.SubresourceIndex = 0;
+                        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+                        dst.SubresourceIndex = 1;
+                        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+                        break;
+
+                    case 1:
+                        dst.pResource = placed_textures[i];
+                        dst.SubresourceIndex = 0;
+                        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+                        dst.SubresourceIndex = 1;
+                        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+                        break;
+
+                    default:
+                        /* Mix and match. Will trigger cases where committed textures have to batch. */
+                        dst.pResource = i & 1 ? committed_textures[i / 2] : placed_textures[i / 2];
+                        dst.SubresourceIndex = 0;
+                        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+                        dst.SubresourceIndex = 1;
+                        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, 0, 0, 0, &src, NULL);
+                        break;
+                }
+            }
+        }
+
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+    }
+
+    wait_queue_idle_no_event(context.device, context.queue);
+    ID3D12Heap_Release(texture_heap);
+    ID3D12Heap_Release(buffer_heap);
+    for (i = 0; i < ARRAY_SIZE(committed_textures); i++)
+        ID3D12Resource_Release(committed_textures[i]);
+    for (i = 0; i < ARRAY_SIZE(committed_buffers); i++)
+        ID3D12Resource_Release(committed_buffers[i]);
+    for (i = 0; i < ARRAY_SIZE(placed_textures); i++)
+        ID3D12Resource_Release(placed_textures[i]);
+    for (i = 0; i < ARRAY_SIZE(placed_buffers); i++)
+        ID3D12Resource_Release(placed_buffers[i]);
+    for (i = 0; i < ARRAY_SIZE(committed_ds); i++)
+        ID3D12Resource_Release(committed_ds[i]);
+    ID3D12Resource_Release(committed_larger_buffer);
+    destroy_test_context(&context);
+}
+

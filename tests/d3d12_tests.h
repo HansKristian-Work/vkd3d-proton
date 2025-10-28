@@ -504,3 +504,4 @@ decl_test(test_resolve_image_exhaustive_descriptors);
 decl_test(test_root_constant_indexing_dxil);
 decl_test(test_root_constant_indexing_dxbc);
 decl_test(test_nvx_cubin);
+decl_test(test_copy_batch);
