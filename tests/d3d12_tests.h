@@ -506,3 +506,4 @@ decl_test(test_root_constant_indexing_dxbc);
 decl_test(test_nvx_cubin);
 decl_test(test_use_before_alloc_stress);
 decl_test(test_clear_uav_mismatch_heap);
+decl_test(test_copy_batch);
