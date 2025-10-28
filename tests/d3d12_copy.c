@@ -3258,3 +3258,223 @@ void test_resolve_subresource_depth(void)
     destroy_test_context(&context);
 }
 
+void test_copy_subresource_depth_stencil_batch(void)
+{
+    struct test_context_desc context_desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *dsv;
+    ID3D12Resource *resource;
+    unsigned int i, x, y;
+
+#define NUM_LAYERS 4
+#define READ_ONLY_OFFSET (NUM_LAYERS / 2)
+#define D_SUBRESOURCE 0
+#define S_SUBRESOURCE NUM_LAYERS
+
+    static const struct
+    {
+        UINT dst_subresource, src_subresource;
+        UINT src_x, src_y;
+        UINT dst_x, dst_y;
+        UINT width, height;
+    } copies[] = {
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 0, 0, 1, 1 }, /* depth */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 0, 0, 1, 1 }, /* then stencil */
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 1, 1, 1, 1 }, /* stencil */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 1, 1, 1, 1 }, /* then depth */
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 2, 2, 1, 1 }, /* mismatch src subresource, cannot merge */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET + 1, 0, 0, 2, 2, 1, 1 },
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 3, 3, 1, 1 }, /* mismatch dst subresource, cannot merge */
+        { S_SUBRESOURCE + 1, S_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 3, 3, 1, 1 },
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 4, 4, 1, 1 }, /* mismatch dst_x, cannot merge */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 5, 4, 1, 1 },
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 6, 6, 1, 1 }, /* mismatch dst_y, cannot merge */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 6, 7, 1, 1 },
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 8, 8, 1, 1 }, /* mismatch width */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 8, 8, 2, 1 },
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 10, 10, 1, 1 }, /* mismatch height */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 10, 10, 1, 2 },
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 12, 12, 1, 1 }, /* mismatch src_x */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET, 1, 0, 12, 12, 1, 1 },
+
+        { D_SUBRESOURCE, D_SUBRESOURCE + READ_ONLY_OFFSET, 0, 0, 13, 13, 1, 1 }, /* mismatch src_y */
+        { S_SUBRESOURCE, S_SUBRESOURCE + READ_ONLY_OFFSET, 0, 1, 13, 13, 1, 1 },
+
+        { D_SUBRESOURCE + 0, D_SUBRESOURCE + READ_ONLY_OFFSET + 0, 0, 0, 16, 16, 16, 16 }, /* interleaved batch */
+        { D_SUBRESOURCE + 1, D_SUBRESOURCE + READ_ONLY_OFFSET + 1, 0, 0, 16, 16, 16, 16 },
+        { S_SUBRESOURCE + 0, S_SUBRESOURCE + READ_ONLY_OFFSET + 0, 0, 0, 16, 16, 16, 16 },
+        { S_SUBRESOURCE + 1, S_SUBRESOURCE + READ_ONLY_OFFSET + 1, 0, 0, 16, 16, 16, 16 },
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_pipeline = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    resource = create_default_texture2d(
+            context.device, 32, 32, 4, 1, DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
+            D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+    dsv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 16);
+
+#define clear_depth(i, x, y) ((float)i / 4.0f + (float)x / 128.0f + (float)y / 4096.0f)
+#define clear_stencil(i, x, y) ((uint8_t)(i + 19 * x + 13 * y))
+
+    for (i = 0; i < NUM_LAYERS; i++)
+    {
+        D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+        D3D12_RECT rect;
+        memset(&dsv_desc, 0, sizeof(dsv_desc));
+
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+        dsv_desc.Texture2DArray.MipSlice = 0;
+        dsv_desc.Texture2DArray.FirstArraySlice = i;
+        dsv_desc.Texture2DArray.ArraySize = 1;
+        ID3D12Device_CreateDepthStencilView(context.device, resource, &dsv_desc, get_cpu_dsv_handle(&context, dsv, i));
+
+        for (y = 0; y < 32; y++)
+        {
+            for (x = 0; x < 32; x++)
+            {
+                rect.left = x;
+                rect.right = x + 1;
+                rect.top = y;
+                rect.bottom = y + 1;
+                ID3D12GraphicsCommandList_ClearDepthStencilView(
+                        context.list, get_cpu_dsv_handle(&context, dsv, i),
+                        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+                        clear_depth(i, x, y), clear_stencil(i, x, y), 1, &rect);
+            }
+        }
+    }
+
+    transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    for (i = 0; i < READ_ONLY_OFFSET; i++)
+        transition_sub_resource_state(context.list, resource, i + NUM_LAYERS, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    for (i = 0; i < ARRAY_SIZE(copies); i++)
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+        D3D12_BOX src_box;
+
+        dst.pResource = resource;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst.SubresourceIndex = copies[i].dst_subresource;
+        src = dst;
+        src.SubresourceIndex = copies[i].src_subresource;
+
+        src_box.left = copies[i].src_x;
+        src_box.top = copies[i].src_y;
+        src_box.front = 0;
+        src_box.right = src_box.left + copies[i].width;
+        src_box.bottom = src_box.top + copies[i].height;
+        src_box.back = 1;
+
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, copies[i].dst_x, copies[i].dst_y, 0, &src, &src_box);
+    }
+
+    for (i = 0; i < READ_ONLY_OFFSET; i++)
+        transition_sub_resource_state(context.list, resource, i + NUM_LAYERS, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < NUM_LAYERS; i++)
+    {
+        unsigned int copy_index;
+        float reference_depth[32][32];
+
+        for (y = 0; y < 32; y++)
+            for (x = 0; x < 32; x++)
+                reference_depth[y][x] = clear_depth(i, x, y);
+
+        for (copy_index = 0; copy_index < ARRAY_SIZE(copies); copy_index++)
+        {
+            if (copies[copy_index].dst_subresource != i)
+                continue;
+
+            for (y = 0; y < copies[copy_index].height; y++)
+            {
+                for (x = 0; x < copies[copy_index].width; x++)
+                {
+                    unsigned dst_x = copies[copy_index].dst_x + x;
+                    unsigned dst_y = copies[copy_index].dst_y + y;
+                    unsigned src_x = copies[copy_index].src_x + x;
+                    unsigned src_y = copies[copy_index].src_y + y;
+                    reference_depth[dst_y][dst_x] = clear_depth(copies[copy_index].src_subresource, src_x, src_y);
+                }
+            }
+        }
+
+        get_texture_readback_with_command_list(resource, i, &rb, context.queue, context.list);
+
+        for (y = 0; y < 32; y++)
+        {
+            for (x = 0; x < 32; x++)
+            {
+                float value = get_readback_float(&rb, x, y);
+                ok(value == reference_depth[y][x], "depth subresource %u, coord %u, %u, expected %f, got %f.\n", i, x, y,
+                        reference_depth[y][x], value);
+            }
+        }
+
+        reset_command_list(context.list, context.allocator);
+        release_resource_readback(&rb);
+    }
+
+    for (i = 0; i < NUM_LAYERS; i++)
+    {
+        unsigned int copy_index;
+        uint8_t reference_stencil[32][32];
+
+        for (y = 0; y < 32; y++)
+            for (x = 0; x < 32; x++)
+                reference_stencil[y][x] = clear_stencil(i, x, y);
+
+        for (copy_index = 0; copy_index < ARRAY_SIZE(copies); copy_index++)
+        {
+            if (copies[copy_index].dst_subresource != i + S_SUBRESOURCE)
+                continue;
+
+            for (y = 0; y < copies[copy_index].height; y++)
+            {
+                for (x = 0; x < copies[copy_index].width; x++)
+                {
+                    unsigned dst_x = copies[copy_index].dst_x + x;
+                    unsigned dst_y = copies[copy_index].dst_y + y;
+                    unsigned src_x = copies[copy_index].src_x + x;
+                    unsigned src_y = copies[copy_index].src_y + y;
+                    reference_stencil[dst_y][dst_x] = clear_stencil(copies[copy_index].src_subresource - S_SUBRESOURCE, src_x, src_y);
+                }
+            }
+        }
+
+        get_texture_readback_with_command_list(resource, i + S_SUBRESOURCE, &rb, context.queue, context.list);
+
+        for (y = 0; y < 32; y++)
+        {
+            for (x = 0; x < 32; x++)
+            {
+                uint8_t value = get_readback_uint8(&rb, x, y);
+                ok(value == reference_stencil[y][x], "stencil subresource %u, coord %u, %u, expected %d, got %d.\n",
+                        i, x, y, reference_stencil[y][x], value);
+            }
+        }
+
+        reset_command_list(context.list, context.allocator);
+        release_resource_readback(&rb);
+    }
+
+    ID3D12Resource_Release(resource);
+    ID3D12DescriptorHeap_Release(dsv);
+    destroy_test_context(&context);
+}
