@@ -508,3 +508,4 @@ decl_test(test_use_before_alloc_stress);
 decl_test(test_clear_uav_mismatch_heap);
 decl_test(test_copy_batch);
 decl_test(test_resolve_batch);
+decl_test(test_resolve_subresource_depth);

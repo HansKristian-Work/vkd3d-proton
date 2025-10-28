@@ -3121,3 +3121,140 @@ void test_resolve_batch(void)
     destroy_test_context(&context);
 }
 
+void test_resolve_subresource_depth(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12PipelineState *pso_setup_ds;
+    ID3D12RootSignature *rs_setup_ds;
+    ID3D12DescriptorHeap *dsv_heap;
+    struct test_context_desc desc;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *ds, *ds_ms;
+    D3D12_VIEWPORT viewport;
+    D3D12_RECT scissor;
+    unsigned int i, j;
+    HRESULT hr;
+
+#include "shaders/copy/headers/ps_resolve_setup_rt.h"
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&rs_param, 0, sizeof(rs_param));
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param.Constants.ShaderRegister = 0;
+    rs_param.Constants.RegisterSpace = 0;
+    rs_param.Constants.Num32BitValues = 1;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    hr = create_root_signature(context.device, &rs_desc, &rs_setup_ds);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    init_pipeline_state_desc(&pipeline_desc, rs_setup_ds,
+        DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_rt_dxbc, NULL);
+    pipeline_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pipeline_desc.SampleDesc.Count = 4;
+    pipeline_desc.DepthStencilState.DepthEnable = TRUE;
+    pipeline_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pipeline_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pipeline_desc, &IID_ID3D12PipelineState, (void **)&pso_setup_ds);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Width = 4;
+    resource_desc.Height = 4;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    resource_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+        D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        NULL, &IID_ID3D12Resource, (void **)&ds_ms);
+    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
+
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+        D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST,
+        NULL, &IID_ID3D12Resource, (void **)&ds);
+    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
+
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS;
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    ID3D12Device_CreateDepthStencilView(context.device, ds_ms, &dsv_desc, get_cpu_dsv_handle(&context, dsv_heap, 0));
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list,
+        get_cpu_dsv_handle(&context, dsv_heap, 0),
+        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0, 0, NULL);
+
+    dsv_handle = get_cpu_dsv_handle(&context, dsv_heap, 0);
+
+    set_viewport(&viewport, 0, 0, 4, 4, 0, 1);
+    set_rect(&scissor, 0, 0, 4, 4);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, TRUE, &dsv_handle);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, rs_setup_ds);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_setup_ds);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, ds_ms, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+    ID3D12GraphicsCommandList_ResolveSubresource(context.list, ds, 0, ds_ms, 0, DXGI_FORMAT_R32_FLOAT);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(ds, 0, &rb, context.queue, context.list);
+
+    for (j = 0; j < 4; j++)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            float expected = (1.5f + 4.0f * i + 16.0f * j) / 64.0f;
+            float value;
+
+            value = get_readback_float(&rb, i, j);
+
+            /* AMD native driver is broken and takes first sample instead. */
+            if (is_amd_windows_device(context.device))
+                expected = (1.0f + 4.0f * i + 16.0f * j) / 64.0f;
+
+            ok(value == expected, "%u, %u: expected %f, got %f\n", i, j, expected, value);
+        }
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(dsv_heap);
+    ID3D12Resource_Release(ds);
+    ID3D12Resource_Release(ds_ms);
+    ID3D12PipelineState_Release(pso_setup_ds);
+    ID3D12RootSignature_Release(rs_setup_ds);
+    destroy_test_context(&context);
+}
+
