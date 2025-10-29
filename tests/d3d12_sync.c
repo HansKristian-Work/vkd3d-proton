@@ -1687,3 +1687,159 @@ void test_concurrent_signal_stress(void)
     }
     vkd3d_test_set_context(NULL);
 }
+
+void test_fence_pending_signal_cpu_rewind(void)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12Resource *dummy_resources[256];
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Fence *fence_alt;
+    ID3D12Fence *fence;
+    unsigned int i, j;
+    unsigned int iter;
+    HANDLE event;
+    UINT64 value;
+    HRESULT hr;
+
+#include "shaders/sync/headers/gpu_load.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    ID3D12Device_CreateFence(context.device, 8, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence_alt);
+    ID3D12GraphicsCommandList_Close(context.list);
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    memset(&desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param.DescriptorTable.pDescriptorRanges = desc_range;
+    rs_param.DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[0].NumDescriptors = 1000000;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    desc_range[1].NumDescriptors = 1000000;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(
+        context.device, context.root_signature, gpu_load_dxbc);
+
+    heap = create_gpu_descriptor_heap(context.device,
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 256 * ARRAY_SIZE(dummy_resources));
+
+    for (i = 0; i < ARRAY_SIZE(dummy_resources); i++)
+    {
+        dummy_resources[i] = create_default_buffer(context.device, 2 * 1024 * 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        memset(&uav_desc, 0, sizeof(uav_desc));
+
+        for (j = 0; j < 256; j++)
+        {
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav_desc.Buffer.StructureByteStride = 4;
+            uav_desc.Buffer.FirstElement = 64 * j;
+            uav_desc.Buffer.NumElements = 64;
+            ID3D12Device_CreateUnorderedAccessView(context.device, dummy_resources[i], NULL,
+                &uav_desc, get_cpu_descriptor_handle(&context, heap, 256 * i + j));
+        }
+    }
+
+    for (iter = 0; iter < 64; iter++)
+    {
+        ID3D12Fence_Signal(fence, 8);
+        ID3D12Fence_Signal(fence_alt, 0);
+        ID3D12CommandAllocator_Reset(context.allocator);
+
+        for (i = 0; i < 2; i++)
+        {
+            ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+            ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+            ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+            ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(
+                    context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+            /* Load up the GPU ... */
+
+            if (i)
+            {
+                ID3D12GraphicsCommandList_Dispatch(context.list,
+                                                   16 * 1024, 256 * ARRAY_SIZE(dummy_resources) / (16 * 1024),
+                                                   use_warp_device ? 1 : 4);
+            }
+            else
+            {
+                /* On first iteration before we signal 9, just load up some trivial work,
+                 * but enough that driver cannot signal fence on CPU due to inactive queue. */
+                ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+            }
+            ID3D12GraphicsCommandList_Close(context.list);
+            exec_command_list(context.queue, context.list);
+            ID3D12CommandQueue_Signal(context.queue, fence, 9 + i);
+        }
+
+        /* Sleep until we've seen the GPU get active. */
+        ID3D12Fence_SetEventOnCompletion(fence, 9, NULL);
+
+        value = ID3D12Fence_GetCompletedValue(fence);
+        if (value == 10)
+        {
+            skip("GPU is too fast? Fence is already signalled to 10.\n");
+        }
+        else
+        {
+            unsigned int wait_result;
+
+            /* GPU is busy now. Reset the fence to 0 while there's a pending signal to 10.
+             * Technically this is a bit racy. */
+            value = ID3D12Fence_GetCompletedValue(fence);
+            ok(value == 9, "Expected completed fence value of 9.\n");
+            hr = ID3D12Fence_Signal(fence, 0);
+            ok(SUCCEEDED(hr), "Failed to signal fence, hr #%x\n", hr);
+            value = ID3D12Fence_GetCompletedValue(fence);
+            ok(value == 0, "Expected completed fence value of 0.\n");
+
+            /* Make sure that GPU isn't using an older pending submit to unblock the second queue. */
+            ID3D12CommandQueue_Wait(queue, fence, 9);
+            ID3D12CommandQueue_Signal(queue, fence_alt, 1);
+
+            event = create_event();
+            hr = ID3D12Fence_SetEventOnCompletion(fence_alt, 1, event);
+            ok(SUCCEEDED(hr), "Failed to queue event signal, hr #%x.\n", hr);
+
+            /* Add a timeout just in case to avoid a deadlock. */
+            wait_result = wait_event(event, 2000);
+            ok(wait_result == WAIT_OBJECT_0, "Expected WAIT_OBJECT_0, got %u.\n", wait_result);
+
+            value = ID3D12Fence_GetCompletedValue(fence);
+            ok(value == 10, "Expected first queue to be fully complete before fence_alt get signaled.\n");
+            destroy_event(event);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(dummy_resources); i++)
+        ID3D12Resource_Release(dummy_resources[i]);
+
+    /* Destroying fences unblock any waiters, so this should unstuck anything. */
+    ID3D12Fence_Release(fence);
+    ID3D12Fence_Release(fence_alt);
+    ID3D12CommandQueue_Release(queue);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
