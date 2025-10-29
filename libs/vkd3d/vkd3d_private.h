@@ -602,6 +602,12 @@ struct vkd3d_waiting_event
     struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
 };
 
+struct vkd3d_fence_wait_ticket
+{
+    uint64_t ticket;
+    uint64_t virtual_value;
+};
+
 struct d3d12_fence
 {
     d3d12_fence_iface ID3D12Fence_iface;
@@ -628,6 +634,11 @@ struct d3d12_fence
     struct vkd3d_waiting_event *events;
     size_t events_size;
     size_t event_count;
+
+    struct vkd3d_fence_wait_ticket *wait_tickets;
+    size_t wait_tickets_size;
+    size_t wait_tickets_count;
+    uint64_t wait_ticket_counter;
 
     struct d3d12_device *device;
 
@@ -3338,6 +3349,7 @@ struct d3d12_command_queue_submission_wait
 {
     d3d12_fence_iface *fence;
     UINT64 value;
+    UINT64 wait_ticket;
 };
 
 struct d3d12_command_queue_submission_signal
