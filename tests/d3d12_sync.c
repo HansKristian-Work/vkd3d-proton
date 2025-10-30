@@ -2036,3 +2036,88 @@ void test_fence_signal_order_deadlock_stress(void)
     ID3D12Fence_Release(fence_alt);
     destroy_test_context(&context);
 }
+
+void test_fence_signal_availability(void)
+{
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    struct test_context context;
+    ID3D12Fence *fence_progress;
+    ID3D12CommandQueue *queue;
+    unsigned int wait_result;
+    ID3D12Fence *fence_alt;
+    ID3D12Fence *fence;
+    unsigned int iter;
+    HANDLE event;
+    HRESULT hr;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+
+    for (iter = 0; iter < 2; iter++)
+    {
+        ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+        ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence_alt);
+        ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence_progress);
+
+        ID3D12CommandQueue_Wait(context.queue, fence, 1);
+        ID3D12CommandQueue_Wait(context.queue, fence, 2);
+        ID3D12CommandQueue_Wait(context.queue, fence, 3);
+        ID3D12CommandQueue_Wait(context.queue, fence, 4);
+        ID3D12CommandQueue_Signal(context.queue, fence_progress, 1);
+        ID3D12CommandQueue_Wait(context.queue, fence_alt, 1);
+        ID3D12CommandQueue_Wait(context.queue, fence, 5);
+        ID3D12CommandQueue_Wait(context.queue, fence, 6);
+        ID3D12CommandQueue_Wait(context.queue, fence, 7);
+        ID3D12CommandQueue_Wait(context.queue, fence, 8);
+        ID3D12CommandQueue_Signal(context.queue, fence_progress, 2);
+
+        /* Question now is which jobs do we actually unblock?
+         * One interpretation is queued jobs enter a ticketing system where they are unblocked as signals come on.
+         * Another interpretation is that only when jobs become submission candidates do they check if they have been satisfied.
+         * I.e., waits enter one by one as they can be processed and only then being available for being signaled.
+         * Test both GPU signal and CPU signal paths to see if there is a difference. */
+        if (iter == 0)
+            ID3D12CommandQueue_Signal(queue, fence, 8);
+        else
+            ID3D12Fence_Signal(fence, 8);
+
+        /* This is guaranteed. The queue will be blocked on fence_alt. */
+        ID3D12Fence_SetEventOnCompletion(fence_progress, 1, NULL);
+        ID3D12Fence_Signal(fence, 0);
+
+        /* Verify that the GPU queue has stalled. */
+        {
+            event = create_event();
+            ID3D12Fence_SetEventOnCompletion(fence_progress, 2, event);
+            wait_result = wait_event(event, 100);
+            ok(wait_result == WAIT_TIMEOUT, "Expected %u, got %u\n", WAIT_TIMEOUT, wait_result);
+        }
+
+        ID3D12Fence_Signal(fence_alt, 1);
+
+        /* Question now is the queue is supposed to remember that we signalled 8.
+         * It seems like that is the case. */
+        {
+            event = create_event();
+            ID3D12Fence_SetEventOnCompletion(fence_progress, 2, event);
+            wait_result = wait_event(event, 100);
+            ok(wait_result == WAIT_OBJECT_0, "Expected %u, got %u.\n", WAIT_OBJECT_0, wait_result);
+
+            ID3D12Fence_Signal(fence, 8);
+            ID3D12Fence_SetEventOnCompletion(fence_progress, 2, NULL);
+            destroy_event(event);
+        }
+
+        ID3D12Fence_Release(fence);
+        ID3D12Fence_Release(fence_alt);
+        ID3D12Fence_Release(fence_progress);
+    }
+
+    ID3D12CommandQueue_Release(queue);
+    destroy_test_context(&context);
+}
