@@ -55,7 +55,11 @@ void d3d12_shared_fence_open_export_kmt(struct d3d12_shared_fence *fence, struct
     D3DKMT_OPENSYNCOBJECTFROMNTHANDLE open = {0};
     VkResult vr;
 
-    if (!device->kmt_local) return; /* D3DKMT API isn't supported */
+    if (!device->kmt_local)
+    {
+        /* D3DKMT API isn't supported */
+        return;
+    }
 
     win32_handle_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR;
     win32_handle_info.pNext = NULL;
@@ -92,7 +96,11 @@ void d3d12_resource_open_export_kmt(struct d3d12_resource *resource, struct d3d1
     VkResult vr;
     char dummy;
 
-    if (!device->kmt_local) return; /* D3DKMT API isn't supported */
+    if (!device->kmt_local)
+    {
+        /* D3DKMT API isn't supported */
+        return;
+    }
 
     open.hDevice = device->kmt_local;
     open.NumAllocations = 1;
@@ -205,7 +213,11 @@ HRESULT d3d12_device_open_resource_descriptor(struct d3d12_device *device, HANDL
     union d3dkmt_desc d3dkmt = {0};
     UINT size;
 
-    if (!device->kmt_local) return E_NOTIMPL; /* D3DKMT API isn't supported */
+    if (!device->kmt_local)
+    {
+        /* D3DKMT API isn't supported */
+        return E_NOTIMPL;
+    }
 
     if ((UINT_PTR)handle & 0xc0000000)
     {
