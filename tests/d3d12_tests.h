@@ -54,6 +54,7 @@ decl_test(test_fence_values);
 decl_test(test_fence_pending_signal_cpu_rewind);
 decl_test(test_fence_ping_pong_deadlock_stress);
 decl_test(test_fence_signal_order_deadlock_stress);
+decl_test(test_fence_signal_availability);
 decl_test(test_clear_depth_stencil_view);
 decl_test(test_clear_render_target_view);
 decl_test(test_clear_unordered_access_view_buffer);
