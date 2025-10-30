@@ -1962,3 +1962,77 @@ void test_fence_ping_pong_deadlock_stress(void)
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
+
+void test_fence_signal_order_deadlock_stress(void)
+{
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue_a;
+    ID3D12CommandQueue *queue_b;
+    ID3D12Fence *fence_alt;
+    ID3D12Fence *fence;
+    unsigned int iter;
+    HRESULT hr;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue_a);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue_b);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+
+    ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence_alt);
+
+    for (iter = 0; iter < 1024 * 1024; iter++)
+    {
+        ID3D12Fence_Signal(fence, 0);
+
+        /* Queue 1, set up wait-before-signal chain. */
+        ID3D12CommandQueue_Wait(context.queue, fence, 1);
+        ID3D12CommandQueue_Signal(context.queue, fence, 2);
+        ID3D12CommandQueue_Wait(context.queue, fence, 3);
+        ID3D12CommandQueue_Signal(context.queue, fence, 4);
+        ID3D12CommandQueue_Wait(context.queue, fence, 5);
+        ID3D12CommandQueue_Signal(context.queue, fence, 6);
+        ID3D12CommandQueue_Wait(context.queue, fence, 7);
+        ID3D12CommandQueue_Signal(context.queue, fence, 8);
+        ID3D12CommandQueue_Wait(context.queue, fence, 9);
+        ID3D12CommandQueue_Signal(context.queue, fence, 10);
+
+        /* Set up duelling ping-pong between Queue 2 and 3. */
+        ID3D12CommandQueue_Signal(queue_a, fence_alt, 1);
+        ID3D12CommandQueue_Wait(queue_a, fence_alt, 2);
+
+        ID3D12CommandQueue_Wait(queue_b, fence_alt, 1);
+        ID3D12CommandQueue_Signal(queue_b, fence_alt, 2);
+
+        /* Unblocks Queue 2, then starts ping-pong. */
+        ID3D12CommandQueue_Signal(queue_a, fence, 1);
+        ID3D12CommandQueue_Wait(queue_a, fence, 2);
+        ID3D12CommandQueue_Signal(queue_a, fence, 3);
+        ID3D12CommandQueue_Wait(queue_a, fence, 4);
+        ID3D12CommandQueue_Signal(queue_a, fence, 5);
+        ID3D12CommandQueue_Wait(queue_a, fence, 6);
+        ID3D12CommandQueue_Signal(queue_a, fence, 7);
+        ID3D12CommandQueue_Wait(queue_a, fence, 8);
+        ID3D12CommandQueue_Signal(queue_a, fence, 9);
+        ID3D12CommandQueue_Wait(queue_a, fence, 10);
+
+        ID3D12CommandQueue_Signal(queue_a, fence_alt, 0);
+
+        ID3D12Fence_SetEventOnCompletion(fence, 10, NULL);
+
+        if (iter % 1024 == 0)
+            skip("Done with iteration %u\n", iter);
+    }
+
+    ID3D12CommandQueue_Release(queue_a);
+    ID3D12CommandQueue_Release(queue_b);
+    ID3D12Fence_Release(fence);
+    ID3D12Fence_Release(fence_alt);
+    destroy_test_context(&context);
+}
