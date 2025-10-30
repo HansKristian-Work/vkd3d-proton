@@ -3442,6 +3442,7 @@ struct vkd3d_fence_virtual_wait
     uint64_t virtual_value;
     VkSemaphore vk_semaphore;
     uint64_t vk_semaphore_value;
+    uint64_t update_count;
 };
 
 /* ID3D12CommandQueueExt */

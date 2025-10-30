@@ -985,6 +985,13 @@ static void d3d12_fence_unlock(struct d3d12_fence *fence)
     pthread_mutex_unlock(&fence->mutex);
 }
 
+static void d3d12_fence_wait_until_signal_count_reaches_locked(struct d3d12_fence *fence, uint64_t update_count)
+{
+    assert(update_count != 0);
+    while (fence->signal_count < update_count)
+        pthread_cond_wait(&fence->cond, &fence->mutex);
+}
+
 static bool d3d12_fence_can_elide_wait_semaphore_locked(struct d3d12_fence *fence, uint64_t value,
         const struct vkd3d_queue *waiting_queue)
 {
@@ -18911,16 +18918,40 @@ static void d3d12_command_queue_reset_fence_waits(struct d3d12_command_queue *co
     size_t i;
 
     for (i = 0; i < command_queue->wait_fence_count; i++)
-        d3d12_fence_dec_ref(command_queue->wait_fences[i].fence);
+        if (command_queue->wait_fences[i].fence)
+            d3d12_fence_dec_ref(command_queue->wait_fences[i].fence);
 
     command_queue->wait_fence_count = 0;
+}
+
+struct vkd3d_waiting_fence_signal_order_info
+{
+    struct d3d12_fence *fence;
+    uint64_t update_count;
+};
+
+static void vkd3d_waiting_fence_ensure_signal_order(
+        struct vkd3d_fence_worker *worker, void *userdata, bool complete)
+{
+    struct vkd3d_waiting_fence_signal_order_info *info = userdata;
+    struct d3d12_fence *fence = info->fence;
+
+    if (complete)
+    {
+        d3d12_fence_lock(fence);
+        d3d12_fence_wait_until_signal_count_reaches_locked(fence, info->update_count);
+        d3d12_fence_unlock(fence);
+    }
+
+    d3d12_fence_dec_ref(fence);
 }
 
 static void d3d12_command_queue_push_fence_waits_to_worker(struct d3d12_command_queue *command_queue)
 {
     struct vkd3d_fence_worker *worker = &command_queue->fence_worker;
-    const struct vkd3d_fence_virtual_wait *fence_wait;
+    struct vkd3d_waiting_fence_signal_order_info *order_info;
     struct vkd3d_queue_timeline_trace_cookie cookie;
+    struct vkd3d_fence_virtual_wait *fence_wait;
     struct vkd3d_fence_wait_info fence_info;
     HRESULT hr;
     size_t i;
@@ -18931,19 +18962,31 @@ static void d3d12_command_queue_push_fence_waits_to_worker(struct d3d12_command_
         cookie = vkd3d_queue_timeline_trace_register_wait(&worker->device->queue_timeline_trace,
                 &fence_wait->fence->ID3D12Fence_iface, fence_wait->virtual_value);
 
-        /* Only wait for fence completion if we're interested in it for profiling purposes.
-         * Otherwise, there is no point in waiting on it since we resolved the wait to a vkd3d_queue internal timeline.
-         * This also functions as a performance workaround for NV since NV seems to dislike when the same timeline is
-         * waited on by multiple threads, which could happen in this code path. See issue 2256 for more details. */
+        memset(&fence_info, 0, sizeof(fence_info));
+
         if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
         {
-            memset(&fence_info, 0, sizeof(fence_info));
+            /* Only wait for actual fence completion if we're interested in it for profiling purposes.
+             * Otherwise, there is no point in waiting on it since we resolved the wait to a vkd3d_queue internal timeline.
+             * This also functions as a performance workaround for NV since NV seems to dislike when the same timeline is
+             * waited on by multiple threads, which could happen in this code path. See issue 2256 for more details. */
             fence_info.vk_semaphore = fence_wait->vk_semaphore;
             fence_info.vk_semaphore_value = fence_wait->vk_semaphore_value;
-
-            if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
-                ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
         }
+
+        /* We must ensure signal order being correct.
+         * If we signal a fence based on a wait, signaling in this queue must not happen
+         * until we have signaled the queue we depend on. */
+        order_info = vkd3d_waiting_fence_set_callback(
+                &fence_info, &vkd3d_waiting_fence_ensure_signal_order, sizeof(*order_info));
+        order_info->fence = fence_wait->fence;
+        order_info->update_count = fence_wait->update_count;
+
+        /* Consume the fence, we'll defer the decref. */
+        fence_wait->fence = NULL;
+
+        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
+            ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
     }
 }
 
@@ -19005,6 +19048,7 @@ static void d3d12_command_queue_add_wait(struct d3d12_command_queue *command_que
     fence_wait->virtual_value = fence_value->virtual_value;
     fence_wait->vk_semaphore = fence_value->vk_semaphore;
     fence_wait->vk_semaphore_value = fence_value->vk_semaphore_value;
+    fence_wait->update_count = fence_value->update_count;
 
     d3d12_fence_inc_ref(fence);
 
@@ -19190,6 +19234,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
 
     if (!has_wait)
         return;
+
+    assert(fence_value.update_count != 0);
 
     TRACE("queue %p, fence %p, value %#"PRIx64", vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", command_queue,
             fence, value, fence_value.vk_semaphore, fence_value.vk_semaphore_value);
