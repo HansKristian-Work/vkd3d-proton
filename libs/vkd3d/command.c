@@ -8938,12 +8938,34 @@ static bool vk_image_copy_subresource_overlaps(const ID3D12Resource *res, const 
             subres->mipLevel == other_subres->mipLevel;
 }
 
+static bool vk_image_copy_subresource_can_fuse_aspects(
+        ID3D12Resource *dst, ID3D12Resource *src, const VkImageCopy2 *copy,
+        ID3D12Resource *orig_dst, ID3D12Resource *orig_src, const VkImageCopy2 *orig_copy)
+{
+    /* If we can find an identical copy, just fuse the aspects. */
+    return dst == orig_dst && src == orig_src &&
+            /* regions have to match */
+            memcmp(&copy->extent, &orig_copy->extent, sizeof(VkExtent3D)) == 0 &&
+            memcmp(&copy->dstOffset, &orig_copy->dstOffset, sizeof(VkExtent3D)) == 0 &&
+            memcmp(&copy->srcOffset, &orig_copy->srcOffset, sizeof(VkExtent3D)) == 0 &&
+            /* subresource has to match */
+            copy->dstSubresource.baseArrayLayer == orig_copy->dstSubresource.baseArrayLayer &&
+            copy->dstSubresource.mipLevel == orig_copy->dstSubresource.mipLevel &&
+            copy->srcSubresource.baseArrayLayer == orig_copy->srcSubresource.baseArrayLayer &&
+            copy->srcSubresource.mipLevel == orig_copy->srcSubresource.mipLevel &&
+            /* only allow 1:1 aspect copies, no weird color <-> depth */
+            copy->dstSubresource.aspectMask == copy->srcSubresource.aspectMask &&
+            orig_copy->dstSubresource.aspectMask == orig_copy->srcSubresource.aspectMask;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command_list_iface *iface,
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_image_copy_info copy_info;
+    VkImageCopy2 *fused_aspect_info;
+    VkImageAspectFlags fused_aspect;
     bool alias;
     size_t i;
 
@@ -8967,13 +8989,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     alias = false;
+    fused_aspect_info = NULL;
+    fused_aspect = 0;
 
     /* Buffer aliasing is resolved during the copy with mark_copy_buffer_write. */
     if (copy_info.batch_type != VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER)
     {
         for (i = 0; !alias && i < list->transfer_batch.batch_len; i++)
         {
-            const struct vkd3d_image_copy_info *other_info = &list->transfer_batch.batch[i];
+            struct vkd3d_image_copy_info *other_info = &list->transfer_batch.batch[i];
             const VkImageSubresourceLayers *subres, *other_subres;
 
             switch (copy_info.batch_type)
@@ -8987,6 +9011,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                             other_info->dst.pResource, other_subres);
                     break;
                 case VKD3D_BATCH_TYPE_COPY_IMAGE:
+                    if (!fused_aspect_info && vk_image_copy_subresource_can_fuse_aspects(
+                            copy_info.dst.pResource, copy_info.src.pResource, &copy_info.copy.image,
+                            other_info->dst.pResource, other_info->src.pResource, &other_info->copy.image))
+                    {
+                        fused_aspect_info = &other_info->copy.image;
+                        fused_aspect = copy_info.copy.image.dstSubresource.aspectMask;
+                    }
+
                     /* Test for destination aliasing as D3D12 requires serialization on overlapping copies (WAW hazards). */
                     alias = vk_image_copy_subresource_overlaps(
                             copy_info.dst.pResource, &copy_info.copy.image.dstSubresource,
@@ -9004,9 +9036,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         d3d12_command_list_end_transfer_batch(list);
         /* end_transfer_batch resets the batch_type to NONE, so we need to restore it here. */
         list->transfer_batch.batch_type = copy_info.batch_type;
+        fused_aspect_info = NULL;
     }
 
-    list->transfer_batch.batch[list->transfer_batch.batch_len++] = copy_info;
+    if (fused_aspect_info)
+    {
+        fused_aspect_info->dstSubresource.aspectMask |= fused_aspect;
+        fused_aspect_info->srcSubresource.aspectMask |= fused_aspect;
+    }
+    else
+    {
+        list->transfer_batch.batch[list->transfer_batch.batch_len++] = copy_info;
+    }
+
     d3d12_command_list_end_transfer_batch_if_trivial(list);
 
     VKD3D_BREADCRUMB_FLUSH_BATCHES(list);
@@ -9159,6 +9201,7 @@ static void d3d12_command_list_end_transfer_batch_if_trivial(struct d3d12_comman
 {
     struct d3d12_command_list_barrier_batch barriers;
     struct d3d12_resource *dst_resource;
+    VkImageCopy2 *copy;
 
     /* For unified this is by far the "common" case. Copies should never require extra image barriers. */
     if (!d3d12_device_supports_unified_layouts(list->device))
@@ -9169,6 +9212,17 @@ static void d3d12_command_list_end_transfer_batch_if_trivial(struct d3d12_comman
         return;
 
     dst_resource = impl_from_ID3D12Resource(list->transfer_batch.batch[0].dst.pResource);
+
+    copy = &list->transfer_batch.batch[0].copy.image;
+    if (list->transfer_batch.batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE &&
+        (copy->dstSubresource.aspectMask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) &&
+        copy->dstSubresource.aspectMask == copy->srcSubresource.aspectMask &&
+        copy->dstSubresource.aspectMask != dst_resource->format->vk_aspect_mask)
+    {
+        /* If we have a depth-stencil image, and we're trying to only copy depth,
+         * we speculate that app might want to copy stencil aspect too, and therefore we should batch. */
+        return;
+    }
 
     /* Cannot assume too much. */
     if (d3d12_resource_is_texture(dst_resource) && (dst_resource->flags & VKD3D_RESOURCE_RESERVED))
