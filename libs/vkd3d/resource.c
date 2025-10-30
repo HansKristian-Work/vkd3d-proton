@@ -439,6 +439,9 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
 
 static bool d3d12_device_prefers_general_depth_stencil(const struct d3d12_device *device)
 {
+    if (d3d12_device_supports_unified_layouts(device))
+        return true;
+
     if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
     {
         /* NVIDIA doesn't really care about layouts for the most part. */
@@ -985,7 +988,8 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     {
         /* Cases where we need to force images into GENERAL layout at all times.
          * Read/WriteFromSubresource essentialy require simultaneous access. */
-        if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) ||
+        if (d3d12_device_supports_unified_layouts(device) ||
+                (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) ||
                 (image_info->tiling == VK_IMAGE_TILING_LINEAR) ||
                 (heap_properties && is_cpu_accessible_heap(heap_properties)))
         {
@@ -4010,7 +4014,17 @@ HRESULT d3d12_resource_create_borrowed(struct d3d12_device *device, const D3D12_
     object->res.vk_image = (VkImage)vk_handle;
     if (!object->desc.MipLevels)
         object->desc.MipLevels = max_miplevel_count(desc);
-    object->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
+
+    if (d3d12_device_supports_unified_layouts(device))
+    {
+        object->flags |= VKD3D_RESOURCE_GENERAL_LAYOUT;
+        object->common_layout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+    else
+    {
+        object->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
+    }
+
     *resource = object;
     return hr;
 }
@@ -4574,58 +4588,6 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
 fail:
     d3d12_resource_destroy_and_release_device(object, device);
     return hr;
-}
-
-HRESULT vkd3d_create_image_resource(ID3D12Device *device,
-        const struct vkd3d_image_resource_create_info *create_info, ID3D12Resource **resource)
-{
-    struct d3d12_device *d3d12_device = impl_from_ID3D12Device((d3d12_device_iface *)device);
-    struct d3d12_resource *object;
-    HRESULT hr;
-
-    TRACE("device %p, create_info %p, resource %p.\n", device, create_info, resource);
-
-    if (!create_info || !resource)
-        return E_INVALIDARG;
-
-    if (!(object = vkd3d_malloc(sizeof(*object))))
-        return E_OUTOFMEMORY;
-
-    memset(object, 0, sizeof(*object));
-
-    object->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
-    object->refcount = 1;
-    object->internal_refcount = 1;
-    object->res.vk_image = create_info->vk_image;
-    object->flags = create_info->flags;
-    object->flags |= VKD3D_RESOURCE_EXTERNAL;
-    object->initial_layout_transition = 1;
-    object->common_layout = vk_common_image_layout_from_d3d12_desc(d3d12_device, &object->desc);
-
-    memset(&object->sparse, 0, sizeof(object->sparse));
-
-    d3d12_resource_promote_desc(&create_info->desc, &object->desc);
-    object->format = vkd3d_format_from_d3d12_resource_desc(d3d12_device, &object->desc, 0);
-
-    if (FAILED(hr = vkd3d_view_map_init(&object->view_map)))
-    {
-        vkd3d_free(object);
-        return hr;
-    }
-
-    if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
-    {
-        vkd3d_free(object);
-        return hr;
-    }
-
-    d3d12_device_add_ref(object->device = d3d12_device);
-
-    TRACE("Created resource %p.\n", object);
-
-    *resource = (ID3D12Resource *)&object->ID3D12Resource_iface;
-
-    return S_OK;
 }
 
 ULONG vkd3d_resource_incref(ID3D12Resource *resource)

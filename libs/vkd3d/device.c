@@ -86,6 +86,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_COMPUTE_SHADER_DERIVATIVES, KHR_compute_shader_derivatives),
     VK_EXTENSION(KHR_CALIBRATED_TIMESTAMPS, KHR_calibrated_timestamps),
     VK_EXTENSION(KHR_COOPERATIVE_MATRIX, KHR_cooperative_matrix),
+    VK_EXTENSION(KHR_UNIFIED_IMAGE_LAYOUTS, KHR_unified_image_layouts),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -2236,6 +2237,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->anti_lag_amd.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ANTI_LAG_FEATURES_AMD;
         vk_prepend_struct(&info->features2, &info->anti_lag_amd);
+    }
+
+    if (vulkan_info->KHR_unified_image_layouts)
+    {
+        info->unified_image_layouts_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->unified_image_layouts_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
