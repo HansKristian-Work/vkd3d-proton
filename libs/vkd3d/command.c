@@ -597,35 +597,38 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     uint64_t timeout = UINT64_MAX;
     VkResult vr;
 
-    TRACE("worker %p, vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", worker,
-            fence->fence_info.vk_semaphore, fence->fence_info.vk_semaphore_value);
-
-    memset(&wait_info, 0, sizeof(wait_info));
-    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-    wait_info.semaphoreCount = 1;
-    wait_info.pSemaphores = &fence->fence_info.vk_semaphore;
-    wait_info.pValues = &fence->fence_info.vk_semaphore_value;
-
-    /* Some drivers hang indefinitely in face of device lost.
-     * If a wait here takes more than 5 seconds, this is pretty much
-     * a guaranteed timeout (TDR) scenario.
-     * Usually, we'd observe DEVICE_LOST in subsequent submissions,
-     * but if application submits something and expects to wait on that submission
-     * immediately, this can happen. */
-    if (vkd3d_config_flags & (VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_FAULT))
-        timeout = 5000000000ull;
-
-    if ((vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, timeout))))
+    if (fence->fence_info.vk_semaphore)
     {
-        ERR("Failed to wait for Vulkan timeline semaphore, vr %d.\n", vr);
-        VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST || vr == VK_TIMEOUT);
-        vkd3d_waiting_fence_complete_submissions(device, worker, fence, false);
-        return;
-    }
+        TRACE("worker %p, vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", worker,
+         fence->fence_info.vk_semaphore, fence->fence_info.vk_semaphore_value);
 
-    /* This is a good time to kick the debug threads into action. */
-    vkd3d_shader_debug_ring_kick(&device->debug_ring, device, false);
-    vkd3d_descriptor_debug_kick_qa_check(device->descriptor_qa_global_info);
+        memset(&wait_info, 0, sizeof(wait_info));
+        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        wait_info.semaphoreCount = 1;
+        wait_info.pSemaphores = &fence->fence_info.vk_semaphore;
+        wait_info.pValues = &fence->fence_info.vk_semaphore_value;
+
+        /* Some drivers hang indefinitely in face of device lost.
+         * If a wait here takes more than 5 seconds, this is pretty much
+         * a guaranteed timeout (TDR) scenario.
+         * Usually, we'd observe DEVICE_LOST in subsequent submissions,
+         * but if application submits something and expects to wait on that submission
+         * immediately, this can happen. */
+        if (vkd3d_config_flags & (VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_FAULT))
+            timeout = 5000000000ull;
+
+        if ((vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, timeout))))
+        {
+            ERR("Failed to wait for Vulkan timeline semaphore, vr %d.\n", vr);
+            VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST || vr == VK_TIMEOUT);
+            vkd3d_waiting_fence_complete_submissions(device, worker, fence, false);
+            return;
+        }
+
+        /* This is a good time to kick the debug threads into action. */
+        vkd3d_shader_debug_ring_kick(&device->debug_ring, device, false);
+        vkd3d_descriptor_debug_kick_qa_check(device->descriptor_qa_global_info);
+    }
 
     vkd3d_waiting_fence_complete_submissions(device, worker, fence, true);
 }
@@ -848,6 +851,7 @@ static void d3d12_fence_dec_ref(struct d3d12_fence *fence)
 
         vkd3d_free(fence->events);
         vkd3d_free(fence->pending_updates);
+        vkd3d_free(fence->wait_tickets);
         pthread_mutex_destroy(&fence->mutex);
         pthread_cond_destroy(&fence->cond);
         pthread_cond_destroy(&fence->null_event_cond);
@@ -949,16 +953,71 @@ static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence,
         pthread_cond_broadcast(&fence->null_event_cond);
 }
 
-static void d3d12_fence_block_until_pending_value_reaches_locked(struct d3d12_fence *fence, UINT64 pending_value)
+static bool d3d12_fence_block_until_pending_value_reaches_locked(
+        struct d3d12_fence *fence, UINT64 pending_value, UINT64 ticket)
 {
-    while (pending_value > fence->max_pending_virtual_timeline_value)
+    bool has_unsatisfied_wait = true;
+    bool need_ticket_rescan = true;
+    size_t i;
+
+    do
     {
-        TRACE("Blocking wait on fence %p until it reaches 0x%"PRIx64".\n", fence, pending_value);
-        pthread_cond_wait(&fence->cond, &fence->mutex);
+        /* Need to poll this every iteration since while we're sleeping in
+         * pthread_cond_wait, there is a chance that the ticket will be signalled and rewound before
+         * this thread gets a chance to wake up and check the update.
+         * Keep the ticket around until we have completely resolved the wait. */
+        if (need_ticket_rescan)
+        {
+            has_unsatisfied_wait = false;
+
+            for (i = 0; i < fence->wait_tickets_count; i++)
+            {
+                if (fence->wait_tickets[i].ticket == ticket)
+                {
+                    has_unsatisfied_wait = true;
+                    break;
+                }
+            }
+
+            need_ticket_rescan = false;
+        }
+
+        if (!has_unsatisfied_wait)
+            return false;
+
+        if (pending_value > fence->max_pending_virtual_timeline_value)
+        {
+            TRACE("Blocking wait on fence %p until it reaches 0x%"PRIx64".\n", fence, pending_value);
+            pthread_cond_wait(&fence->cond, &fence->mutex);
+
+            /* We dropped the lock, so there might have been new tickets being added to ticket counter,
+             * or the ticket might have been satisfied through a pulsing event race. */
+            need_ticket_rescan = true;
+        }
     }
+    while (pending_value > fence->max_pending_virtual_timeline_value);
+
+    if (need_ticket_rescan)
+    {
+        has_unsatisfied_wait = false;
+        for (i = 0; i < fence->wait_tickets_count; i++)
+        {
+            if (fence->wait_tickets[i].ticket == ticket)
+            {
+                has_unsatisfied_wait = true;
+                break;
+            }
+        }
+    }
+
+    /* Finally, we can consume the ticket. */
+    if (has_unsatisfied_wait)
+        fence->wait_tickets[i] = fence->wait_tickets[--fence->wait_tickets_count];
+
+    return has_unsatisfied_wait;
 }
 
-static void d3d12_fence_update_pending_value_locked(struct d3d12_fence *fence)
+static void d3d12_fence_update_pending_value_locked_and_broadcast(struct d3d12_fence *fence)
 {
     uint64_t new_max_pending_virtual_timeline_value = 0;
     size_t i;
@@ -969,6 +1028,8 @@ static void d3d12_fence_update_pending_value_locked(struct d3d12_fence *fence)
 
     /* If we're signalling the fence, wake up any submission threads which can now safely kick work. */
     fence->max_pending_virtual_timeline_value = new_max_pending_virtual_timeline_value;
+
+    /* It's important that this is done unconditionally since we're not only signaling pending value here. */
     pthread_cond_broadcast(&fence->cond);
 }
 
@@ -980,6 +1041,13 @@ static void d3d12_fence_lock(struct d3d12_fence *fence)
 static void d3d12_fence_unlock(struct d3d12_fence *fence)
 {
     pthread_mutex_unlock(&fence->mutex);
+}
+
+static void d3d12_fence_wait_until_signal_count_reaches_locked(struct d3d12_fence *fence, uint64_t update_count)
+{
+    assert(update_count != 0);
+    while (fence->signal_count < update_count)
+        pthread_cond_wait(&fence->cond, &fence->mutex);
 }
 
 static bool d3d12_fence_can_elide_wait_semaphore_locked(struct d3d12_fence *fence, uint64_t value,
@@ -1008,6 +1076,21 @@ static bool d3d12_fence_can_elide_wait_semaphore_locked(struct d3d12_fence *fenc
     return false;
 }
 
+static void d3d12_fence_update_wait_tickets_locked(struct d3d12_fence *fence)
+{
+    /* Mark that a GPU signal has satisfied a waiting condition that has been queued up with
+     * CommandQueue::Wait(). Tests demonstrate that the instant a queued WAIT can be satisfied,
+     * it is forever satisfied. */
+    size_t i;
+    for (i = 0; i < fence->wait_tickets_count; )
+    {
+        if (fence->virtual_value >= fence->wait_tickets[i].virtual_value)
+            fence->wait_tickets[i] = fence->wait_tickets[--fence->wait_tickets_count];
+        else
+            i++;
+    }
+}
+
 static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
 {
     int rc;
@@ -1022,7 +1105,8 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
 
     fence->virtual_value = value;
     d3d12_fence_signal_external_events_locked(fence, NULL);
-    d3d12_fence_update_pending_value_locked(fence);
+    d3d12_fence_update_wait_tickets_locked(fence);
+    d3d12_fence_update_pending_value_locked_and_broadcast(fence);
     pthread_mutex_unlock(&fence->mutex);
     return S_OK;
 }
@@ -1071,6 +1155,39 @@ static bool d3d12_fence_get_physical_wait_value_locked(struct d3d12_fence *fence
     return true;
 }
 
+uint64_t d3d12_fence_register_pending_gpu_wait(struct d3d12_fence *fence, uint64_t value)
+{
+    struct vkd3d_fence_wait_ticket *wait_ticket;
+    uint64_t ticket = 0;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&fence->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return 0;
+    }
+
+    ticket = ++fence->wait_ticket_counter;
+
+    /* Tests demonstrate that the instant a WAIT is satisfied by a virtual value,
+     * it should be considered satisfied forever. We should not defer the wait in case
+     * there are rewinds in play.
+     * If the wait is satisfied, skip the ticket.
+     * Waits will be skipped later. But push the work to queue so that all our instrumentation works as-is. */
+    if (fence->virtual_value < value)
+    {
+        vkd3d_array_reserve((void **)&fence->wait_tickets, &fence->wait_tickets_size,
+                fence->wait_tickets_count + 1, sizeof(*fence->wait_tickets));
+
+        wait_ticket = &fence->wait_tickets[fence->wait_tickets_count++];
+        wait_ticket->ticket = ticket;
+        wait_ticket->virtual_value = value;
+    }
+
+    pthread_mutex_unlock(&fence->mutex);
+    return ticket;
+}
+
 static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_worker *worker, uint64_t update_count)
 {
     bool did_signal;
@@ -1099,6 +1216,7 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_
             {
                 fence->virtual_value = fence->pending_updates[i].virtual_value;
                 d3d12_fence_signal_external_events_locked(fence, worker);
+                d3d12_fence_update_wait_tickets_locked(fence);
                 fence->pending_updates[i] = fence->pending_updates[--fence->pending_updates_count];
                 did_signal = true;
                 break;
@@ -1110,7 +1228,7 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_
     }
 
     /* In case we have a rewind signalled from GPU, we need to recompute the max pending timeline value. */
-    d3d12_fence_update_pending_value_locked(fence);
+    d3d12_fence_update_pending_value_locked_and_broadcast(fence);
 
     pthread_mutex_unlock(&fence->mutex);
     return S_OK;
@@ -18736,14 +18854,22 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     struct d3d12_command_queue_submission sub;
+    uint64_t ticket = 0;
 
     TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence_iface, value);
 
     d3d12_fence_iface_inc_ref((d3d12_fence_iface *)fence_iface);
 
+    if (!is_shared_ID3D12Fence(fence_iface))
+    {
+        struct d3d12_fence *fence = impl_from_ID3D12Fence(fence_iface);
+        ticket = d3d12_fence_register_pending_gpu_wait(fence, value);
+    }
+
     sub.type = VKD3D_SUBMISSION_WAIT;
     sub.wait.fence = (d3d12_fence_iface *)fence_iface;
     sub.wait.value = value;
+    sub.wait.wait_ticket = ticket;
     d3d12_command_queue_add_submission(command_queue, &sub);
     return S_OK;
 }
@@ -18922,16 +19048,40 @@ static void d3d12_command_queue_reset_fence_waits(struct d3d12_command_queue *co
     size_t i;
 
     for (i = 0; i < command_queue->wait_fence_count; i++)
-        d3d12_fence_dec_ref(command_queue->wait_fences[i].fence);
+        if (command_queue->wait_fences[i].fence)
+            d3d12_fence_dec_ref(command_queue->wait_fences[i].fence);
 
     command_queue->wait_fence_count = 0;
+}
+
+struct vkd3d_waiting_fence_signal_order_info
+{
+    struct d3d12_fence *fence;
+    uint64_t update_count;
+};
+
+static void vkd3d_waiting_fence_ensure_signal_order(
+        struct vkd3d_fence_worker *worker, void *userdata, bool complete)
+{
+    struct vkd3d_waiting_fence_signal_order_info *info = userdata;
+    struct d3d12_fence *fence = info->fence;
+
+    if (complete)
+    {
+        d3d12_fence_lock(fence);
+        d3d12_fence_wait_until_signal_count_reaches_locked(fence, info->update_count);
+        d3d12_fence_unlock(fence);
+    }
+
+    d3d12_fence_dec_ref(fence);
 }
 
 static void d3d12_command_queue_push_fence_waits_to_worker(struct d3d12_command_queue *command_queue)
 {
     struct vkd3d_fence_worker *worker = &command_queue->fence_worker;
-    const struct vkd3d_fence_virtual_wait *fence_wait;
+    struct vkd3d_waiting_fence_signal_order_info *order_info;
     struct vkd3d_queue_timeline_trace_cookie cookie;
+    struct vkd3d_fence_virtual_wait *fence_wait;
     struct vkd3d_fence_wait_info fence_info;
     HRESULT hr;
     size_t i;
@@ -18942,19 +19092,31 @@ static void d3d12_command_queue_push_fence_waits_to_worker(struct d3d12_command_
         cookie = vkd3d_queue_timeline_trace_register_wait(&worker->device->queue_timeline_trace,
                 &fence_wait->fence->ID3D12Fence_iface, fence_wait->virtual_value);
 
-        /* Only wait for fence completion if we're interested in it for profiling purposes.
-         * Otherwise, there is no point in waiting on it since we resolved the wait to a vkd3d_queue internal timeline.
-         * This also functions as a performance workaround for NV since NV seems to dislike when the same timeline is
-         * waited on by multiple threads, which could happen in this code path. See issue 2256 for more details. */
+        memset(&fence_info, 0, sizeof(fence_info));
+
         if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
         {
-            memset(&fence_info, 0, sizeof(fence_info));
+            /* Only wait for actual fence completion if we're interested in it for profiling purposes.
+             * Otherwise, there is no point in waiting on it since we resolved the wait to a vkd3d_queue internal timeline.
+             * This also functions as a performance workaround for NV since NV seems to dislike when the same timeline is
+             * waited on by multiple threads, which could happen in this code path. See issue 2256 for more details. */
             fence_info.vk_semaphore = fence_wait->vk_semaphore;
             fence_info.vk_semaphore_value = fence_wait->vk_semaphore_value;
-
-            if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
-                ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
         }
+
+        /* We must ensure signal order being correct.
+         * If we signal a fence based on a wait, signaling in this queue must not happen
+         * until we have signaled the queue we depend on. */
+        order_info = vkd3d_waiting_fence_set_callback(
+                &fence_info, &vkd3d_waiting_fence_ensure_signal_order, sizeof(*order_info));
+        order_info->fence = fence_wait->fence;
+        order_info->update_count = fence_wait->update_count;
+
+        /* Consume the fence, we'll defer the decref. */
+        fence_wait->fence = NULL;
+
+        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
+            ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
     }
 }
 
@@ -19016,6 +19178,7 @@ static void d3d12_command_queue_add_wait(struct d3d12_command_queue *command_que
     fence_wait->virtual_value = fence_value->virtual_value;
     fence_wait->vk_semaphore = fence_value->vk_semaphore;
     fence_wait->vk_semaphore_value = fence_value->vk_semaphore_value;
+    fence_wait->update_count = fence_value->update_count;
 
     d3d12_fence_inc_ref(fence);
 
@@ -19162,7 +19325,7 @@ static void d3d12_command_queue_wait_idle(struct d3d12_command_queue *command_qu
 }
 
 static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
-        struct d3d12_fence *fence, UINT64 value)
+        struct d3d12_fence *fence, UINT64 value, UINT64 ticket)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue_timeline_trace_cookie cookie;
@@ -19184,12 +19347,12 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
      * where multiple queues alias over the same physical queue, so effectively, we need to manage out-of-order submits
      * ourselves. */
     cookie = vkd3d_queue_timeline_trace_register_generic_region(&fence->device->queue_timeline_trace, "WAIT BEFORE SIGNAL");
-    d3d12_fence_block_until_pending_value_reaches_locked(fence, value);
+    has_wait = d3d12_fence_block_until_pending_value_reaches_locked(fence, value, ticket);
     vkd3d_queue_timeline_trace_complete_execute(&fence->device->queue_timeline_trace, &command_queue->fence_worker, cookie);
 
     /* If a host signal unblocked us, or we know that the fence has reached a specific value, there is no need
      * to queue up a wait. */
-    if (d3d12_fence_can_elide_wait_semaphore_locked(fence, value, queue))
+    if (!has_wait || d3d12_fence_can_elide_wait_semaphore_locked(fence, value, queue))
     {
         d3d12_fence_unlock(fence);
         return;
@@ -19201,6 +19364,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
 
     if (!has_wait)
         return;
+
+    assert(fence_value.update_count != 0);
 
     TRACE("queue %p, fence %p, value %#"PRIx64", vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", command_queue,
             fence, value, fence_value.vk_semaphore, fence_value.vk_semaphore_value);
@@ -19269,7 +19434,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &cookie)))
         ERR("Failed to enqueue timeline semaphore, hr #%x.\n", hr);
 
-    d3d12_fence_update_pending_value_locked(fence);
+    d3d12_fence_update_pending_value_locked_and_broadcast(fence);
     d3d12_fence_unlock(fence);
 }
 
@@ -20576,7 +20741,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             else
             {
                 cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "WAIT (normal)");
-                d3d12_command_queue_wait(queue, impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
+                d3d12_command_queue_wait(queue, impl_from_ID3D12Fence1(submission.wait.fence),
+                        submission.wait.value, submission.wait.wait_ticket);
             }
 
             d3d12_fence_iface_dec_ref(submission.wait.fence);

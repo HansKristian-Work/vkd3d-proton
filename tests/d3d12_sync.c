@@ -1687,3 +1687,561 @@ void test_concurrent_signal_stress(void)
     }
     vkd3d_test_set_context(NULL);
 }
+
+static void test_fence_pending_signal_cpu_rewind(bool use_shared)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12Resource *dummy_resources[256];
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Fence *fence_alt;
+    ID3D12Fence *fence;
+    unsigned int i, j;
+    unsigned int iter;
+    HANDLE event;
+    UINT64 value;
+    HRESULT hr;
+
+#include "shaders/sync/headers/gpu_load.h"
+
+#ifndef _WIN32
+    if (use_shared)
+    {
+        skip("Skipping shared fence tests on Linux.\n");
+        return;
+    }
+#endif
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    ID3D12Device_CreateFence(context.device, 8, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence_alt);
+    ID3D12GraphicsCommandList_Close(context.list);
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    memset(&desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param.DescriptorTable.pDescriptorRanges = desc_range;
+    rs_param.DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[0].NumDescriptors = 1000000;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    desc_range[1].NumDescriptors = 1000000;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(
+        context.device, context.root_signature, gpu_load_dxbc);
+
+    heap = create_gpu_descriptor_heap(context.device,
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 256 * ARRAY_SIZE(dummy_resources));
+
+    for (i = 0; i < ARRAY_SIZE(dummy_resources); i++)
+    {
+        dummy_resources[i] = create_default_buffer(context.device, 2 * 1024 * 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        memset(&uav_desc, 0, sizeof(uav_desc));
+
+        for (j = 0; j < 256; j++)
+        {
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav_desc.Buffer.StructureByteStride = 4;
+            uav_desc.Buffer.FirstElement = 64 * j;
+            uav_desc.Buffer.NumElements = 64;
+            ID3D12Device_CreateUnorderedAccessView(context.device, dummy_resources[i], NULL,
+                &uav_desc, get_cpu_descriptor_handle(&context, heap, 256 * i + j));
+        }
+    }
+
+    for (iter = 0; iter < 64; iter++)
+    {
+        ID3D12Fence_Signal(fence, 8);
+        ID3D12Fence_Signal(fence_alt, 0);
+        ID3D12CommandAllocator_Reset(context.allocator);
+
+        for (i = 0; i < 2; i++)
+        {
+            ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+            ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+            ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+            ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(
+                    context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+            /* Load up the GPU ... */
+
+            if (i)
+            {
+                ID3D12GraphicsCommandList_Dispatch(context.list,
+                                                   16 * 1024, 256 * ARRAY_SIZE(dummy_resources) / (16 * 1024),
+                                                   use_warp_device ? 1 : 4);
+            }
+            else
+            {
+                /* On first iteration before we signal 9, just load up some trivial work,
+                 * but enough that driver cannot signal fence on CPU due to inactive queue. */
+                ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+            }
+            ID3D12GraphicsCommandList_Close(context.list);
+            exec_command_list(context.queue, context.list);
+            ID3D12CommandQueue_Signal(context.queue, fence, 9 + i);
+        }
+
+        /* Sleep until we've seen the GPU get active. */
+        ID3D12Fence_SetEventOnCompletion(fence, 9, NULL);
+
+        value = ID3D12Fence_GetCompletedValue(fence);
+        if (value == 10)
+        {
+            skip("GPU is too fast? Fence is already signalled to 10.\n");
+        }
+        else
+        {
+            unsigned int wait_result;
+
+            /* GPU is busy now. Reset the fence to 0 while there's a pending signal to 10.
+             * Technically this is a bit racy. */
+            value = ID3D12Fence_GetCompletedValue(fence);
+            ok(value == 9, "Expected completed fence value of 9.\n");
+            hr = ID3D12Fence_Signal(fence, 0);
+            ok(SUCCEEDED(hr), "Failed to signal fence, hr #%x\n", hr);
+            value = ID3D12Fence_GetCompletedValue(fence);
+            ok(value == 0, "Expected completed fence value of 0.\n");
+
+            /* Make sure that GPU isn't using an older pending submit to unblock the second queue. */
+            ID3D12CommandQueue_Wait(queue, fence, 9);
+            ID3D12CommandQueue_Signal(queue, fence_alt, 1);
+
+            event = create_event();
+            hr = ID3D12Fence_SetEventOnCompletion(fence_alt, 1, event);
+            ok(SUCCEEDED(hr), "Failed to queue event signal, hr #%x.\n", hr);
+
+            /* Add a timeout just in case to avoid a deadlock. */
+            wait_result = wait_event(event, 2000);
+            ok(wait_result == WAIT_OBJECT_0, "Expected WAIT_OBJECT_0, got %u.\n", wait_result);
+
+            value = ID3D12Fence_GetCompletedValue(fence);
+            ok(value == 10, "Expected first queue to be fully complete before fence_alt get signaled.\n");
+            destroy_event(event);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(dummy_resources); i++)
+        ID3D12Resource_Release(dummy_resources[i]);
+
+    /* Destroying fences unblock any waiters, so this should unstuck anything. */
+    ID3D12Fence_Release(fence);
+    ID3D12Fence_Release(fence_alt);
+    ID3D12CommandQueue_Release(queue);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+static void test_fence_ping_pong_deadlock_stress(bool use_shared)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12Resource *early_resources[256];
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    uint64_t last_observed_ts;
+    ID3D12Fence *fence_alt;
+    uint64_t last_observed;
+    ID3D12Fence *fence;
+    unsigned int i, j;
+    HRESULT hr;
+
+#include "shaders/sync/headers/gpu_load.h"
+
+#ifndef _WIN32
+    if (use_shared)
+    {
+        skip("Skipping shared fence tests on Linux.\n");
+        return;
+    }
+#endif
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence_alt);
+    ID3D12GraphicsCommandList_Close(context.list);
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    memset(&desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param.DescriptorTable.pDescriptorRanges = desc_range;
+    rs_param.DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[0].NumDescriptors = 1000000;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    desc_range[1].NumDescriptors = 1000000;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(
+        context.device, context.root_signature, gpu_load_dxbc);
+
+    heap = create_gpu_descriptor_heap(context.device,
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 256 * ARRAY_SIZE(early_resources));
+
+    for (i = 0; i < ARRAY_SIZE(early_resources); i++)
+    {
+        early_resources[i] = create_default_buffer(context.device, 2 * 1024 * 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        memset(&uav_desc, 0, sizeof(uav_desc));
+
+        for (j = 0; j < 256; j++)
+        {
+            uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav_desc.Buffer.StructureByteStride = 4;
+            uav_desc.Buffer.FirstElement = 64 * j;
+            uav_desc.Buffer.NumElements = 64;
+            ID3D12Device_CreateUnorderedAccessView(context.device, early_resources[i], NULL,
+                &uav_desc, get_cpu_descriptor_handle(&context, heap, 256 * i + j));
+        }
+    }
+
+    for (i = 0; i < 4096; i++)
+    {
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+        /* Load up the GPU ... */
+
+        /* Load up some non-trivial work. */
+        ID3D12GraphicsCommandList_Dispatch(context.list, 100, 1, 1);
+
+        ID3D12GraphicsCommandList_Close(context.list);
+
+        /* Long wait-before-idle chain. */
+        if (i < 2048)
+        {
+            exec_command_list(context.queue, context.list);
+            ID3D12CommandQueue_Wait(context.queue, fence, 2 * (i % 2048) + 1);
+            ID3D12CommandQueue_Signal(context.queue, fence, 2 * (i % 2048) + 2);
+            ID3D12CommandQueue_Signal(context.queue, fence_alt, 2 * (i % 2048) + 2);
+        }
+        else
+        {
+            ID3D12CommandQueue_Wait(queue, fence, 2 * (i % 2048));
+            ID3D12CommandQueue_Signal(queue, fence, 2 * (i % 2048) + 1);
+            ID3D12CommandQueue_Signal(queue, fence_alt, 2 * (i % 2048) + 1);
+        }
+    }
+
+    /* While GPU is busy, try really hard to cause a deadlock. */
+    ID3D12CommandQueue_Signal(context.queue, fence_alt, 1);
+
+    last_observed = ID3D12Fence_GetCompletedValue(fence_alt);
+    last_observed_ts = vkd3d_get_current_time_ns();
+
+    while (last_observed < 4096)
+    {
+        uint64_t next_observed = ID3D12Fence_GetCompletedValue(fence_alt);
+        uint64_t ts = vkd3d_get_current_time_ns();
+        if (last_observed != next_observed)
+            last_observed_ts = ts;
+        last_observed = next_observed;
+
+        if (ts - last_observed_ts > 1000000000)
+        {
+            /* The threads have deadlocked. No progress observed for a second. */
+            ok(false, "Threads deadlocked at fence value of %"PRIu64".\n", next_observed);
+
+            /* Unstuck the threads and force them through. */
+            last_observed_ts = ts;
+            while (ID3D12Fence_GetCompletedValue(fence_alt) < 4096)
+            {
+                ts = vkd3d_get_current_time_ns();
+                ID3D12Fence_Signal(fence, UINT64_MAX);
+                if (ts - last_observed_ts > 1000000000)
+                {
+                    ok(false, "Have been trying to unstuck threads for a second, but it's not working ...\n");
+                    break;
+                }
+            }
+
+            ok(ID3D12Fence_GetCompletedValue(fence_alt) == 4096, "Failed to unstuck the threads.\n");
+            break;
+        }
+
+        /* FIXME: This breaks Proton Experimental in shared fence path.
+         * I believe there is a race condition where we don't reach the
+         * vkWaitSemaphore path in time, meaning a value has pulsed up and down
+         * before we have the chance to wait for it, but there is some evidence to suggest
+         * that there is a bug in winevulkan as well. */
+        hr = ID3D12Fence_Signal(fence, 0);
+        ok(SUCCEEDED(hr), "Failed to rewind fence, hr #%x.\n", hr);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(early_resources); i++)
+        ID3D12Resource_Release(early_resources[i]);
+
+    /* Destroying fences unblock any waiters, so this should unstuck anything. */
+    ID3D12Fence_Release(fence);
+    ID3D12Fence_Release(fence_alt);
+    ID3D12CommandQueue_Release(queue);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+static void test_fence_signal_order_deadlock_stress(bool use_shared)
+{
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue_a;
+    ID3D12CommandQueue *queue_b;
+    ID3D12Fence *fence_alt;
+    ID3D12Fence *fence;
+    unsigned int iter;
+    HRESULT hr;
+
+#ifndef _WIN32
+    if (use_shared)
+    {
+        skip("Skipping shared fence tests on Linux.\n");
+        return;
+    }
+#endif
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue_a);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue_b);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+
+    ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence_alt);
+
+    for (iter = 0; iter < 1024 * 1024; iter++)
+    {
+        ID3D12Fence_Signal(fence, 0);
+
+        /* Queue 1, set up wait-before-signal chain. */
+        ID3D12CommandQueue_Wait(context.queue, fence, 1);
+        ID3D12CommandQueue_Signal(context.queue, fence, 2);
+        ID3D12CommandQueue_Wait(context.queue, fence, 3);
+        ID3D12CommandQueue_Signal(context.queue, fence, 4);
+        ID3D12CommandQueue_Wait(context.queue, fence, 5);
+        ID3D12CommandQueue_Signal(context.queue, fence, 6);
+        ID3D12CommandQueue_Wait(context.queue, fence, 7);
+        ID3D12CommandQueue_Signal(context.queue, fence, 8);
+        ID3D12CommandQueue_Wait(context.queue, fence, 9);
+        ID3D12CommandQueue_Signal(context.queue, fence, 10);
+
+        /* Set up duelling ping-pong between Queue 2 and 3. */
+        ID3D12CommandQueue_Signal(queue_a, fence_alt, 1);
+        ID3D12CommandQueue_Wait(queue_a, fence_alt, 2);
+
+        ID3D12CommandQueue_Wait(queue_b, fence_alt, 1);
+        ID3D12CommandQueue_Signal(queue_b, fence_alt, 2);
+
+        /* Unblocks Queue 2, then starts ping-pong. */
+        ID3D12CommandQueue_Signal(queue_a, fence, 1);
+        ID3D12CommandQueue_Wait(queue_a, fence, 2);
+        ID3D12CommandQueue_Signal(queue_a, fence, 3);
+        ID3D12CommandQueue_Wait(queue_a, fence, 4);
+        ID3D12CommandQueue_Signal(queue_a, fence, 5);
+        ID3D12CommandQueue_Wait(queue_a, fence, 6);
+        ID3D12CommandQueue_Signal(queue_a, fence, 7);
+        ID3D12CommandQueue_Wait(queue_a, fence, 8);
+        ID3D12CommandQueue_Signal(queue_a, fence, 9);
+        ID3D12CommandQueue_Wait(queue_a, fence, 10);
+
+        ID3D12CommandQueue_Signal(queue_a, fence_alt, 0);
+
+        ID3D12Fence_SetEventOnCompletion(fence, 10, NULL);
+
+        if (iter % 1024 == 0)
+            skip("Done with iteration %u\n", iter);
+    }
+
+    ID3D12CommandQueue_Release(queue_a);
+    ID3D12CommandQueue_Release(queue_b);
+    ID3D12Fence_Release(fence);
+    ID3D12Fence_Release(fence_alt);
+    destroy_test_context(&context);
+}
+
+static void test_fence_signal_availability(bool use_shared)
+{
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    struct test_context context;
+    ID3D12Fence *fence_progress;
+    ID3D12CommandQueue *queue;
+    unsigned int wait_result;
+    ID3D12Fence *fence_alt;
+    ID3D12Fence *fence;
+    unsigned int iter;
+    HANDLE event;
+    HRESULT hr;
+
+#ifndef _WIN32
+    if (use_shared)
+    {
+        skip("Skipping shared fence tests on Linux.\n");
+        return;
+    }
+#endif
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+
+    for (iter = 0; iter < 2; iter++)
+    {
+        ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+                &IID_ID3D12Fence, (void **)&fence);
+        ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+                &IID_ID3D12Fence, (void **)&fence_alt);
+        ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+                &IID_ID3D12Fence, (void **)&fence_progress);
+
+        ID3D12CommandQueue_Wait(context.queue, fence, 1);
+        ID3D12CommandQueue_Wait(context.queue, fence, 2);
+        ID3D12CommandQueue_Wait(context.queue, fence, 3);
+        ID3D12CommandQueue_Wait(context.queue, fence, 4);
+        ID3D12CommandQueue_Signal(context.queue, fence_progress, 1);
+        ID3D12CommandQueue_Wait(context.queue, fence_alt, 1);
+        ID3D12CommandQueue_Wait(context.queue, fence, 5);
+        ID3D12CommandQueue_Wait(context.queue, fence, 6);
+        ID3D12CommandQueue_Wait(context.queue, fence, 7);
+        ID3D12CommandQueue_Wait(context.queue, fence, 8);
+        ID3D12CommandQueue_Signal(context.queue, fence_progress, 2);
+
+        /* Question now is which jobs do we actually unblock?
+         * One interpretation is queued jobs enter a ticketing system where they are unblocked as signals come on.
+         * Another interpretation is that only when jobs become submission candidates do they check if they have been satisfied.
+         * I.e., waits enter one by one as they can be processed and only then being available for being signaled.
+         * Test both GPU signal and CPU signal paths to see if there is a difference. */
+        if (iter == 0)
+            ID3D12CommandQueue_Signal(queue, fence, 8);
+        else
+            ID3D12Fence_Signal(fence, 8);
+
+        /* This is guaranteed. The queue will be blocked on fence_alt. */
+        ID3D12Fence_SetEventOnCompletion(fence_progress, 1, NULL);
+        ID3D12Fence_Signal(fence, 0);
+
+        /* Verify that the GPU queue has stalled. */
+        {
+            event = create_event();
+            ID3D12Fence_SetEventOnCompletion(fence_progress, 2, event);
+            wait_result = wait_event(event, 100);
+            ok(wait_result == WAIT_TIMEOUT, "Expected %u, got %u\n", WAIT_TIMEOUT, wait_result);
+        }
+
+        ID3D12Fence_Signal(fence_alt, 1);
+
+        /* Question now is the queue is supposed to remember that we signalled 8.
+         * It seems like that is the case. */
+        {
+            event = create_event();
+            ID3D12Fence_SetEventOnCompletion(fence_progress, 2, event);
+            wait_result = wait_event(event, 100);
+
+            /* In shared path we have no way to implement the ticketing system,
+             * so this is unimplementable as-is. */
+            todo_if(use_shared) ok(wait_result == WAIT_OBJECT_0, "Expected %u, got %u.\n", WAIT_OBJECT_0, wait_result);
+
+            ID3D12Fence_Signal(fence, 8);
+            ID3D12Fence_SetEventOnCompletion(fence_progress, 2, NULL);
+            destroy_event(event);
+        }
+
+        ID3D12Fence_Release(fence);
+        ID3D12Fence_Release(fence_alt);
+        ID3D12Fence_Release(fence_progress);
+    }
+
+    ID3D12CommandQueue_Release(queue);
+    destroy_test_context(&context);
+}
+
+void test_fence_pending_signal_cpu_rewind_plain(void)
+{
+    test_fence_pending_signal_cpu_rewind(false);
+}
+
+void test_fence_ping_pong_deadlock_stress_plain(void)
+{
+    test_fence_ping_pong_deadlock_stress(false);
+}
+
+void test_fence_signal_order_deadlock_stress_plain(void)
+{
+    test_fence_signal_order_deadlock_stress(false);
+}
+
+void test_fence_signal_availability_plain(void)
+{
+    test_fence_signal_availability(false);
+}
+
+void test_fence_pending_signal_cpu_rewind_shared(void)
+{
+    test_fence_pending_signal_cpu_rewind(true);
+}
+
+void test_fence_ping_pong_deadlock_stress_shared(void)
+{
+    test_fence_ping_pong_deadlock_stress(true);
+}
+
+void test_fence_signal_order_deadlock_stress_shared(void)
+{
+    test_fence_signal_order_deadlock_stress(true);
+}
+
+void test_fence_signal_availability_shared(void)
+{
+    test_fence_signal_availability(true);
+}
