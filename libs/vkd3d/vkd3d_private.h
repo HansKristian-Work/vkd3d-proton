@@ -147,6 +147,7 @@ struct vkd3d_vulkan_info
     bool KHR_compute_shader_derivatives;
     bool KHR_calibrated_timestamps;
     bool KHR_cooperative_matrix;
+    bool KHR_unified_image_layouts;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -2874,6 +2875,9 @@ struct d3d12_transfer_batch_state
     enum vkd3d_batch_type batch_type;
     struct vkd3d_image_copy_info batch[VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE];
     size_t batch_len;
+
+    struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
+    unsigned int tracked_copy_buffer_count;
 };
 
 #define VKD3D_MAX_WBI_BATCH_SIZE 128
@@ -3124,9 +3128,6 @@ struct d3d12_command_list
     size_t retained_resources_count;
 
     struct hash_map query_resolve_lut;
-
-    struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
-    unsigned int tracked_copy_buffer_count;
 
     struct d3d12_transfer_batch_state transfer_batch;
     struct d3d12_wbi_batch_state wbi_batch;
@@ -4900,6 +4901,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
+    VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unified_image_layouts_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

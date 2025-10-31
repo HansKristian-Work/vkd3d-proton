@@ -3294,7 +3294,7 @@ static void d3d12_command_list_resolve_buffer_copy_writes(struct d3d12_command_l
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
 
-    if (list->tracked_copy_buffer_count)
+    if (list->transfer_batch.tracked_copy_buffer_count)
     {
         memset(&vk_barrier, 0, sizeof(vk_barrier));
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -3310,13 +3310,13 @@ static void d3d12_command_list_resolve_buffer_copy_writes(struct d3d12_command_l
 
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-        list->tracked_copy_buffer_count = 0;
+        list->transfer_batch.tracked_copy_buffer_count = 0;
     }
 }
 
 static void d3d12_command_list_reset_buffer_copy_tracking(struct d3d12_command_list *list)
 {
-    list->tracked_copy_buffer_count = 0;
+    list->transfer_batch.tracked_copy_buffer_count = 0;
 }
 
 static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list *list, VkBuffer vk_buffer,
@@ -3335,9 +3335,9 @@ static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list 
 
     range_end = offset + size;
 
-    for (i = 0; i < list->tracked_copy_buffer_count; i++)
+    for (i = 0; i < list->transfer_batch.tracked_copy_buffer_count; i++)
     {
-        tracked_buffer = &list->tracked_copy_buffers[i];
+        tracked_buffer = &list->transfer_batch.tracked_copy_buffers[i];
 
         /* Any write to a sparse buffer will be considered to be aliasing with any other resource. */
         if (tracked_buffer->vk_buffer == vk_buffer || tracked_buffer->vk_buffer == VK_NULL_HANDLE || sparse)
@@ -3346,11 +3346,11 @@ static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list 
             {
                 /* Hazard. Inject barrier. */
                 d3d12_command_list_resolve_buffer_copy_writes(list);
-                tracked_buffer = &list->tracked_copy_buffers[0];
+                tracked_buffer = &list->transfer_batch.tracked_copy_buffers[0];
                 tracked_buffer->vk_buffer = vk_buffer;
                 tracked_buffer->hazard_begin = offset;
                 tracked_buffer->hazard_end = range_end;
-                list->tracked_copy_buffer_count = 1;
+                list->transfer_batch.tracked_copy_buffer_count = 1;
             }
             else
             {
@@ -3362,10 +3362,10 @@ static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list 
     }
 
     /* Keep the tracking data structures lean and mean. If we have decent overlap, this isn't a real problem. */
-    if (list->tracked_copy_buffer_count == ARRAY_SIZE(list->tracked_copy_buffers))
+    if (list->transfer_batch.tracked_copy_buffer_count == ARRAY_SIZE(list->transfer_batch.tracked_copy_buffers))
         d3d12_command_list_resolve_buffer_copy_writes(list);
 
-    tracked_buffer = &list->tracked_copy_buffers[list->tracked_copy_buffer_count++];
+    tracked_buffer = &list->transfer_batch.tracked_copy_buffers[list->transfer_batch.tracked_copy_buffer_count++];
     tracked_buffer->vk_buffer = vk_buffer;
     tracked_buffer->hazard_begin = offset;
     tracked_buffer->hazard_end = range_end;
@@ -5866,7 +5866,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->pending_queries_count = 0;
     list->dsv_resource_tracking_count = 0;
     list->subresource_tracking_count = 0;
-    list->tracked_copy_buffer_count = 0;
+    list->transfer_batch.tracked_copy_buffer_count = 0;
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
     list->submit_allocator = NULL;
@@ -8581,7 +8581,9 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
         /* We're going to do an image layout transition, so we can handle pending buffer barriers while we're at it.
          * After that barrier completes, we implicitly synchronize any outstanding copies, so we can drop the tracking.
          * This also avoids having to compute the destination damage region. */
-        global_transfer_access = list->tracked_copy_buffer_count ? VK_ACCESS_2_TRANSFER_WRITE_BIT : VK_ACCESS_2_NONE;
+        global_transfer_access = list->transfer_batch.tracked_copy_buffer_count ?
+            VK_ACCESS_2_TRANSFER_WRITE_BIT : VK_ACCESS_2_NONE;
+
         d3d12_command_list_reset_buffer_copy_tracking(list);
 
         d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch, src_resource->res.vk_image,
@@ -9063,7 +9065,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         if (copy_to_buffer)
         {
             /* Need to handle hazards before the image to buffer copy. */
-            if (list->tracked_copy_buffer_count)
+            if (list->transfer_batch.tracked_copy_buffer_count)
                 dep_info.memoryBarrierCount = 1;
 
             /* We're doing a transfer barrier anyways, so resolve buffer copy tracking in that barrier. */
@@ -10735,7 +10737,7 @@ static void d3d12_command_list_merge_copy_tracking_transition(struct d3d12_comma
         const D3D12_RESOURCE_TRANSITION_BARRIER *transition,
         struct d3d12_command_list_barrier_batch *batch)
 {
-    if (list->tracked_copy_buffer_count && (
+    if (list->transfer_batch.tracked_copy_buffer_count && (
             transition->StateBefore == D3D12_RESOURCE_STATE_COPY_DEST ||
             transition->StateAfter == D3D12_RESOURCE_STATE_COPY_DEST))
     {
@@ -13381,7 +13383,8 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
     /* If there are any overlapping copy writes, handle them here since we're
      * doing a transfer barrier anyways. dst_buffer is in COPY_DEST state */
     vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    vk_barrier.srcAccessMask = list->tracked_copy_buffer_count ? VK_ACCESS_2_TRANSFER_WRITE_BIT : VK_ACCESS_2_NONE;
+    vk_barrier.srcAccessMask = list->transfer_batch.tracked_copy_buffer_count ?
+            VK_ACCESS_2_TRANSFER_WRITE_BIT : VK_ACCESS_2_NONE;
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
 
@@ -17111,7 +17114,7 @@ static void d3d12_command_list_merge_copy_tracking_global_barrier(struct d3d12_c
     /* If we're going to do transfer barriers and we have
      * pending copies in flight which need to be synchronized,
      * we should just resolve that while we're at it. */
-    if (list->tracked_copy_buffer_count && (
+    if (list->transfer_batch.tracked_copy_buffer_count && (
             d3d12_barrier_accesses_copy_dest(barrier->SyncBefore, barrier->AccessBefore) ||
                     d3d12_barrier_accesses_copy_dest(barrier->SyncAfter, barrier->AccessAfter)))
     {
