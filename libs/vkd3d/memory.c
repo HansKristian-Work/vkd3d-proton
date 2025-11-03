@@ -1257,6 +1257,24 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
     vkd3d_free_device_memory(device, &allocation->device_allocation);
 }
 
+static bool vkd3d_is_imported_allocation(const struct vkd3d_allocate_memory_info *info)
+{
+    const VkBaseInStructure *next = info->pNext;
+
+    if (info->host_ptr)
+        return true;
+
+    while (next)
+    {
+        if (next->sType == VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR)
+            return true;
+
+        next = next->pNext;
+    }
+
+    return false;
+}
+
 static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allocation, struct d3d12_device *device,
         struct vkd3d_memory_allocator *allocator, const struct vkd3d_allocate_memory_info *info)
 {
@@ -1359,7 +1377,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         bool should_fallback_clear = device->workarounds.amdgpu_broken_clearvram &&
                 (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER);
 
-        if (!should_fallback_clear)
+        if (!should_fallback_clear && !vkd3d_is_imported_allocation(info))
             flags_info.flags |= VK_MEMORY_ALLOCATE_ZERO_INITIALIZE_BIT_EXT;
     }
 
@@ -2071,17 +2089,20 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     if (FAILED(hr))
         return hr;
 
-    if (needs_command_clear)
+    if (!vkd3d_is_imported_allocation(info))
     {
-        vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
-                VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CLEAR_ALLOCATION, info->memory_requirements.size);
-        vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0);
-    }
-    else if (suballocate && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS) &&
-            (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER) &&
-            (info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
-    {
-        vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0xae);
+        if (needs_command_clear)
+        {
+            vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
+                    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CLEAR_ALLOCATION, info->memory_requirements.size);
+            vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0);
+        }
+        else if (suballocate && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS) &&
+                (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER) &&
+                (info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
+        {
+            vkd3d_memory_transfer_queue_fill_allocation(&device->memory_transfers, allocation, 0xae);
+        }
     }
 
     return hr;
