@@ -19211,6 +19211,30 @@ static void d3d12_command_queue_wait_idle(struct d3d12_command_queue *command_qu
         ERR("Failed to wait for virtual queue idle, vr %d.\n", vr);
 }
 
+static void d3d12_command_queue_ensure_fence_signal_order(
+        struct d3d12_command_queue *command_queue, struct d3d12_fence *fence,
+        uint64_t update_count)
+{
+    struct vkd3d_waiting_fence_signal_order_info *order_info;
+    struct vkd3d_fence_wait_info fence_info;
+    HRESULT hr;
+
+    /* For signal order purposes will only observe that the timeline is complete,
+     * but we have not observed signal order. To be 100% safe, we must not allow new signals
+     * until we have observed the fence worker completing too.
+     * We could just block here on fence->signal_count, but that's extra latency, and
+     * we want to submit as fast as possible when we're stalling on CPU. */
+    memset(&fence_info, 0, sizeof(fence_info));
+    order_info = vkd3d_waiting_fence_set_callback(
+            &fence_info, &vkd3d_waiting_fence_ensure_signal_order, sizeof(*order_info));
+    order_info->fence = fence;
+    order_info->update_count = update_count;
+    d3d12_fence_inc_ref(fence);
+
+    if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, NULL)))
+        ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
+}
+
 static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
         struct d3d12_fence *fence, UINT64 value)
 {
@@ -19249,6 +19273,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
 
     d3d12_fence_unlock(fence);
 
+    /* For signal ordering purposes, we have already observed the virtual value,
+     * so we don't have to do anything more. */
     if (!has_wait)
         return;
 
@@ -19262,6 +19288,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
     if (d3d12_command_queue_needs_cpu_waits_locked(command_queue))
     {
         pthread_mutex_unlock(&queue->mutex);
+
+        d3d12_command_queue_ensure_fence_signal_order(command_queue, fence, fence_value.update_count);
 
         memset(&wait_info, 0, sizeof(wait_info));
         wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
