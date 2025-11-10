@@ -4934,6 +4934,31 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     if (d3d12_graphics_pipeline_state_needs_noop_fs(device, graphics))
         graphics->stage_flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
 
+    if (desc->view_instancing_desc.ViewInstanceCount)
+    {
+        if (desc->view_instancing_desc.ViewInstanceCount > D3D12_MAX_VIEW_INSTANCE_COUNT)
+        {
+            ERR("View instance count is too large.\n");
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
+        if (device->d3d12_caps.options3.ViewInstancingTier == D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED)
+        {
+            ERR("View instancing not supported.\n");
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
+        /* We don't support every case yet, but the obvious fast paths should work. */
+        if (!d3d12_pipeline_state_validate_view_instancing(device, graphics, desc))
+        {
+            FIXME("Unsupported view instancing configuration used.\n");
+            hr = E_NOTIMPL;
+            goto fail;
+        }
+    }
+
     graphics->null_attachment_mask = 0;
     graphics->rtv_active_mask = 0;
     for (i = 0; i < rt_count; ++i)
@@ -5432,31 +5457,6 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     graphics->ms_desc.pSampleMask = &graphics->sample_mask;
     graphics->ms_desc.alphaToCoverageEnable = desc->blend_state.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
-
-    if (desc->view_instancing_desc.ViewInstanceCount)
-    {
-        if (desc->view_instancing_desc.ViewInstanceCount > D3D12_MAX_VIEW_INSTANCE_COUNT)
-        {
-            ERR("View instance count is too large.\n");
-            hr = E_INVALIDARG;
-            goto fail;
-        }
-
-        if (device->d3d12_caps.options3.ViewInstancingTier == D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED)
-        {
-            ERR("View instancing not supported.\n");
-            hr = E_INVALIDARG;
-            goto fail;
-        }
-
-        /* We don't support every case yet, but the obvious fast paths should work. */
-        if (!d3d12_pipeline_state_validate_view_instancing(device, graphics, desc))
-        {
-            FIXME("Unsupported view instancing configuration used.\n");
-            hr = E_NOTIMPL;
-            goto fail;
-        }
-    }
 
     /* Tests show that D3D12 drivers behave as if D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS
      * was always set, however doing that would invalidate existing pipeline caches, so avoid
