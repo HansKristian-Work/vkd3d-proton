@@ -4984,6 +4984,7 @@ void test_large_heap(void)
     D3D12_TILED_RESOURCE_COORDINATE tile_coord;
     ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     D3D12_RESOURCE_BARRIER aliasing_barrier;
     D3D12_RESOURCE_DESC resource_desc;
     D3D12_TILE_REGION_SIZE tile_size;
@@ -5002,6 +5003,16 @@ void test_large_heap(void)
     desc.no_root_signature = true;
     if (!init_test_context(&context, &desc))
         return;
+
+    memset(&options, 0, sizeof(options));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+
+    if (!options.TiledResourcesTier)
+    {
+        skip("Tiled resources not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     memset(&aliasing_barrier, 0, sizeof(aliasing_barrier));
     aliasing_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
@@ -5543,13 +5554,16 @@ void test_tight_resource_alignment(void)
 
     /* Reserved buffer creation does work for some reason, and alignment can be anything. Just
      * check that it works and that the returned desc still has the flag set. */
-    hr = ID3D12Device_CreateReservedResource(device, &res_desc[0], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+    if (options.TiledResourcesTier)
+    {
+        hr = ID3D12Device_CreateReservedResource(device, &res_desc[0], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+        ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
 
-    queried_desc = ID3D12Resource_GetDesc(resource);
-    ok(queried_desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT, "Missing D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT in flags %#x.\n", queried_desc.Flags);
+        queried_desc = ID3D12Resource_GetDesc(resource);
+        ok(queried_desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT, "Missing D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT in flags %#x.\n", queried_desc.Flags);
 
-    ID3D12Resource_Release(resource);
+        ID3D12Resource_Release(resource);
+    }
 
     /* Pack multiple small buffers back to back */
     res_desc[1] = res_desc[0];
