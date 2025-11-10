@@ -2218,6 +2218,13 @@ struct d3d12_graphics_pipeline_state
 
     unsigned int xfb_buffer_count;
 
+    struct
+    {
+        uint32_t view_mask;
+        uint32_t spec_data_index_to_id_mapping;
+        uint32_t spec_data_viewport_mapping;
+    } multiview;
+
     bool disable_optimization;
 };
 
