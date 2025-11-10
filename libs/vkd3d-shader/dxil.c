@@ -19,6 +19,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_SHADER
 
 #define DXIL_SPV_ENABLE_EXPERIMENTAL_WORKGRAPHS
+#define DXIL_SPV_ENABLE_EXPERIMENTAL_MULTIVIEW
 #include "vkd3d_shader_private.h"
 #include "vkd3d_utf8.h"
 #include "vkd3d_string.h"
@@ -1129,6 +1130,40 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                 }
             }
         }
+
+        if (compiler_args->multiview.enable)
+        {
+            struct dxil_spv_option_view_instancing helper = {{ DXIL_SPV_OPTION_VIEW_INSTANCING }};
+            helper.enabled = DXIL_SPV_TRUE;
+            helper.last_pre_rasterization_stage = compiler_args->multiview.last_pre_rasterization ?
+                    DXIL_SPV_TRUE : DXIL_SPV_FALSE;
+            /* TODO: If we have forced view instancing, we need to set this to UINT32_MAX. */
+            /* TODO: If we dynamically cannot do view instancing, we need to set meta descriptors. */
+            helper.view_index_to_view_instance_spec_id = UINT32_MAX;
+            helper.view_instance_to_viewport_spec_id = UINT32_MAX;
+
+            for (i = 0; i < compiler_args->parameter_count; i++)
+            {
+                const struct vkd3d_shader_parameter *argument = &compiler_args->parameters[i];
+                if (argument->type != VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT)
+                    continue;
+
+                if (argument->name == VKD3D_SHADER_PARAMETER_NAME_VIEW_INDEX_TO_VIEW_ID)
+                    helper.view_index_to_view_instance_spec_id = argument->specialization_constant.id;
+                else if (argument->name == VKD3D_SHADER_PARAMETER_NAME_VIEW_ID_TO_VIEWPORT)
+                    helper.view_instance_to_viewport_spec_id = argument->specialization_constant.id;
+            }
+
+            if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            {
+                WARN("dxil-spirv does not support VIEW_INSTANCING.\n");
+                return VKD3D_ERROR_NOT_IMPLEMENTED;
+            }
+
+            /* Set a dummy meta descriptor so that dxil-spirv doesn't assert. */
+            dxil_spv_converter_set_meta_descriptor(converter, DXIL_SPV_META_DESCRIPTOR_DYNAMIC_VIEW_INSTANCING_OFFSETS,
+                    DXIL_SPV_META_DESCRIPTOR_KIND_UBO_CONTAINING_CONSTANT, 0, 0);
+        }
     }
 
     /* For legacy reasons, COMPUTE_SHADER_DERIVATIVES_NV is default true in dxil-spirv,
@@ -1300,6 +1335,19 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     {
         ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
+    }
+
+    {
+        /* For now, we cannot support view instancing with fallback paths, but that's not a dxil-spirv issue,
+         * but rather a vkd3d-proton issue. */
+        dxil_spv_bool compatible = DXIL_SPV_FALSE;
+        if (compiler_args && compiler_args->multiview.enable &&
+            (dxil_spv_converter_is_multiview_compatible(converter, &compatible) != DXIL_SPV_SUCCESS ||
+            compatible == DXIL_SPV_FALSE))
+        {
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
     }
 
     if (dxil_spv_converter_get_compiled_spirv(converter, &compiled) != DXIL_SPV_SUCCESS)
