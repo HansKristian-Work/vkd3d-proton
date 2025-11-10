@@ -2690,11 +2690,12 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
         compile_arguments->driver_version = device->device_info.properties2.properties.driverVersion;
     }
 
+    compile_arguments->parameter_count = state->graphics.cached_desc.shader_parameters_count;
+    compile_arguments->parameters = state->graphics.cached_desc.shader_parameters;
+
     if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
     {
         /* Options which are exclusive to PS. Especially output swizzles must only be used in PS. */
-        compile_arguments->parameter_count = ARRAY_SIZE(state->graphics.cached_desc.ps_shader_parameters);
-        compile_arguments->parameters = state->graphics.cached_desc.ps_shader_parameters;
         compile_arguments->dual_source_blending = state->graphics.cached_desc.is_dual_source_blending;
         compile_arguments->output_swizzles = state->graphics.cached_desc.ps_output_swizzle;
         compile_arguments->output_swizzle_count = state->graphics.rt_count;
@@ -4856,6 +4857,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     VkShaderStageFlagBits curr_stage, prev_stage;
+    struct vkd3d_shader_parameter *shader_param;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     unsigned int instance_divisor;
@@ -5079,10 +5081,32 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
         }
     }
 
-    graphics->cached_desc.ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
-    graphics->cached_desc.ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
-    graphics->cached_desc.ps_shader_parameters[0].data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
-    graphics->cached_desc.ps_shader_parameters[0].immediate_constant.u32 = sample_count;
+    shader_param = &graphics->cached_desc.shader_parameters[graphics->cached_desc.shader_parameters_count++];
+    shader_param->name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
+    shader_param->type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
+    shader_param->data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+    shader_param->immediate_constant.u32 = sample_count;
+
+    if (desc->view_instancing_desc.ViewInstanceCount)
+    {
+        /* TODO: This might be noped out if we have forced draw instancing. */
+        shader_param = &graphics->cached_desc.shader_parameters[graphics->cached_desc.shader_parameters_count++];
+        shader_param->name = VKD3D_SHADER_PARAMETER_NAME_VIEW_INDEX_TO_VIEW_ID;
+        shader_param->type = VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT;
+        shader_param->data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+        shader_param->specialization_constant.id = VKD3D_SHADER_VIEW_INDEX_TO_VIEW_ID_SPEC_CONSTANT;
+
+        if (graphics->multiview.spec_data_viewport_mapping != 0)
+        {
+            /* If every layer exports to viewport 0, we don't have to emit it manually. */
+            shader_param = &graphics->cached_desc.shader_parameters[graphics->cached_desc.shader_parameters_count++];
+            shader_param->name = VKD3D_SHADER_PARAMETER_NAME_VIEW_ID_TO_VIEWPORT;
+            shader_param->type = VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT;
+            shader_param->data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+            shader_param->specialization_constant.id = VKD3D_SHADER_VIEW_ID_TO_VIEWPORT_SPEC_CONSTANT;
+        }
+    }
+
     graphics->cached_desc.is_dual_source_blending = is_dual_source_blending(&desc->blend_state.RenderTarget[0]);
 
     if (graphics->cached_desc.is_dual_source_blending)
