@@ -532,7 +532,8 @@ static void vkd3d_memory_transfer_queue_fill_allocation(struct vkd3d_memory_tran
          * and having to worry about synchronization */
         memset(allocation->cpu_address, value, allocation->resource.size);
 
-        VK_CALL(vkFlushMappedMemoryRanges(device->vk_device, 1, &mapped_range));
+        if (!(device->memory_properties.memoryTypes[allocation->device_allocation.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+            VK_CALL(vkFlushMappedMemoryRanges(device->vk_device, 1, &mapped_range));
     }
     else if (allocation->resource.vk_buffer)
     {
@@ -1285,6 +1286,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     VkMemoryPropertyFlags type_flags;
     VkBindBufferMemoryInfo bind_info;
     void *host_ptr = info->host_ptr;
+    void *dummy_mapping;
     uint32_t type_mask;
     bool request_bda;
     VkResult vr;
@@ -1457,10 +1459,18 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
      * since that may negatively impact performance. */
     if (host_ptr)
     {
+        /* D3D12 expects us to forward the host pointer as-is. Map the memory
+         * region anyway so that calling Flush/Invalidate becomes legal, but
+         * discard the mapped pointer. */
         allocation->flags |= VKD3D_ALLOCATION_FLAG_CPU_ACCESS;
-
-        /* No need to call map here, we already know the pointer. */
         allocation->cpu_address = host_ptr;
+
+        if (!(device->memory_properties.memoryTypes[allocation->device_allocation.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+        {
+            if ((vr = VK_CALL(vkMapMemory(device->vk_device, allocation->device_allocation.vk_memory,
+                    0, VK_WHOLE_SIZE, 0, &dummy_mapping))))
+                ERR("Failed to map memory, vr %d.\n", vr);
+        }
     }
     else if (type_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
     {
