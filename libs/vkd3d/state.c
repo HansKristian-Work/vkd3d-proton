@@ -4099,7 +4099,8 @@ void vkd3d_vertex_input_pipeline_free(struct hash_map_entry *entry, void *userda
 }
 
 void vkd3d_fragment_output_pipeline_desc_init(struct vkd3d_fragment_output_pipeline_desc *desc,
-        struct d3d12_pipeline_state *state, const struct vkd3d_format *dsv_format, uint32_t dynamic_state_flags)
+        struct d3d12_pipeline_state *state, const struct vkd3d_format *dsv_format,
+        uint32_t dynamic_view_mask, uint32_t dynamic_state_flags)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     unsigned int i;
@@ -4134,7 +4135,7 @@ void vkd3d_fragment_output_pipeline_desc_init(struct vkd3d_fragment_output_pipel
     desc->rt_info.depthAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
     /* From spec:  If stencilAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a stencil aspect. */
     desc->rt_info.stencilAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
-    desc->rt_info.viewMask = graphics->multiview.view_mask;
+    desc->rt_info.viewMask = dynamic_view_mask ? dynamic_view_mask : graphics->multiview.view_mask;
 
     desc->dy_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     desc->dy_info.dynamicStateCount = vkd3d_init_dynamic_state_array(desc->dy_states,
@@ -4824,19 +4825,9 @@ static bool d3d12_pipeline_state_validate_view_instancing(struct d3d12_device *d
     unsigned int i;
 
     if (desc->view_instancing_desc.Flags & D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING)
-    {
-        /* There are three potential strategies for this approach.
-         * - Push down a u32 which nops out the draw call based on ViewID.
-         *   This is somewhat questionable w.r.t. queries, UAV and potentially Xfb.
-         *   With current pushConstant limits, it's very hard to guarantee that we can just push down a u32.
-         * - Just ignore the masking. It's unclear if it's valid to generate geometry even when masked.
-         * - Compile a different variant dynamically. Can break tiler optimizations since
-         *   we'd have to start a new render pass when the dynamic mask changes.
-         *
-         * For now, just pretend we don't need to mask and that this is purely a performance optimization.
-         * */
-        FIXME("view instance masking not supported yet. Will ignore the mask.\n");
-    }
+        FIXME_ONCE("View instance masking is supported in a naive way. Will fallback compile as required.\n");
+    graphics->multiview.dynamic_mask =
+            !!(desc->view_instancing_desc.Flags & D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING);
 
     for (i = 0; i < desc->view_instancing_desc.ViewInstanceCount; i++)
     {
@@ -4875,6 +4866,8 @@ static bool d3d12_pipeline_state_validate_view_instancing(struct d3d12_device *d
          * SV_RenderTargetArrayIndex. We are forced into draw instancing in this case, which we don't support,
          * but we need to defer this to compile time to check if we're compatible. */
     }
+
+    graphics->multiview.default_mask = (1u << desc->view_instancing_desc.ViewInstanceCount) - 1u;
 
     return true;
 }
@@ -5580,7 +5573,11 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
         if (graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS)
             graphics->disable_optimization = true;
 
-    has_gpl = state->device->device_info.graphics_pipeline_library_features.graphicsPipelineLibrary;
+    /* VUID-VkGraphicsPipelineCreateInfo-pLibraries-06627 is very annoying.
+     * We cannot modify the viewMask of pre-raster if output viewMask has a mismatch.
+     * Just fallback to stall-ful compile if we have to. */
+    has_gpl = state->device->device_info.graphics_pipeline_library_features.graphicsPipelineLibrary &&
+            !graphics->multiview.dynamic_mask;
 
     library_flags = VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT |
             VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT |
@@ -5675,6 +5672,10 @@ static HRESULT d3d12_pipeline_state_finish_graphics(struct d3d12_pipeline_state 
     /* Same thing if the pipeline is multisampled but we cannot dynamically set the sample count. */
     if (d3d12_graphics_pipeline_needs_dynamic_rasterization_samples(graphics) &&
             !(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES))
+        state->pso_is_fully_dynamic = false;
+
+    /* If we have dynamic view mask, we may have to compile variants. */
+    if (graphics->multiview.dynamic_mask)
         state->pso_is_fully_dynamic = false;
 
     if (!state->pso_is_fully_dynamic)
@@ -6186,7 +6187,8 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
 
     if (!(graphics->library_flags & VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT))
     {
-        vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format, dynamic_state_flags);
+        vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format,
+                key ? key->view_mask : 0, dynamic_state_flags);
         vk_libraries[library_count++] = d3d12_device_get_or_create_fragment_output_pipeline(state->device, &fragment_output_desc);
     }
 
@@ -6299,7 +6301,8 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     vp_desc.scissorCount = 0;
     vp_desc.pScissors = NULL;
 
-    vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format, *dynamic_state_flags);
+    vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format,
+            key ? key->view_mask : 0, *dynamic_state_flags);
     vkd3d_fragment_output_pipeline_desc_prepare(&fragment_output_desc);
 
     memset(&pipeline_desc, 0, sizeof(pipeline_desc));
@@ -6562,6 +6565,12 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
             return VK_NULL_HANDLE;
     }
 
+    /* We also need a fallback pipeline if view instance mask does not match. */
+    if (state->graphics.multiview.view_mask &&
+            state->graphics.multiview.dynamic_mask &&
+            dyn_state->view_mask != state->graphics.multiview.default_mask)
+        return VK_NULL_HANDLE;
+
     *dynamic_state_flags = state->graphics.pipeline_dynamic_states;
     return state->graphics.pipeline;
 }
@@ -6594,6 +6603,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     }
 
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    pipeline_key.view_mask = graphics->multiview.dynamic_mask ? dyn_state->view_mask : 0;
 
     if (!(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES))
     {
