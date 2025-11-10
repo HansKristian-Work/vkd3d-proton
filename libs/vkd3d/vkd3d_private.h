@@ -2208,6 +2208,8 @@ struct d3d12_graphics_pipeline_state
         uint32_t view_mask;
         uint32_t spec_data_index_to_id_mapping;
         uint32_t spec_data_viewport_mapping;
+        uint32_t default_mask;
+        bool dynamic_mask;
     } multiview;
 
     bool disable_optimization;
@@ -2360,6 +2362,7 @@ struct vkd3d_pipeline_key
     D3D12_PRIMITIVE_TOPOLOGY topology;
     VkFormat dsv_format;
     VkSampleCountFlagBits rasterization_samples;
+    uint32_t view_mask;
 
     bool dynamic_topology;
 };
@@ -2693,6 +2696,7 @@ struct vkd3d_dynamic_state
     VkViewport viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     VkRect2D scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     VkSampleCountFlagBits rasterization_samples;
+    uint32_t view_mask;
 
     float blend_constants[4];
 

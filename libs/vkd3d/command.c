@@ -6184,7 +6184,10 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
             &rendering_info->info.renderArea.extent.height,
             &rendering_info->info.layerCount);
 
-    rendering_info->info.viewMask = graphics->multiview.view_mask;
+
+    rendering_info->info.viewMask = list->state->graphics.multiview.dynamic_mask ?
+            list->dynamic_state.view_mask : list->state->graphics.multiview.view_mask;
+
     /* In multiview, it's the mask that controls active layers. */
     if (rendering_info->info.viewMask != 0)
         rendering_info->info.layerCount = 1;
@@ -6314,6 +6317,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     uint32_t new_active_flags;
     VkImageLayout dsv_layout;
     VkPipeline vk_pipeline;
+    uint32_t view_mask;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -6330,6 +6334,11 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
                 list->state, list->state->pipeline_type, pipeline_type);
         return false;
     }
+
+    /* We cannot compile a PSO with 0 mask since that's just a normal draw,
+     * but the obvious solution is to skip the draw. */
+    if (list->state->graphics.multiview.dynamic_mask && list->dynamic_state.view_mask == 0)
+        return false;
 
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
     if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
@@ -6352,11 +6361,14 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
+    view_mask = list->state->graphics.multiview.dynamic_mask ?
+            list->dynamic_state.view_mask : list->state->graphics.multiview.view_mask;
+
     /* If we need to bind or unbind certain render targets or if the DSV layout changed, interrupt rendering.
      * It's also possible that rtv_active_mask is constant, but rt_count increases (if last RT format is NULL). */
     if ((list->state->graphics.rtv_active_mask != list->rendering_info.rtv_mask) ||
             (list->state->graphics.rt_count != list->rendering_info.info.colorAttachmentCount) ||
-            (list->state->graphics.multiview.view_mask != list->rendering_info.info.viewMask) ||
+            (view_mask != list->rendering_info.info.viewMask) ||
             (dsv_layout != list->rendering_info.dsv.imageLayout))
     {
         d3d12_command_list_invalidate_rendering_info(list);
@@ -16195,7 +16207,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetViewInstanceMask(d3d12_command_list_iface *iface, UINT mask)
 {
-    FIXME("iface %p, mask %#x stub!\n", iface, mask);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, mask %#x\n", iface, mask);
+
+    /* Only accept the lower 4 bits. */
+    mask &= 0xf;
+
+    /* Currently implement view masking by using compiler variants.
+     * This is the simplest approach we can get away with ... */
+    if (list->state && list->state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE &&
+            list->state->graphics.multiview.dynamic_mask &&
+            mask != list->dynamic_state.view_mask)
+    {
+        d3d12_command_list_invalidate_current_pipeline(list, false);
+    }
+
+    list->dynamic_state.view_mask = mask;
 }
 
 static bool vk_pipeline_stage_from_wbi_mode(D3D12_WRITEBUFFERIMMEDIATE_MODE mode, VkPipelineStageFlagBits *stage)
