@@ -4122,6 +4122,7 @@ void vkd3d_fragment_output_pipeline_desc_init(struct vkd3d_fragment_output_pipel
     desc->rt_info.depthAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
     /* From spec:  If stencilAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a stencil aspect. */
     desc->rt_info.stencilAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    desc->rt_info.viewMask = graphics->multiview.view_mask;
 
     desc->dy_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     desc->dy_info.dynamicStateCount = vkd3d_init_dynamic_state_array(desc->dy_states,
