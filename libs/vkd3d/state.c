@@ -4780,6 +4780,69 @@ static bool d3d12_graphics_pipeline_state_needs_noop_fs(
             device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV;
 }
 
+static bool d3d12_pipeline_state_validate_view_instancing(struct d3d12_device *device,
+        struct d3d12_graphics_pipeline_state *graphics, const struct d3d12_pipeline_state_desc *desc)
+{
+    /* Need to map ViewIndex back to 2-bit ViewID (max view instancing in D3D12 is 4). */
+    uint32_t limit = min(device->device_info.vulkan_1_1_properties.maxMultiviewViewCount, 16);
+    unsigned int i;
+
+    if (desc->view_instancing_desc.Flags & D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING)
+    {
+        /* There are three potential strategies for this approach.
+         * - Push down a u32 which nops out the draw call based on ViewID.
+         *   This is somewhat questionable w.r.t. queries, UAV and potentially Xfb.
+         *   With current pushConstant limits, it's very hard to guarantee that we can just push down a u32.
+         * - Just ignore the masking. It's unclear if it's valid to generate geometry even when masked.
+         * - Compile a different variant dynamically. Can break tiler optimizations since
+         *   we'd have to start a new render pass when the dynamic mask changes.
+         *
+         * For now, just pretend we don't need to mask and that this is purely a performance optimization.
+         * */
+        FIXME("view instance masking not supported yet. Will ignore the mask.\n");
+    }
+
+    for (i = 0; i < desc->view_instancing_desc.ViewInstanceCount; i++)
+    {
+        const D3D12_VIEW_INSTANCE_LOCATION *loc = &desc->view_instancing_desc.pViewInstanceLocations[i];
+
+        if (loc->RenderTargetArrayIndex >= limit)
+        {
+            /* Only way this can work is exporting gl_Layer ourselves.
+             * This should never happen, but we could implement this by passing down a separate u32 and
+             * force draw instancing. */
+            FIXME("RenderTargetArrayIndex %u is out of range for supported min(16, multiviewCount) %u.\n",
+                    loc->RenderTargetArrayIndex, limit);
+            return false;
+        }
+
+        if (graphics->multiview.view_mask & (1u << loc->RenderTargetArrayIndex))
+        {
+            /* Technically it's valid to instance multiple times to the same array layer,
+             * and just using different viewport indices to achieve the same effect.
+             * However, there is no good way to express this in plain Vulkan multiview,
+             * so we are kind of forced to implement draw instancing here. */
+            FIXME("The same RenderTargetArrayIndex %u is used for multiple ViewIDs. This is unsupported.\n",
+                    loc->RenderTargetArrayIndex);
+            return false;
+        }
+
+        graphics->multiview.view_mask |= 1u << loc->RenderTargetArrayIndex;
+
+        /* We get the final layer in Vulkan constants, and we have to map that backwards to ViewID. */
+        graphics->multiview.spec_data_index_to_id_mapping |= i << (loc->RenderTargetArrayIndex * 2);
+
+        /* This is trivial to achieve in dxil-spirv. */
+        graphics->multiview.spec_data_viewport_mapping |= loc->ViewportArrayIndex << (8 * i);
+
+        /* There is still a potential hazard we don't handle which happens if last pre-raster stage is exporting
+         * SV_RenderTargetArrayIndex. We are forced into draw instancing in this case, which we don't support,
+         * but we need to defer this to compile time to check if we're compatible. */
+    }
+
+    return true;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
@@ -5372,9 +5435,27 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
 
     if (desc->view_instancing_desc.ViewInstanceCount)
     {
-        ERR("View instancing not supported.\n");
-        hr = E_INVALIDARG;
-        goto fail;
+        if (desc->view_instancing_desc.ViewInstanceCount > D3D12_MAX_VIEW_INSTANCE_COUNT)
+        {
+            ERR("View instance count is too large.\n");
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
+        if (device->d3d12_caps.options3.ViewInstancingTier == D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED)
+        {
+            ERR("View instancing not supported.\n");
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
+        /* We don't support every case yet, but the obvious fast paths should work. */
+        if (!d3d12_pipeline_state_validate_view_instancing(device, graphics, desc))
+        {
+            FIXME("Unsupported view instancing configuration used.\n");
+            hr = E_NOTIMPL;
+            goto fail;
+        }
     }
 
     /* Tests show that D3D12 drivers behave as if D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS
