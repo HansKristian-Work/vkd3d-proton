@@ -6179,6 +6179,11 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
             &rendering_info->info.renderArea.extent.height,
             &rendering_info->info.layerCount);
 
+    rendering_info->info.viewMask = graphics->multiview.view_mask;
+    /* In multiview, it's the mask that controls active layers. */
+    if (rendering_info->info.viewMask != 0)
+        rendering_info->info.layerCount = 1;
+
     /* It is robust in D3D12 to render with a scissor rect that out of bounds, but not so in Vulkan,
      * so we might have to re-clamp the scissor state. */
     if (old_extent.width != rendering_info->info.renderArea.extent.width ||
@@ -6346,6 +6351,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
      * It's also possible that rtv_active_mask is constant, but rt_count increases (if last RT format is NULL). */
     if ((list->state->graphics.rtv_active_mask != list->rendering_info.rtv_mask) ||
             (list->state->graphics.rt_count != list->rendering_info.info.colorAttachmentCount) ||
+            (list->state->graphics.multiview.view_mask != list->rendering_info.info.viewMask) ||
             (dsv_layout != list->rendering_info.dsv.imageLayout))
     {
         d3d12_command_list_invalidate_rendering_info(list);
