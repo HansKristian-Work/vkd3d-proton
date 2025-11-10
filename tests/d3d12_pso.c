@@ -3583,8 +3583,7 @@ void test_view_instancing(void)
             vkd3d_test_set_context("view mask %#x, layer %u", view_mask_tests[i], j);
             expected = (view_mask_tests[i] & (1u << j)) ? j : 0xffff;
 
-            /* Current vkd3d-proton implementation does not mask at all. */
-            todo_if(expected == 0xffff) check_sub_resource_uint(context.render_target, j, context.queue, context.list, expected, 0);
+            check_sub_resource_uint(context.render_target, j, context.queue, context.list, expected, 0);
             reset_command_list(context.list, context.allocator);
         }
     }
@@ -3622,8 +3621,7 @@ void test_view_instancing(void)
         reset_command_list(context.list, context.allocator);
     }
 
-    /* vkd3d-proton doesn't mask so we get 0xf. */
-    todo ok(view_mask == 0x3 || view_mask == 0xc, "Unexpected view mask %#x.\n", view_mask);
+    ok(view_mask == 0x3 || view_mask == 0xc, "Unexpected view mask %#x.\n", view_mask);
 
     /* Binding an unmasked PSO does not affect the dynamic view mask. Native
      * NV drivers will crash in SetViewInstanceMask if no PSO is bound. */
@@ -3650,7 +3648,7 @@ void test_view_instancing(void)
     for (i = 0; i < ARRAY_SIZE(view_instance_locations_simple); i++)
     {
         vkd3d_test_set_context("layer %u", i);
-        todo_if(i) check_sub_resource_uint(context.render_target, i, context.queue, context.list, i ? 0xffff : 0, 0);
+        check_sub_resource_uint(context.render_target, i, context.queue, context.list, i ? 0xffff : 0, 0);
         reset_command_list(context.list, context.allocator);
     }
 
