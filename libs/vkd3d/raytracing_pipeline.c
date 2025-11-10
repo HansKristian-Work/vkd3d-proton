@@ -471,7 +471,7 @@ struct d3d12_rt_state_object_pipeline_data
     size_t vk_libraries_size;
     size_t vk_libraries_count;
 
-    struct vkd3d_shader_debug_ring_spec_info *spec_info_buffer;
+    struct vkd3d_shader_spec_info *spec_info_buffer;
     bool has_deep_duplication;
 };
 

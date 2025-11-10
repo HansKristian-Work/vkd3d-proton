@@ -25,17 +25,17 @@
 #include <stdio.h>
 
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
-        struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash)
+        struct vkd3d_shader_spec_info *info, vkd3d_shader_hash_t hash)
 {
-    info->spec_info.pData = &info->constants;
-    info->spec_info.dataSize = sizeof(info->constants);
+    info->spec_info.pData = &info->debug_ring_constants;
+    info->spec_info.dataSize = sizeof(info->debug_ring_constants);
     info->spec_info.pMapEntries = info->map_entries;
     info->spec_info.mapEntryCount = 4;
 
-    info->constants.hash = hash;
-    info->constants.host_bda = device->debug_ring.ring_device_address;
-    info->constants.atomic_bda = device->debug_ring.atomic_device_address;
-    info->constants.ring_words = device->debug_ring.ring_size / sizeof(uint32_t);
+    info->debug_ring_constants.hash = hash;
+    info->debug_ring_constants.host_bda = device->debug_ring.ring_device_address;
+    info->debug_ring_constants.atomic_bda = device->debug_ring.atomic_device_address;
+    info->debug_ring_constants.ring_words = device->debug_ring.ring_size / sizeof(uint32_t);
 
     info->map_entries[0].constantID = 0;
     info->map_entries[0].offset = offsetof(struct vkd3d_shader_debug_ring_spec_constants, hash);
