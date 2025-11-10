@@ -64,7 +64,9 @@ void test_open_heap_from_address(void)
     ID3D12Heap *heap;
     unsigned int i;
     uint32_t *addr;
+    void *map_ptr;
     HRESULT hr;
+    bool freed;
 
     if (!init_test_context(&context, NULL))
         return;
@@ -85,6 +87,8 @@ void test_open_heap_from_address(void)
         hr = ID3D12Device3_OpenExistingHeapFromAddress(device3, addr, &IID_ID3D12Heap, (void **)&heap);
         ok(hr == S_OK, "Failed to open heap from address: hr #%x.\n", hr);
 
+        freed = false;
+
         if (heap)
         {
             heap_desc = ID3D12Heap_GetDesc(heap);
@@ -94,6 +98,10 @@ void test_open_heap_from_address(void)
 
             resource = create_placed_buffer(device, heap, 0, heap_size, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER, D3D12_RESOURCE_STATE_COPY_SOURCE);
             ok(!!resource, "Failed to create resource.\n");
+            hr = ID3D12Resource_Map(resource, 0u, NULL, &map_ptr);
+            ok(hr == S_OK, "Failed to map resource, hr %#x.\n", hr);
+            ID3D12Resource_Unmap(resource, 0u, NULL);
+            ok(map_ptr == addr, "Expected mapped pointer %p to match VirtualAlloc address %p.\n", map_ptr, addr);
             readback_resource = create_default_buffer(device, heap_size, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
             ID3D12GraphicsCommandList_CopyResource(context.list, readback_resource, resource);
             transition_resource_state(context.list, readback_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -101,11 +109,17 @@ void test_open_heap_from_address(void)
             reset_command_list(context.list, context.allocator);
             ok(!memcmp(rb.data, addr, heap_size), "Expected exact copy.\n");
             release_resource_readback(&rb);
+            freed = VirtualFree(addr, 0, MEM_RELEASE);
+            todo ok(!freed, "Expected VirtualFree to fail.\n");
             ID3D12Heap_Release(heap);
             ID3D12Resource_Release(readback_resource);
             ID3D12Resource_Release(resource);
         }
-        VirtualFree(addr, 0, MEM_RELEASE);
+        if (!freed)
+        {
+            freed = VirtualFree(addr, 0, MEM_RELEASE);
+            ok(freed, "Expected VirtualFree to succeed.\n");
+        }
     }
 
     /* Import at offset, which should fail. */
