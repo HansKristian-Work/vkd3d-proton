@@ -8900,8 +8900,30 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
     options3->WriteBufferImmediateSupportFlags = D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT |
             D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE | D3D12_COMMAND_LIST_SUPPORT_FLAG_COPY |
             D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE;
-    /* Currently not supported */
-    options3->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+
+    if (vkd3d_debug_control_is_test_suite() ||
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES))
+    {
+        /* Currently only partially implemented.
+         * TIER_2 is most appropriate since it allows for fast path in certain situations and
+         * fallback in some other cases. */
+        options3->ViewInstancingTier =
+                device->device_info.vulkan_1_1_features.multiview &&
+                device->device_info.vulkan_1_2_features.shaderOutputLayer &&
+                device->device_info.vulkan_1_2_features.shaderOutputViewportIndex &&
+                device->device_info.vulkan_1_1_features.multiviewGeometryShader &&
+                device->device_info.vulkan_1_1_features.multiviewTessellationShader &&
+                (!device->device_info.mesh_shader_features.meshShader ||
+                        device->device_info.mesh_shader_features.multiviewMeshShader) ?
+                D3D12_VIEW_INSTANCING_TIER_2 :
+                D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+    }
+    else
+    {
+        /* Currently not supported */
+        options3->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+    }
+
     options3->BarycentricsSupported =
             device->device_info.barycentric_features_nv.fragmentShaderBarycentric ||
             device->device_info.barycentric_features_khr.fragmentShaderBarycentric;
