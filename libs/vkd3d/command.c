@@ -6389,6 +6389,7 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
 
 static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *list)
 {
+    struct d3d12_graphics_pipeline_state *graphics = &list->state->graphics;
     struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
     struct d3d12_command_list_barrier_batch barrier;
     VkExtent2D old_extent;
@@ -6396,6 +6397,19 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 
     if (rendering_info->state_flags & VKD3D_RENDERING_CURRENT)
         return true;
+
+    /* Clear fuse needs to know the viewMask, so this must be updated now. */
+    old_extent = rendering_info->info.renderArea.extent;
+    rendering_info->info.renderArea.extent.width = list->fb_width;
+    rendering_info->info.renderArea.extent.height = list->fb_height;
+
+    rendering_info->info.viewMask = graphics->multiview.view_mask;
+
+    /* In multiview, it's the mask that controls active layers. */
+    if (rendering_info->info.viewMask != 0)
+        rendering_info->info.layerCount = 1;
+    else
+        rendering_info->info.layerCount = list->fb_layer_count;
 
     rendering_info->rtv_mask = 0;
     d3d12_command_list_barrier_batch_init(&barrier);
@@ -6483,11 +6497,6 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         rendering_info->vrs.imageView = VK_NULL_HANDLE;
         rendering_info->vrs.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
-
-    old_extent = rendering_info->info.renderArea.extent;
-    rendering_info->info.renderArea.extent.width = list->fb_width;
-    rendering_info->info.renderArea.extent.height = list->fb_height;
-    rendering_info->info.layerCount = list->fb_layer_count;
 
     /* It is robust in D3D12 to render with a scissor rect that out of bounds (if all render targets match size),
      * but not so in Vulkan, so we might have to re-clamp the scissor state. */
@@ -6659,9 +6668,13 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     pso_invalidates_rp = false;
 
     /* With unified layouts, we can mitigate this, since layout will always be either GENERAL or UNDEFINED anyway.
-     * If we have unused_attachments, UNDEFINED use will follow OMSetRenderTargets. */
-    if (dsv_layout != list->rendering_info.depth.imageLayout)
+     * If we have unused_attachments, UNDEFINED use will follow OMSetRenderTargets.
+     * For multiview, we need to compile variants for now to deal with masks. */
+    if (dsv_layout != list->rendering_info.depth.imageLayout ||
+        list->state->graphics.multiview.view_mask != list->rendering_info.info.viewMask)
+    {
         pso_invalidates_rp = true;
+    }
 
     if (pso_invalidates_rp)
     {
