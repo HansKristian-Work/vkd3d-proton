@@ -2700,6 +2700,18 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
         compile_arguments->output_swizzles = state->graphics.cached_desc.ps_output_swizzle;
         compile_arguments->output_swizzle_count = state->graphics.rt_count;
     }
+
+    if (stage != VK_SHADER_STAGE_COMPUTE_BIT && state->graphics.multiview.view_mask)
+    {
+        VkShaderStageFlags active_pre_raster = state->graphics.stage_flags & ~VK_SHADER_STAGE_FRAGMENT_BIT;
+        compile_arguments->multiview.enable = state->graphics.multiview.view_mask != 0;
+        /* Only last pre-raster stage needs to "support" multiview properly.
+         * Other stages can query ViewID. */
+        compile_arguments->multiview.last_pre_rasterization =
+                (active_pre_raster & ~(stage | (stage - 1))) == 0;
+
+        /* Pass down concrete values via spec-constants later. */
+    }
 }
 
 static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, struct d3d12_device *device,
@@ -4535,6 +4547,28 @@ static HRESULT d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_s
                     &graphics->spec_info[i],
                     graphics->code[i].meta.hash);
             graphics->stages[i].pSpecializationInfo = &graphics->spec_info[i].spec_info;
+        }
+        else if (graphics->multiview.view_mask)
+        {
+            /* TODO: If we have debug ring, might need to find a nice way to "fuse" spec constant info blocks. */
+            struct vkd3d_shader_spec_info *info = &graphics->spec_info[i];
+
+            info->spec_info.pData = info->generic_u32;
+            info->spec_info.dataSize = 2 * sizeof(uint32_t);
+            info->spec_info.pMapEntries = info->map_entries;
+            info->spec_info.mapEntryCount = 2;
+
+            info->map_entries[0].constantID = VKD3D_SHADER_VIEW_INDEX_TO_VIEW_ID_SPEC_CONSTANT;
+            info->map_entries[0].offset = 0;
+            info->map_entries[0].size = sizeof(uint32_t);
+            info->map_entries[1].constantID = VKD3D_SHADER_VIEW_ID_TO_VIEWPORT_SPEC_CONSTANT;
+            info->map_entries[1].offset = sizeof(uint32_t);
+            info->map_entries[1].size = sizeof(uint32_t);
+
+            info->generic_u32[0] = graphics->multiview.spec_data_index_to_id_mapping;
+            info->generic_u32[1] = graphics->multiview.spec_data_viewport_mapping;
+
+            graphics->stages[i].pSpecializationInfo = &info->spec_info;
         }
 
         if (graphics->stages[i].module != VK_NULL_HANDLE &&
