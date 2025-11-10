@@ -3341,7 +3341,12 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
     vk_clear_attachment.clearValue = *clear_value;
 
     vk_clear_rect.baseArrayLayer = 0;
-    vk_clear_rect.layerCount = view->info.texture.layer_count;
+
+    /* If we're in a proper multiview render-pass, we have to pass layerCount = 1,
+     * and it should be broadcast to all views. */
+    vk_clear_rect.layerCount =
+            (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) && list->rendering_info.info.viewMask ?
+            1 : view->info.texture.layer_count;
 
     for (i = 0; i < rect_count; i++)
     {
@@ -12555,6 +12560,16 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
 
     if (attachment_idx == D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT)
         writable = (vk_writable_aspects_from_image_layout(list->dsv_layout) & clear_aspects) == clear_aspects;
+
+    /* If we're in multiview, we cannot do in-render-pass clears except in special circumstances,
+     * since ClearRTV is not affected by view instancing at all.
+     * If the viewMask is "normal" we can use in-render-pass clears just fine. */
+    if (list->rendering_info.info.viewMask &&
+            (vk_subresource_layers.layerCount >= 32 ||
+            list->rendering_info.info.viewMask != (1u << vk_subresource_layers.layerCount) - 1))
+    {
+        writable = false;
+    }
 
     if (attachment_idx < 0 || !writable)
     {
