@@ -1751,9 +1751,9 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
         uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info)
 {
     struct vkd3d_meta_execute_indirect_spec_constant_data execute_indirect_spec_constants;
-    VkSpecializationMapEntry map_entry[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES + 1];
+    VkSpecializationMapEntry map_entry[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES + 1];
     struct vkd3d_execute_indirect_ops *meta_indirect_ops = &meta_ops->execute_indirect;
-    struct vkd3d_shader_debug_ring_spec_info debug_ring_info;
+    struct vkd3d_shader_spec_info debug_ring_info;
 
     VkSpecializationInfo spec;
     HRESULT hr = S_OK;
@@ -1788,14 +1788,14 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
                 0 /* Reserve this hash for internal debug streams. */);
 
         memset(&execute_indirect_spec_constants, 0, sizeof(execute_indirect_spec_constants));
-        execute_indirect_spec_constants.constants = debug_ring_info.constants;
+        execute_indirect_spec_constants.constants = debug_ring_info.debug_ring_constants;
         execute_indirect_spec_constants.workgroup_size_x = patch_command_count;
 
         memcpy(map_entry, debug_ring_info.map_entries, sizeof(debug_ring_info.map_entries));
-        map_entry[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES].constantID = 4;
-        map_entry[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES].offset =
+        map_entry[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES].constantID = 4;
+        map_entry[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES].offset =
                 offsetof(struct vkd3d_meta_execute_indirect_spec_constant_data, workgroup_size_x);
-        map_entry[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES].size = sizeof(patch_command_count);
+        map_entry[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES].size = sizeof(patch_command_count);
 
         spec.pMapEntries = map_entry;
         spec.pData = &execute_indirect_spec_constants;

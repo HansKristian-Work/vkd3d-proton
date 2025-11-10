@@ -2123,11 +2123,15 @@ VkPipeline vkd3d_fragment_output_pipeline_create(struct d3d12_device *device,
         const struct vkd3d_fragment_output_pipeline_desc *desc);
 void vkd3d_fragment_output_pipeline_free(struct hash_map_entry *entry, void *userdata);
 
-#define VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES 4
-struct vkd3d_shader_debug_ring_spec_info
+#define VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES 4
+struct vkd3d_shader_spec_info
 {
-    struct vkd3d_shader_debug_ring_spec_constants constants;
-    VkSpecializationMapEntry map_entries[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES];
+    union
+    {
+        struct vkd3d_shader_debug_ring_spec_constants debug_ring_constants;
+        uint32_t generic_u32[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES];
+    };
+    VkSpecializationMapEntry map_entries[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES];
     VkSpecializationInfo spec_info;
 };
 
@@ -2156,7 +2160,7 @@ struct d3d12_graphics_pipeline_state_cached_desc
 
 struct d3d12_graphics_pipeline_state
 {
-    struct vkd3d_shader_debug_ring_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
+    struct vkd3d_shader_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     struct vkd3d_shader_code code[VKD3D_MAX_SHADER_STAGES];
     struct vkd3d_shader_code_debug code_debug[VKD3D_MAX_SHADER_STAGES];
@@ -3745,7 +3749,7 @@ void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *state,
         struct d3d12_device *device);
 void *vkd3d_shader_debug_ring_thread_main(void *arg);
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
-        struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash);
+        struct vkd3d_shader_spec_info *info, vkd3d_shader_hash_t hash);
 /* If we assume device lost, try really hard to fish for messages. */
 void vkd3d_shader_debug_ring_kick(struct vkd3d_shader_debug_ring *state,
         struct d3d12_device *device, bool device_lost);
