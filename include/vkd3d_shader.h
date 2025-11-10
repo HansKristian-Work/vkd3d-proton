@@ -157,6 +157,13 @@ enum vkd3d_shader_parameter_type
     VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT,
 };
 
+enum vkd3d_shader_parameter_spec_constant_mapping
+{
+    /* Lower values are reserved for other instrumentation. */
+    VKD3D_SHADER_VIEW_INDEX_TO_VIEW_ID_SPEC_CONSTANT = 1000,
+    VKD3D_SHADER_VIEW_ID_TO_VIEWPORT_SPEC_CONSTANT = 1001
+};
+
 enum vkd3d_shader_parameter_data_type
 {
     VKD3D_SHADER_PARAMETER_DATA_TYPE_UNKNOWN,
