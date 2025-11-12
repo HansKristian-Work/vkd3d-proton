@@ -9753,8 +9753,11 @@ enum vkd3d_resolve_image_path d3d12_command_list_select_resolve_path(struct d3d1
                 path, mode, format);
 
         /* Fallback when trying to do MIN/MAX resolve on color and there is no RTV usage.
-         * AVERAGE is almost correct and better than rendering nothing. */
-        if (vkd3d_format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
+         * AVERAGE is almost correct and better than rendering nothing.
+         * TODO: maintenance10 adds depth-stencil resolve support.
+         * Either way, the aspects must match. */
+        if (dst_resource->format->vk_aspect_mask == src_resource->format->vk_aspect_mask &&
+                (vkd3d_format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT))
             path = VKD3D_RESOLVE_IMAGE_PATH_DIRECT;
         else
             path = VKD3D_RESOLVE_IMAGE_PATH_UNSUPPORTED;
