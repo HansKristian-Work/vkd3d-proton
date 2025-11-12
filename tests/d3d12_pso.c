@@ -2837,10 +2837,12 @@ void test_line_rasterization(void)
             }
         }
 
+        /* ANV does not support smoothLines. */
+        bug_if(tests[i].expected_alpha && is_mesa_intel_device(context.device))
         ok(!(tests[i].min_coverage & ~coverage) && !(coverage & ~tests[i].max_coverage),
                 "Got coverage %#x, expected range is %#x - %#x.\n", coverage, tests[i].min_coverage, tests[i].max_coverage);
 
-        bug_if(tests[i].expected_alpha && is_amd_windows_device(context.device))
+        bug_if(tests[i].expected_alpha && (is_amd_windows_device(context.device) || is_mesa_intel_device(context.device)))
         ok(has_alpha == tests[i].expected_alpha, "Got alpha %u, expected %u.\n", has_alpha, tests[i].expected_alpha);
 
         release_resource_readback(&rb);
