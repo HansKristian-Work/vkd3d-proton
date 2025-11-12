@@ -6165,7 +6165,9 @@ void test_custom_border_color_limits(void)
         /* NV will fail around 4k unique samplers. */
         if (is_nvidia_device(context.device))
             is_todo = flat_index >= 4000;
-        else if (is_amd_vulkan_device(context.device) || is_adreno_device(context.device))
+        else if (is_amd_vulkan_device(context.device) ||
+                is_adreno_device(context.device) ||
+                is_mesa_intel_device(context.device))
             is_todo = flat_index >= 4096;
         else
             is_todo = false;
