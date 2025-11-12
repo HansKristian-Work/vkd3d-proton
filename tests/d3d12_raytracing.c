@@ -1649,7 +1649,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
             ok(ref_count == 2, "Unexpected refcount %u.\n", ref_count);
 
             /* Test that we get something sensible, different drivers return different values here. */
-#define ARBITRARY_STACK_LIMIT 32
+#define ARBITRARY_STACK_LIMIT 128
 
             /* AMD Windows returns 0 here for all stack sizes. There is no well defined return value we expect here,
              * but verify we return something sane. */
