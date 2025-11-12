@@ -35,6 +35,8 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
     struct resource_readback rb;
     struct test_context context;
     ID3D12DescriptorHeap *heap;
+    uint32_t first_element;
+    uint32_t num_elements;
     unsigned int i, j;
     HRESULT hr;
 
@@ -86,6 +88,22 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
 
     heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(output_buffers));
 
+    if (is_mesa_intel_device(context.device))
+    {
+        /* There appears to be driver issues.
+         * SSBO not aligned to the advertised 4 bytes seems to break down for unknown reasons.
+         * There's also some strange code dealing with using lower 2 bits to encode range offsets.
+         * The SSBO itself is encoded with all bits, so this is confusing. */
+        num_elements = 10;
+        first_element = 2;
+        bug_if(true) ok(false, "Skipping 16-bit alignment test due to driver not working as expected.\n");
+    }
+    else
+    {
+        num_elements = 9;
+        first_element = 1;
+    }
+
     for (i = 0; i < ARRAY_SIZE(output_buffers); i++)
     {
         output_buffers[i] = create_default_buffer(context.device, 1024,
@@ -96,8 +114,8 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
         uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uav_desc.Buffer.StructureByteStride = strides[i];
         /* Very spicy test. */
-        uav_desc.Buffer.NumElements = 9;
-        uav_desc.Buffer.FirstElement = 1;
+        uav_desc.Buffer.NumElements = num_elements;
+        uav_desc.Buffer.FirstElement = first_element;
 
         ID3D12Device_CreateUnorderedAccessView(context.device, output_buffers[i], NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, i));
     }
@@ -120,18 +138,19 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
         for (j = 0; j < 256; j++)
         {
             uint16_t value = get_readback_uint16(&rb, j, 0);
-            uint16_t expected = j - strides[i] / 2;
+            uint16_t expected = j - first_element * strides[i] / 2;
             bool is_todo;
 
             if (expected & 0x8000)
                 expected = 0;
-            else if (expected >= strides[i] / 2 * 9)
+            else if (expected >= strides[i] / 2 * num_elements)
                 expected = 0;
 
             /* For RAW buffers, AMD robustness is 4 byte aligned.
              * This is theoretically out of spec, but this is so minor, that we can let it slide.
              * Intel has similar issues even on native too. (TODO: verify with this test). */
-            is_todo = strides[i] % 4 != 0 && j == (strides[i] / 2) * 10;
+            is_todo = (first_element % 2 || num_elements % 2) &&
+                    strides[i] % 4 != 0 && j == (strides[i] / 2) * (first_element + num_elements);
 
             todo_if(is_todo)
             ok(value == expected, "UAV %u, u16 index %u, expected %u, got %u\n", i, j, expected, value);
