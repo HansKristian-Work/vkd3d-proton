@@ -3338,21 +3338,28 @@ static void rs_line_info_from_d3d12(struct d3d12_device *device, VkPipelineRaste
     switch (d3d12_desc->LineRasterizationMode)
     {
         case D3D12_LINE_RASTERIZATION_MODE_ALIASED:
+            /* TODO: I think we're supposed to use bresenham here? That is likely the default anyway. */
             break;
 
         case D3D12_LINE_RASTERIZATION_MODE_ALPHA_ANTIALIASED:
             if (device->device_info.line_rasterization_features.smoothLines)
                 vk_line_info->lineRasterizationMode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH_EXT;
+            else
+                FIXME_ONCE("Smooth lines not supported, falling back to default lines.\n");
             break;
 
         case D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_WIDE:
             if (device->device_info.features2.features.wideLines)
                 vk_rs_desc->lineWidth = 1.4f;
+            else
+                FIXME_ONCE("Wide lines not supported, falling back to normal wide lines.\n");
             /* fall through */
 
         case D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_NARROW:
             if (device->device_info.line_rasterization_features.rectangularLines)
                 vk_line_info->lineRasterizationMode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_EXT;
+            else
+                FIXME_ONCE("Narrow quad lines not supported, falling back to default lines.\n");
             break;
     }
 
