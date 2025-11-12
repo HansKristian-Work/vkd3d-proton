@@ -2720,16 +2720,16 @@ void test_line_rasterization(void)
     }
     tests[] =
     {
-        /* AMD and Nvidia behave differently w.r.t. line rasterization */
+        /* AMD and Nvidia behave differently w.r.t. line rasterization. Intel smooth lines are *very* thick. */
         { &pso_rs_plain_stream, 0x03c0u, 0x03c0u, false, false, false },
-        { &pso_rs_plain_stream, 0x13c8u, 0x17e8u, true,  true,  false },
+        { &pso_rs_plain_stream, 0x13c8u, 0x3ffcu, true,  true,  false },
         { &pso_rs_plain_stream, 0x03c0u, 0x17e8u, false, false, true  },
         { &pso_rs_plain_stream, 0x03c0u, 0x17e8u, false, true,  true  },
         /* Explicit line rasterization states last, we skip all tests if these are unsupported. */
         { &pso_rs_desc2_stream, 0x03c0u, 0x03c0u, false, false, false, D3D12_LINE_RASTERIZATION_MODE_ALIASED },
         { &pso_rs_desc2_stream, 0x03c0u, 0x03c0u, false, false, false, D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_NARROW },
         { &pso_rs_desc2_stream, 0x03c0u, 0x17e8u, false, false, false, D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_WIDE },
-        { &pso_rs_desc2_stream, 0x13c8u, 0x17e8u, true,  false, false, D3D12_LINE_RASTERIZATION_MODE_ALPHA_ANTIALIASED },
+        { &pso_rs_desc2_stream, 0x13c8u, 0x3ffcu, true,  false, false, D3D12_LINE_RASTERIZATION_MODE_ALPHA_ANTIALIASED },
     };
 
     memset(&desc, 0, sizeof(desc));
