@@ -9074,10 +9074,11 @@ static void d3d12_device_caps_init_feature_options19(struct d3d12_device *device
     options19->SupportedSampleCountsWithNoOutputs = 0x1;
     /* D3D12 expectations w.r.t. rounding match Vulkan spec.
      * However, both AMD and Intel native drivers round to even. RADV has no-trunc-coord workarounds.
-     * Turnip enables round-to-even behavior for vkd3d. */
+     * Turnip enables round-to-even behavior for vkd3d. Same for ANV. */
     options19->PointSamplingAddressesNeverRoundUp =
             device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_MESA_RADV &&
-            device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_MESA_TURNIP;
+            device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_MESA_TURNIP &&
+            device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA_KHR;
     options19->RasterizerDesc2Supported = TRUE;
     /* We default to a line width of 1.0 anyway */
     options19->NarrowQuadrilateralLinesSupported = TRUE;
