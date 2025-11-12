@@ -3194,7 +3194,9 @@ void test_resolve_subresource_depth(void)
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.Format = DXGI_FORMAT_R32_FLOAT;
     resource_desc.SampleDesc.Count = 1;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    /* This is technically not necessary, but we currently cannot support DEPTH -> COLOR resolves
+     * unless we can fallback to either RT or UAV usage. */
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
         D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST,
