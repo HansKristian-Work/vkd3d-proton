@@ -450,3 +450,5 @@ and disassembly of the crashed pipeline. Here we can study the code to figure ou
 
 Which is descriptor index #259. Based on this, we can inspect the descriptor QA log and verify that the application
 did indeed do something invalid, which caused the GPU hang.
+
+dummy lock branch
