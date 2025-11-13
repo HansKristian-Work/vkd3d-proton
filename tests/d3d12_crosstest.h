@@ -589,6 +589,11 @@ static inline bool is_vkd3d_proton_device(ID3D12Device *device)
 {
     return false;
 }
+
+static inline bool get_driver_vk_features(ID3D12Device *device, void *pnext)
+{
+    return false;
+}
 #else
 
 static ID3D12Device *create_device(void)
@@ -597,6 +602,35 @@ static ID3D12Device *create_device(void)
     HRESULT hr;
     hr = D3D12CreateDevice(NULL, vkd3d_device_feature_level, &IID_ID3D12Device, (void **)&device);
     return SUCCEEDED(hr) ? device : NULL;
+}
+
+static inline bool get_driver_vk_features(ID3D12Device *device, void *pnext)
+{
+    PFN_vkGetPhysicalDeviceFeatures2 pfn_vkGetPhysicalDeviceFeatures2;
+    VkPhysicalDeviceFeatures2 device_features2;
+    VkPhysicalDevice vk_physical_device;
+    VkInstance vk_instance;
+    ID3D12DeviceExt *ext;
+    VkDevice vk_device;
+
+    if (!init_vulkan_loader())
+        return false;
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12DeviceExt, (void **)&ext)))
+        return false;
+
+    ID3D12DeviceExt_GetVulkanHandles(ext, &vk_instance, &vk_physical_device, &vk_device);
+    ID3D12DeviceExt_Release(ext);
+
+    pfn_vkGetPhysicalDeviceFeatures2
+            = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceFeatures2");
+    ok(pfn_vkGetPhysicalDeviceFeatures2, "vkGetPhysicalDeviceFeatures2 is NULL.\n");
+
+    memset(&device_features2, 0, sizeof(device_features2));
+    device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    device_features2.pNext = pnext;
+    pfn_vkGetPhysicalDeviceFeatures2(vk_physical_device, &device_features2);
+    return true;
 }
 
 static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPropertiesKHR *driver_properties)
