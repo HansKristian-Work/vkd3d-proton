@@ -2541,6 +2541,7 @@ void test_line_rasterization(void)
     struct test_context_desc desc;
     struct resource_readback rb;
     struct test_context context;
+    bool supports_smooth_lines;
     ID3D12PipelineState *pso;
     D3D12_VIEWPORT viewport;
     ID3D12Device2 *device2;
@@ -2782,6 +2783,18 @@ void test_line_rasterization(void)
     pso_rs_plain_desc.root_signature.root_signature = context.root_signature;
     pso_rs_desc2_desc.root_signature.root_signature = context.root_signature;
 
+    if (is_vk_device_extension_supported(context.device, "VK_EXT_line_rasterization"))
+    {
+        VkPhysicalDeviceLineRasterizationFeaturesEXT line;
+        memset(&line, 0, sizeof(line));
+        line.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT;
+        supports_smooth_lines = get_driver_vk_features(context.device, &line) && line.smoothLines == VK_TRUE;
+    }
+    else
+    {
+        supports_smooth_lines = !is_vkd3d_proton_device(context.device);
+    }
+
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
         vkd3d_test_set_context("Test %u", i);
@@ -2837,12 +2850,12 @@ void test_line_rasterization(void)
             }
         }
 
-        /* ANV does not support smoothLines. */
-        bug_if(tests[i].expected_alpha && is_mesa_intel_device(context.device))
+        /* ANV and Turnip don't support smoothLines. */
+        bug_if(tests[i].expected_alpha && !supports_smooth_lines)
         ok(!(tests[i].min_coverage & ~coverage) && !(coverage & ~tests[i].max_coverage),
                 "Got coverage %#x, expected range is %#x - %#x.\n", coverage, tests[i].min_coverage, tests[i].max_coverage);
 
-        bug_if(tests[i].expected_alpha && (is_amd_windows_device(context.device) || is_mesa_intel_device(context.device)))
+        bug_if(tests[i].expected_alpha && (is_amd_windows_device(context.device) || !supports_smooth_lines))
         ok(has_alpha == tests[i].expected_alpha, "Got alpha %u, expected %u.\n", has_alpha, tests[i].expected_alpha);
 
         release_resource_readback(&rb);
