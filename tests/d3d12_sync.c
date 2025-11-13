@@ -2059,7 +2059,8 @@ static void test_fence_signal_order_deadlock_stress(bool use_shared)
     ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&fence_alt);
 
-    for (iter = 0; iter < 1024 * 1024; iter++)
+	/* For hardcore stress test, just run this test in a loop. */
+    for (iter = 0; iter < 16 * 1024; iter++)
     {
         ID3D12Fence_Signal(fence, 0);
 
