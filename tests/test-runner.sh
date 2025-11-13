@@ -54,10 +54,15 @@ if [[ -z $d3d12_bin || ! -f "$d3d12_bin" ]] ; then
 fi
 
 mapfile -t tests < <("$d3d12_bin" --list-tests)
+
 if [[ -z $run_stress ]] ; then
-	for index in "${!tests[@]}" ; do
-		[[ "${tests[$index]}" != *stress* ]] || unset -v 'tests[$index]'
+	compacted=()
+	for t in "${tests[@]}" ; do
+		if [[ "$t" != *stress* ]] ; then
+			compacted+=($t)
+		fi
 	done
+	tests=(${compacted[@]})
 fi
 
 # runtime variable init
