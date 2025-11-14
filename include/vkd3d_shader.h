@@ -157,6 +157,13 @@ enum vkd3d_shader_parameter_type
     VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT,
 };
 
+enum vkd3d_shader_parameter_spec_constant_mapping
+{
+    /* Lower values are reserved for other instrumentation. */
+    VKD3D_SHADER_VIEW_INDEX_TO_VIEW_ID_SPEC_CONSTANT = 1000,
+    VKD3D_SHADER_VIEW_ID_TO_VIEWPORT_SPEC_CONSTANT = 1001
+};
+
 enum vkd3d_shader_parameter_data_type
 {
     VKD3D_SHADER_PARAMETER_DATA_TYPE_UNKNOWN,
@@ -167,6 +174,8 @@ enum vkd3d_shader_parameter_name
 {
     VKD3D_SHADER_PARAMETER_NAME_UNKNOWN,
     VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT,
+    VKD3D_SHADER_PARAMETER_NAME_VIEW_INDEX_TO_VIEW_ID,
+    VKD3D_SHADER_PARAMETER_NAME_VIEW_ID_TO_VIEWPORT
 };
 
 struct vkd3d_shader_parameter_immediate_constant
@@ -570,6 +579,12 @@ struct vkd3d_shader_compile_arguments
     /* Only non-zero when enabled by vkd3d_config */
     VkDriverId driver_id;
     uint32_t driver_version;
+
+    struct
+    {
+        bool enable;
+        bool last_pre_rasterization;
+    } multiview;
 };
 
 /* root signature 1.0 */
