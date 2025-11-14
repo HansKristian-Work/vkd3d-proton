@@ -3932,6 +3932,16 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
     if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
         rendering_info.pStencilAttachment = &stencil_attachment_info;
 
+    /* If we're not using GENERAL depth-stencil layout, we'll end up with wrong image layout VVL errors
+     * if we include aspects we don't intend to use in the clear. */
+    if (load_op == VK_ATTACHMENT_LOAD_OP_CLEAR)
+    {
+        if (!(clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT))
+            rendering_info.pDepthAttachment = NULL;
+        if (!(clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT))
+            rendering_info.pStencilAttachment = NULL;
+    }
+
     /* If we need to discard a single aspect, use separate layouts, since we have to use UNDEFINED barrier when we can. */
     separate_ds_layouts = view->format->vk_aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT) &&
             clear_aspects != view->format->vk_aspect_mask;
