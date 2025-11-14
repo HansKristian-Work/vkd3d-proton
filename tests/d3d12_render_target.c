@@ -1517,6 +1517,7 @@ void test_renderpass_rendering(void)
     dsv_info.StencilBeginningAccess.Clear.ClearValue.DepthStencil.Stencil = 0x00;
 
     transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, &dsv_info, 0);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
@@ -1546,7 +1547,6 @@ void test_renderpass_rendering(void)
     reset_command_list(context.list, context.allocator);
 
     /* Test clear behaviour with SUSPEND/RESUME flags */
-    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     rtv_infos[0].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
     memcpy(&rtv_infos[0].BeginningAccess.Clear.ClearValue.Color, &blue, sizeof(green));
