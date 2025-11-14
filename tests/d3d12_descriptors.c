@@ -6454,8 +6454,8 @@ void test_large_buffer_descriptors(void)
 
     static const uint32_t offsets[4] = {
         3ull * 1024 * 1024 * 1024 / 4 - 1,
-        3ull * 1024 * 1024 * 1024 / 2 - 1,
-        1ull * 1024 * 1024 * 1024 / 2 - 1 - 32 * 1024,
+        3ull * 1024 * 1024 * 1024 / 2 - 2,
+        1ull * 1024 * 1024 * 1024 / 2 - 2 - 32 * 1024,
         3ull * 1024 * 1024 * 1024,
     };
 
@@ -6566,16 +6566,16 @@ void test_large_buffer_descriptors(void)
     srv_desc.Buffer.NumElements = 1ull * 1024 * 1024 * 1024 - 9; /* Maximum D3D12 runtime allows without breaking. */
     ID3D12Device_CreateShaderResourceView(context.device, sparse, &srv_desc, get_cpu_descriptor_handle(&context, srvs, 0));
 
-    srv_desc.Buffer.FirstElement = 1;
+    srv_desc.Buffer.FirstElement = 2;
     srv_desc.Buffer.StructureByteStride = 2;
-    srv_desc.Buffer.NumElements = 2ull * 1024 * 1024 * 1024 - 9; /* Maximum D3D12 runtime allows without breaking. */
+    srv_desc.Buffer.NumElements = 2ull * 1024 * 1024 * 1024 - 10; /* Maximum D3D12 runtime allows without breaking. */
     ID3D12Device_CreateShaderResourceView(context.device, sparse, &srv_desc, get_cpu_descriptor_handle(&context, srvs, 1));
 
     srv_desc.Buffer.FirstElement = 0;
     srv_desc.Buffer.StructureByteStride = 0;
     srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
     srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
-    /* Make the buffer slightly larger than 4 GB. */
+    /* Make the buffer slightly smaller than 4 GB. */
     srv_desc.Buffer.NumElements = 1ull * 1024 * 1024 * 1024 - 8; /* Maximum D3D12 runtime allows without breaking. */
     ID3D12Device_CreateShaderResourceView(context.device, sparse, &srv_desc, get_cpu_descriptor_handle(&context, srvs, 2));
     ID3D12Device_CreateShaderResourceView(context.device, sparse, &srv_desc, get_cpu_descriptor_handle(&context, srvs, 3));
