@@ -1,5 +1,138 @@
 # Change Log
 
+## 3.0
+
+A new major release, yay!
+A few milestones have been reached over the last year, warranting a new major bump.
+It's been quite a while since the last release due to new things coming up constantly.
+These tags are mostly arbitrary anyway, and tend to be done when islands of calm and stability emerge.
+
+### Major items
+
+#### DXBC shader backend rewrite
+
+@doitsujin rewrote the entire DXBC backend, replacing our legacy vkd3d-shader path.
+DXVK and vkd3d-proton now share the same DXBC frontend which gives us clean,
+"readable" (as readable as DXBC can be) and lean IR to work with.
+dxil-spirv standalone project now supports DXBC as well as a result.
+
+Lots of games which used to be completely broken before due to bugs and missing features
+in the legacy vkd3d-shader backend are now fixed. E.g. Red Dead Redemption 2 runs just fine now in D3D12 mode.
+Some recently released DXBC based games also only work on the new path.
+The amount of regressions found the last months in DXBC games has been very minor,
+but it's possible there are still bugs in this area.
+However, given that DXVK uses it now as well, it's been battle tested quite extensively already.
+
+#### FSR4 support
+
+We added support for AGS WMMA intrinsics through `VK_KHR_cooperative_matrix` and `VK_KHR_shader_float8`,
+which is enough to support FSR4.
+Note that these shaders are tightly coded for AMD GPUs with some implementation defined behavior
+(particularly around matrix layouts), and they will not necessarily work on other GPU vendors.
+
+There is also a quite hacky emulation path of this which relies on int8 and float16 cooperative matrix support,
+which can run on older GPUs at significant performance cost (and some cost to theoretical correctness).
+
+Note that the default "official" build of vkd3d-proton only exposes this feature when the native
+`VK_KHR_shader_float8` is properly supported, i.e. RDNA4+ only.
+The emulation path is available when building from source with the appropriate build flags.
+The decision to not include this emulation path by default is over my pay grade.
+The aim is to be able to ship FSR4 in a more proper way in Proton.
+
+### Features
+
+We've more or less caught up on the things we can feasibly implement,
+so there isn't much exciting stuff happening on the feature front.
+
+- Implemented experimental support for D3D12 work graphs. No real-world content ships this yet.
+  This implementation is far from complete,
+  but it works on "any" GPU since we emulate the feature with normal compute shaders.
+  Funnily enough, the performance of this emulation can massively outperform native driver implementations of the feature
+  in many scenarios we've tested (at the cost of some extra VRAM usage).
+  See `docs/` for more details on implementation and some performance numbers.
+- Expose `AdvancedTextureOpsSupported` by default from SM 6.7 if `VK_KHR_maintenance8` is supported.
+- Expose the recently added sparse TIER_4.
+- Bump exposed D3D12SDKVersion to latest 618.
+- Experimentally expose support for opacity micromaps.
+  There are some details which aren't quite compatible with the D3D12 API, but some basic demo content is working fine.
+- Add support for AMD_anti_lag when exposed. The current implementation does not take frame-gen into account.
+- Implement support for tight alignment from recent AgilitySDK.
+- Add support for shared resource path on upstream Wine.
+
+### Performance
+
+- Overhaul the texture copy batching situation.
+  The new batching logic should be able to improve performance in many more cases than before.
+  - Implemented support for `VK_KHR_unified_image_layouts`.
+    Image copy batching in particular can take advantage of this to avoid a lot of unnecessary barriers.
+- Removed manual clear workaround on newer (6.15.9+) kernels on AMD, where an old kernel regression was finally fixed.
+  Kernels older than 6.10 are also not affected by this workaround.
+- Use push descriptor path on Qualcomm GPUs over BDA for speed.
+- Improve handling of GDeflate when decompression extension is not available.
+  We now ship our own fallback shader in GLSL instead of the more awkward HLSL shader that dstorage ships.
+- Bump DGC scratch size on NVIDIA. Should avoid some massive perf drops in Halo Infinite on NVIDIA.
+- Add performance optimization for The Last of Us Part 1 to prefer 2D tiling on 3D images.
+  Requires [an update to Mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/38084) as well to get the proper effect.
+- Handle depth/stencil <-> color image copies better when `VK_KHR_maintenance8` is supported.
+- Make use of `VK_EXT_zero_initialize_device_memory` to avoid manual clears on allocation.
+
+### Fixes
+
+- Emit render pass barriers as expected on tiled GPUs. Fixes misc rendering bugs reported on e.g. Turnip.
+  - For performance reasons, we deliberately skirt the spec a bit on desktop GPUs.
+- Fixed a bunch of minor correctness problems exposed by new Vulkan-ValidationLayers.
+- Adjust how `PointSamplingAddressesNeverRoundUp` is reported to match recent driver behaviors.
+- Fix overflow bugs in massive (> 4GiB) sparse resource handling.
+- Fix reporting of some esoteric format properties to better match native drivers.
+- Fix handling of NULL acceleration structure descriptors.
+- Fix some texturing bugs in Helldivers II on NVIDIA.
+- Fix some bugs with memory type handling on very old NVIDIA GPUs.
+- Fix bug when pixel shader includes root signature.
+- Make ClearUAV barrier insertion the default now.
+  Too many games screw this up, and D3D12 drivers seem to do it by default.
+- Fix shared fences when initial value is not 0. Fixes some Star Citizen issues.
+- Fix rare deadlock scenario in Ninja Gaiden 4.
+  Fixes some long-standing issues with how we deal with fence rewinds.
+- Fix some long-standing issues with how we deal with placed MSAA resources and alignment.
+- Make sure we don't clear memory of imported resources.
+  This doesn't fix any known games, but you never know :V
+- Improve correctness for many odd GS/HS/DS corner cases with primitive types and API validation.
+- Fixes crashes when index buffer SizeInBytes = 0, but VA was invalid.
+  Seen in some Saber Interactive games.
+- Fixes some potential deadlocks in VR interop APIs when multiple threads attempt to acquire Vulkan queue.
+- Fixes 16-bit aligned structured buffer strides. Not observed in any real content, but you never know!
+
+### Workarounds
+
+- Add FF VII rebirth sync bugs workarounds. Fixes some rare GPU hangs.
+- Add misc AMD workarounds for Monster Hunter Wilds caused by bugged hardware around sparse SMEM.
+  - A proper hardware workaround in RADV is still pending.
+- Workaround some Starfield bugs around `NonUniformResourceIndex` use.
+- Add performance workarounds for extremely large tessellation factors used in misc new Koei Tecmo games.
+- Add Wreckfest 2 workarounds for illegal texture placement aliasing. Fixes some broken textures.
+- Add barrier in Satisfactory that game missed. Fixes some corrupt rendering especially on AMD.
+- Ignore NOT_CLEARED flags on allocation in all games now. Native drivers seem to always clear regardless of the flag,
+  and e.g. Street Fighter 6 relies on NOT_CLEARED memory to actually be cleared :(
+- Workaround some issues with RGB9E5 and alpha write masks observed in Ninja Gaiden 4.
+- Add missing barrier in Death Stranding (the older build, not Director's Cut).
+- Add missing barrier in Wuthering Waves.
+- Workaround bugged uninitialized loop variable in Dune MMO.
+- Disable UAV compression in Spider-Man Remastered. Fixes some weird RT issues on RDNA2.
+- Add Root CBV robustness workaround for Gray Zone Warfare.
+- Disables color compression in Rise of the Tomb Raider. Fixes some glitches due to game bug on AMD.
+- Workaround some bugs in Port Royal benchmark.
+- Workaround Mafia: Definitive Edition hanging GPU when using FSR on startup due to use-after-free.
+  - The workaround applies to all uses of FSR. Plausibly workaround a hang in MGS: Delta as well, but not confirmed it was this bug.
+- Workaround Control RT path occasionally observing NaNs due to bad normalize() patterns.
+- Workaround Final Fantasy Tactics Ivalice Chronicles illegally using dynamically indexed root constants.
+
+### Misc
+
+- Added a lot more debug instrumentation as usual.
+  - Not user facing, so omitting details.
+- Make it a bit easier to use vkd3d-proton in Linux-native projects.
+- Remove `DXVK_FRAME_RATE` to align with DXVK's removal. Only `VKD3D_FRAME_RATE` remains (at least for now).
+
 ## 2.14.1
 
 This is a bug-fix release which resolves some regressions introduced in 2.14.
