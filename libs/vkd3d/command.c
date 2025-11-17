@@ -3579,7 +3579,7 @@ static uint32_t d3d12_command_list_promote_dsv_resource(struct d3d12_command_lis
     assert(!(plane_optimal_mask & ~(VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL)));
 
     /* No point in adding these since they are always deduced to be optimal. */
-    if (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
+    if (!(resource->flags & VKD3D_RESOURCE_GENERAL_LAYOUT) && (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
         return VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL;
     else if (resource->common_layout == VK_IMAGE_LAYOUT_GENERAL)
         return VKD3D_DEPTH_STENCIL_PLANE_GENERAL;
@@ -3612,7 +3612,7 @@ static uint32_t d3d12_command_list_promote_dsv_resource(struct d3d12_command_lis
 static uint32_t d3d12_command_list_notify_dsv_writes(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const struct vkd3d_view *view, uint32_t plane_write_mask)
 {
-    if (plane_write_mask & VKD3D_DEPTH_STENCIL_PLANE_GENERAL)
+    if ((resource->flags & VKD3D_RESOURCE_GENERAL_LAYOUT) || (plane_write_mask & VKD3D_DEPTH_STENCIL_PLANE_GENERAL))
         return VKD3D_DEPTH_STENCIL_PLANE_GENERAL;
 
     assert(!(plane_write_mask & ~(VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL)));
@@ -3757,7 +3757,8 @@ static VkImageLayout d3d12_command_list_get_depth_stencil_resource_layout(const 
 {
     size_t i, n;
 
-    if (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
+    if (!(resource->flags & VKD3D_RESOURCE_GENERAL_LAYOUT) &&
+            (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
     {
         if (plane_optimal_mask)
             *plane_optimal_mask = VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL;
