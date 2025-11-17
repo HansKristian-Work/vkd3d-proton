@@ -3048,8 +3048,7 @@ static HRESULT dxgi_vk_swap_chain_init_frame_rate_limiter(struct dxgi_vk_swap_ch
 
     pthread_mutex_init(&chain->frame_rate_limit.lock, NULL);
 
-    if (vkd3d_get_env_var("VKD3D_FRAME_RATE", env, sizeof(env)) ||
-            vkd3d_get_env_var("DXVK_FRAME_RATE", env, sizeof(env)))
+    if (vkd3d_get_env_var("VKD3D_FRAME_RATE", env, sizeof(env)))
     {
         target_frame_rate = strtod(env, NULL);
 
