@@ -4467,7 +4467,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         }
 
         if ((vk_render_pass_barrier_from_view(list, rtv->view, rtv->resource,
-                mode, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                mode, d3d12_resource_pick_layout(rtv->resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
                 &vk_image_barriers[dep_info.imageMemoryBarrierCount])))
             dep_info.imageMemoryBarrierCount++;
     }
@@ -6132,7 +6132,8 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         if ((graphics->rtv_active_mask & (1u << i)) && list->rtvs[i].view)
         {
             attachment->imageView = list->rtvs[i].view->vk_image_view;
-            attachment->imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            attachment->imageLayout = d3d12_resource_pick_layout(
+                    list->rtvs[i].resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         }
         else
         {
