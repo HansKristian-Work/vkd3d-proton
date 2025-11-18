@@ -6089,8 +6089,15 @@ static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
 {
     struct d3d12_graphics_pipeline_state *graphics = &list->state->graphics;
     struct d3d12_device *device = list->device;
+    bool unused_attachments;
 
-    if (graphics->rt_count || d3d12_command_list_has_depth_stencil_view(list))
+    /* OMSetRenderTargets always wins when unused attachments are supported.
+     * This is theoretically a behavior delta when PSO doesn't use any render target
+     * depending on whether unused attachments are supported,
+     * but D3D12 docs suggest that scissor rect is clamped to OMSetRenderTargets anyway ... */
+    unused_attachments = device->device_info.dynamic_rendering_unused_attachments_features.dynamicRenderingUnusedAttachments == VK_TRUE;
+
+    if (unused_attachments || graphics->rt_count || d3d12_command_list_has_depth_stencil_view(list))
     {
         *width = list->fb_width;
         *height = list->fb_height;
@@ -6113,6 +6120,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 {
     struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
     struct d3d12_graphics_pipeline_state *graphics;
+    bool unused_attachments;
     VkExtent2D old_extent;
     unsigned int i;
 
@@ -6121,19 +6129,39 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 
     graphics = &list->state->graphics;
 
-    rendering_info->rtv_mask = graphics->rtv_active_mask;
-    rendering_info->info.colorAttachmentCount = graphics->rt_count;
+    unused_attachments =
+            list->device->device_info.dynamic_rendering_unused_attachments_features.dynamicRenderingUnusedAttachments == VK_TRUE;
+
+    if (unused_attachments)
+    {
+        rendering_info->rtv_mask = 0;
+        rendering_info->info.colorAttachmentCount = 0;
+    }
+    else
+    {
+        rendering_info->rtv_mask = graphics->rtv_active_mask;
+        rendering_info->info.colorAttachmentCount = graphics->rt_count;
+    }
 
     /* The pipeline has fallback PSO in case we're attempting to render to unbound RTV. */
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
     {
         VkRenderingAttachmentInfo *attachment = &rendering_info->rtv[i];
 
-        if ((graphics->rtv_active_mask & (1u << i)) && list->rtvs[i].view)
+        if ((unused_attachments || (graphics->rtv_active_mask & (1u << i))) && list->rtvs[i].view)
         {
             attachment->imageView = list->rtvs[i].view->vk_image_view;
             attachment->imageLayout = d3d12_resource_pick_layout(
                     list->rtvs[i].resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+            if (unused_attachments)
+            {
+                rendering_info->rtv_mask |= 1u << i;
+
+                /* There is no requirement that colorAttachmentCount has to match PSO.
+                 * The missing gap is inferred to be filled with UNDEFINED for purpose of validation. */
+                rendering_info->info.colorAttachmentCount = i + 1;
+            }
         }
         else
         {
@@ -6145,8 +6173,11 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     rendering_info->info.pDepthAttachment = NULL;
     rendering_info->info.pStencilAttachment = NULL;
 
-    if (d3d12_command_list_has_depth_stencil_view(list))
+    /* dsv_layout is always UNDEFINED if OMSetRenderTargets didn't bind a DSV.
+     * Without unused_attachments, dsv_layout can be forced back to UNDEFINED if PSO doesn't enable depth testing. */
+    if (list->dsv_layout != VK_IMAGE_LAYOUT_UNDEFINED)
     {
+        assert(list->dsv.view);
         rendering_info->dsv.imageView = list->dsv.view->vk_image_view;
         rendering_info->dsv.imageLayout = list->dsv_layout;
 
@@ -6304,6 +6335,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     uint32_t dsv_plane_optimal_mask;
     uint32_t new_active_flags;
     VkImageLayout dsv_layout;
+    bool pso_invalidates_rp;
     VkPipeline vk_pipeline;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
@@ -6339,15 +6371,37 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     }
     else
     {
-        dsv_plane_optimal_mask = 0;
-        dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (list->device->device_info.dynamic_rendering_unused_attachments_features.dynamicRenderingUnusedAttachments)
+        {
+            /* No reason to split the render pass, just inherit the existing state. */
+            dsv_plane_optimal_mask = list->dsv_plane_optimal_mask;
+            dsv_layout = list->dsv_layout;
+        }
+        else
+        {
+            dsv_plane_optimal_mask = 0;
+            dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        }
     }
+
+    pso_invalidates_rp = false;
+    if (!list->device->device_info.dynamic_rendering_unused_attachments_features.dynamicRenderingUnusedAttachments)
+    {
+        /* With this extension we can decouple PSO from BeginRendering, which is great.
+         * Without the extension, we need to let the PSO dictate how render targets are bound, since there
+         * must be a 1:1 correspondence. */
+        pso_invalidates_rp = (list->state->graphics.rtv_active_mask != list->rendering_info.rtv_mask) ||
+                (list->state->graphics.rt_count != list->rendering_info.info.colorAttachmentCount);
+    }
+
+    /* With unified layouts, we can mitigate this, since layout will always be either GENERAL or UNDEFINED anyway.
+     * If we have unused_attachments, UNDEFINED use will follow OMSetRenderTargets. */
+    if (dsv_layout != list->rendering_info.dsv.imageLayout)
+        pso_invalidates_rp = true;
 
     /* If we need to bind or unbind certain render targets or if the DSV layout changed, interrupt rendering.
      * It's also possible that rtv_active_mask is constant, but rt_count increases (if last RT format is NULL). */
-    if ((list->state->graphics.rtv_active_mask != list->rendering_info.rtv_mask) ||
-            (list->state->graphics.rt_count != list->rendering_info.info.colorAttachmentCount) ||
-            (dsv_layout != list->rendering_info.dsv.imageLayout))
+    if (pso_invalidates_rp)
     {
         d3d12_command_list_invalidate_rendering_info(list);
         d3d12_command_list_end_current_render_pass(list, false);
@@ -7194,10 +7248,18 @@ static void d3d12_command_list_promote_dsv_layout(struct d3d12_command_list *lis
      * so that we can select the appropriate render pass right away and ignore any
      * read-state shenanigans. If we cannot promote yet, the pipeline will override dsv_layout as required
      * by write enable bits. */
-    if (list->dsv_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-            d3d12_pipeline_state_is_graphics(list->state) &&
-            d3d12_command_list_has_depth_stencil_view(list) &&
-            list->dsv.resource)
+    bool will_bind_depth_stencil;
+
+    if (list->dsv_layout != VK_IMAGE_LAYOUT_UNDEFINED || !list->dsv.resource)
+        return;
+
+    will_bind_depth_stencil =
+            list->device->device_info.dynamic_rendering_unused_attachments_features.dynamicRenderingUnusedAttachments ||
+                    (d3d12_pipeline_state_is_graphics(list->state) && d3d12_command_list_has_depth_stencil_view(list));
+
+    /* If we have unused_attachments, we always want to let OMSetRenderTargets win
+     * regardless of what pipeline does. If we bound depth-stencil, we must promote. */
+    if (will_bind_depth_stencil)
     {
         list->dsv_layout = d3d12_command_list_get_depth_stencil_resource_layout(list, list->dsv.resource,
                 &list->dsv_plane_optimal_mask);
