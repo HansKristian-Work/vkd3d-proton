@@ -2130,6 +2130,15 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->dynamic_rendering_unused_attachments_features);
     }
+    else
+    {
+        /* This extension was intended to be part of dynamic rendering in the first place, but was carved out
+         * due to some requirements for IHVs vkd3d-proton does not cater to.
+         * If this is not supported, simply assume that the driver is just a bit old.
+         * No need to fail device creation here.
+         * Every driver we are known to run on supports this just fine. */
+        WARN("VK_EXT_dynamic_rendering_unused_attachments not supported. The functionality in this EXT is required for correct operation.\n");
+    }
 
     if (vulkan_info->EXT_line_rasterization)
     {
