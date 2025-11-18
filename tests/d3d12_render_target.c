@@ -2369,3 +2369,190 @@ void test_rgb9e5_rendering(void)
 
     destroy_test_context(&context);
 }
+
+void test_unused_attachments_mix_and_match(void)
+{
+    static const float constants[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    struct test_context_desc context_desc;
+    struct depth_stencil_resource ds;
+    ID3D12PipelineState *psos[512];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *rtv;
+    ID3D12Resource *rts[8];
+    unsigned int i, j;
+    HRESULT hr;
+
+#include "shaders/render_target/headers/rt_mask_combined.h"
+#include "shaders/render_target/headers/vs_no_attachments.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    context.root_signature = create_32bit_constants_root_signature(context.device, 0, 8, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    for (i = 0; i < 512; i++)
+    {
+        unsigned int color_mask = i & 255;
+        bool depth_stencil = i >= 256;
+
+        init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN, NULL,
+                vs_no_attachments_code_dxbc, sizeof(vs_no_attachments_code_dxbc),
+                rt_masks[color_mask]->pShaderBytecode, rt_masks[color_mask]->BytecodeLength);
+
+        for (j = 0; j < 8; j++)
+        {
+            if (color_mask & (1u << j))
+            {
+                pso_desc.RTVFormats[j] = DXGI_FORMAT_R32_FLOAT;
+                pso_desc.NumRenderTargets = j + 1;
+                pso_desc.BlendState.IndependentBlendEnable = TRUE;
+                pso_desc.BlendState.RenderTarget[j].BlendEnable = TRUE;
+                pso_desc.BlendState.RenderTarget[j].RenderTargetWriteMask = 0xf;
+                pso_desc.BlendState.RenderTarget[j].BlendOp = D3D12_BLEND_OP_ADD;
+                pso_desc.BlendState.RenderTarget[j].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+                pso_desc.BlendState.RenderTarget[j].SrcBlend = D3D12_BLEND_ONE;
+                pso_desc.BlendState.RenderTarget[j].SrcBlendAlpha = D3D12_BLEND_ONE;
+                pso_desc.BlendState.RenderTarget[j].DestBlend = D3D12_BLEND_ONE;
+                pso_desc.BlendState.RenderTarget[j].DestBlendAlpha = D3D12_BLEND_ONE;
+            }
+        }
+
+        if (depth_stencil)
+        {
+            pso_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+            pso_desc.DepthStencilState.DepthEnable = FALSE;
+            pso_desc.DepthStencilState.StencilEnable = TRUE;
+            pso_desc.DepthStencilState.StencilWriteMask = 0xff;
+            pso_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+            pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_INCR_SAT;
+            pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+            pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+            pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
+        }
+        else
+        {
+            pso_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+            memset(&pso_desc.DepthStencilState, 0, sizeof(pso_desc.DepthStencilState));
+        }
+
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&psos[i]);
+        ok(SUCCEEDED(hr), "Failed to create PSO %u, hr #%x.\n", i, hr);
+    }
+
+    rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 9);
+    for (i = 0; i < ARRAY_SIZE(rts); i++)
+    {
+        rts[i] = create_default_texture2d(context.device, 512, 1, 1, 1,
+                DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        ID3D12Device_CreateRenderTargetView(context.device, rts[i], NULL, get_cpu_rtv_handle(&context, rtv, i));
+    }
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    rtv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    ID3D12Device_CreateRenderTargetView(context.device, NULL, &rtv_desc, get_cpu_rtv_handle(&context, rtv, 8));
+
+    init_depth_stencil(&ds, context.device, 512, 1, 1, 1,
+            DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_D24_UNORM_S8_UINT, NULL);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 0, 8, constants, 0);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    /* Test every possible RT mask */
+    for (i = 0; i < 512; i++)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+        unsigned int color_mask = i & 255;
+        unsigned int num_rtvs = 0;
+        D3D12_VIEWPORT vp;
+        D3D12_RECT sci;
+
+        for (j = 0; j < 8; j++)
+        {
+            if (color_mask & (1u << j))
+            {
+                rtvs[j] = get_cpu_rtv_handle(&context, rtv, j);
+                num_rtvs = j + 1;
+            }
+            else
+            {
+                rtvs[j] = get_cpu_rtv_handle(&context, rtv, 8);
+            }
+        }
+
+        set_viewport(&vp, 0, 0, 512, 1, 0, 1);
+        set_rect(&sci, i, 0, i + 1, 1);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, num_rtvs, rtvs, FALSE, i >= 256 ? &ds.dsv_handle : NULL);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+
+        /* Test every possible PSO mask combination. We should ideally only see 128 render passes. */
+        for (j = 0; j < 512; j++)
+        {
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, psos[j]);
+            ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(rts); i++)
+        transition_resource_state(context.list, rts[i], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(rts); i++)
+    {
+        get_texture_readback_with_command_list(rts[i], 0, &rb, context.queue, context.list);
+
+        for (j = 0; j < 512; j++)
+        {
+            unsigned int color_mask = j & 255;
+            float expected = 0.0f;
+            float value;
+
+            if (color_mask & (1u << i))
+            {
+                /* We render 512 PSOs for each RT mask. Half of the draws will contribute to blending. */
+                expected = (i + 1) * 256;
+            }
+
+            value = get_readback_float(&rb, j, 0);
+            ok(value == expected, "RT %u, pixel %u, expected %f, got %f\n", i, j, expected, value);
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    {
+        get_texture_readback_with_command_list(ds.texture, 1, &rb, context.queue, context.list);
+
+        for (j = 0; j < 512; j++)
+        {
+            /* We write stencil only for second half of the RT masks. Then, 256 of the PSOs have stencil enabled. */
+            uint8_t expected = j >= 256 ? 255 : 0;
+            uint8_t value;
+
+            value = get_readback_uint8(&rb, j, 0);
+            ok(value == expected, "DS, pixel %u, expected %d, got %d\n", j, expected, value);
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+        ID3D12PipelineState_Release(psos[i]);
+    for (i = 0; i < ARRAY_SIZE(rts); i++)
+        ID3D12Resource_Release(rts[i]);
+    ID3D12DescriptorHeap_Release(rtv);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
