@@ -3274,7 +3274,7 @@ static int d3d12_command_list_find_attachment_view(struct d3d12_command_list *li
     {
         const struct vkd3d_view *dsv = list->dsv.view;
 
-        if (!list->rendering_info.dsv.imageView)
+        if (!list->rendering_info.depth.imageView)
             return -1;
 
         if (dsv->info.texture.aspect_mask == subresource->aspectMask &&
@@ -4140,6 +4140,9 @@ static VkPipelineStageFlags2 vk_queue_shader_stages(struct d3d12_device *device,
     return queue_shader_stages;
 }
 
+static void d3d12_command_list_flush_clears(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const VkImageSubresourceRange *subresources);
+
 static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const VkImageSubresourceRange *subresources, bool is_bound)
 {
@@ -4154,6 +4157,8 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
             (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
     {
+        d3d12_command_list_flush_clears(list, resource, subresources);
+
         stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
         layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -4161,6 +4166,8 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     else if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
             (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
+        d3d12_command_list_flush_clears(list, resource, subresources);
+
         stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
         access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
         layout = is_bound && list->dsv_layout ?
@@ -4976,6 +4983,173 @@ cleanup:
     return result;
 }
 
+static bool vkd3d_check_subresource_overlap(struct d3d12_resource *a, const VkImageSubresourceRange *a_subresources,
+        struct d3d12_resource *b, const VkImageSubresourceRange *b_subresources)
+{
+    /* NULL resource means all resources */
+    if (!a || !b)
+        return true;
+
+    if (a != b)
+    {
+        /* No aliasing possible if either resource is committed */
+        if ((a->flags | b->flags) & VKD3D_RESOURCE_COMMITTED)
+            return false;
+
+        /* Sparse can alias any placed or other sparse resource */
+        if ((a->flags | b->flags) & VKD3D_RESOURCE_RESERVED)
+            return true;
+
+        /* Both resources are placed, check whether they alias on the heap */
+        assert(a->flags & b->flags & VKD3D_RESOURCE_PLACED);
+
+        return a->mem.device_allocation.vk_memory == b->mem.device_allocation.vk_memory &&
+                a->mem.offset < b->mem.offset + b->mem.resource.size &&
+                b->mem.offset < a->mem.offset + a->mem.resource.size;
+    }
+
+    /* NULL means all subresources */
+    if (!a_subresources || !b_subresources)
+        return true;
+
+    return (a_subresources->aspectMask & b_subresources->aspectMask) &&
+            (a_subresources->baseMipLevel + a_subresources->levelCount > b_subresources->baseMipLevel) &&
+            (a_subresources->baseMipLevel < b_subresources->baseMipLevel + b_subresources->levelCount) &&
+            (a_subresources->baseArrayLayer + a_subresources->layerCount > b_subresources->baseArrayLayer) &&
+            (a_subresources->baseArrayLayer < b_subresources->baseArrayLayer + b_subresources->layerCount);
+}
+
+static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *list,
+        VkRenderingAttachmentInfo *attachment, struct d3d12_resource *resource,
+        struct vkd3d_view *view, VkImageAspectFlagBits aspect)
+{
+    struct vkd3d_deferred_clear *clear;
+    VkExtent3D extent;
+    unsigned int i;
+
+    for (i = 0u; i < list->deferred_clear_count; i++)
+    {
+        clear = &list->deferred_clears[i];
+
+        if (clear->view == view)
+        {
+            extent = d3d12_resource_get_view_subresource_extent(clear->resource, clear->view);
+
+            if (extent.width != list->fb_width || extent.height != list->fb_height ||
+                    view->info.texture.layer_count != list->fb_layer_count)
+                break;
+
+            if (clear->clear_aspects & aspect)
+            {
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                attachment->clearValue = clear->clear_value;
+
+                clear->clear_aspects &= ~aspect;
+            }
+
+            if (!clear->clear_aspects)
+                *clear = list->deferred_clears[--list->deferred_clear_count];
+
+            break;
+        }
+    }
+}
+
+static void d3d12_command_list_execute_deferred_clear(struct d3d12_command_list *list,
+    const struct vkd3d_deferred_clear *clear)
+{
+    d3d12_command_list_load_attachment(list, clear->resource, clear->view,
+            clear->clear_aspects, &clear->clear_value, 0u, NULL, VK_ATTACHMENT_LOAD_OP_CLEAR);
+}
+
+static bool vkd3d_check_rtv_overlap(const struct d3d12_rtv_desc *rtv,
+        struct d3d12_resource *resource, const VkImageSubresourceRange *subresources)
+{
+    VkImageSubresourceRange rtv_subresources;
+
+    if (!rtv->view)
+        return false;
+
+    rtv_subresources = vk_subresource_range_from_view(rtv->view);
+
+    return vkd3d_check_subresource_overlap(resource, subresources,
+            rtv->resource, &rtv_subresources);
+}
+
+static bool d3d12_command_list_resource_overlaps_attachment(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const VkImageSubresourceRange *subresources)
+{
+    unsigned int i;
+
+    if (vkd3d_check_rtv_overlap(&list->dsv, resource, subresources))
+        return true;
+
+    for (i = 0u; i < list->rendering_info.info.colorAttachmentCount; i++)
+    {
+        if (vkd3d_check_rtv_overlap(&list->rtvs[i], resource, subresources))
+            return true;
+    }
+
+    return false;
+}
+
+static void d3d12_command_list_flush_clears(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const VkImageSubresourceRange *subresources)
+{
+    VkImageSubresourceRange clear_subresources;
+    unsigned int src, dst;
+
+    for (src = 0, dst = 0; src < list->deferred_clear_count; src++)
+    {
+        const struct vkd3d_deferred_clear *clear = &list->deferred_clears[src];
+        clear_subresources = vk_subresource_range_from_view(clear->view);
+
+        if (clear_subresources.aspectMask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+            clear_subresources.aspectMask &= clear->clear_aspects;
+
+        if (vkd3d_check_subresource_overlap(resource, subresources,
+                clear->resource, &clear_subresources))
+        {
+            d3d12_command_list_execute_deferred_clear(list, clear);
+        }
+        else
+        {
+            if (dst < src)
+                list->deferred_clears[dst] = list->deferred_clears[src];
+
+            dst++;
+        }
+    }
+
+    list->deferred_clear_count = dst;
+}
+
+static void d3d12_command_list_flush_clears_for_rendering(struct d3d12_command_list *list)
+{
+    VkImageSubresourceRange clear_subresources;
+    unsigned int src, dst;
+
+    for (src = 0, dst = 0; src < list->deferred_clear_count; src++)
+    {
+        const struct vkd3d_deferred_clear *clear = &list->deferred_clears[src];
+        clear_subresources = vk_subresource_range_from_view(clear->view);
+
+        if (d3d12_command_list_resource_overlaps_attachment(list, clear->resource, &clear_subresources))
+        {
+            d3d12_command_list_execute_deferred_clear(list, clear);
+        }
+        else
+        {
+            if (dst < src)
+                list->deferred_clears[dst] = list->deferred_clears[src];
+
+            dst++;
+        }
+    }
+
+    list->deferred_clear_count = dst;
+}
+
 void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -5639,6 +5813,7 @@ void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list)
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_flush_rtas_batch(list);
+    d3d12_command_list_flush_clears(list, NULL, NULL);
 
     /* If we have kept some DSV resources in optimal layout throughout the command buffer,
      * now is the time to decay them. */
@@ -5993,6 +6168,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->active_queries_count = 0;
     list->pending_queries_count = 0;
     list->dsv_resource_tracking_count = 0;
+    list->deferred_clear_count = 0;
     list->subresource_tracking_count = 0;
     list->transfer_batch.tracked_copy_buffer_count = 0;
     list->wbi_batch.batch_len = 0;
@@ -6109,6 +6285,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 
         if (list->rtvs[i].view)
         {
+            attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             attachment->imageView = list->rtvs[i].view->vk_image_view;
             attachment->imageLayout = d3d12_resource_pick_layout(
                     list->rtvs[i].resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -6118,9 +6295,13 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
             /* There is no requirement that colorAttachmentCount has to match PSO.
              * The missing gap is inferred to be filled with UNDEFINED for purpose of validation. */
             rendering_info->info.colorAttachmentCount = i + 1;
+
+            d3d12_command_list_fuse_attachment_clear(list, attachment,
+                list->rtvs[i].resource, list->rtvs[i].view, VK_IMAGE_ASPECT_COLOR_BIT);
         }
         else
         {
+            attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             attachment->imageView = VK_NULL_HANDLE;
             attachment->imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         }
@@ -6133,20 +6314,44 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     if (list->dsv_layout != VK_IMAGE_LAYOUT_UNDEFINED)
     {
         assert(list->dsv.view);
-        rendering_info->dsv.imageView = list->dsv.view->vk_image_view;
-        rendering_info->dsv.imageLayout = list->dsv_layout;
 
         /* Spec says that to use pDepthAttachment or pStencilAttachment, with non-NULL image view,
          * the format must have the aspect mask set. */
+        rendering_info->depth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        rendering_info->depth.imageView = list->dsv.view->vk_image_view;
+        rendering_info->depth.imageLayout = list->dsv_layout;
+
+        rendering_info->stencil = rendering_info->depth;
+
         if (list->dsv.view->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-            rendering_info->info.pDepthAttachment = &rendering_info->dsv;
+        {
+            if (list->dsv_plane_optimal_mask & (VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_DEPTH_STENCIL_PLANE_GENERAL))
+            {
+                d3d12_command_list_fuse_attachment_clear(list, &rendering_info->depth,
+                    list->dsv.resource, list->dsv.view, VK_IMAGE_ASPECT_DEPTH_BIT);
+            }
+
+            rendering_info->info.pDepthAttachment = &rendering_info->depth;
+        }
+
         if (list->dsv.view->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
-            rendering_info->info.pStencilAttachment = &rendering_info->dsv;
+        {
+            if (list->dsv_plane_optimal_mask & (VKD3D_STENCIL_PLANE_OPTIMAL | VKD3D_DEPTH_STENCIL_PLANE_GENERAL))
+            {
+                d3d12_command_list_fuse_attachment_clear(list, &rendering_info->stencil,
+                    list->dsv.resource, list->dsv.view, VK_IMAGE_ASPECT_STENCIL_BIT);
+            }
+
+            rendering_info->info.pStencilAttachment = &rendering_info->stencil;
+        }
     }
     else
     {
-        rendering_info->dsv.imageView = VK_NULL_HANDLE;
-        rendering_info->dsv.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        rendering_info->depth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        rendering_info->depth.imageView = VK_NULL_HANDLE;
+        rendering_info->depth.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        rendering_info->stencil = rendering_info->depth;
     }
 
     if (list->vrs_image)
@@ -6336,7 +6541,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 
     /* With unified layouts, we can mitigate this, since layout will always be either GENERAL or UNDEFINED anyway.
      * If we have unused_attachments, UNDEFINED use will follow OMSetRenderTargets. */
-    if (dsv_layout != list->rendering_info.dsv.imageLayout)
+    if (dsv_layout != list->rendering_info.depth.imageLayout)
         pso_invalidates_rp = true;
 
     if (pso_invalidates_rp)
@@ -7306,6 +7511,10 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         return true;
     }
 
+    /* There may be pending clears that overlap with bound RTVs that we could
+     * not merge, including cases like clearing depth into read-only DSV. */
+    d3d12_command_list_flush_clears_for_rendering(list);
+
     if (!(list->rendering_info.state_flags & VKD3D_RENDERING_SUSPENDED))
     {
         d3d12_command_list_check_render_pass_barrier(list);
@@ -7755,6 +7964,8 @@ static void d3d12_command_list_check_pre_compute_barrier(
 
         if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH)
         {
+            d3d12_command_list_flush_clears(list, NULL, NULL);
+
             vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
             vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT |
                     VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
@@ -11320,6 +11531,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                         transition->StateBefore == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE))
                     d3d12_command_list_flush_rtas_batch(list);
 
+                if (d3d12_resource_is_texture(preserve_resource) && (transition->StateBefore == D3D12_RESOURCE_STATE_RENDER_TARGET ||
+                        transition->StateBefore == D3D12_RESOURCE_STATE_DEPTH_WRITE))
+                    d3d12_command_list_flush_clears(list, preserve_resource, NULL);
+
                 /* If the resource is a host-visible image and has been used as a UAV, schedule a
                  * subresource update since we cannot know when it is being written in a shader. */
                 if (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
@@ -11456,6 +11671,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     /* Flush pending RTAS builds if we're disabling a potential input resource, scratch or RTAS buffer */
                     if (!before || d3d12_resource_is_buffer(before))
                         d3d12_command_list_flush_rtas_batch(list);
+
+                    /* Flush pending clears for any resource that may alias with the input */
+                    if (!before || d3d12_resource_is_texture(before))
+                        d3d12_command_list_flush_clears(list, before, NULL);
 
                     /* Aliasing barriers in D3D12 are extremely weird and don't behavior like you would expect.
                      * For buffer aliasing, it is basically a global memory barrier, but for images it gets
@@ -12507,11 +12726,78 @@ static bool d3d12_barrier_subresource_range_covers_resource(const struct d3d12_r
             resource->format->vk_aspect_mask;
 }
 
+static void d3d12_command_list_defer_attachment_clear(struct d3d12_command_list *list, struct d3d12_resource *resource,
+        struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value)
+{
+    VkImageSubresourceRange subresources, clear_subresources;
+    struct vkd3d_deferred_clear *clear;
+    unsigned int i;
+
+    subresources = vk_subresource_range_from_view(view);
+
+    for (i = 0; i < list->deferred_clear_count; i++)
+    {
+        clear = &list->deferred_clears[i];
+
+        if (clear->resource != resource || clear->view == view)
+            continue;
+
+        /* Submit clears if any clear overlaps with the given view */
+        clear_subresources = vk_subresource_range_from_view(clear->view);
+
+        if (vkd3d_check_subresource_overlap(resource, &subresources, clear->resource, &clear_subresources))
+        {
+            d3d12_command_list_end_current_render_pass(list, true);
+            d3d12_command_list_flush_clears(list, resource, &subresources);
+            break;
+        }
+    }
+
+    for (i = 0; i < list->deferred_clear_count; i++)
+    {
+        clear = &list->deferred_clears[i];
+
+        if (clear->view == view)
+        {
+            /* Deduplicate clears or add a clear aspect */
+            clear->clear_aspects |= clear_aspects;
+
+            if (clear_aspects & VK_IMAGE_ASPECT_COLOR_BIT)
+                clear->clear_value.color = clear_value->color;
+            if (clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+                clear->clear_value.depthStencil.depth = clear_value->depthStencil.depth;
+            if (clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+                clear->clear_value.depthStencil.stencil = clear_value->depthStencil.stencil;
+
+            return;
+        }
+    }
+
+    if (list->deferred_clear_count == ARRAY_SIZE(list->deferred_clears))
+    {
+        d3d12_command_list_end_current_render_pass(list, true);
+        d3d12_command_list_flush_clears(list, NULL, NULL);
+    }
+
+    clear = &list->deferred_clears[list->deferred_clear_count++];
+    clear->resource = resource;
+    clear->view = view;
+    clear->clear_aspects = clear_aspects;
+    clear->clear_value = *clear_value;
+
+    /* If the clear overlaps with an active render target, end the render
+     * pass so that the clear gets processed before any subsequent draws */
+    if ((list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) &&
+            d3d12_command_list_resource_overlaps_attachment(list, resource, &subresources))
+        d3d12_command_list_end_current_render_pass(list, false);
+}
+
 static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects)
 {
     VkImageSubresourceLayers vk_subresource_layers;
+    VkImageSubresourceRange vk_subresource_range;
     bool full_clear, writable = true;
     bool full_resource_clear;
     D3D12_RECT full_rect;
@@ -12547,10 +12833,22 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
          * the render pass isn't active and we're only going to clear
          * a sub-region of the image, or one of the aspects to clear
          * uses a read-only layout in the current render pass */
-        d3d12_command_list_end_current_render_pass(list, false);
-        d3d12_command_list_load_attachment(list, resource, view,
-                clear_aspects, clear_value, rect_count, rects,
-                VK_ATTACHMENT_LOAD_OP_CLEAR);
+        if (full_clear)
+        {
+            d3d12_command_list_defer_attachment_clear(list, resource,
+                    view, clear_aspects, clear_value);
+        }
+        else
+        {
+            d3d12_command_list_end_current_render_pass(list, false);
+
+            vk_subresource_range = vk_subresource_range_from_view(view);
+            d3d12_command_list_flush_clears(list, resource, &vk_subresource_range);
+
+            d3d12_command_list_load_attachment(list, resource, view,
+                    clear_aspects, clear_value, rect_count, rects,
+                    VK_ATTACHMENT_LOAD_OP_CLEAR);
+        }
     }
     else
     {
@@ -16324,10 +16622,10 @@ static void d3d12_command_list_load_render_pass_rtv(struct d3d12_command_list *l
             load_op != VK_ATTACHMENT_LOAD_OP_LOAD ? rtv_info->format->vk_aspect_mask : 0u);
     d3d12_command_list_track_resource_usage(list, rtv_info->resource, !full_resource_clear);
 
-    if (load_op != VK_ATTACHMENT_LOAD_OP_LOAD)
+    if (load_op == VK_ATTACHMENT_LOAD_OP_CLEAR)
     {
-        d3d12_command_list_load_attachment(list, rtv_info->resource, rtv_info->view,
-                VK_IMAGE_ASPECT_COLOR_BIT, &clear_value, 0, NULL, load_op);
+        d3d12_command_list_defer_attachment_clear(list, rtv_info->resource,
+                rtv_info->view, VK_IMAGE_ASPECT_COLOR_BIT, &clear_value);
     }
 }
 
@@ -16345,9 +16643,9 @@ static void d3d12_command_list_load_render_pass_dsv(struct d3d12_command_list *l
             &ds->DepthBeginningAccess.Clear.ClearValue,
             &ds->StencilBeginningAccess.Clear.ClearValue);
 
-    if (depth_load_op != VK_ATTACHMENT_LOAD_OP_LOAD)
+    if (depth_load_op == VK_ATTACHMENT_LOAD_OP_CLEAR)
         clear_aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
-    if (stencil_load_op != VK_ATTACHMENT_LOAD_OP_LOAD)
+    if (stencil_load_op == VK_ATTACHMENT_LOAD_OP_CLEAR)
         clear_aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
     clear_aspects &= aspect_flags;
@@ -16355,29 +16653,10 @@ static void d3d12_command_list_load_render_pass_dsv(struct d3d12_command_list *l
     full_resource_clear = vkd3d_rtv_and_aspects_fully_cover_resource(dsv_info->resource, dsv_info->view, clear_aspects);
     d3d12_command_list_track_resource_usage(list, dsv_info->resource, !full_resource_clear);
 
-    if (depth_load_op == stencil_load_op || aspect_flags != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+    if (clear_aspects)
     {
-        VkAttachmentLoadOp load_op = (aspect_flags & VK_IMAGE_ASPECT_DEPTH_BIT) ? depth_load_op : stencil_load_op;
-
-        if (load_op != VK_ATTACHMENT_LOAD_OP_LOAD)
-        {
-            d3d12_command_list_load_attachment(list, dsv_info->resource, dsv_info->view,
-                    aspect_flags, &clear_value, 0, NULL, load_op);
-        }
-    }
-    else
-    {
-        if (depth_load_op != VK_ATTACHMENT_LOAD_OP_LOAD)
-        {
-            d3d12_command_list_load_attachment(list, dsv_info->resource, dsv_info->view,
-                    VK_IMAGE_ASPECT_DEPTH_BIT, &clear_value, 0, NULL, depth_load_op);
-        }
-
-        if (stencil_load_op != VK_ATTACHMENT_LOAD_OP_LOAD)
-        {
-            d3d12_command_list_load_attachment(list, dsv_info->resource, dsv_info->view,
-                    VK_IMAGE_ASPECT_STENCIL_BIT, &clear_value, 0, NULL, stencil_load_op);
-        }
+        d3d12_command_list_defer_attachment_clear(list, dsv_info->resource,
+            dsv_info->view, clear_aspects, &clear_value);
     }
 }
 
@@ -17977,6 +18256,9 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE))
         d3d12_command_list_flush_rtas_batch(list);
 
+    if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_DEPTH_STENCIL))
+        d3d12_command_list_flush_clears(list, NULL, NULL);
+
     d3d12_command_list_merge_copy_tracking_global_barrier(list, barrier, batch);
     d3d12_command_list_barrier_batch_add_global_transition(list, batch,
             src_stages, src_access, dst_stages, dst_access);
@@ -18034,6 +18316,9 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
 
     if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumArraySlices == 0)
         WARN("NumArraySlices == 0 promotes to 1 slice.\n");
+
+    if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_DEPTH_STENCIL))
+        d3d12_command_list_flush_clears(list, resource, NULL);
 
     global_barrier.SyncBefore = barrier->SyncBefore;
     global_barrier.SyncAfter = barrier->SyncAfter;
@@ -18407,7 +18692,8 @@ static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, 
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
         d3d12_command_list_init_attachment_info(&rendering_info->rtv[i]);
 
-    d3d12_command_list_init_attachment_info(&rendering_info->dsv);
+    d3d12_command_list_init_attachment_info(&rendering_info->depth);
+    d3d12_command_list_init_attachment_info(&rendering_info->stencil);
 
     if (device->device_info.fragment_shading_rate_features.attachmentFragmentShadingRate)
     {
