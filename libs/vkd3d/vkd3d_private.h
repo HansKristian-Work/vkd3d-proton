@@ -2805,7 +2805,8 @@ struct vkd3d_rendering_info
 {
     VkRenderingInfo info;
     VkRenderingAttachmentInfo rtv[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    VkRenderingAttachmentInfo dsv;
+    VkRenderingAttachmentInfo depth;
+    VkRenderingAttachmentInfo stencil;
     VkRenderingFragmentShadingRateAttachmentInfoKHR vrs;
     uint32_t state_flags;
     uint32_t rtv_mask;
@@ -3047,6 +3048,16 @@ struct d3d12_command_list_sequence
 
 struct vkd3d_timestamp_profiler_submitted_work;
 
+#define VKD3D_MAX_DEFERRED_CLEAR_COUNT 16u
+
+struct vkd3d_deferred_clear
+{
+    struct d3d12_resource *resource;
+    struct vkd3d_view *view;
+    VkImageAspectFlags clear_aspects;
+    VkClearValue clear_value;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -3077,6 +3088,9 @@ struct d3d12_command_list
     D3D12_RENDER_PASS_FLAGS render_pass_flags;
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;
+
+    struct vkd3d_deferred_clear deferred_clears[VKD3D_MAX_DEFERRED_CLEAR_COUNT];
+    unsigned int deferred_clear_count;
 
     struct d3d12_rtv_resolve *rtv_resolves;
     size_t rtv_resolve_size;
