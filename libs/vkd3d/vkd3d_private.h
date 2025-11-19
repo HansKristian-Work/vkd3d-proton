@@ -2107,11 +2107,15 @@ VkPipeline vkd3d_fragment_output_pipeline_create(struct d3d12_device *device,
         const struct vkd3d_fragment_output_pipeline_desc *desc);
 void vkd3d_fragment_output_pipeline_free(struct hash_map_entry *entry, void *userdata);
 
-#define VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES 4
-struct vkd3d_shader_debug_ring_spec_info
+#define VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES 4
+struct vkd3d_shader_spec_info
 {
-    struct vkd3d_shader_debug_ring_spec_constants constants;
-    VkSpecializationMapEntry map_entries[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES];
+    union
+    {
+        struct vkd3d_shader_debug_ring_spec_constants debug_ring_constants;
+        uint32_t generic_u32[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES];
+    };
+    VkSpecializationMapEntry map_entries[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES];
     VkSpecializationInfo spec_info;
 };
 
@@ -2126,7 +2130,8 @@ struct d3d12_graphics_pipeline_state_cached_desc
 {
     /* Information needed to compile to SPIR-V. */
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    struct vkd3d_shader_parameter ps_shader_parameters[1];
+    struct vkd3d_shader_parameter shader_parameters[3];
+    unsigned int shader_parameters_count;
     bool is_dual_source_blending;
     VkShaderStageFlagBits xfb_stage;
     struct vkd3d_shader_transform_feedback_info *xfb_info;
@@ -2140,7 +2145,7 @@ struct d3d12_graphics_pipeline_state_cached_desc
 
 struct d3d12_graphics_pipeline_state
 {
-    struct vkd3d_shader_debug_ring_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
+    struct vkd3d_shader_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     struct vkd3d_shader_code code[VKD3D_MAX_SHADER_STAGES];
     struct vkd3d_shader_code_debug code_debug[VKD3D_MAX_SHADER_STAGES];
@@ -2197,6 +2202,15 @@ struct d3d12_graphics_pipeline_state
     struct list compiled_fallback_pipelines;
 
     unsigned int xfb_buffer_count;
+
+    struct
+    {
+        uint32_t view_mask;
+        uint32_t spec_data_index_to_id_mapping;
+        uint32_t spec_data_viewport_mapping;
+        uint32_t default_mask;
+        bool dynamic_mask;
+    } multiview;
 
     bool disable_optimization;
 };
@@ -2348,6 +2362,7 @@ struct vkd3d_pipeline_key
     D3D12_PRIMITIVE_TOPOLOGY topology;
     VkFormat dsv_format;
     VkSampleCountFlagBits rasterization_samples;
+    uint32_t view_mask;
 
     bool dynamic_topology;
 };
@@ -2681,6 +2696,7 @@ struct vkd3d_dynamic_state
     VkViewport viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     VkRect2D scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     VkSampleCountFlagBits rasterization_samples;
+    uint32_t view_mask;
 
     float blend_constants[4];
 
@@ -3707,7 +3723,7 @@ void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *state,
         struct d3d12_device *device);
 void *vkd3d_shader_debug_ring_thread_main(void *arg);
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
-        struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash);
+        struct vkd3d_shader_spec_info *info, vkd3d_shader_hash_t hash);
 /* If we assume device lost, try really hard to fish for messages. */
 void vkd3d_shader_debug_ring_kick(struct vkd3d_shader_debug_ring *state,
         struct d3d12_device *device, bool device_lost);

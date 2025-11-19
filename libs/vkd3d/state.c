@@ -2690,14 +2690,27 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
         compile_arguments->driver_version = device->device_info.properties2.properties.driverVersion;
     }
 
+    compile_arguments->parameter_count = state->graphics.cached_desc.shader_parameters_count;
+    compile_arguments->parameters = state->graphics.cached_desc.shader_parameters;
+
     if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
     {
         /* Options which are exclusive to PS. Especially output swizzles must only be used in PS. */
-        compile_arguments->parameter_count = ARRAY_SIZE(state->graphics.cached_desc.ps_shader_parameters);
-        compile_arguments->parameters = state->graphics.cached_desc.ps_shader_parameters;
         compile_arguments->dual_source_blending = state->graphics.cached_desc.is_dual_source_blending;
         compile_arguments->output_swizzles = state->graphics.cached_desc.ps_output_swizzle;
         compile_arguments->output_swizzle_count = state->graphics.rt_count;
+    }
+
+    if (stage != VK_SHADER_STAGE_COMPUTE_BIT && state->graphics.multiview.view_mask)
+    {
+        VkShaderStageFlags active_pre_raster = state->graphics.stage_flags & ~VK_SHADER_STAGE_FRAGMENT_BIT;
+        compile_arguments->multiview.enable = state->graphics.multiview.view_mask != 0;
+        /* Only last pre-raster stage needs to "support" multiview properly.
+         * Other stages can query ViewID. */
+        compile_arguments->multiview.last_pre_rasterization =
+                (active_pre_raster & ~(stage | (stage - 1))) == 0;
+
+        /* Pass down concrete values via spec-constants later. */
     }
 }
 
@@ -3023,11 +3036,11 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfo required_subgroup_size_info;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkPipelineCreationFeedbackCreateInfo feedback_info;
-    struct vkd3d_shader_debug_ring_spec_info spec_info;
     struct vkd3d_shader_code_debug *spirv_code_debug;
     struct vkd3d_queue_timeline_trace_cookie cookie;
     VkPipelineCreationFeedbackEXT feedbacks[1];
     VkComputePipelineCreateInfo pipeline_info;
+    struct vkd3d_shader_spec_info spec_info;
     VkPipelineCreationFeedbackEXT feedback;
     struct vkd3d_shader_code *spirv_code;
     VkPipelineCache vk_cache;
@@ -4086,7 +4099,8 @@ void vkd3d_vertex_input_pipeline_free(struct hash_map_entry *entry, void *userda
 }
 
 void vkd3d_fragment_output_pipeline_desc_init(struct vkd3d_fragment_output_pipeline_desc *desc,
-        struct d3d12_pipeline_state *state, const struct vkd3d_format *dsv_format, uint32_t dynamic_state_flags)
+        struct d3d12_pipeline_state *state, const struct vkd3d_format *dsv_format,
+        uint32_t dynamic_view_mask, uint32_t dynamic_state_flags)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     unsigned int i;
@@ -4121,6 +4135,7 @@ void vkd3d_fragment_output_pipeline_desc_init(struct vkd3d_fragment_output_pipel
     desc->rt_info.depthAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
     /* From spec:  If stencilAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a stencil aspect. */
     desc->rt_info.stencilAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    desc->rt_info.viewMask = dynamic_view_mask ? dynamic_view_mask : graphics->multiview.view_mask;
 
     desc->dy_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     desc->dy_info.dynamicStateCount = vkd3d_init_dynamic_state_array(desc->dy_states,
@@ -4534,6 +4549,28 @@ static HRESULT d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_s
                     graphics->code[i].meta.hash);
             graphics->stages[i].pSpecializationInfo = &graphics->spec_info[i].spec_info;
         }
+        else if (graphics->multiview.view_mask)
+        {
+            /* TODO: If we have debug ring, might need to find a nice way to "fuse" spec constant info blocks. */
+            struct vkd3d_shader_spec_info *info = &graphics->spec_info[i];
+
+            info->spec_info.pData = info->generic_u32;
+            info->spec_info.dataSize = 2 * sizeof(uint32_t);
+            info->spec_info.pMapEntries = info->map_entries;
+            info->spec_info.mapEntryCount = 2;
+
+            info->map_entries[0].constantID = VKD3D_SHADER_VIEW_INDEX_TO_VIEW_ID_SPEC_CONSTANT;
+            info->map_entries[0].offset = 0;
+            info->map_entries[0].size = sizeof(uint32_t);
+            info->map_entries[1].constantID = VKD3D_SHADER_VIEW_ID_TO_VIEWPORT_SPEC_CONSTANT;
+            info->map_entries[1].offset = sizeof(uint32_t);
+            info->map_entries[1].size = sizeof(uint32_t);
+
+            info->generic_u32[0] = graphics->multiview.spec_data_index_to_id_mapping;
+            info->generic_u32[1] = graphics->multiview.spec_data_viewport_mapping;
+
+            graphics->stages[i].pSpecializationInfo = &info->spec_info;
+        }
 
         if (graphics->stages[i].module != VK_NULL_HANDLE &&
                 device->device_info.shader_module_identifier_features.shaderModuleIdentifier)
@@ -4780,6 +4817,61 @@ static bool d3d12_graphics_pipeline_state_needs_noop_fs(
             device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV;
 }
 
+static bool d3d12_pipeline_state_validate_view_instancing(struct d3d12_device *device,
+        struct d3d12_graphics_pipeline_state *graphics, const struct d3d12_pipeline_state_desc *desc)
+{
+    /* Need to map ViewIndex back to 2-bit ViewID (max view instancing in D3D12 is 4). */
+    uint32_t limit = min(device->device_info.vulkan_1_1_properties.maxMultiviewViewCount, 16);
+    unsigned int i;
+
+    if (desc->view_instancing_desc.Flags & D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING)
+        FIXME_ONCE("View instance masking is supported in a naive way. Will fallback compile as required.\n");
+    graphics->multiview.dynamic_mask =
+            !!(desc->view_instancing_desc.Flags & D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING);
+
+    for (i = 0; i < desc->view_instancing_desc.ViewInstanceCount; i++)
+    {
+        const D3D12_VIEW_INSTANCE_LOCATION *loc = &desc->view_instancing_desc.pViewInstanceLocations[i];
+
+        if (loc->RenderTargetArrayIndex >= limit)
+        {
+            /* Only way this can work is exporting gl_Layer ourselves.
+             * This should never happen, but we could implement this by passing down a separate u32 and
+             * force draw instancing. */
+            FIXME("RenderTargetArrayIndex %u is out of range for supported min(16, multiviewCount) %u.\n",
+                    loc->RenderTargetArrayIndex, limit);
+            return false;
+        }
+
+        if (graphics->multiview.view_mask & (1u << loc->RenderTargetArrayIndex))
+        {
+            /* Technically it's valid to instance multiple times to the same array layer,
+             * and just using different viewport indices to achieve the same effect.
+             * However, there is no good way to express this in plain Vulkan multiview,
+             * so we are kind of forced to implement draw instancing here. */
+            FIXME("The same RenderTargetArrayIndex %u is used for multiple ViewIDs. This is unsupported.\n",
+                    loc->RenderTargetArrayIndex);
+            return false;
+        }
+
+        graphics->multiview.view_mask |= 1u << loc->RenderTargetArrayIndex;
+
+        /* We get the final layer in Vulkan constants, and we have to map that backwards to ViewID. */
+        graphics->multiview.spec_data_index_to_id_mapping |= i << (loc->RenderTargetArrayIndex * 2);
+
+        /* This is trivial to achieve in dxil-spirv. */
+        graphics->multiview.spec_data_viewport_mapping |= loc->ViewportArrayIndex << (8 * i);
+
+        /* There is still a potential hazard we don't handle which happens if last pre-raster stage is exporting
+         * SV_RenderTargetArrayIndex. We are forced into draw instancing in this case, which we don't support,
+         * but we need to defer this to compile time to check if we're compatible. */
+    }
+
+    graphics->multiview.default_mask = (1u << desc->view_instancing_desc.ViewInstanceCount) - 1u;
+
+    return true;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
@@ -4793,6 +4885,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     VkShaderStageFlagBits curr_stage, prev_stage;
+    struct vkd3d_shader_parameter *shader_param;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     unsigned int instance_divisor;
@@ -4870,6 +4963,31 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
      * Adding a noop FS is trivial. */
     if (d3d12_graphics_pipeline_state_needs_noop_fs(device, graphics))
         graphics->stage_flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    if (desc->view_instancing_desc.ViewInstanceCount)
+    {
+        if (desc->view_instancing_desc.ViewInstanceCount > D3D12_MAX_VIEW_INSTANCE_COUNT)
+        {
+            ERR("View instance count is too large.\n");
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
+        if (device->d3d12_caps.options3.ViewInstancingTier == D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED)
+        {
+            ERR("View instancing not supported.\n");
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
+        /* We don't support every case yet, but the obvious fast paths should work. */
+        if (!d3d12_pipeline_state_validate_view_instancing(device, graphics, desc))
+        {
+            FIXME("Unsupported view instancing configuration used.\n");
+            hr = E_NOTIMPL;
+            goto fail;
+        }
+    }
 
     graphics->null_attachment_mask = 0;
     graphics->rtv_active_mask = 0;
@@ -4991,10 +5109,32 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
         }
     }
 
-    graphics->cached_desc.ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
-    graphics->cached_desc.ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
-    graphics->cached_desc.ps_shader_parameters[0].data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
-    graphics->cached_desc.ps_shader_parameters[0].immediate_constant.u32 = sample_count;
+    shader_param = &graphics->cached_desc.shader_parameters[graphics->cached_desc.shader_parameters_count++];
+    shader_param->name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
+    shader_param->type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
+    shader_param->data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+    shader_param->immediate_constant.u32 = sample_count;
+
+    if (desc->view_instancing_desc.ViewInstanceCount)
+    {
+        /* TODO: This might be noped out if we have forced draw instancing. */
+        shader_param = &graphics->cached_desc.shader_parameters[graphics->cached_desc.shader_parameters_count++];
+        shader_param->name = VKD3D_SHADER_PARAMETER_NAME_VIEW_INDEX_TO_VIEW_ID;
+        shader_param->type = VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT;
+        shader_param->data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+        shader_param->specialization_constant.id = VKD3D_SHADER_VIEW_INDEX_TO_VIEW_ID_SPEC_CONSTANT;
+
+        if (graphics->multiview.spec_data_viewport_mapping != 0)
+        {
+            /* If every layer exports to viewport 0, we don't have to emit it manually. */
+            shader_param = &graphics->cached_desc.shader_parameters[graphics->cached_desc.shader_parameters_count++];
+            shader_param->name = VKD3D_SHADER_PARAMETER_NAME_VIEW_ID_TO_VIEWPORT;
+            shader_param->type = VKD3D_SHADER_PARAMETER_TYPE_SPECIALIZATION_CONSTANT;
+            shader_param->data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+            shader_param->specialization_constant.id = VKD3D_SHADER_VIEW_ID_TO_VIEWPORT_SPEC_CONSTANT;
+        }
+    }
+
     graphics->cached_desc.is_dual_source_blending = is_dual_source_blending(&desc->blend_state.RenderTarget[0]);
 
     if (graphics->cached_desc.is_dual_source_blending)
@@ -5370,13 +5510,6 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     graphics->ms_desc.alphaToCoverageEnable = desc->blend_state.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 
-    if (desc->view_instancing_desc.ViewInstanceCount)
-    {
-        ERR("View instancing not supported.\n");
-        hr = E_INVALIDARG;
-        goto fail;
-    }
-
     /* Tests show that D3D12 drivers behave as if D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS
      * was always set, however doing that would invalidate existing pipeline caches, so avoid
      * this until proven necessary. */
@@ -5440,7 +5573,11 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
         if (graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS)
             graphics->disable_optimization = true;
 
-    has_gpl = state->device->device_info.graphics_pipeline_library_features.graphicsPipelineLibrary;
+    /* VUID-VkGraphicsPipelineCreateInfo-pLibraries-06627 is very annoying.
+     * We cannot modify the viewMask of pre-raster if output viewMask has a mismatch.
+     * Just fallback to stall-ful compile if we have to. */
+    has_gpl = state->device->device_info.graphics_pipeline_library_features.graphicsPipelineLibrary &&
+            !graphics->multiview.dynamic_mask;
 
     library_flags = VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT |
             VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT |
@@ -5535,6 +5672,10 @@ static HRESULT d3d12_pipeline_state_finish_graphics(struct d3d12_pipeline_state 
     /* Same thing if the pipeline is multisampled but we cannot dynamically set the sample count. */
     if (d3d12_graphics_pipeline_needs_dynamic_rasterization_samples(graphics) &&
             !(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES))
+        state->pso_is_fully_dynamic = false;
+
+    /* If we have dynamic view mask, we may have to compile variants. */
+    if (graphics->multiview.dynamic_mask)
         state->pso_is_fully_dynamic = false;
 
     if (!state->pso_is_fully_dynamic)
@@ -6046,7 +6187,8 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
 
     if (!(graphics->library_flags & VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT))
     {
-        vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format, dynamic_state_flags);
+        vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format,
+                key ? key->view_mask : 0, dynamic_state_flags);
         vk_libraries[library_count++] = d3d12_device_get_or_create_fragment_output_pipeline(state->device, &fragment_output_desc);
     }
 
@@ -6159,7 +6301,8 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     vp_desc.scissorCount = 0;
     vp_desc.pScissors = NULL;
 
-    vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format, *dynamic_state_flags);
+    vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format,
+            key ? key->view_mask : 0, *dynamic_state_flags);
     vkd3d_fragment_output_pipeline_desc_prepare(&fragment_output_desc);
 
     memset(&pipeline_desc, 0, sizeof(pipeline_desc));
@@ -6422,6 +6565,12 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
             return VK_NULL_HANDLE;
     }
 
+    /* We also need a fallback pipeline if view instance mask does not match. */
+    if (state->graphics.multiview.view_mask &&
+            state->graphics.multiview.dynamic_mask &&
+            dyn_state->view_mask != state->graphics.multiview.default_mask)
+        return VK_NULL_HANDLE;
+
     *dynamic_state_flags = state->graphics.pipeline_dynamic_states;
     return state->graphics.pipeline;
 }
@@ -6454,6 +6603,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     }
 
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    pipeline_key.view_mask = graphics->multiview.dynamic_mask ? dyn_state->view_mask : 0;
 
     if (!(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES))
     {

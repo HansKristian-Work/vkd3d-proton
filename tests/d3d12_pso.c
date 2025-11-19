@@ -3689,7 +3689,13 @@ void test_view_instancing(void)
     pso_vs_ps_desc.view_instancing = view_instancing_viewports_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    /* Normal multiview cannot support this. */
+    todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    if (FAILED(hr))
+    {
+        ok(hr == E_NOTIMPL, "Expected NOTIMPL.\n");
+        pso = NULL;
+    }
 
     for (i = 0; i < ARRAY_SIZE(viewports); i++)
     {
@@ -3720,7 +3726,9 @@ void test_view_instancing(void)
     ID3D12GraphicsCommandList_RSSetScissorRects(context.list, ARRAY_SIZE(scissors), scissors);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_IASetIndexBuffer(context.list, &ibv);
-    ID3D12GraphicsCommandList_DrawIndexedInstanced(context.list, 3, 1, 0, 0, 0);
+
+    if (SUCCEEDED(hr))
+        ID3D12GraphicsCommandList_DrawIndexedInstanced(context.list, 3, 1, 0, 0, 0);
 
     transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
@@ -3734,7 +3742,7 @@ void test_view_instancing(void)
             got = get_readback_uint(&rb, x, y, 0);
             expected = (x / 2) + 2 * (y / 2);
 
-            ok(got == expected, "Got %#x, expected %#x at (%u,%u).\n", got, expected, x, y);
+            todo_if(!pso) ok(got == expected, "Got %#x, expected %#x at (%u,%u).\n", got, expected, x, y);
         }
     }
 
@@ -3746,7 +3754,8 @@ void test_view_instancing(void)
         reset_command_list(context.list, context.allocator);
     }
 
-    ID3D12PipelineState_Release(pso);
+    if (pso)
+        ID3D12PipelineState_Release(pso);
 
     /* Test a mixture of layer and viewport indices */
     pso_vs_ps_desc.view_instancing = view_instancing_mixed_subobject;
@@ -3803,9 +3812,16 @@ void test_view_instancing(void)
         pso_vs_ps_desc.vs = vs_multiview_export_layer_viewport_subobject;
 
         hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
-        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
 
-        for (shader_args.layer = 0; shader_args.layer <= 1; shader_args.layer++)
+        /* We don't support layer bias at the moment. */
+        todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+        if (FAILED(hr))
+        {
+            ok(hr == E_NOTIMPL, "Expected E_NOTIMPL.\n");
+            pso = NULL;
+        }
+
+        for (shader_args.layer = 0; pso && shader_args.layer <= 1; shader_args.layer++)
         {
             for (shader_args.viewport = 0; shader_args.viewport <= 2; shader_args.viewport++)
             {
@@ -3856,7 +3872,8 @@ void test_view_instancing(void)
             }
         }
 
-        ID3D12PipelineState_Release(pso);
+        if (pso)
+            ID3D12PipelineState_Release(pso);
     }
     else
     {
@@ -3880,9 +3897,14 @@ void test_view_instancing(void)
     pso_vs_gs_ps_desc.view_instancing = view_instancing_export_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_gs_ps_desc, &pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    if (FAILED(hr))
+    {
+        ok(hr == E_NOTIMPL, "Expected E_NOTIMPL.\n");
+        pso = NULL;
+    }
 
-    for (shader_args.layer = 0; shader_args.layer <= 1; shader_args.layer++)
+    for (shader_args.layer = 0; pso && shader_args.layer <= 1; shader_args.layer++)
     {
         for (shader_args.viewport = 0; shader_args.viewport <= 2; shader_args.viewport++)
         {
@@ -3928,7 +3950,8 @@ void test_view_instancing(void)
         }
     }
 
-    ID3D12PipelineState_Release(pso);
+    if (pso)
+        ID3D12PipelineState_Release(pso);
 
     if (options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1)
     {
@@ -3966,8 +3989,8 @@ void test_view_instancing(void)
         {
             vkd3d_test_set_context("layer %u", i);
 
-            /* AMD only renders first layer, NV renders nothing */
-            bug_if(is_amd_windows_device(context.device))
+            /* AMD only renders first layer, NV renders nothing. Also NV renders nothing in Vulkan :D */
+            bug_if(is_amd_windows_device(context.device) || is_nvidia_device(context.device))
             check_sub_resource_uint(context.render_target, i, context.queue, context.list, i, 0);
 
             reset_command_list(context.list, context.allocator);
