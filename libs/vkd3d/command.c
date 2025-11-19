@@ -6166,7 +6166,8 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     if (list->vrs_image)
     {
         rendering_info->vrs.imageView = list->vrs_image->vrs_view;
-        rendering_info->vrs.imageLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+        rendering_info->vrs.imageLayout = d3d12_resource_pick_layout(list->vrs_image,
+                VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR);
     }
     else
     {
