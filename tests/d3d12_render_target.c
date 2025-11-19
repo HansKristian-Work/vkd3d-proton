@@ -2556,3 +2556,378 @@ void test_unused_attachments_mix_and_match(void)
     destroy_depth_stencil(&ds);
     destroy_test_context(&context);
 }
+
+static void test_render_pass_suspend_resume_opts(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS6 options6;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    struct test_context_desc context_desc;
+    D3D12_QUERY_HEAP_DESC query_heap_desc;
+    ID3D12GraphicsCommandList *list[3];
+    ID3D12CommandList *submit_list[3];
+    struct depth_stencil_resource ds;
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context context;
+    ID3D12QueryHeap *timestamps;
+    ID3D12QueryHeap *occlusion;
+    ID3D12Resource *rtvs[2];
+    unsigned int test_index;
+    ID3D12Resource *vrs;
+    ID3D12Resource *dst;
+    ID3D12Resource *src;
+    unsigned int iter;
+    unsigned int i;
+
+    struct test_iteration
+    {
+        bool copy_start;
+        bool copy_end;
+        unsigned int rtv_mask;
+        bool bind_dsv;
+        bool bind_vrs;
+        unsigned int num_passes;
+
+        bool timestamp;
+        bool occlusion_query;
+    };
+
+    static const struct test
+    {
+        const char *tag;
+        unsigned int num_iterations;
+        struct test_iteration iterations[3];
+    } tests[] = {
+        /* Intra command buffer state tracking of OMSetRenderTargets. We should be able to get a single render pass here. */
+        {
+            "Intra command buffer state tracking",
+            1,
+            {
+                { false, false, 0x3, false, true, 4 },
+            }
+        },
+        /* Simple base case, render two render passes which should be possible to link up. */
+        {
+            "Two command lists with suspend/resume semantics",
+            2,
+            {
+                { false, false, 0x3, false, true, 1 },
+                { false, false, 0x3, false, true, 1 },
+            }
+        },
+        /* Same thing but have 3 passes. This also exercises a command list which both resumes and suspends. */
+        {
+            "Three command lists with suspend/resume semantics",
+            3,
+            {
+                { false, false, 0x3, false, true, 1 },
+                { false, false, 0x3, false, true, 1 },
+                { false, false, 0x3, false, true, 1 },
+            }
+        },
+        {
+            "Two command lists with suspend/resumable copies",
+            2,
+            {
+                { true, false, 0x3, false, true, 1 },
+                { false, true, 0x3, false, true, 1 },
+            }
+        },
+        {
+            "Cannot suspend/resume, first list",
+            2,
+            {
+                { false, true, 0x3, false, true, 1 },
+                { false, false, 0x3, false, true, 1 },
+            }
+        },
+        {
+            "Cannot suspend/resume, second list",
+            2,
+            {
+                { false, false, 0x3, false, true, 1 },
+                { true, false, 0x3, false, true, 1 },
+            }
+        },
+        {
+            "Mismatch RTV",
+            3,
+            {
+                { false, false, 0x1, false, true, 1 },
+                { false, false, 0x3, false, true, 1 },
+                { false, false, 0x1, false, true, 1 },
+            }
+        },
+        {
+            "Mismatch DSV",
+            3,
+            {
+                { false, false, 0x1, false, true, 1 },
+                { false, false, 0x1, true, true, 1 },
+                { false, false, 0x1, false, true, 1 },
+            }
+        },
+        {
+            "Mismatch VRS",
+            3,
+            {
+                { false, false, 0x1, false, false, 1 },
+                { false, false, 0x1, false, true, 1 },
+                { false, false, 0x1, false, false, 1 },
+            }
+        },
+        {
+            "Timestamp hoisting (init command buffer)",
+            2,
+            {
+                { false, false, 0x1, false, false, 1, true },
+                { false, false, 0x1, false, false, 1, true },
+            }
+        },
+        {
+            "Virtual query resolve (close fixup)",
+            2,
+            {
+                { false, false, 0x1, false, false, 1, false, true },
+                { false, false, 0x1, false, false, 1, false, true },
+            }
+        },
+    };
+
+#include "shaders/render_target/headers/vs_no_attachments.h"
+#include "shaders/render_target/headers/ps_color_2.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_render_target = true;
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    context.root_signature = create_32bit_constants_root_signature(context.device, 0, 4, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R32_FLOAT,
+            &vs_no_attachments_dxbc, &ps_color_2_dxbc, NULL);
+    pso_desc.NumRenderTargets = 2;
+    pso_desc.RTVFormats[1] = pso_desc.RTVFormats[0];
+    pso_desc.BlendState.IndependentBlendEnable = FALSE;
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = 0xf;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DepthStencilState.StencilEnable = TRUE;
+    pso_desc.DepthStencilState.StencilWriteMask = 0xff;
+    pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_INCR_SAT;
+    pso_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
+    pso_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+    ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState,
+            (void **)&context.pipeline_state);
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 3);
+
+    ID3D12GraphicsCommandList_Close(context.list);
+
+    for (i = 0; i < ARRAY_SIZE(list); i++)
+    {
+        ID3D12Device_CreateCommandList(context.device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                context.allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&list[i]);
+        ID3D12GraphicsCommandList_Close(list[i]);
+        submit_list[i] = (ID3D12CommandList *)list[i];
+    }
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS6, &options6, sizeof(options6))))
+        options6.VariableShadingRateTier = D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
+
+    for (i = 0; i < ARRAY_SIZE(rtvs); i++)
+    {
+        rtvs[i] = create_default_texture2d(context.device,
+                16, 16, 1, 1, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12Device_CreateRenderTargetView(context.device, rtvs[i], NULL,
+                get_cpu_rtv_handle(&context, rtv_heap, i));
+    }
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    ID3D12Device_CreateRenderTargetView(context.device, NULL, &rtv_desc,
+            get_cpu_rtv_handle(&context, rtv_heap, 2));
+
+    if (options6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_2)
+    {
+        vrs = create_default_texture2d(context.device, 16, 16, 1, 1,
+                DXGI_FORMAT_R8_UINT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
+    }
+    else
+        vrs = NULL;
+
+    dst = create_default_buffer(context.device, 16, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    src = create_default_buffer(context.device, 16, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    init_depth_stencil(&ds, context.device, 16, 16, 1, 1, DXGI_FORMAT_D24_UNORM_S8_UINT,
+            DXGI_FORMAT_D24_UNORM_S8_UINT, NULL);
+
+    memset(&query_heap_desc, 0, sizeof(query_heap_desc));
+    query_heap_desc.Count = 1;
+    query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+    ID3D12Device_CreateQueryHeap(context.device, &query_heap_desc, &IID_ID3D12QueryHeap, (void **)&occlusion);
+    query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    ID3D12Device_CreateQueryHeap(context.device, &query_heap_desc, &IID_ID3D12QueryHeap, (void **)&timestamps);
+
+    reset_command_list(context.list, context.allocator);
+
+    for (test_index = 0; test_index < ARRAY_SIZE(tests); test_index++)
+    {
+        const struct test *test = &tests[test_index];
+        static const float black_color[4] = { 0 };
+        float rtv_reference[2] = { 0.0f };
+        uint8_t stencil_reference = 0;
+        unsigned int render_pass;
+        unsigned int rtv_index;
+
+        vkd3d_test_set_context("Test %u - %s", test_index, test->tag);
+        begin_debug_region_printf(context.list, "Test %u - %s", test_index, test->tag);
+
+        for (rtv_index = 0; rtv_index < ARRAY_SIZE(rtvs); rtv_index++)
+        {
+            ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, rtv_index),
+                    black_color, 0, NULL);
+        }
+
+        ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, ds.dsv_handle,
+                D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+                0.0f, 0, 0, NULL);
+
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+
+        for (iter = 0; iter < test->num_iterations; iter++)
+        {
+            const struct test_iteration *iteration = &test->iterations[iter];
+            ID3D12GraphicsCommandList *cmd = list[iter];
+
+            ID3D12GraphicsCommandList_Reset(cmd, context.allocator, NULL);
+            insert_debug_label(cmd, "BeginIteration");
+
+            /* Dummy action command intended to break suspend/resume. */
+            if (iteration->copy_start)
+                ID3D12GraphicsCommandList_CopyResource(cmd, dst, src);
+
+            for (render_pass = 0; render_pass < iteration->num_passes; render_pass++)
+            {
+                static const float cbv_data[] = { 1, 1, 1, 1 };
+                D3D12_CPU_DESCRIPTOR_HANDLE rtv_handles[2];
+                D3D12_VIEWPORT vp;
+                D3D12_RECT sci;
+
+                insert_debug_label_printf(cmd, "OMSetRenderTargets RTV = #%x, DSV = %u, VRS = %u",
+                        iteration->rtv_mask, iteration->bind_dsv, iteration->bind_vrs);
+
+                rtv_handles[0] = get_cpu_rtv_handle(&context, rtv_heap, (iteration->rtv_mask & 1) ? 0 : 2);
+                rtv_handles[1] = get_cpu_rtv_handle(&context, rtv_heap, (iteration->rtv_mask & 2) ? 1 : 2);
+
+                if (iteration->rtv_mask & 1)
+                    rtv_reference[0] += 1.0f;
+                if (iteration->rtv_mask & 2)
+                    rtv_reference[1] += 1.0f;
+                if (iteration->bind_dsv)
+                    stencil_reference += 1;
+
+                ID3D12GraphicsCommandList_OMSetRenderTargets(cmd,
+                        ARRAY_SIZE(rtv_handles), rtv_handles, FALSE,
+                        iteration->bind_dsv ? &ds.dsv_handle : NULL);
+
+                if (vrs)
+                {
+                    ID3D12GraphicsCommandList5 *cmd5;
+                    ID3D12GraphicsCommandList_QueryInterface(cmd, &IID_ID3D12GraphicsCommandList5, (void **)&cmd5);
+                    ID3D12GraphicsCommandList5_RSSetShadingRateImage(cmd5, iteration->bind_vrs ? vrs : NULL);
+                    ID3D12GraphicsCommandList5_Release(cmd5);
+                }
+
+                ID3D12GraphicsCommandList_SetGraphicsRootSignature(cmd, context.root_signature);
+                ID3D12GraphicsCommandList_SetPipelineState(cmd, context.pipeline_state);
+                ID3D12GraphicsCommandList_IASetPrimitiveTopology(cmd, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(cmd, 0, 4, cbv_data, 0);
+
+                set_viewport(&vp, 0, 0, 16, 16, 0, 1);
+                set_rect(&sci, 0, 0, 16, 16);
+                ID3D12GraphicsCommandList_RSSetViewports(cmd, 1, &vp);
+                ID3D12GraphicsCommandList_RSSetScissorRects(cmd, 1, &sci);
+
+                if (iteration->occlusion_query)
+                    ID3D12GraphicsCommandList_BeginQuery(cmd, occlusion, D3D12_QUERY_TYPE_OCCLUSION, 0);
+                ID3D12GraphicsCommandList_DrawInstanced(cmd, 3, 1, 0, 0);
+                if (iteration->occlusion_query)
+                    ID3D12GraphicsCommandList_EndQuery(cmd, occlusion, D3D12_QUERY_TYPE_OCCLUSION, 0);
+                if (iteration->timestamp)
+                    ID3D12GraphicsCommandList_EndQuery(cmd, timestamps, D3D12_QUERY_TYPE_TIMESTAMP, 0);
+            }
+
+            /* Dummy action command intended to break suspend/resume. */
+            if (iteration->copy_end)
+                ID3D12GraphicsCommandList_CopyResource(cmd, dst, src);
+
+            if (iter + 1 == test->num_iterations)
+                end_debug_region(cmd);
+            ID3D12GraphicsCommandList_Close(cmd);
+        }
+
+        ID3D12CommandQueue_ExecuteCommandLists(context.queue, test->num_iterations, submit_list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+        for (rtv_index = 0; rtv_index < ARRAY_SIZE(rtvs); rtv_index++)
+        {
+            transition_resource_state(context.list, rtvs[rtv_index], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            check_sub_resource_float(rtvs[rtv_index], 0, context.queue, context.list, rtv_reference[rtv_index], 0);
+            reset_command_list(context.list, context.allocator);
+            transition_resource_state(context.list, rtvs[rtv_index], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
+        transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint8(ds.texture, 1, context.queue, context.list, stencil_reference, 0);
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    }
+    vkd3d_test_set_context(NULL);
+
+    for (i = 0; i < ARRAY_SIZE(list); i++)
+        ID3D12GraphicsCommandList_Release(list[i]);
+    for (i = 0; i < ARRAY_SIZE(rtvs); i++)
+        ID3D12Resource_Release(rtvs[i]);
+    if (vrs)
+        ID3D12Resource_Release(vrs);
+    ID3D12Resource_Release(dst);
+    ID3D12Resource_Release(src);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12QueryHeap_Release(occlusion);
+    ID3D12QueryHeap_Release(timestamps);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
+
+void test_render_pass_suspend_resume_opts_enabled(void)
+{
+    vkd3d_set_behavior_flags(VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_SUSPEND_RESUME |
+            VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_TILER_SYNC);
+    test_render_pass_suspend_resume_opts();
+    vkd3d_set_behavior_flags(0);
+}
+
+void test_render_pass_suspend_resume_opts_disabled(void)
+{
+    vkd3d_set_behavior_flags(VKD3D_DEBUG_CONTROL_BEHAVIOR_DISABLE_SUSPEND_RESUME);
+    test_render_pass_suspend_resume_opts();
+    vkd3d_set_behavior_flags(0);
+}
