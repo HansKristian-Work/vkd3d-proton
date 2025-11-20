@@ -2073,6 +2073,16 @@ static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
     list->is_valid = false;
 }
 
+static void d3d12_command_list_check_render_pass_validation(
+        struct d3d12_command_list *list, const char *user_driven_tag, bool action_command)
+{
+    if (user_driven_tag && list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, user_driven_tag);
+
+    if (action_command)
+        list->cmd.suspend_resume.block_resume = true;
+}
+
 bool vkd3d_debug_control_is_test_suite(void);
 
 static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list *list)
@@ -2176,6 +2186,9 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
 
     if (list->cmd.iteration_count >= VKD3D_MAX_COMMAND_LIST_SEQUENCES)
         return;
+
+    /* Any renderpass we start will be in second command buffer. */
+    list->cmd.suspend_resume.block_resume = true;
 
     assert(list->cmd.iteration_count);
     list->cmd.iterations[list->cmd.iteration_count - 1].estimated_cost = list->cmd.estimated_cost;
@@ -3395,6 +3408,7 @@ static void d3d12_command_list_sync_tiler_renderpass_writes(struct d3d12_command
         dep_info.pMemoryBarriers = &vk_barrier;
 
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        d3d12_command_list_check_render_pass_validation(list, NULL, true);
     }
 }
 
@@ -4100,6 +4114,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
     {
         VKD3D_BREADCRUMB_TAG("clear-barrier");
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        d3d12_command_list_check_render_pass_validation(list, NULL, true);
     }
 
     if (load_op == VK_ATTACHMENT_LOAD_OP_CLEAR)
@@ -5692,8 +5707,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (!d3d12_command_list_gather_pending_queries(list))
         d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "Close called with an active render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "Close called with an active render pass.\n", false);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
@@ -6071,8 +6085,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearState(d3d12_command_list_i
 
     TRACE("iface %p, pipline_state %p!\n", iface, pipeline_state);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "ClearState called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "ClearState called within a render pass.\n", false);
 
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_reset_api_state(list, pipeline_state);
@@ -7280,6 +7293,110 @@ static void d3d12_command_list_check_render_pass_barrier(struct d3d12_command_li
     }
 }
 
+static void d3d12_command_list_copy_render_pass_suspend_resume_compat(
+        struct d3d12_command_list *list, struct d3d12_command_list_render_pass_suspend_resume_compat *compat)
+{
+    unsigned int i;
+
+    for (i = 0; i < list->rendering_info.info.colorAttachmentCount; i++)
+    {
+        compat->views[i] = list->rendering_info.info.pColorAttachments[i].imageView;
+        compat->layouts[i] = list->rendering_info.info.pColorAttachments[i].imageLayout;
+    }
+
+    if (list->rendering_info.info.pDepthAttachment)
+    {
+        compat->views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 0] = list->rendering_info.info.pDepthAttachment->imageView;
+        compat->layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 0] = list->rendering_info.info.pDepthAttachment->imageLayout;
+    }
+
+    if (list->rendering_info.info.pStencilAttachment)
+    {
+        compat->views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1] = list->rendering_info.info.pStencilAttachment->imageView;
+        compat->layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1] = list->rendering_info.info.pStencilAttachment->imageLayout;
+    }
+
+    compat->views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2] = list->rendering_info.vrs.imageView;
+    compat->layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2] = list->rendering_info.vrs.imageLayout;
+
+    compat->color_attachment_count = list->rendering_info.info.colorAttachmentCount;
+    compat->view_mask = list->rendering_info.info.viewMask;
+}
+
+static bool d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
+        struct d3d12_command_list *first, struct d3d12_command_list *second)
+{
+    const struct d3d12_command_list_render_pass_suspend_resume_compat *suspend;
+    const struct d3d12_command_list_render_pass_suspend_resume_compat *resume;
+
+    if (!first || !second)
+        return false;
+
+    suspend = &first->cmd.suspend_resume.suspend;
+    resume = &second->cmd.suspend_resume.resume;
+
+    if (!suspend->vk_fixup_cmd_buffer || !resume->vk_fixup_cmd_buffer)
+        return false;
+
+    if (memcmp(suspend->views, resume->views, sizeof(resume->views)) != 0)
+        return false;
+    if (memcmp(suspend->layouts, resume->layouts, sizeof(resume->layouts)) != 0)
+        return false;
+
+    return suspend->color_attachment_count == resume->color_attachment_count && suspend->view_mask == resume->view_mask;
+}
+
+static void d3d12_command_list_begin_rendering(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkCommandBufferAllocateInfo command_buffer_info;
+    VkCommandBufferBeginInfo begin_info;
+    VkResult vr;
+
+    if (!list->cmd.suspend_resume.block_resume)
+    {
+        struct d3d12_command_list_render_pass_suspend_resume_compat *resume = &list->cmd.suspend_resume.resume;
+
+        /* Speculate that we can link up with previous command list in submission order. */
+        list->cmd.suspend_resume.block_resume = true;
+        assert(!resume->vk_fixup_cmd_buffer);
+
+        command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        command_buffer_info.pNext = NULL;
+        command_buffer_info.commandPool = list->allocator->vk_command_pool;
+        command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_buffer_info.commandBufferCount = 1;
+        if ((vr = VK_CALL(vkAllocateCommandBuffers(list->device->vk_device,
+                &command_buffer_info, &resume->vk_fixup_cmd_buffer))) < 0)
+        {
+            ERR("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
+        }
+
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.pNext = NULL;
+        begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+                VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
+        begin_info.pInheritanceInfo = NULL;
+        if ((vr = VK_CALL(vkBeginCommandBuffer(resume->vk_fixup_cmd_buffer, &begin_info))) < 0)
+            ERR("Failed to begin Vulkan command buffer, vr %d.\n", vr);
+
+        list->rendering_info.info.flags |= VK_RENDERING_SUSPENDING_BIT;
+        VK_CALL(vkCmdBeginRendering(resume->vk_fixup_cmd_buffer, &list->rendering_info.info));
+        VK_CALL(vkCmdEndRendering(resume->vk_fixup_cmd_buffer));
+        VK_CALL(vkEndCommandBuffer(resume->vk_fixup_cmd_buffer));
+        list->rendering_info.info.flags &= ~VK_RENDERING_SUSPENDING_BIT;
+        list->rendering_info.info.flags |= VK_RENDERING_RESUMING_BIT;
+        VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &list->rendering_info.info));
+        list->rendering_info.info.flags &= ~VK_RENDERING_RESUMING_BIT;
+
+        d3d12_command_list_copy_render_pass_suspend_resume_compat(list, resume);
+    }
+    else
+    {
+        VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &list->rendering_info.info));
+    }
+}
+
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
         enum vkd3d_pipeline_type pipeline_type)
 {
@@ -7316,7 +7433,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     }
 
     d3d12_command_list_debug_mark_begin_region(list, "RenderPass");
-    VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &list->rendering_info.info));
+    d3d12_command_list_begin_rendering(list);
 
     list->rendering_info.state_flags |= VKD3D_RENDERING_ACTIVE;
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_SUSPENDED;
@@ -7858,8 +7975,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "Dispatch called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "Dispatch called within a render pass.\n", true);
 
     if (list->predication.fallback_enabled)
     {
@@ -7908,8 +8024,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
             "src_offset %#"PRIx64", byte_count %#"PRIx64".\n",
             iface, dst, dst_offset, src, src_offset, byte_count);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "CopyBufferRegion called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "CopyBufferRegion called within a render pass.\n", true);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -8977,8 +9092,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "CopyTextureRegion called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "CopyTextureRegion called within a render pass.\n", true);
 
     if (src_box && !validate_d3d12_box(src_box))
     {
@@ -9078,8 +9192,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 
     TRACE("iface %p, dst_resource %p, src_resource %p.\n", iface, dst, src);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "CopyResource called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "CopyResource called within a render pass.\n", true);
 
     vk_procs = &list->device->vk_procs;
 
@@ -9410,8 +9523,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             iface, tiled_resource, region_coord, region_size,
             buffer, buffer_offset, flags);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "CopyTiles called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "CopyTiles called within a render pass.\n", true);
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
@@ -10373,8 +10485,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
             "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "ResolveSubresource called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "ResolveSubresource called within a render pass.\n", true);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -11257,6 +11368,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     d3d12_command_list_barrier_batch_init(&batch);
 
     d3d12_command_list_debug_mark_begin_region(list, "ResourceBarrier");
+
+    /* Barriers inside render passes are allowed for timetraveling barrier reasons ... */
+    d3d12_command_list_check_render_pass_validation(list, NULL, true);
 
     for (i = 0; i < barrier_count; ++i)
     {
@@ -12450,8 +12564,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             iface, render_target_descriptor_count, render_target_descriptors,
             single_descriptor_handle, depth_stencil_descriptor);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "OMSetRenderTargets called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "OMSetRenderTargets called within a render pass.\n", false);
 
     if (d3d12_command_list_filter_set_render_targets(list, render_target_descriptor_count,
             render_target_descriptors, single_descriptor_handle, depth_stencil_descriptor))
@@ -12655,8 +12768,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
     TRACE("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
             iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "ClearDepthStencilView called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "ClearDepthStencilView called within a render pass.\n", true);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -12688,8 +12800,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
     TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "ClearRenderTargetView called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "ClearRenderTargetView called within a render pass.\n", true);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -13293,8 +13404,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "ClearUnorderedAccessViewUint called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "ClearUnorderedAccessViewUint called within a render pass.\n", true);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -13426,8 +13536,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "ClearUnorderedAccessViewFloat called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "ClearUnorderedAccessViewFloat called within a render pass.\n", true);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -13526,8 +13635,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
 
     TRACE("iface %p, resource %p, region %p.\n", iface, resource, region);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "DiscardResource called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "DiscardResource called within a render pass.\n", true);
 
     /* This method is only supported on DIRECT and COMPUTE queues,
      * but we only implement it for render targets, so ignore it
@@ -13996,8 +14104,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "ResolveQueryData called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "ResolveQueryData called within a render pass.\n", true);
 
     /* Some games call this with a query_count of 0.
      * Avoid ending the render pass and doing worthless tracking. */
@@ -16077,8 +16184,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
             iface, dst, dst_sub_resource_idx, dst_x, dst_y,
             src, src_sub_resource_idx, src_rect, format, mode);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "ResolveSubresourceRegion called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "ResolveSubresourceRegion called within a render pass.\n", true);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -16696,11 +16802,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
     TRACE("iface %p, rt_count %u, render_targets %p, depth_stencil %p, flags %#x.\n",
             iface, rt_count, render_targets, depth_stencil, flags);
 
-    if (list->is_inside_render_pass)
-    {
-        d3d12_command_list_mark_as_invalid(list, "BeginRenderPass called inside a render pass.\n");
-        return;
-    }
+    d3d12_command_list_check_render_pass_validation(list, "BeginRenderPass called inside a render pass.\n", true);
 
     d3d12_command_list_invalidate_rendering_info(list);
     d3d12_command_list_end_current_render_pass(list, false);
@@ -16817,6 +16919,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
         return;
     }
 
+    d3d12_command_list_check_render_pass_validation(list, NULL, true);
     d3d12_command_list_end_current_render_pass(list, false);
 
     d3d12_command_list_debug_mark_begin_region(list, "EndRenderPass");
@@ -16865,6 +16968,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_comman
             iface, meta_command, parameter_data, parameter_size);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
+
+    /* The only meta commands we understand are compute related, so this cannot possibly work. */
+    d3d12_command_list_check_render_pass_validation(list, "Cannot call ExecuteMetaCommands inside render pass.\n", true);
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
@@ -17156,8 +17262,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
             iface, desc, num_postbuild_info_descs, postbuild_info_descs);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "BuildRaytracingAccelerationStructure called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -17351,8 +17456,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
     TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
             iface, desc, num_acceleration_structures, src_data);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n", true);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -17380,8 +17484,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
           iface, dst_data, src_data, mode);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "CopyRaytracingAccelerationStructure called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "CopyRaytracingAccelerationStructure called within a render pass.\n", true);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -17501,8 +17604,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
 
     TRACE("iface %p, desc %p\n", iface, desc);
 
-    if (list->is_inside_render_pass)
-        d3d12_command_list_mark_as_invalid(list, "DispatchRays called within a render pass.\n");
+    d3d12_command_list_check_render_pass_validation(list, "DispatchRays called within a render pass.\n", true);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -18200,6 +18302,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_ifac
     d3d12_command_list_barrier_batch_init(&batch);
 
     d3d12_command_list_debug_mark_begin_region(list, "Barrier");
+
+    /* Barriers inside render passes are allowed for timetraveling barrier reasons ... */
+    d3d12_command_list_check_render_pass_validation(list, NULL, true);
 
     for (barrier_group_index = 0; barrier_group_index < NumBarrierGroups; barrier_group_index++)
     {
@@ -19090,6 +19195,11 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         vkd3d_timestamp_profiler_submit_command_list(command_queue->device->timestamp_profiler, cmd_list);
 #endif
 
+        if (cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer && (i == 0 ||
+                !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
+                        d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list)))
+            num_command_buffers++;
+
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
             if (cmd_list->cmd.iterations[iter].vk_init_commands)
@@ -19097,6 +19207,11 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             assert(cmd_list->cmd.iterations[iter].vk_command_buffer);
             num_command_buffers++;
         }
+
+        if (cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
+                !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
+                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]))))
+            num_command_buffers++;
 
         num_retained_resources += cmd_list->retained_resources_count;
         for (iter = 0; iter < cmd_list->retained_resources_count; iter++)
@@ -19183,6 +19298,15 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         allocators[i] = cmd_list->submit_allocator;
 
+        if (cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer && (i == 0 ||
+                !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
+                        d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list)))
+        {
+            buffer = &buffers[j++];
+            buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+            buffer->commandBuffer = cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer;
+        }
+
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
             if (cmd_list->cmd.iterations[iter].vk_init_commands)
@@ -19201,6 +19325,15 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             buffer = &buffers[j++];
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_command_buffer;
+        }
+
+        if (cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
+                !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
+                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]))))
+        {
+            buffer = &buffers[j++];
+            buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+            buffer->commandBuffer = cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer;
         }
 
         if (cmd_list->debug_capture)

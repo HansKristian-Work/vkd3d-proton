@@ -2999,6 +2999,24 @@ struct d3d12_command_list_iteration
 
 #define VKD3D_COMMAND_COST_MERGE_THRESHOLD  (VKD3D_COMMAND_COST_HIGH)
 
+struct d3d12_command_list_render_pass_suspend_resume_compat
+{
+    VkCommandBuffer vk_fixup_cmd_buffer;
+    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
+    VkImageLayout layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
+    uint32_t color_attachment_count;
+    uint32_t view_mask;
+    /* TODO: When we introduce clear ops, we may need to validate loadOp compatibility too. */
+};
+
+struct d3d12_command_list_render_pass_suspend_resume
+{
+    struct d3d12_command_list_render_pass_suspend_resume_compat resume, suspend;
+
+    /* If true, we have performed an action command, so it's not possible to attempt a resume. */
+    bool block_resume;
+};
+
 struct d3d12_command_list_sequence
 {
     /* A command list can be split into multiple sequences of
@@ -3025,6 +3043,8 @@ struct d3d12_command_list_sequence
      * If equal to vk_command_buffer, it means it is not possible to split command buffers, and
      * we must use vk_command_buffer with appropriate barriers. */
     VkCommandBuffer vk_init_commands_post_indirect_barrier;
+
+    struct d3d12_command_list_render_pass_suspend_resume suspend_resume;
 
     struct d3d12_command_list_iteration_indirect_meta *indirect_meta;
 };
