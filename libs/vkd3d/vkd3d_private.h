@@ -2799,6 +2799,7 @@ enum vkd3d_rendering_flags
     VKD3D_RENDERING_ACTIVE    = (1u << 0),
     VKD3D_RENDERING_SUSPENDED = (1u << 1),
     VKD3D_RENDERING_CURRENT   = (1u << 2),
+    VKD3D_RENDERING_END_OF_COMMAND_LIST = (1u << 3),
 };
 
 struct vkd3d_rendering_info
@@ -3015,6 +3016,34 @@ struct d3d12_command_list_iteration
 
 #define VKD3D_COMMAND_COST_MERGE_THRESHOLD  (VKD3D_COMMAND_COST_HIGH)
 
+struct d3d12_command_list_render_pass_suspend_resume_compat
+{
+    VkCommandBuffer vk_fixup_cmd_buffer;
+    /* 8 RTs + depth + stencil + VRS. Depth and stencil are bound separately in dynamic rendering,
+     * so do it like this for completeness' sake. */
+    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
+    VkImageLayout layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
+    uint32_t color_attachment_count;
+    uint32_t view_mask;
+    /* TODO: When we introduce clear ops, we may need to validate loadOp compatibility too. */
+};
+
+struct d3d12_command_list_render_pass_suspend_resume
+{
+    struct d3d12_command_list_render_pass_suspend_resume_compat resume, suspend;
+
+    /* If true, we have performed an action command, so it's not possible to attempt a resume. */
+    bool block_resume;
+
+    /* If true, we have complex fixup work happening during resume,
+     * which blocks any hope of fusing. */
+    bool complex_resume;
+
+    /* If true, we had to perform complex fixup code in the epilogue,
+     * which blocks any hope of fusing. */
+    bool complex_suspend;
+};
+
 struct d3d12_command_list_sequence
 {
     /* A command list can be split into multiple sequences of
@@ -3041,6 +3070,8 @@ struct d3d12_command_list_sequence
      * If equal to vk_command_buffer, it means it is not possible to split command buffers, and
      * we must use vk_command_buffer with appropriate barriers. */
     VkCommandBuffer vk_init_commands_post_indirect_barrier;
+
+    struct d3d12_command_list_render_pass_suspend_resume suspend_resume;
 
     struct d3d12_command_list_iteration_indirect_meta *indirect_meta;
 };
@@ -5405,6 +5436,7 @@ struct d3d12_device
         bool amdgpu_broken_clearvram;
         bool amdgpu_broken_null_tile_mapping;
         bool tiler_renderpass_barriers;
+        bool tiler_suspend_resume;
     } workarounds;
 
 #ifdef _WIN64
