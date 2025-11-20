@@ -1097,3 +1097,43 @@ uint16_t float_to_half(float v)
         return (uint16_t)(s | (e << 10) | (m >> 13));
     }
 }
+
+#define PIX_EVENT_ANSI_VERSION 1
+
+void insert_debug_label(ID3D12GraphicsCommandList *list, const char *str)
+{
+    ID3D12GraphicsCommandList_SetMarker(list, PIX_EVENT_ANSI_VERSION, str, strlen(str));
+}
+
+void begin_debug_region(ID3D12GraphicsCommandList *list, const char *str)
+{
+    ID3D12GraphicsCommandList_BeginEvent(list, PIX_EVENT_ANSI_VERSION, str, strlen(str));
+}
+
+void insert_debug_label_printf(ID3D12GraphicsCommandList *list, const char *fmt, ...)
+{
+    char buffer[1024];
+    va_list va;
+
+    va_start(va, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, va);
+    va_end(va);
+    insert_debug_label(list, buffer);
+}
+
+void begin_debug_region_printf(ID3D12GraphicsCommandList *list, const char *fmt, ...)
+{
+    char buffer[1024];
+    va_list va;
+
+    va_start(va, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, va);
+    va_end(va);
+    begin_debug_region(list, buffer);
+}
+
+void end_debug_region(ID3D12GraphicsCommandList *list)
+{
+    ID3D12GraphicsCommandList_EndEvent(list);
+}
+
