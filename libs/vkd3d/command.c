@@ -3285,7 +3285,7 @@ static int d3d12_command_list_find_attachment_view(struct d3d12_command_list *li
     }
     else
     {
-        for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+        for (i = 0; i < list->rendering_info.info.colorAttachmentCount; i++)
         {
             const struct vkd3d_view *rtv = list->rtvs[i].view;
 
@@ -4451,7 +4451,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
     dep_info.imageMemoryBarrierCount = 0;
     dep_info.pImageMemoryBarriers = vk_image_barriers;
 
-    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+    for (i = 0; i < list->rendering_info.info.colorAttachmentCount; i++)
     {
         struct d3d12_rtv_desc *rtv = &list->rtvs[i];
 
@@ -6407,11 +6407,10 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         return true;
 
     rendering_info->rtv_mask = 0;
-    rendering_info->info.colorAttachmentCount = 0;
     d3d12_command_list_barrier_batch_init(&barrier);
 
     /* The pipeline has fallback PSO in case we're attempting to render to unbound RTV. */
-    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+    for (i = 0; i < rendering_info->info.colorAttachmentCount; i++)
     {
         VkRenderingAttachmentInfo *attachment = &rendering_info->rtv[i];
 
@@ -6423,10 +6422,6 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
                     list->rtvs[i].resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
             rendering_info->rtv_mask |= 1u << i;
-
-            /* There is no requirement that colorAttachmentCount has to match PSO.
-             * The missing gap is inferred to be filled with UNDEFINED for purpose of validation. */
-            rendering_info->info.colorAttachmentCount = i + 1;
 
             d3d12_command_list_fuse_attachment_clear(list, attachment,
                 list->rtvs[i].resource, list->rtvs[i].view, VK_IMAGE_ASPECT_COLOR_BIT, &barrier);
@@ -12757,6 +12752,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     /* Need to deduce DSV layouts again. */
     list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     list->dsv_plane_optimal_mask = 0;
+    list->rendering_info.info.colorAttachmentCount = render_target_descriptor_count;
 
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
@@ -13855,7 +13851,7 @@ static bool d3d12_command_list_is_subresource_bound_as_rtv_dsv(struct d3d12_comm
     }
     else
     {
-        for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+        for (i = 0; i < list->rendering_info.info.colorAttachmentCount; i++)
         {
             const struct vkd3d_view *rtv = list->rtvs[i].view;
 
@@ -17159,6 +17155,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
         }
     }
 
+    list->rendering_info.info.colorAttachmentCount = rt_index;
+
     d3d12_command_list_invalidate_ds_state(list, prev_dsv_format);
     d3d12_command_list_recompute_fb_size(list);
 
@@ -17189,6 +17187,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
     list->render_pass_flags = 0;
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
+    list->rendering_info.info.colorAttachmentCount = 0;
 
     d3d12_command_list_debug_mark_end_region(list);
 }
@@ -18837,7 +18836,7 @@ static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, 
     unsigned int i;
 
     rendering_info->info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering_info->info.colorAttachmentCount = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
+    rendering_info->info.colorAttachmentCount = 0;
     rendering_info->info.pColorAttachments = rendering_info->rtv;
 
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
