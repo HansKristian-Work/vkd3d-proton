@@ -513,6 +513,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_BeginVkCommandBufferI
     if (cmd_list->predication.enabled_on_command_buffer)
         FIXME("Leaking predication across interop barrier. May not work as intended.\n");
 
+    /* Need to assume that any number of action commands can happen. */
+    cmd_list->cmd.suspend_resume.block_resume = true;
+
     d3d12_command_list_decay_tracked_state(cmd_list);
     d3d12_command_list_invalidate_all_state(cmd_list);
 
