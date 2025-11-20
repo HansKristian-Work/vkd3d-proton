@@ -12764,6 +12764,69 @@ static void d3d12_command_list_invalidate_ds_state(struct d3d12_command_list *li
     }
 }
 
+static bool d3d12_command_list_filter_set_render_targets(struct d3d12_command_list *list,
+        UINT render_target_descriptor_count, const D3D12_CPU_DESCRIPTOR_HANDLE *render_target_descriptors,
+        BOOL single_descriptor_handle, const D3D12_CPU_DESCRIPTOR_HANDLE *depth_stencil_descriptor)
+{
+    const struct d3d12_rtv_desc *rtv_desc;
+    unsigned int i;
+
+    if (list->rendering_info.info.colorAttachmentCount != render_target_descriptor_count)
+        return false;
+
+    render_target_descriptor_count = min(render_target_descriptor_count, ARRAY_SIZE(list->rtvs));
+
+    for (i = 0; i < render_target_descriptor_count; ++i)
+    {
+        if (single_descriptor_handle)
+        {
+            if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(*render_target_descriptors)))
+                rtv_desc += i;
+        }
+        else
+        {
+            rtv_desc = d3d12_rtv_desc_from_cpu_handle(render_target_descriptors[i]);
+        }
+
+        if (!rtv_desc || !rtv_desc->resource)
+        {
+            if (list->rtvs[i].view)
+                return false;
+        }
+        else
+        {
+            if (rtv_desc->view != list->rtvs[i].view)
+                return false;
+        }
+    }
+
+    if (depth_stencil_descriptor)
+        rtv_desc = d3d12_rtv_desc_from_cpu_handle(*depth_stencil_descriptor);
+    else
+        rtv_desc = NULL;
+
+    if (!rtv_desc || !rtv_desc->resource)
+    {
+        if (list->dsv.view)
+            return false;
+    }
+    else
+    {
+        VkFormat prev_dsv_format;
+
+        if (rtv_desc->view != list->dsv.view)
+            return false;
+
+        /* We may keep the same DSV, but plane write masks may have changed.
+         * We don't have to split render passes just for this however. */
+        prev_dsv_format = list->dsv.format ? list->dsv.format->vk_format : VK_FORMAT_UNDEFINED;
+        list->dsv.plane_write_enable = rtv_desc->plane_write_enable;
+        d3d12_command_list_invalidate_ds_state(list, prev_dsv_format);
+    }
+
+    return true;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_command_list_iface *iface,
         UINT render_target_descriptor_count, const D3D12_CPU_DESCRIPTOR_HANDLE *render_target_descriptors,
         BOOL single_descriptor_handle, const D3D12_CPU_DESCRIPTOR_HANDLE *depth_stencil_descriptor)
@@ -12780,6 +12843,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
 
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "OMSetRenderTargets called within a render pass.\n");
+
+    if (d3d12_command_list_filter_set_render_targets(list, render_target_descriptor_count,
+            render_target_descriptors, single_descriptor_handle, depth_stencil_descriptor))
+        return;
 
     d3d12_command_list_invalidate_rendering_info(list);
     d3d12_command_list_end_current_render_pass(list, false);
