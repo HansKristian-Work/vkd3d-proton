@@ -1,0 +1,120 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+#extension GL_GOOGLE_include_directive : require
+#include "../../../include/shader-debug/debug_channel.h"
+
+// Always emit a full 256 byte payload for each UBO. We have to assume worst case alignment anyways,
+// little point in trying to be smart about it.
+layout(local_size_x = 64) in;
+
+layout(buffer_reference_align = 4, std430, buffer_reference) readonly buffer Indirect
+{
+    uint values[];
+};
+
+layout(buffer_reference_align = 4, std430, buffer_reference) writeonly buffer IndirectOutput
+{
+    uint values[];
+};
+
+layout(buffer_reference_align = 4, std430, buffer_reference) readonly buffer IndirectCount
+{
+    uint value;
+};
+
+struct RootParameterBlock
+{
+    uint values[64];
+};
+
+layout(buffer_reference_align = 16, std430, buffer_reference) writeonly buffer OutputRootParameters
+{
+    RootParameterBlock blocks[];
+};
+
+layout(buffer_reference_align = 4, std430, buffer_reference) readonly buffer Template
+{
+    uint input_root_parameters[64];
+    int source_word_offsets[64];
+};
+
+layout(push_constant) uniform Registers
+{
+    Indirect indirect;
+    uvec2 count_va;
+    IndirectOutput out_dispatch;
+    OutputRootParameters out_root_parameters;
+    Template in_template;
+    uint stride_words;
+    uint dispatch_offset_words;
+
+    // Debug metadata here
+    uint debug_tag;
+    uint implicit_instance;
+};
+
+void main()
+{
+    if (debug_tag != 0u)
+        DEBUG_CHANNEL_INIT_IMPLICIT_INSTANCE(uvec3(debug_tag, gl_WorkGroupID.x, gl_LocalInvocationIndex), implicit_instance);
+
+    bool active_dispatch;
+    uint dispatch_count;
+    if (any(notEqual(count_va, uvec2(0))))
+    {
+        dispatch_count = min(gl_NumWorkGroups.x, IndirectCount(count_va).value);
+        active_dispatch = gl_WorkGroupID.x < dispatch_count;
+    }
+    else
+    {
+        dispatch_count = gl_NumWorkGroups.x;
+        active_dispatch = true;
+    }
+
+    if (debug_tag != 0u && gl_GlobalInvocationID.x == 0)
+        DEBUG_CHANNEL_MSG(int(dispatch_count), int(gl_NumWorkGroups.x));
+
+    uint input_offset_base = gl_WorkGroupID.x * stride_words;
+
+    uint new_root_parameter;
+    int source_offset = in_template.source_word_offsets[gl_LocalInvocationIndex];
+    if (source_offset >= 0)
+    {
+        new_root_parameter = indirect.values[input_offset_base + source_offset];
+
+        if (active_dispatch)
+        {
+            const uint COPY_CONST_U32 = 0u;
+            DEBUG_CHANNEL_MSG(COPY_CONST_U32, gl_LocalInvocationIndex, uint(source_offset), new_root_parameter);
+        }
+    }
+    else
+        new_root_parameter = in_template.input_root_parameters[gl_LocalInvocationIndex];
+
+    out_root_parameters.blocks[gl_WorkGroupID.x].values[gl_LocalInvocationIndex] = new_root_parameter;
+
+    // TODO: We can change this constant to suit our needs if we need multi-indirect any kind of dispatch really.
+    // Spec constant is good for that scenario.
+
+    const uint DISPATCH_NUM_WORDS = 3;
+    if (gl_LocalInvocationIndex < DISPATCH_NUM_WORDS)
+    {
+        uint input_value;
+        if (active_dispatch)
+            input_value = indirect.values[input_offset_base + dispatch_offset_words + gl_LocalInvocationIndex];
+        else
+            input_value = 0u;
+
+        if (active_dispatch)
+        {
+            const uint DISPATCH_X_TYPE = 18u;
+            DEBUG_CHANNEL_MSG(
+                    DISPATCH_X_TYPE + gl_LocalInvocationIndex, gl_LocalInvocationIndex,
+                    dispatch_offset_words + gl_LocalInvocationIndex, input_value);
+        }
+
+        out_dispatch.values[DISPATCH_NUM_WORDS * gl_WorkGroupID.x + gl_LocalInvocationIndex] = input_value;
+    }
+}
+
