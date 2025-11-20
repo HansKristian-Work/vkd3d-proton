@@ -2073,6 +2073,8 @@ static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
     list->is_valid = false;
 }
 
+bool vkd3d_debug_control_is_test_suite(void);
+
 static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list *list)
 {
     struct d3d12_device *device = list->device;
@@ -2092,7 +2094,9 @@ static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list
         return hresult_from_vk_result(vr);
     }
 
-    d3d12_command_list_debug_mark_begin_region(list, "CommandList");
+    /* In test suite, it's better to rely on user markers when we're debugging. */
+    if (!vkd3d_debug_control_is_test_suite())
+        d3d12_command_list_debug_mark_begin_region(list, "CommandList");
 
     list->is_recording = true;
     list->is_valid = true;
@@ -5988,7 +5992,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     vkd3d_timestamp_profiler_end_command_buffer(list->device->timestamp_profiler, list);
 #endif
 
-    d3d12_command_list_debug_mark_end_region(list); /* CommandList region */
+    if (!vkd3d_debug_control_is_test_suite())
+        d3d12_command_list_debug_mark_end_region(list); /* CommandList region */
 
     /* Ensure that any non-temporal writes from CopyDescriptors are ordered properly. */
     if (d3d12_device_use_embedded_mutable_descriptors(list->device))
