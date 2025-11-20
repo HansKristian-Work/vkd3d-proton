@@ -12746,7 +12746,7 @@ static void d3d12_command_list_invalidate_ds_state(struct d3d12_command_list *li
             {
                 /* If we change the NULL-ness of the depth-stencil attachment, we are
                  * at risk of having to use fallback pipelines. Invalidate the pipeline
-                 * since we'll have to refresh the VkRenderingInfo and VkPipeline. */
+                 * since we'll have to refresh the VkPipeline. */
                 d3d12_command_list_invalidate_current_pipeline(list, false);
             }
         }
