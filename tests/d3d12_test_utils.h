@@ -1847,4 +1847,11 @@ union d3d12_view_instancing_subobject
 float half_to_float(uint16_t u16_value);
 uint16_t float_to_half(float v);
 
+void insert_debug_label(ID3D12GraphicsCommandList *list, const char *str);
+void begin_debug_region(ID3D12GraphicsCommandList *list, const char *str);
+void end_debug_region(ID3D12GraphicsCommandList *list);
+
+void insert_debug_label_printf(ID3D12GraphicsCommandList *list, const char *fmt, ...);
+void begin_debug_region_printf(ID3D12GraphicsCommandList *list, const char *fmt, ...);
+
 #endif  /* __VKD3D_D3D12_TEST_UTILS_H */
