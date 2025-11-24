@@ -4574,9 +4574,6 @@ static void d3d12_command_list_reset_active_query(struct d3d12_command_list *lis
             query->heap->desc.Type, &query->vk_pool, &query->vk_index))
         return;
 
-    if (!d3d12_command_list_reset_query(list, query->vk_pool, query->vk_index))
-        return;
-
     query->state = VKD3D_ACTIVE_QUERY_RESET;
 }
 
@@ -4603,7 +4600,7 @@ static bool d3d12_command_list_enable_query(struct d3d12_command_list *list,
             heap->desc.Type, &query->vk_pool, &query->vk_index))
         return false;
 
-    return d3d12_command_list_reset_query(list, query->vk_pool, query->vk_index);
+    return true;
 }
 
 static bool d3d12_command_list_disable_query(struct d3d12_command_list *list,
@@ -5552,7 +5549,7 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
     {
         const struct vkd3d_query_range *range = &list->query_ranges[i];
 
-        if (!(range->flags & VKD3D_QUERY_RANGE_RESET))
+        if (!(range->flags & VKD3D_QUERY_RANGE_GPU_RESET))
             continue;
 
         if (FAILED(hr = d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list)))
@@ -5879,7 +5876,7 @@ bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
         return false;
 
     d3d12_command_list_insert_query_range(list, &pos,
-            vk_pool, index, 1, VKD3D_QUERY_RANGE_RESET);
+            vk_pool, index, 1, VKD3D_QUERY_RANGE_GPU_RESET);
     return true;
 }
 
@@ -13794,6 +13791,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
     {
         d3d12_command_list_end_current_render_pass(list, true);
 
+        /* We're using the query heap directly, so we must reset it on the GPU.
+         * At most we can hoist the query reset to init_command_buffer. */
         if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
             VK_CALL(vkCmdResetQueryPool(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, 1));
 
@@ -13843,6 +13842,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
     }
     else if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
+        /* We're using the query heap directly, so we must reset it on the GPU.
+         * At most we can hoist the query reset to init_command_buffer. */
         if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
         {
             d3d12_command_list_end_current_render_pass(list, true);

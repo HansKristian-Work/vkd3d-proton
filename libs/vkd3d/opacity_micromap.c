@@ -192,8 +192,6 @@ void vkd3d_opacity_micromap_write_postbuild_info(
         return;
     }
 
-    d3d12_command_list_reset_query(list, vk_query_pool, vk_query_index);
-
     VK_CALL(vkCmdWriteMicromapsPropertiesEXT(list->cmd.vk_command_buffer,
             1, &vk_opacity_micromap, vk_query_type, vk_query_pool, vk_query_index));
     VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
