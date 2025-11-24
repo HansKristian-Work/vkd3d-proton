@@ -6284,6 +6284,47 @@ static void d3d12_command_list_check_vbo_alignment(struct d3d12_command_list *li
     }
 }
 
+static void d3d12_command_list_check_pre_uav_barrier(struct d3d12_command_list *list, bool meta)
+{
+    if (!list->cmd.uav_barrier_can_skip && (meta || (list->current_meta_flags & VKD3D_SHADER_META_FLAG_USES_UAV)))
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VKD3D_UNUSED uint32_t cookie;
+        VkMemoryBarrier2 vk_barrier;
+        VkDependencyInfo dep_info;
+
+        d3d12_command_list_end_current_render_pass(list, true);
+
+        list->cmd.uav_barrier_can_skip = true;
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        vk_barrier.srcStageMask = vk_queue_shader_stages(list->device, list->vk_queue_flags);
+        vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_access_and_stage_flags_from_d3d12_resource_state(list, NULL,
+                D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                list->vk_queue_flags, &vk_barrier.srcStageMask, &vk_barrier.srcAccessMask);
+        vk_barrier.dstStageMask = vk_barrier.srcStageMask;
+        vk_barrier.dstAccessMask = vk_barrier.srcAccessMask;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        VKD3D_BREADCRUMB_TAG("Emit UAV barrier");
+        VKD3D_BREADCRUMB_COMMAND(BARRIER);
+        d3d12_command_list_debug_mark_label(list, "Emit UAV barrier", 1.0f, 1.0f, 0.0f, 1.0f);
+
+        cookie = vkd3d_descriptor_debug_clear_bloom_filter(list->device->descriptor_qa_global_info,
+                list->device, list->cmd.vk_command_buffer);
+        VKD3D_BREADCRUMB_AUX32(cookie);
+        VKD3D_BREADCRUMB_COMMAND(SYNC_VAL_CLEAR);
+    }
+}
+
 static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list,
         enum vkd3d_pipeline_type pipeline_type)
 {
@@ -6293,6 +6334,8 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     VkImageLayout dsv_layout;
     bool pso_invalidates_rp;
     VkPipeline vk_pipeline;
+
+    d3d12_command_list_check_pre_uav_barrier(list, false);
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -7739,6 +7782,8 @@ static void d3d12_command_list_check_pre_compute_barrier(
 {
     vkd3d_descriptor_debug_sync_validation_barrier(list->device->descriptor_qa_global_info,
             list->device, list->cmd.vk_command_buffer);
+
+    d3d12_command_list_check_pre_uav_barrier(list, false);
 
     if ((list->current_meta_flags & (VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
             VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH |
@@ -10737,11 +10782,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK;
         }
 
+        list->current_meta_flags = 0;
+        for (i = 0; i < state->graphics.stage_count; i++)
+            list->current_meta_flags |= state->graphics.code[i].meta.flags & VKD3D_SHADER_META_FLAG_USES_UAV;
+
         /* Only consider FRAGMENT for workarounds when it comes to barriers.
          * Other shader stages tend to be highly reused anyway.
          * FRAGMENT is always last if it exists. */
         if (state->graphics.stages[state->graphics.stage_count - 1].stage == VK_SHADER_STAGE_FRAGMENT_BIT)
-            list->current_meta_flags = state->graphics.code[state->graphics.stage_count - 1].meta.flags;
+            list->current_meta_flags |= state->graphics.code[state->graphics.stage_count - 1].meta.flags;
     }
     else
     {
@@ -11398,7 +11447,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
             case D3D12_RESOURCE_BARRIER_TYPE_UAV:
             {
                 const D3D12_RESOURCE_UAV_BARRIER *uav = &current->UAV;
-                uint32_t state_mask;
 
                 preserve_resource = impl_from_ID3D12Resource(uav->pResource);
 
@@ -11406,32 +11454,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->mem.resource.cookie.index : 0);
                 VKD3D_BREADCRUMB_TAG("UAV Barrier");
 
-                /* The only way to synchronize an RTAS is UAV barriers,
-                 * as their resource state must be frozen.
-                 * If we don't know the resource, we must assume a global UAV transition
-                 * which also includes RTAS. */
-                state_mask = 0;
-
                 /* Flush pending RTAS builds if the resource could be an RTAS or scratch buffer */
                 if (!preserve_resource || d3d12_resource_is_buffer(preserve_resource))
                     d3d12_command_list_flush_rtas_batch(list);
 
-                if (!preserve_resource || d3d12_resource_is_acceleration_structure(preserve_resource))
-                    state_mask |= D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
-                if (!preserve_resource || !d3d12_resource_is_acceleration_structure(preserve_resource))
-                    state_mask |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-
-                assert(state_mask);
-
-                vk_access_and_stage_flags_from_d3d12_resource_state(list, preserve_resource,
-                        state_mask, list->vk_queue_flags,
-                        &batch.vk_memory_barrier.srcStageMask,
-                        &batch.vk_memory_barrier.srcAccessMask);
-
-                vk_access_and_stage_flags_from_d3d12_resource_state(list, preserve_resource,
-                        state_mask, list->vk_queue_flags,
-                        &batch.vk_memory_barrier.dstStageMask,
-                        &batch.vk_memory_barrier.dstAccessMask);
+                /* We speculate that application may be weird and not actually use UAV draws
+                 * after this barrier, defer the barrier until we actually need it. */
+                list->cmd.uav_barrier_can_skip = false;
 
                 TRACE("UAV barrier (resource %p).\n", preserve_resource);
                 break;
@@ -13246,6 +13275,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         return;
     }
 
+    d3d12_command_list_check_pre_uav_barrier(list, true);
+
     if (args.clear_dxgi_format)
         clear_format = vkd3d_get_format(list->device, args.clear_dxgi_format, false);
     else
@@ -13393,6 +13424,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
         args.has_view = true;
     }
 
+    d3d12_command_list_check_pre_uav_barrier(list, true);
     d3d12_command_list_clear_uav(list, resource_impl, &args, &color, rect_count, rects);
 
     if (inline_view)
@@ -17095,6 +17127,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         return;
     }
 
+    d3d12_command_list_check_pre_uav_barrier(list, true);
+
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     /* Do not batch TLAS and BLAS builds into the same command, since doing so
@@ -17290,6 +17324,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
         return;
     }
 
+    d3d12_command_list_check_pre_uav_barrier(list, true);
+
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     d3d12_command_list_end_current_render_pass(list, true);
@@ -17318,6 +17354,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
         WARN("Acceleration structure is not supported. Calling this is invalid.\n");
         return;
     }
+
+    d3d12_command_list_check_pre_uav_barrier(list, true);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
@@ -17380,7 +17418,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
     /* SetPSO and SetPSO1 alias the same internal active pipeline state even if they are completely different types. */
     list->state = NULL;
     list->rt_state = state;
-    list->current_meta_flags = 0;
+
+    /* We just assume so, because RT shaders without side effects is meaningless. */
+    list->current_meta_flags = VKD3D_SHADER_META_FLAG_USES_UAV;
 
     /* DXR uses compute bind points for descriptors. When binding an RTPSO, invalidate all state
      * to make sure we broadcast state correctly to COMPUTE or RT bind points in Vulkan. */

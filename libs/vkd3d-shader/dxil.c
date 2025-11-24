@@ -124,6 +124,7 @@ struct vkd3d_dxil_remap_userdata
     const struct vkd3d_shader_interface_info *shader_interface_info;
     const struct vkd3d_shader_interface_local_info *shader_interface_local_info;
     unsigned int num_root_descriptors;
+    bool has_uav;
 };
 
 struct vkd3d_dxil_remap_info
@@ -402,9 +403,11 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
                                     dxil_spv_uav_vulkan_binding *vk_binding)
 {
     const struct vkd3d_shader_interface_info *shader_interface_info;
-    const struct vkd3d_dxil_remap_userdata *remap = userdata;
+    struct vkd3d_dxil_remap_userdata *remap = userdata;
     unsigned int resource_flags, resource_flags_ssbo;
     bool use_ssbo;
+
+    remap->has_uav = true;
 
     shader_interface_info = remap->shader_interface_info;
     resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, true);
@@ -1274,6 +1277,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = NULL;
     remap_userdata.num_root_descriptors = num_root_descriptors;
+    remap_userdata.has_uav = false;
 
     dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
     dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);
@@ -1387,6 +1391,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     vkd3d_shader_extract_feature_meta(spirv);
     vkd3d_shader_dump_spirv_shader(hash, spirv);
+    if (remap_userdata.has_uav)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_USES_UAV;
 
 end:
     dxil_spv_converter_free(converter);
@@ -1582,6 +1588,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = shader_interface_local_info;
     remap_userdata.num_root_descriptors = num_root_descriptors;
+    remap_userdata.has_uav = false;
 
     dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
     dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);
@@ -1617,6 +1624,8 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         memset(spirv_debug, 0, sizeof(*spirv_debug));
 
     vkd3d_shader_extract_feature_meta(spirv);
+    if (remap_userdata.has_uav)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_USES_UAV;
 
     if (demangled_export)
         vkd3d_shader_dump_spirv_shader_export(hash, spirv, demangled_export);
