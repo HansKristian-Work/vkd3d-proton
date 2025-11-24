@@ -4035,6 +4035,8 @@ static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, uint3
     pool->type_index = type_index;
     pool->query_count = pool_info.queryCount;
     pool->next_index = 0;
+
+    VK_CALL(vkResetQueryPool(device->vk_device, pool->vk_query_pool, 0, pool->query_count));
     return S_OK;
 }
 
@@ -4049,6 +4051,7 @@ static void d3d12_device_destroy_query_pool(struct d3d12_device *device, const s
 
 HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, uint32_t type_index, struct vkd3d_query_pool *pool)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     size_t i;
 
     pthread_mutex_lock(&device->mutex);
@@ -4062,6 +4065,8 @@ HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, uint32_t type_i
             if (--device->query_pool_count != i)
                 device->query_pools[i] = device->query_pools[device->query_pool_count];
             pthread_mutex_unlock(&device->mutex);
+
+            VK_CALL(vkResetQueryPool(device->vk_device, pool->vk_query_pool, 0, pool->query_count));
             return S_OK;
         }
     }

@@ -2767,7 +2767,7 @@ struct vkd3d_active_query
 
 enum vkd3d_query_range_flag
 {
-    VKD3D_QUERY_RANGE_RESET = 0x1,
+    VKD3D_QUERY_RANGE_GPU_RESET = 0x1,
 };
 
 struct vkd3d_query_range
