@@ -3884,6 +3884,18 @@ static void d3d12_command_list_debug_mark_label_cmd(struct d3d12_command_list *l
     }
 }
 
+static void d3d12_command_list_debug_mark_label_printf(struct d3d12_command_list *list, VkCommandBuffer vk_cmd,
+        float r, float g, float b, float a, const char *fmt, ...)
+{
+    char str[256];
+    va_list va;
+
+    va_start(va, fmt);
+    vsnprintf(str, sizeof(str), fmt, va);
+    va_end(va);
+    d3d12_command_list_debug_mark_label_cmd(list, vk_cmd, str, r, g, b, a);
+}
+
 void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
         float r, float g, float b, float a)
 {
@@ -11514,6 +11526,38 @@ static void d3d12_command_list_merge_copy_tracking_transition(struct d3d12_comma
     }
 }
 
+static const char *vkd3d_resource_state_to_str(D3D12_RESOURCE_STATES resource_state)
+{
+    switch (resource_state)
+    {
+#define s(state) case D3D12_RESOURCE_STATE_##state : return #state
+        s(COMMON);
+        s(VERTEX_AND_CONSTANT_BUFFER);
+        s(INDEX_BUFFER);
+        s(RENDER_TARGET);
+        s(UNORDERED_ACCESS);
+        s(DEPTH_WRITE);
+        s(DEPTH_READ);
+        s(NON_PIXEL_SHADER_RESOURCE);
+        s(PIXEL_SHADER_RESOURCE);
+        s(STREAM_OUT);
+        s(INDIRECT_ARGUMENT);
+        s(COPY_DEST);
+        s(COPY_SOURCE);
+        s(RESOLVE_DEST);
+        s(RESOLVE_SOURCE);
+        s(SHADING_RATE_SOURCE);
+#undef s
+        default: break;
+    }
+
+    if (resource_state == (D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE))
+        return "RESOURCE";
+    if (resource_state & D3D12_RESOURCE_STATE_GENERIC_READ)
+        return "GENERIC_READ";
+    return "???";
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_list_iface *iface,
         UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers)
 {
@@ -11585,6 +11629,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 {
                     d3d12_command_list_mark_as_invalid(list, "A resource pointer is NULL.");
                     continue;
+                }
+
+                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+                {
+                    d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                            1.0f, 1.0f, 0.0f, 1.0f, "Transition cookie %u, subresource %d: %s -> %s",
+                            preserve_resource->res.cookie.index,
+                            (int)transition->Subresource,
+                            vkd3d_resource_state_to_str(transition->StateBefore),
+                            vkd3d_resource_state_to_str(transition->StateAfter));
                 }
 
                 VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->res.cookie.index : 0);
@@ -11711,6 +11765,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                         &batch.vk_memory_barrier.dstStageMask,
                         &batch.vk_memory_barrier.dstAccessMask);
 
+                d3d12_command_list_debug_mark_label(list, "UAV", 1.0f, 1.0f, 0.0f, 1.0f);
+
                 TRACE("UAV barrier (resource %p).\n", preserve_resource);
                 break;
             }
@@ -11763,6 +11819,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                     /* Update staging copies of aliased images before the current barrier batch gets submitted */
                     d3d12_command_list_flush_subresource_updates(list);
+
+                    d3d12_command_list_debug_mark_label(list, "Aliasing", 1.0f, 1.0f, 0.0f, 1.0f);
                 }
                 break;
             }
