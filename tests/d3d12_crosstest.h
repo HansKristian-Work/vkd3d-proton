@@ -900,7 +900,16 @@ static inline void vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_O
     if (!pfn_D3D12GetInterface)
         return;
     if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
-        ok(SUCCEEDED(IVKD3DDebugControlInterface_SetOutOfSpecTestBehavior(dbg, behavior, enable)), "Failed to unmute validation.\n");
+        ok(SUCCEEDED(IVKD3DDebugControlInterface_SetOutOfSpecTestBehavior(dbg, behavior, enable)), "Failed to set out of spec behavior.\n");
+}
+
+static inline void vkd3d_set_behavior_flags(VKD3D_DEBUG_CONTROL_BEHAVIOR_FLAGS flags)
+{
+    IVKD3DDebugControlInterface *dbg = NULL;
+    if (!pfn_D3D12GetInterface)
+        return;
+    if (SUCCEEDED(pfn_D3D12GetInterface(&CLSID_VKD3DDebugControl, &IID_IVKD3DDebugControlInterface, (void**)&dbg)))
+        ok(SUCCEEDED(IVKD3DDebugControlInterface_SetBehaviorFlags(dbg, flags)), "Failed to set behavior flags.\n");
 }
 
 #endif  /* __VKD3D_D3D12_CROSSTEST_H */
