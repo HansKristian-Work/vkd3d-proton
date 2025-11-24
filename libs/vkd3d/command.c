@@ -3832,8 +3832,8 @@ static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *reso
     return true;
 }
 
-void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
-        float r, float g, float b, float a)
+static void d3d12_command_list_debug_mark_label_cmd(struct d3d12_command_list *list, VkCommandBuffer vk_cmd,
+        const char *tag, float r, float g, float b, float a)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDebugUtilsLabelEXT label;
@@ -3847,12 +3847,18 @@ void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const 
         label.color[1] = g;
         label.color[2] = b;
         label.color[3] = a;
-        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->cmd.vk_command_buffer, &label));
+        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(vk_cmd, &label));
     }
 }
 
-void d3d12_command_list_debug_mark_begin_region(
-        struct d3d12_command_list *list, const char *tag)
+void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
+        float r, float g, float b, float a)
+{
+    d3d12_command_list_debug_mark_label_cmd(list, list->cmd.vk_command_buffer, tag, r, g, b, a);
+}
+
+static void d3d12_command_list_debug_mark_begin_region_cmd(
+        struct d3d12_command_list *list, VkCommandBuffer vk_cmd, const char *tag)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDebugUtilsLabelEXT label;
@@ -3868,19 +3874,31 @@ void d3d12_command_list_debug_mark_begin_region(
         label.color[1] = 1.0f;
         label.color[2] = 1.0f;
         label.color[3] = 1.0f;
-        VK_CALL(vkCmdBeginDebugUtilsLabelEXT(list->cmd.vk_command_buffer, &label));
+        VK_CALL(vkCmdBeginDebugUtilsLabelEXT(vk_cmd, &label));
     }
 }
 
-void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list)
+static void d3d12_command_list_debug_mark_end_region_cmd(
+        struct d3d12_command_list *list, VkCommandBuffer vk_cmd)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
             !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY) &&
             list->device->vk_info.EXT_debug_utils)
     {
-        VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->cmd.vk_command_buffer));
+        VK_CALL(vkCmdEndDebugUtilsLabelEXT(vk_cmd));
     }
+}
+
+void d3d12_command_list_debug_mark_begin_region(
+        struct d3d12_command_list *list, const char *tag)
+{
+    d3d12_command_list_debug_mark_begin_region_cmd(list, list->cmd.vk_command_buffer, tag);
+}
+
+void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list)
+{
+    d3d12_command_list_debug_mark_end_region_cmd(list, list->cmd.vk_command_buffer);
 }
 
 static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
