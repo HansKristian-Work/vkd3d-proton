@@ -3035,10 +3035,6 @@ struct d3d12_command_list_render_pass_suspend_resume
 
     /* If true, we have performed an action command, so it's not possible to attempt a resume. */
     bool block_resume;
-
-    /* If true, we had to perform complex fixup code in the epilogue,
-     * which blocks any hope of fusing. */
-    bool complex_suspend;
 };
 
 struct d3d12_command_list_sequence
@@ -3070,6 +3066,11 @@ struct d3d12_command_list_sequence
      * If equal to vk_command_buffer, it means it is not possible to split command buffers, and
      * we must use vk_command_buffer with appropriate barriers. */
     VkCommandBuffer vk_post_indirect_barrier_commands;
+    /* For query resolves commands and other "fixups" which should be thrown to the end of ID3D12CommandList.
+     * These commands can be sunk to end of ExecuteCommandList if there are no hazards (but it's very hard to prove that).
+     * For suspend resume, this can be sunk to after the first iteration of the final resuming pass.
+     * A split point is conveniently set-up just for this purpose. */
+    VkCommandBuffer vk_cleanup_commands;
 
     struct d3d12_command_list_render_pass_suspend_resume suspend_resume;
 
