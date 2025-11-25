@@ -21186,6 +21186,10 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT)
         return false;
 
+    /* Cannot meaningfully stagger submits if we're doing suspend resume style render passes. */
+    if (command_queue->device->workarounds.tiler_suspend_resume)
+        return false;
+
     current_time_ns = vkd3d_get_current_time_ns();
 
     /* Make sure current command queue is recognized as busy */
