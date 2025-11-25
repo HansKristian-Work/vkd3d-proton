@@ -3112,6 +3112,13 @@ struct vkd3d_deferred_discard
     VkImageSubresourceRange subresources;
 };
 
+struct vkd3d_query_ranges
+{
+    struct vkd3d_query_range *ranges;
+    size_t size;
+    size_t count;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -3209,9 +3216,7 @@ struct d3d12_command_list
     size_t init_transitions_size;
     size_t init_transitions_count;
 
-    struct vkd3d_query_range *query_ranges;
-    size_t query_ranges_size;
-    size_t query_ranges_count;
+    struct vkd3d_query_ranges query_ranges;
 
     struct vkd3d_active_query *active_queries;
     size_t active_queries_size;
