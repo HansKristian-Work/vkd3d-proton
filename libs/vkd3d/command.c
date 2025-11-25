@@ -19886,10 +19886,11 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int *breadcrumb_indices;
 #endif
+    unsigned int cmd_submit_count;
     bool hazard_query_resets;
     uint32_t *cmd_cost;
     unsigned int iter;
-    unsigned int i, j;
+    unsigned int i;
     HRESULT hr;
 
     TRACE("iface %p, command_list_count %u, command_lists %p.\n",
@@ -19998,7 +19999,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             command_lists, command_list_count);
 
     num_transitions = 0;
-    j = 0;
+    cmd_submit_count = 0;
 
     /* If all query resets use different query pool ranges, it's safe to hoist all of it. */
     if (!hazard_query_resets)
@@ -20008,8 +20009,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
             if (cmd_list->cmd.vk_query_reset_commands)
             {
-                cmd_cost[j] = VKD3D_COMMAND_COST_LOW;
-                buffer = &buffers[j++];
+                cmd_cost[cmd_submit_count] = VKD3D_COMMAND_COST_LOW;
+                buffer = &buffers[cmd_submit_count++];
                 buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
                 buffer->commandBuffer = cmd_list->cmd.vk_query_reset_commands;
             }
@@ -20052,8 +20053,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         /* If we cannot hoist, we need to break suspend-resume :'( */
         if (hazard_query_resets && cmd_list->cmd.vk_query_reset_commands)
         {
-            cmd_cost[j] = VKD3D_COMMAND_COST_LOW;
-            buffer = &buffers[j++];
+            cmd_cost[cmd_submit_count] = VKD3D_COMMAND_COST_LOW;
+            buffer = &buffers[cmd_submit_count++];
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             buffer->commandBuffer = cmd_list->cmd.vk_query_reset_commands;
         }
@@ -20063,10 +20064,10 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             if (cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands)
             {
                 /* Assume high cost for DGC preprocessing, everything else is cheap enough to be ignored. */
-                cmd_cost[j] = cmd_list->cmd.iterations[iter].indirect_meta.need_preprocess_barrier
+                cmd_cost[cmd_submit_count] = cmd_list->cmd.iterations[iter].indirect_meta.need_preprocess_barrier
                         ? VKD3D_COMMAND_COST_LOW : 0u;
 
-                buffer = &buffers[j++];
+                buffer = &buffers[cmd_submit_count++];
                 buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
                 buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands;
             }
@@ -20079,15 +20080,15 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
                     !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
                             d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list, hazard_query_resets)))
             {
-                cmd_cost[j] = 0;
-                buffer = &buffers[j++];
+                cmd_cost[cmd_submit_count] = 0;
+                buffer = &buffers[cmd_submit_count++];
                 buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
                 buffer->commandBuffer = cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer;
             }
 
-            cmd_cost[j] = cmd_list->cmd.iterations[iter].estimated_cost;
+            cmd_cost[cmd_submit_count] = cmd_list->cmd.iterations[iter].estimated_cost;
 
-            buffer = &buffers[j++];
+            buffer = &buffers[cmd_submit_count++];
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_command_buffer;
         }
@@ -20097,8 +20098,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
                 !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
                         cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]), hazard_query_resets)))
         {
-            cmd_cost[j] = 0;
-            buffer = &buffers[j++];
+            cmd_cost[cmd_submit_count] = 0;
+            buffer = &buffers[cmd_submit_count++];
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             buffer->commandBuffer = cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer;
         }
@@ -20137,9 +20138,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     {
         /* Append a full GPU barrier between submissions.
          * This command buffer is SIMULTANEOUS_BIT. */
-        cmd_cost[j] = 0u;
+        cmd_cost[cmd_submit_count] = 0u;
 
-        buffer = &buffers[j++];
+        buffer = &buffers[cmd_submit_count++];
         buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
         buffer->commandBuffer = command_queue->vkd3d_queue->barrier_command_buffer;
     }
@@ -20174,10 +20175,12 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         sub.execute.transition_count = 0;
     }
 
+    assert(cmd_submit_count == num_command_buffers);
+
     sub.type = VKD3D_SUBMISSION_EXECUTE;
     sub.execute.cmd = buffers;
     sub.execute.cmd_cost = cmd_cost;
-    sub.execute.cmd_count = num_command_buffers;
+    sub.execute.cmd_count = cmd_submit_count;
     sub.execute.command_allocators = allocators;
     sub.execute.num_command_allocators = command_list_count;
     sub.execute.retained_resources = retained_resources;
