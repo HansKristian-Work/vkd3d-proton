@@ -2232,7 +2232,7 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
         ERR("Failed to end command buffer, vr %d.\n", vr);
 
     list->cmd.vk_command_buffer = iteration->vk_command_buffer;
-    list->cmd.vk_init_commands_post_indirect_barrier = VK_NULL_HANDLE;
+    list->cmd.vk_post_indirect_barrier_commands = VK_NULL_HANDLE;
     list->cmd.indirect_meta = &list->cmd.iterations[list->cmd.iteration_count].indirect_meta;
     list->cmd.iteration_count++;
 
@@ -2261,7 +2261,7 @@ static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *
 #endif
 
     /* Not worth splitting if we're in the middle of a render pass already. */
-    if (list->cmd.vk_command_buffer == list->cmd.vk_init_commands_post_indirect_barrier &&
+    if (list->cmd.vk_command_buffer == list->cmd.vk_post_indirect_barrier_commands &&
             !(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) &&
             vkd3d_atomic_uint32_load_explicit(&list->device->device_has_dgc_templates, vkd3d_memory_order_relaxed))
     {
@@ -2273,7 +2273,7 @@ static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *
     }
 }
 
-static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12_command_allocator *allocator,
+static HRESULT d3d12_command_allocator_allocate_query_reset_command_buffer(struct d3d12_command_allocator *allocator,
         struct d3d12_command_list *list)
 {
     struct d3d12_device *device = allocator->device;
@@ -2284,12 +2284,8 @@ static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12
 
     TRACE("allocator %p, list %p.\n", allocator, list);
 
-    if (list->cmd.vk_init_commands)
+    if (list->cmd.vk_query_reset_commands)
         return S_OK;
-
-    /* If we need init commands, there is no way we can get proper resume. */
-    list->cmd.suspend_resume.complex_resume = true;
-    list->cmd.suspend_resume.block_resume = true;
 
     command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     command_buffer_info.pNext = NULL;
@@ -2298,7 +2294,7 @@ static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12
     command_buffer_info.commandBufferCount = 1;
 
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
-            &list->cmd.iterations[0].vk_init_commands))) < 0)
+            &list->cmd.vk_query_reset_commands))) < 0)
     {
         WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -2310,15 +2306,13 @@ static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
-    if ((vr = VK_CALL(vkBeginCommandBuffer(list->cmd.iterations[0].vk_init_commands, &begin_info))) < 0)
+    if ((vr = VK_CALL(vkBeginCommandBuffer(list->cmd.vk_query_reset_commands, &begin_info))) < 0)
     {
         WARN("Failed to begin command buffer, vr %d.\n", vr);
         VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
-                1, &list->cmd.iterations[0].vk_init_commands));
+                1, &list->cmd.vk_query_reset_commands));
         return hresult_from_vk_result(vr);
     }
-
-    list->cmd.vk_init_commands = list->cmd.iterations[0].vk_init_commands;
 
     return S_OK;
 }
@@ -2335,19 +2329,19 @@ static HRESULT d3d12_command_allocator_allocate_init_post_indirect_command_buffe
 
     TRACE("allocator %p, list %p.\n", allocator, list);
 
-    if (list->cmd.vk_init_commands_post_indirect_barrier)
+    if (list->cmd.vk_post_indirect_barrier_commands)
         return S_OK;
 
     if (list->cmd.iteration_count == 1)
     {
-        /* If we need init commands, there is no way we can get proper resume. */
+        /* If we need batched init commands, there is no way we can get proper resume. */
         list->cmd.suspend_resume.complex_resume = true;
         list->cmd.suspend_resume.block_resume = true;
     }
 
     assert(list->cmd.iteration_count != 0);
     iteration = &list->cmd.iterations[list->cmd.iteration_count - 1];
-    assert(!iteration->vk_init_commands);
+    assert(!iteration->vk_post_indirect_barrier_commands);
 
     command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     command_buffer_info.pNext = NULL;
@@ -2356,7 +2350,7 @@ static HRESULT d3d12_command_allocator_allocate_init_post_indirect_command_buffe
     command_buffer_info.commandBufferCount = 1;
 
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
-            &iteration->vk_init_commands))) < 0)
+            &iteration->vk_post_indirect_barrier_commands))) < 0)
     {
         WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -2368,18 +2362,15 @@ static HRESULT d3d12_command_allocator_allocate_init_post_indirect_command_buffe
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
-    if ((vr = VK_CALL(vkBeginCommandBuffer(iteration->vk_init_commands, &begin_info))) < 0)
+    if ((vr = VK_CALL(vkBeginCommandBuffer(iteration->vk_post_indirect_barrier_commands, &begin_info))) < 0)
     {
         WARN("Failed to begin command buffer, vr %d.\n", vr);
         VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
-                1, &iteration->vk_init_commands));
+                1, &iteration->vk_post_indirect_barrier_commands));
         return hresult_from_vk_result(vr);
     }
 
-    /* If we're still on the first iteration, we've also initialized the normal init commands buffer. */
-    list->cmd.vk_init_commands_post_indirect_barrier = iteration->vk_init_commands;
-    if (list->cmd.iteration_count == 1)
-        list->cmd.vk_init_commands = iteration->vk_init_commands;
+    list->cmd.vk_post_indirect_barrier_commands = iteration->vk_post_indirect_barrier_commands;
 
     return S_OK;
 }
@@ -2415,11 +2406,12 @@ static void d3d12_command_allocator_free_command_buffer(struct d3d12_command_all
 
     d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer);
     d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer);
+    d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.vk_query_reset_commands);
 
     for (i = 0; i < list->cmd.iteration_count; i++)
     {
         d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.iterations[i].vk_command_buffer);
-        d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.iterations[i].vk_init_commands);
+        d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.iterations[i].vk_post_indirect_barrier_commands);
     }
 }
 
@@ -6045,6 +6037,7 @@ static D3D12_COMMAND_LIST_TYPE STDMETHODCALLTYPE d3d12_command_list_GetType(d3d1
 static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkResult vr;
     HRESULT hr;
     size_t i;
 
@@ -6055,11 +6048,24 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
         if (!(range->flags & VKD3D_QUERY_RANGE_GPU_RESET))
             continue;
 
-        if (FAILED(hr = d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list)))
+        /* If we need query resets, it's context-sensitive if we can get resumes.
+         * We can only know this at ExecuteCommandLists time depending if there is a hazard when resetting
+         * the query pools. */
+
+        if (FAILED(hr = d3d12_command_allocator_allocate_query_reset_command_buffer(list->allocator, list)))
             return hr;
 
-        VK_CALL(vkCmdResetQueryPool(list->cmd.vk_init_commands,
+        VK_CALL(vkCmdResetQueryPool(list->cmd.vk_query_reset_commands,
                 range->vk_pool, range->index, range->count));
+    }
+
+    if (list->cmd.vk_query_reset_commands)
+    {
+        if ((vr = VK_CALL(vkEndCommandBuffer(list->cmd.vk_query_reset_commands))) < 0)
+        {
+            WARN("Failed to end command buffer, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
     }
 
     return S_OK;
@@ -6081,7 +6087,7 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
     for (i = 0; i < list->cmd.iteration_count; i++)
     {
         iteration = &list->cmd.iterations[i];
-        if (!iteration->vk_init_commands)
+        if (!iteration->vk_post_indirect_barrier_commands)
             continue;
 
         if (iteration->indirect_meta.need_compute_to_indirect_barrier)
@@ -6105,7 +6111,7 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
             dep_info.memoryBarrierCount = 1;
             dep_info.pMemoryBarriers = &barrier;
 
-            VK_CALL(vkCmdPipelineBarrier2(iteration->vk_init_commands, &dep_info));
+            VK_CALL(vkCmdPipelineBarrier2(iteration->vk_post_indirect_barrier_commands, &dep_info));
         }
 
         if (iteration->indirect_meta.need_preprocess_barrier)
@@ -6123,10 +6129,10 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
             dep_info.memoryBarrierCount = 1;
             dep_info.pMemoryBarriers = &barrier;
 
-            VK_CALL(vkCmdPipelineBarrier2(iteration->vk_init_commands, &dep_info));
+            VK_CALL(vkCmdPipelineBarrier2(iteration->vk_post_indirect_barrier_commands, &dep_info));
         }
 
-        if ((vr = VK_CALL(vkEndCommandBuffer(iteration->vk_init_commands))) < 0)
+        if ((vr = VK_CALL(vkEndCommandBuffer(iteration->vk_post_indirect_barrier_commands))) < 0)
         {
             WARN("Failed to end command buffer, vr %d.\n", vr);
             return hresult_from_vk_result(vr);
@@ -7449,7 +7455,7 @@ static void d3d12_command_list_update_descriptors_post_indirect_buffer(struct d3
         old_heap_dirty = list->descriptor_heap.buffers.heap_dirty;
 
     /* Override state. */
-    list->cmd.vk_command_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+    list->cmd.vk_command_buffer = list->cmd.vk_post_indirect_barrier_commands;
     if (d3d12_device_uses_descriptor_buffers(list->device))
         list->descriptor_heap.buffers.heap_dirty = true;
     d3d12_command_list_invalidate_root_parameters(list, bindings, true, NULL);
@@ -7830,7 +7836,7 @@ static void d3d12_command_list_check_render_pass_barrier(struct d3d12_command_li
 }
 
 static bool d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-        struct d3d12_command_list *first, struct d3d12_command_list *second)
+        struct d3d12_command_list *first, struct d3d12_command_list *second, bool hazard_queries)
 {
     const struct d3d12_command_list_render_pass_suspend_resume_compat *suspend;
     const struct d3d12_command_list_render_pass_suspend_resume_compat *resume;
@@ -7842,6 +7848,11 @@ static bool d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
     resume = &second->cmd.suspend_resume.resume;
 
     /* It's very easy to fall off the happy path. Hopefully we don't. */
+
+    /* If we cannot hoist timestamps due to hazards,
+     * we need to consider query reset as a normal complex resume scenario. */
+    if (hazard_queries && second->cmd.vk_query_reset_commands)
+        return false;
 
     if (first->cmd.suspend_resume.complex_suspend || second->cmd.suspend_resume.complex_resume)
         return false;
@@ -8051,7 +8062,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
     d3d12_command_list_end_transfer_batch(list);
 
     d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
-    vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+    vk_patch_cmd_buffer = list->cmd.vk_post_indirect_barrier_commands;
 
     if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
     {
@@ -8153,7 +8164,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     args.dispatch_offset_words = signature->state_template.compute.dispatch_offset_words;
 
     d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
-    vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+    vk_patch_cmd_buffer = list->cmd.vk_post_indirect_barrier_commands;
 
     if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
     {
@@ -8214,7 +8225,7 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
         return false;
 
     d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
-    vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+    vk_patch_cmd_buffer = list->cmd.vk_post_indirect_barrier_commands;
 
     if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
         d3d12_command_list_end_current_render_pass(list, true);
@@ -11988,7 +11999,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 {
                     d3d12_command_list_debug_mark_label(list, "Indirect Argument barrier", 1.0f, 1.0f, 0.0f, 1.0f);
                     /* Any indirect patching commands now have to go to normal command buffer, unless we split the sequence. */
-                    list->cmd.vk_init_commands_post_indirect_barrier = list->cmd.vk_command_buffer;
+                    list->cmd.vk_post_indirect_barrier_commands = list->cmd.vk_command_buffer;
                 }
 
                 if (!is_valid_resource_state(transition->StateBefore))
@@ -14902,7 +14913,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         /* Even if it's not super relevant for performance yet, we need to hoist this to init buffer
          * since an ExecuteIndirect patch shader will need to read the predicate VA potentially. */
         d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
-        vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+        vk_patch_cmd_buffer = list->cmd.vk_post_indirect_barrier_commands;
 
         /* Resolve 64-bit predicate into a 32-bit location so that this works with
          * VK_EXT_conditional_rendering. We'll handle the predicate operation here
@@ -15347,7 +15358,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         /* If we had indirect barriers earlier in the frame, now might be a good time to split. */
         d3d12_command_list_consider_new_sequence(list);
 
-        if (list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
+        if (list->cmd.vk_command_buffer != list->cmd.vk_post_indirect_barrier_commands)
         {
             /* For non-indirect execute indirect, there's a high risk of individual draws being empty,
              * since the typical use case is atomic increment X workgroup count or instanceCount.
@@ -15390,7 +15401,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         /* If driver can take advantage of preprocess, we can consider preprocessing explicitly if we can hoist it.
          * If we had indirect barriers earlier in the frame, now might be a good time to split. */
         d3d12_command_list_consider_new_sequence(list);
-        if (list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
+        if (list->cmd.vk_command_buffer != list->cmd.vk_post_indirect_barrier_commands)
             explicit_preprocess = true;
     }
 
@@ -15503,7 +15514,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         }
 
         d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
-        vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+        vk_patch_cmd_buffer = list->cmd.vk_post_indirect_barrier_commands;
 
         if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
         {
@@ -15684,14 +15695,14 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
         if (use_ext_dgc)
         {
-            VK_CALL(vkCmdPreprocessGeneratedCommandsEXT(list->cmd.vk_init_commands_post_indirect_barrier,
+            VK_CALL(vkCmdPreprocessGeneratedCommandsEXT(list->cmd.vk_post_indirect_barrier_commands,
                     &generated_ext, list->cmd.vk_command_buffer));
         }
         else
         {
             /* With graphics NV_dgc, there are no requirements on bound state, except for pipeline. */
             /* NV_dgcc however requires that state in recording command buffer matches, but EXT_dgc provides a state cmd. */
-            VK_CALL(vkCmdBindPipeline(list->cmd.vk_init_commands_post_indirect_barrier,
+            VK_CALL(vkCmdBindPipeline(list->cmd.vk_post_indirect_barrier_commands,
                     signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
                             VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline));
 
@@ -15711,14 +15722,14 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
                 conditional_begin_info.buffer = list->predication.vk_buffer;
                 conditional_begin_info.offset = list->predication.vk_buffer_offset;
                 conditional_begin_info.flags = 0;
-                VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_init_commands_post_indirect_barrier,
+                VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_post_indirect_barrier_commands,
                         &conditional_begin_info));
             }
 
-            VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_init_commands_post_indirect_barrier, &generated_nv));
+            VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_post_indirect_barrier_commands, &generated_nv));
 
             if (list->predication.enabled_on_command_buffer)
-                VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_init_commands_post_indirect_barrier));
+                VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_post_indirect_barrier_commands));
         }
 
         list->cmd.indirect_meta->need_preprocess_barrier = true;
@@ -18875,7 +18886,7 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
     {
         d3d12_command_list_debug_mark_label(list, "Indirect Argument barrier", 1.0f, 1.0f, 0.0f, 1.0f);
         /* Any indirect patching commands now have to go to normal command buffer, unless we split the sequence. */
-        list->cmd.vk_init_commands_post_indirect_barrier = list->cmd.vk_command_buffer;
+        list->cmd.vk_post_indirect_barrier_commands = list->cmd.vk_command_buffer;
     }
 
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE))
@@ -19897,6 +19908,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int *breadcrumb_indices;
 #endif
+    bool hazard_query_resets;
     uint32_t *cmd_cost;
     unsigned int iter;
     unsigned int i, j;
@@ -19920,6 +19932,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     /* ExecuteCommandLists submission barrier buffer */
     num_command_buffers = command_queue->vkd3d_queue->barrier_command_buffer ? 1 : 0;
 
+    hazard_query_resets = true;
+
     for (i = 0; i < command_list_count; ++i)
     {
         cmd_list = d3d12_command_list_from_iface(command_lists[i]);
@@ -19934,14 +19948,17 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         vkd3d_timestamp_profiler_submit_command_list(command_queue->device->timestamp_profiler, cmd_list);
 #endif
 
+        if (cmd_list->cmd.vk_query_reset_commands)
+            num_command_buffers++;
+
         if (cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer && (i == 0 ||
                 !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-                        d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list)))
+                        d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list, hazard_query_resets)))
             num_command_buffers++;
 
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
-            if (cmd_list->cmd.iterations[iter].vk_init_commands)
+            if (cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands)
                 num_command_buffers++;
             assert(cmd_list->cmd.iterations[iter].vk_command_buffer);
             num_command_buffers++;
@@ -19949,7 +19966,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         if (cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
                 !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]))))
+                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]), hazard_query_resets)))
             num_command_buffers++;
 
         num_retained_resources += cmd_list->retained_resources_count;
@@ -20003,8 +20020,25 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             command_lists, command_list_count);
 
     num_transitions = 0;
+    j = 0;
 
-    for (i = 0, j = 0; i < command_list_count; ++i)
+    /* If all query resets use different query pool ranges, it's safe to hoist all of it. */
+    if (!hazard_query_resets)
+    {
+        for (i = 0; i < command_list_count; ++i)
+        {
+            cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
+            if (cmd_list->cmd.vk_query_reset_commands)
+            {
+                cmd_cost[j] = VKD3D_COMMAND_COST_LOW;
+                buffer = &buffers[j++];
+                buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                buffer->commandBuffer = cmd_list->cmd.vk_query_reset_commands;
+            }
+        }
+    }
+
+    for (i = 0; i < command_list_count; ++i)
     {
         cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
 
@@ -20037,9 +20071,18 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         allocators[i] = cmd_list->submit_allocator;
 
+        /* If we cannot hoist, we need to break suspend-resume :'( */
+        if (hazard_query_resets && cmd_list->cmd.vk_query_reset_commands)
+        {
+            cmd_cost[j] = VKD3D_COMMAND_COST_LOW;
+            buffer = &buffers[j++];
+            buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+            buffer->commandBuffer = cmd_list->cmd.vk_query_reset_commands;
+        }
+
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
-            if (cmd_list->cmd.iterations[iter].vk_init_commands)
+            if (cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands)
             {
                 /* Assume high cost for DGC preprocessing, everything else is cheap enough to be ignored. */
                 cmd_cost[j] = cmd_list->cmd.iterations[iter].indirect_meta.need_preprocess_barrier
@@ -20047,7 +20090,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
                 buffer = &buffers[j++];
                 buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-                buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_init_commands;
+                buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands;
             }
 
             /* Init commands in the first iteration must come before the resume fixup.
@@ -20056,7 +20099,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
              * init fixup -> resume -> render pass instead. */
             if (iter == 0 && cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer && (i == 0 ||
                     !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-                            d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list)))
+                            d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list, hazard_query_resets)))
             {
                 cmd_cost[j] = 0;
                 buffer = &buffers[j++];
@@ -20074,7 +20117,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         /* Suspending fixup if we cannot fuse with next pass. */
         if (cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
                 !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]))))
+                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]), hazard_query_resets)))
         {
             cmd_cost[j] = 0;
             buffer = &buffers[j++];
