@@ -2273,6 +2273,11 @@ static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *
     }
 }
 
+static void d3d12_command_list_debug_mark_begin_region_cmd(
+        struct d3d12_command_list *list, VkCommandBuffer vk_cmd, const char *tag);
+static void d3d12_command_list_debug_mark_end_region_cmd(
+        struct d3d12_command_list *list, VkCommandBuffer vk_cmd);
+
 static HRESULT d3d12_command_allocator_allocate_query_reset_command_buffer(struct d3d12_command_allocator *allocator,
         struct d3d12_command_list *list)
 {
@@ -2313,6 +2318,8 @@ static HRESULT d3d12_command_allocator_allocate_query_reset_command_buffer(struc
                 1, &list->cmd.vk_query_reset_commands));
         return hresult_from_vk_result(vr);
     }
+
+    d3d12_command_list_debug_mark_begin_region_cmd(list, list->cmd.vk_query_reset_commands, "Query Resets");
 
     return S_OK;
 }
@@ -6048,12 +6055,20 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
         if (FAILED(hr = d3d12_command_allocator_allocate_query_reset_command_buffer(list->allocator, list)))
             return hr;
 
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+        {
+            d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_query_reset_commands,
+                    1.0f, 1.0f, 0.8f, 1.0f, "Resetting query range, index %u, count %u",
+                    range->index, range->count);
+        }
+
         VK_CALL(vkCmdResetQueryPool(list->cmd.vk_query_reset_commands,
                 range->vk_pool, range->index, range->count));
     }
 
     if (list->cmd.vk_query_reset_commands)
     {
+        d3d12_command_list_debug_mark_end_region_cmd(list, list->cmd.vk_query_reset_commands);
         if ((vr = VK_CALL(vkEndCommandBuffer(list->cmd.vk_query_reset_commands))) < 0)
         {
             WARN("Failed to end command buffer, vr %d.\n", vr);
