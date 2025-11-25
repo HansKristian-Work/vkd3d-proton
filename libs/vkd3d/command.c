@@ -6127,6 +6127,8 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
             dep_info.pMemoryBarriers = &barrier;
 
             VK_CALL(vkCmdPipelineBarrier2(iteration->vk_post_indirect_barrier_commands, &dep_info));
+            d3d12_command_list_debug_mark_label_cmd(list, iteration->vk_post_indirect_barrier_commands,
+                    "ComputeToIndirect barrier", 1.0f, 1.0f, 0.8f, 1.0f);
         }
 
         if (iteration->indirect_meta.need_preprocess_barrier)
@@ -6145,6 +6147,8 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
             dep_info.pMemoryBarriers = &barrier;
 
             VK_CALL(vkCmdPipelineBarrier2(iteration->vk_post_indirect_barrier_commands, &dep_info));
+            d3d12_command_list_debug_mark_label_cmd(list, iteration->vk_post_indirect_barrier_commands,
+                    "Preprocess barrier", 1.0f, 1.0f, 0.8f, 1.0f);
         }
 
         if ((vr = VK_CALL(vkEndCommandBuffer(iteration->vk_post_indirect_barrier_commands))) < 0)
