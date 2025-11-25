@@ -5964,7 +5964,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         vkd3d_free(list->rtv_resolves);
         vkd3d_free(list->rtv_resolve_regions);
         vkd3d_free(list->init_transitions);
-        vkd3d_free(list->query_ranges);
+        vkd3d_free(list->query_ranges.ranges);
         vkd3d_free(list->active_queries);
         vkd3d_free(list->pending_queries);
         vkd3d_free(list->dsv_resource_tracking);
@@ -6041,9 +6041,9 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
     HRESULT hr;
     size_t i;
 
-    for (i = 0; i < list->query_ranges_count; i++)
+    for (i = 0; i < list->query_ranges.count; i++)
     {
-        const struct vkd3d_query_range *range = &list->query_ranges[i];
+        const struct vkd3d_query_range *range = &list->query_ranges.ranges[i];
 
         if (!(range->flags & VKD3D_QUERY_RANGE_GPU_RESET))
             continue;
@@ -6243,17 +6243,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     return S_OK;
 }
 
-static bool d3d12_command_list_find_query(struct d3d12_command_list *list,
+static bool vkd3d_find_query(
+        const struct vkd3d_query_range *query_ranges, size_t query_ranges_count,
         VkQueryPool vk_pool, uint32_t index, size_t *out_pos)
 {
     const struct vkd3d_query_range *range;
-    size_t hi = list->query_ranges_count;
+    size_t hi = query_ranges_count;
     size_t lo = 0;
 
     while (lo < hi)
     {
         size_t pos = lo + (hi - lo) / 2;
-        range = &list->query_ranges[pos];
+        range = &query_ranges[pos];
 
         if (vk_pool < range->vk_pool)
             hi = pos;
@@ -6276,8 +6277,16 @@ static bool d3d12_command_list_find_query(struct d3d12_command_list *list,
     return false;
 }
 
-static void d3d12_command_list_insert_query_range(struct d3d12_command_list *list, size_t *where,
-        VkQueryPool vk_pool, uint32_t index, uint32_t count, uint32_t flags)
+static bool d3d12_command_list_find_query(struct d3d12_command_list *list,
+        VkQueryPool vk_pool, uint32_t index, size_t *out_pos)
+{
+    return vkd3d_find_query(list->query_ranges.ranges, list->query_ranges.count,
+            vk_pool, index, out_pos);
+}
+
+static void vkd3d_insert_query_range(size_t *where,
+        VkQueryPool vk_pool, uint32_t index, uint32_t count, uint32_t flags,
+        struct vkd3d_query_ranges *out_ranges)
 {
     struct vkd3d_query_range *range;
     unsigned int move_count;
@@ -6289,15 +6298,15 @@ static void d3d12_command_list_insert_query_range(struct d3d12_command_list *lis
 
     if (pos > 0)
     {
-        range = &list->query_ranges[pos - 1];
+        range = &out_ranges->ranges[pos - 1];
         merge_lo = range->vk_pool == vk_pool
                 && range->flags == flags
                 && range->index + range->count == index;
     }
 
-    if (pos < list->query_ranges_count)
+    if (pos < out_ranges->count)
     {
-        range = &list->query_ranges[pos];
+        range = &out_ranges->ranges[pos];
         merge_hi = range->vk_pool == vk_pool
                 && range->flags == flags
                 && range->index == index + count;
@@ -6308,30 +6317,30 @@ static void d3d12_command_list_insert_query_range(struct d3d12_command_list *lis
      * may be moved around depending on which ranges get merged. */
     if (merge_lo)
     {
-        range = &list->query_ranges[pos - 1];
+        range = &out_ranges->ranges[pos - 1];
         range[0].count += count;
 
         if (merge_hi)
         {
             range[0].count += range[1].count;
-            move_count = (--list->query_ranges_count) - pos;
+            move_count = (--out_ranges->count) - pos;
             memmove(&range[1], &range[2], sizeof(*range) * move_count);
             (*where)--;
         }
     }
     else if (merge_hi)
     {
-        range = &list->query_ranges[pos];
+        range = &out_ranges->ranges[pos];
         range->index = index;
         range->count += count;
     }
     else
     {
-        vkd3d_array_reserve((void**)&list->query_ranges, &list->query_ranges_size,
-                list->query_ranges_count + 1, sizeof(*list->query_ranges));
+        vkd3d_array_reserve((void**)&out_ranges->ranges, &out_ranges->size,
+                out_ranges->count + 1, sizeof(*out_ranges->ranges));
 
-        range = &list->query_ranges[pos];
-        move_count = (list->query_ranges_count++) - pos;
+        range = &out_ranges->ranges[pos];
+        move_count = (out_ranges->count++) - pos;
         memmove(range + 1, range, sizeof(*range) * move_count);
 
         range->vk_pool = vk_pool;
@@ -6341,6 +6350,12 @@ static void d3d12_command_list_insert_query_range(struct d3d12_command_list *lis
 
         (*where)++;
     }
+}
+
+static void d3d12_command_list_insert_query_range(struct d3d12_command_list *list, size_t *where,
+        VkQueryPool vk_pool, uint32_t index, uint32_t count, uint32_t flags)
+{
+    vkd3d_insert_query_range(where, vk_pool, index, count, flags, &list->query_ranges);
 }
 
 static void d3d12_command_list_read_query_range(struct d3d12_command_list *list,
@@ -6361,9 +6376,9 @@ static void d3d12_command_list_read_query_range(struct d3d12_command_list *list,
      * in at most one range. */
     while (lo < hi)
     {
-        range = list->query_ranges + pos;
+        range = list->query_ranges.ranges + pos;
 
-        if (pos < list->query_ranges_count && range->vk_pool == vk_pool)
+        if (pos < list->query_ranges.count && range->vk_pool == vk_pool)
         {
             if (lo >= range->index)
             {
@@ -6509,7 +6524,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->has_replaced_shaders = false;
 
     list->init_transitions_count = 0;
-    list->query_ranges_count = 0;
+    list->query_ranges.count = 0;
     list->active_queries_count = 0;
     list->pending_queries_count = 0;
     list->dsv_resource_tracking_count = 0;
