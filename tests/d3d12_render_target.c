@@ -2590,6 +2590,7 @@ static void test_render_pass_suspend_resume_opts(bool inline_clears)
 
         bool timestamp;
         bool occlusion_query;
+        uint32_t query_index;
     };
 
     static const struct test
@@ -2677,11 +2678,19 @@ static void test_render_pass_suspend_resume_opts(bool inline_clears)
             }
         },
         {
-            "Timestamp hoisting (init command buffer)",
+            "Successful timestamp hoisting",
             2,
             {
-                { false, false, 0x1, false, false, 1, true },
-                { false, false, 0x1, false, false, 1, true },
+                { false, false, 0x1, false, false, 1, true, false, 0 },
+                { false, false, 0x1, false, false, 1, true, false, 1 },
+            }
+        },
+        {
+            "Unsuccessful timestamp hoisting",
+            2,
+            {
+                { false, false, 0x1, false, false, 1, true, false, 0 },
+                { false, false, 0x1, false, false, 1, true, false, 0 },
             }
         },
         {
@@ -2780,7 +2789,7 @@ static void test_render_pass_suspend_resume_opts(bool inline_clears)
             DXGI_FORMAT_D24_UNORM_S8_UINT, NULL);
 
     memset(&query_heap_desc, 0, sizeof(query_heap_desc));
-    query_heap_desc.Count = 1;
+    query_heap_desc.Count = 16;
     query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
     ID3D12Device_CreateQueryHeap(context.device, &query_heap_desc, &IID_ID3D12QueryHeap, (void **)&occlusion);
     query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
@@ -2881,12 +2890,12 @@ static void test_render_pass_suspend_resume_opts(bool inline_clears)
                 ID3D12GraphicsCommandList_RSSetScissorRects(cmd, 1, &sci);
 
                 if (iteration->occlusion_query)
-                    ID3D12GraphicsCommandList_BeginQuery(cmd, occlusion, D3D12_QUERY_TYPE_OCCLUSION, 0);
+                    ID3D12GraphicsCommandList_BeginQuery(cmd, occlusion, D3D12_QUERY_TYPE_OCCLUSION, iteration->query_index);
                 ID3D12GraphicsCommandList_DrawInstanced(cmd, 3, 1, 0, 0);
                 if (iteration->occlusion_query)
-                    ID3D12GraphicsCommandList_EndQuery(cmd, occlusion, D3D12_QUERY_TYPE_OCCLUSION, 0);
+                    ID3D12GraphicsCommandList_EndQuery(cmd, occlusion, D3D12_QUERY_TYPE_OCCLUSION, iteration->query_index);
                 if (iteration->timestamp)
-                    ID3D12GraphicsCommandList_EndQuery(cmd, timestamps, D3D12_QUERY_TYPE_TIMESTAMP, 0);
+                    ID3D12GraphicsCommandList_EndQuery(cmd, timestamps, D3D12_QUERY_TYPE_TIMESTAMP, iteration->query_index);
             }
 
             /* Dummy action command intended to break suspend/resume. */
