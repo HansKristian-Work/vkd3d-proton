@@ -2224,7 +2224,12 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
 
     /* Some things we *have* to end now because API says so.
      * Most cleanup can be deferred to Close(). */
-    d3d12_command_list_end_current_render_pass(list, true);
+
+    /* Avoid infinite recursion if called from d3d12_command_list_end_rendering().
+     * If rendering is already active, we will never consider splitting command buffers for DGC purposes. */
+    if (!(list->rendering_info.state_flags & VKD3D_RENDERING_NEW_INSTANCE_ON_END_RENDERING))
+        d3d12_command_list_end_current_render_pass(list, true);
+
     if (list->predication.enabled_on_command_buffer)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
 
@@ -5155,10 +5160,15 @@ static void d3d12_command_list_end_rendering(struct d3d12_command_list *list)
         VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &list->rendering_info.info));
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         list->rendering_info.info.flags &= ~VK_RENDERING_RESUMING_BIT;
+
+        if ((list->rendering_info.state_flags & VKD3D_RENDERING_NEW_INSTANCE_ON_END_RENDERING) &&
+                d3d12_command_list_allows_new_sequence(list))
+            d3d12_command_list_begin_new_sequence(list);
     }
 
     /* Special tiler considerations. If we get proper suspend/resume, we can elide this barrier even on tilers. */
     d3d12_command_list_sync_tiler_renderpass_writes(list, &list->rendering_info.info);
+    list->rendering_info.state_flags &= ~VKD3D_RENDERING_NEW_INSTANCE_ON_END_RENDERING;
 }
 
 void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend)
@@ -7597,6 +7607,12 @@ static void d3d12_command_list_begin_rendering(struct d3d12_command_list *list)
         list->rendering_info.info.flags &= ~(VK_RENDERING_RESUMING_BIT | VK_RENDERING_SUSPENDING_BIT);
 
         d3d12_command_list_copy_render_pass_suspend_resume_compat(list, resume);
+
+        /* Some Close() fixup commands may need to be deferred until suspend-resume breaks.
+         * In this case, we need to make sure we can stick command buffer in-between EndRendering
+         * and other commands (which may rely on that Close() fixup. */
+        list->rendering_info.state_flags |= VKD3D_RENDERING_NEW_INSTANCE_ON_END_RENDERING;
+        assert(list->cmd.iteration_count == 1);
     }
     else if (suspend_resume)
     {

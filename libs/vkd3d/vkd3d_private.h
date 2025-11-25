@@ -2796,10 +2796,11 @@ struct vkd3d_query_range
 
 enum vkd3d_rendering_flags
 {
-    VKD3D_RENDERING_ACTIVE    = (1u << 0),
+    VKD3D_RENDERING_ACTIVE = (1u << 0),
     VKD3D_RENDERING_SUSPENDED = (1u << 1),
-    VKD3D_RENDERING_CURRENT   = (1u << 2),
+    VKD3D_RENDERING_CURRENT = (1u << 2),
     VKD3D_RENDERING_END_OF_COMMAND_LIST = (1u << 3),
+    VKD3D_RENDERING_NEW_INSTANCE_ON_END_RENDERING = (1u << 4),
 };
 
 struct vkd3d_rendering_info
