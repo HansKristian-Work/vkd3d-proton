@@ -2315,8 +2315,8 @@ static void d3d12_command_list_debug_mark_begin_region_cmd(
 static void d3d12_command_list_debug_mark_end_region_cmd(
         struct d3d12_command_list *list, VkCommandBuffer vk_cmd);
 
-static HRESULT d3d12_command_allocator_allocate_query_reset_command_buffer(struct d3d12_command_allocator *allocator,
-        struct d3d12_command_list *list)
+static HRESULT d3d12_command_allocator_allocate_fixup_command_buffer(struct d3d12_command_allocator *allocator,
+        struct d3d12_command_list *list, VkCommandBuffer *vk_cmd_buffer, const char *tag)
 {
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2326,7 +2326,7 @@ static HRESULT d3d12_command_allocator_allocate_query_reset_command_buffer(struc
 
     TRACE("allocator %p, list %p.\n", allocator, list);
 
-    if (list->cmd.vk_query_reset_commands)
+    if (*vk_cmd_buffer)
         return S_OK;
 
     command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -2336,7 +2336,7 @@ static HRESULT d3d12_command_allocator_allocate_query_reset_command_buffer(struc
     command_buffer_info.commandBufferCount = 1;
 
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
-            &list->cmd.vk_query_reset_commands))) < 0)
+            vk_cmd_buffer))) < 0)
     {
         WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -2348,15 +2348,14 @@ static HRESULT d3d12_command_allocator_allocate_query_reset_command_buffer(struc
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
-    if ((vr = VK_CALL(vkBeginCommandBuffer(list->cmd.vk_query_reset_commands, &begin_info))) < 0)
+    if ((vr = VK_CALL(vkBeginCommandBuffer(*vk_cmd_buffer, &begin_info))) < 0)
     {
         WARN("Failed to begin command buffer, vr %d.\n", vr);
-        VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
-                1, &list->cmd.vk_query_reset_commands));
+        VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool, 1, vk_cmd_buffer));
         return hresult_from_vk_result(vr);
     }
 
-    d3d12_command_list_debug_mark_begin_region_cmd(list, list->cmd.vk_query_reset_commands, "Query Resets");
+    d3d12_command_list_debug_mark_begin_region_cmd(list, *vk_cmd_buffer, tag);
 
     return S_OK;
 }
@@ -2448,6 +2447,7 @@ static void d3d12_command_allocator_free_command_buffer(struct d3d12_command_all
     d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer);
     d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer);
     d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.vk_query_reset_commands);
+    d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.vk_cleanup_commands);
 
     for (i = 0; i < list->cmd.iteration_count; i++)
     {
@@ -3473,6 +3473,24 @@ static void d3d12_command_list_reset_transfer_waw_tracking(struct d3d12_command_
     list->transfer_batch.vk_stages = 0;
 }
 
+static void d3d12_command_list_check_end_of_command_list_cleanup(struct d3d12_command_list *list)
+{
+    /* If we recorded a suspend, we may want to reorder cleanup commands as late as possible.
+     * We can defer inserting these command buffers until we observe a proper render pass end. */
+    if (list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && !list->cmd.vk_cleanup_commands)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VkResult vr;
+
+        d3d12_command_allocator_allocate_fixup_command_buffer(list->allocator, list,
+                &list->cmd.vk_cleanup_commands, "Cleanup");
+
+        if ((vr = VK_CALL(vkEndCommandBuffer(list->cmd.vk_command_buffer))) != VK_SUCCESS)
+            ERR("Failed to end command buffer, vr %d\n", vr);
+        list->cmd.vk_command_buffer = list->cmd.vk_cleanup_commands;
+    }
+}
+
 static void d3d12_command_list_resolve_transfer_waw(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -3482,6 +3500,8 @@ static void d3d12_command_list_resolve_transfer_waw(struct d3d12_command_list *l
     if (list->transfer_batch.tracked_copy_buffer_count || list->transfer_batch.tracked_copy_texture_count)
     {
         assert(list->transfer_batch.vk_stages != 0);
+
+        d3d12_command_list_check_end_of_command_list_cleanup(list);
 
         memset(&vk_barrier, 0, sizeof(vk_barrier));
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -3498,9 +3518,6 @@ static void d3d12_command_list_resolve_transfer_waw(struct d3d12_command_list *l
         d3d12_command_list_debug_mark_label(list, "Transfer WAW (resolve)", 0.8f, 1.0f, 0.8f, 1.0f);
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
         d3d12_command_list_reset_transfer_waw_tracking(list);
-
-        if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-            list->cmd.suspend_resume.complex_suspend = true;
     }
 }
 
@@ -4497,6 +4514,8 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
     if (!list->subresource_tracking_count)
         return;
 
+    d3d12_command_list_check_end_of_command_list_cleanup(list);
+
     /* Images may not be in COMMON state anymore by the time the subresource
      * updates get resolved, however we should still perform the update. Emit
      * a full barrier to reduce the amount of tracking needed. */
@@ -4540,9 +4559,6 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
     /* Do not emit another barrier here, let the caller handle that as
      * necessary. If this is used at the end of a command buffer, no
      * barrier is necessary as submissions will emit a host barrier. */
-
-    if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-        list->cmd.suspend_resume.complex_suspend = true;
 }
 
 static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_list *list,
@@ -4615,9 +4631,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
     if (!dep_info.imageMemoryBarrierCount)
         return;
 
-    if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-        list->cmd.suspend_resume.complex_suspend = true;
-
+    d3d12_command_list_check_end_of_command_list_cleanup(list);
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     d3d12_command_list_check_render_pass_validation(list, NULL, true);
 }
@@ -4861,8 +4875,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     if (!list->pending_queries_count)
         return true;
 
-    if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-        list->cmd.suspend_resume.complex_suspend = true;
+    d3d12_command_list_check_end_of_command_list_cleanup(list);
 
     /* Sort pending query list so that we can batch commands */
     qsort(list->pending_queries, list->pending_queries_count,
@@ -5319,6 +5332,9 @@ static void d3d12_command_list_flush_clears(struct d3d12_command_list *list,
     VkImageSubresourceRange clear_subresources;
     unsigned int src, dst;
 
+    if (list->deferred_clear_count)
+        d3d12_command_list_check_end_of_command_list_cleanup(list);
+
     for (src = 0, dst = 0; src < list->deferred_clear_count; src++)
     {
         const struct vkd3d_deferred_clear *clear = &list->deferred_clears[src];
@@ -5340,9 +5356,6 @@ static void d3d12_command_list_flush_clears(struct d3d12_command_list *list,
             dst++;
         }
     }
-
-    if ((list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST) && list->deferred_clear_count)
-        list->cmd.suspend_resume.complex_suspend = true;
 
     list->deferred_clear_count = dst;
 
@@ -5562,6 +5575,8 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
 
     if (list->xfb_buffer_count)
     {
+        d3d12_command_list_check_end_of_command_list_cleanup(list);
+
         /* We need a barrier between pause and resume. */
         memset(&vk_barrier, 0, sizeof(vk_barrier));
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -5575,8 +5590,6 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_barrier;
 
-        if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-            list->cmd.suspend_resume.complex_suspend = true;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         list->xfb_buffer_count = 0u;
@@ -6107,7 +6120,8 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
          * We can only know this at ExecuteCommandLists time depending if there is a hazard when resetting
          * the query pools. */
 
-        if (FAILED(hr = d3d12_command_allocator_allocate_query_reset_command_buffer(list->allocator, list)))
+        if (FAILED(hr = d3d12_command_allocator_allocate_fixup_command_buffer(
+                list->allocator, list, &list->cmd.vk_query_reset_commands, "Query Resets")))
             return hr;
 
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
@@ -6214,9 +6228,6 @@ void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list)
     /* TODO: Revisit this w.r.t. splitting VkCommandBuffer */
     d3d12_command_list_end_current_render_pass(list, false);
 
-    if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-        d3d12_command_list_debug_mark_begin_region(list, "Close() fixup");
-
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_flush_rtas_batch(list);
     d3d12_command_list_flush_clears(list, NULL, NULL);
@@ -6276,7 +6287,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (FAILED(hr = d3d12_command_list_build_init_commands(list)))
         return hr;
 
-    d3d12_command_list_debug_mark_end_region(list); /* Close() fixup */
+    if (list->cmd.vk_cleanup_commands)
+        d3d12_command_list_debug_mark_end_region(list);
+
     if ((vr = VK_CALL(vkEndCommandBuffer(list->cmd.vk_command_buffer))) < 0)
     {
         WARN("Failed to end command buffer, vr %d.\n", vr);
@@ -7935,7 +7948,7 @@ static bool d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
 
     /* Post-indirect work comes before the command buffer.
      * If we cannot hoist the post-indirect work in second before first, we have to split. */
-    if (first->cmd.suspend_resume.complex_suspend || (second->cmd.has_post_indirect_barrier_work && !hoistable_post_indirect))
+    if (second->cmd.has_post_indirect_barrier_work && !hoistable_post_indirect)
         return false;
 
     if (!suspend->vk_fixup_cmd_buffer || !resume->vk_fixup_cmd_buffer)
@@ -8029,12 +8042,6 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     struct d3d12_graphics_pipeline_state *graphics;
 
     d3d12_command_list_end_transfer_batch(list);
-    if (list->device->workarounds.tiler_suspend_resume)
-    {
-        /* This isn't technically required, but to avoid breaking suspend/resume,
-         * we should eagerly emit the barrier when rendering begins to avoid emitting it in Close(). */
-        d3d12_command_list_resolve_transfer_waw(list);
-    }
     d3d12_command_list_flush_rtas_batch(list);
 
     d3d12_command_list_promote_dsv_layout(list);
@@ -10024,6 +10031,9 @@ static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *lis
     uint32_t old_count = 0;
     size_t i;
 
+    if (list->transfer_batch.batch_type != VKD3D_BATCH_TYPE_NONE)
+        d3d12_command_list_check_end_of_command_list_cleanup(list);
+
     switch (list->transfer_batch.batch_type)
     {
         case VKD3D_BATCH_TYPE_NONE:
@@ -10083,12 +10093,6 @@ static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *lis
             break;
     }
 
-    if (list->transfer_batch.batch_type != VKD3D_BATCH_TYPE_NONE &&
-            (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST))
-    {
-        list->cmd.suspend_resume.complex_suspend = true;
-    }
-
     list->transfer_batch.batch_type = VKD3D_BATCH_TYPE_NONE;
 }
 
@@ -10100,6 +10104,8 @@ static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list)
 
     if (!list->wbi_batch.batch_len)
         return;
+
+    d3d12_command_list_check_end_of_command_list_cleanup(list);
 
     first = 0;
 
@@ -10133,8 +10139,6 @@ static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list)
         }
     }
 
-    if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-        list->cmd.suspend_resume.complex_suspend = true;
     list->wbi_batch.batch_len = 0;
 }
 
@@ -11833,6 +11837,8 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
 
     if (dep_info.imageMemoryBarrierCount || dep_info.memoryBarrierCount)
     {
+        d3d12_command_list_check_end_of_command_list_cleanup(list);
+
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         batch->vk_memory_barrier.srcStageMask = 0;
@@ -11841,9 +11847,6 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
         batch->vk_memory_barrier.dstAccessMask = 0;
 
         batch->image_barrier_count = 0;
-
-        if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-            list->cmd.suspend_resume.complex_suspend = true;
     }
 }
 
@@ -14706,14 +14709,14 @@ static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *l
     if (!list->query_resolve_count)
         return;
 
+    d3d12_command_list_check_end_of_command_list_cleanup(list);
+
     for (i = 0; i < list->query_resolve_count; i++)
         d3d12_command_list_execute_query_resolve(list, &list->query_resolves[i]);
 
     list->query_resolve_count = 0;
 
     hash_map_clear(&list->query_resolve_lut);
-    if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-        list->cmd.suspend_resume.complex_suspend = true;
 }
 
 static void d3d12_command_list_add_query_resolve(struct d3d12_command_list *list,
@@ -17945,6 +17948,8 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     if (!rtas_batch->build_info_count && !rtas_batch->omm_build_info_count)
         return;
 
+    d3d12_command_list_check_end_of_command_list_cleanup(list);
+
     TRACE("list %p, build_info_count %zu, omm_build_info_count %zu.\n", list,
             rtas_batch->build_info_count, rtas_batch->omm_build_info_count);
 
@@ -17995,9 +18000,6 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
                 rtas_batch->omm_build_info_count, rtas_batch->omm_build_infos));
 
     d3d12_command_list_clear_rtas_batch(list);
-
-    if (list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST)
-        list->cmd.suspend_resume.complex_suspend = true;
 }
 
 static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3d12_command_list *list,
@@ -20096,6 +20098,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     struct d3d12_resource **retained_resources;
     struct d3d12_command_queue_submission sub;
     unsigned int indirect_barrier_hoist_index;
+    unsigned int fixup_sink_begin_index;
     struct d3d12_command_list *cmd_list;
     size_t num_retained_resources = 0;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -20128,6 +20131,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     hazard_query_resets = vkd3d_submission_has_query_reset_hazard(command_list_count, command_lists);
     indirect_barrier_hoist_index = 0;
+    fixup_sink_begin_index = UINT32_MAX;
 
     for (i = command_list_count; i != 0; --i)
     {
@@ -20156,6 +20160,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #endif
 
         if (cmd_list->cmd.vk_query_reset_commands)
+            num_command_buffers++;
+        if (cmd_list->cmd.vk_cleanup_commands)
             num_command_buffers++;
 
         if (cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer && (i == 0 ||
@@ -20249,6 +20255,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     for (i = 0; i < command_list_count; ++i)
     {
+        bool need_suspend_fixup;
+
         if (i == indirect_barrier_hoist_index)
         {
             /* We can reorder all post-indirect work here. */
@@ -20316,6 +20324,31 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
+            if (iter == 1 && fixup_sink_begin_index != UINT32_MAX)
+            {
+                /* If we had a previous suspend/resume, it's possible the render pass ended in the middle of
+                 * this command list. In this case, we need to insert fixups right after the iteration is complete.
+                 * Do not include fixups for this command list just yet. */
+                struct d3d12_command_list *sub_cmd_list;
+                unsigned int sub_i;
+
+                /* NOTE: In code path below it's less-equal. */
+                for (sub_i = fixup_sink_begin_index; sub_i < i; sub_i++)
+                {
+                    sub_cmd_list = d3d12_command_list_from_iface(command_lists[sub_i]);
+
+                    if (sub_cmd_list->cmd.vk_cleanup_commands)
+                    {
+                        cmd_cost[cmd_submit_count] = 0;
+                        buffer = &buffers[cmd_submit_count++];
+                        buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                        buffer->commandBuffer = sub_cmd_list->cmd.vk_cleanup_commands;
+                    }
+                }
+
+                fixup_sink_begin_index = UINT32_MAX;
+            }
+
             /* Emit non-hoistable post-indirect work here. */
             if (i < indirect_barrier_hoist_index && cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands)
             {
@@ -20350,16 +20383,48 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_command_buffer;
         }
 
-        /* Suspending fixup if we cannot fuse with next pass. */
-        if (cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
+        need_suspend_fixup = cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
                 !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
                         cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]), hazard_query_resets,
-                        i >= indirect_barrier_hoist_index)))
+                        i >= indirect_barrier_hoist_index));
+
+        /* Suspending fixup if we cannot fuse with next pass. */
+        if (need_suspend_fixup)
         {
             cmd_cost[cmd_submit_count] = 0;
             buffer = &buffers[cmd_submit_count++];
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             buffer->commandBuffer = cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer;
+        }
+
+        if (need_suspend_fixup || !cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer)
+        {
+            struct d3d12_command_list *sub_cmd_list;
+            unsigned int sub_i;
+
+            /* We're not going to suspend execution, so we can emit pending fixup command buffers now. */
+            if (fixup_sink_begin_index == UINT32_MAX)
+                fixup_sink_begin_index = i;
+
+            for (sub_i = fixup_sink_begin_index; sub_i <= i; sub_i++)
+            {
+                sub_cmd_list = d3d12_command_list_from_iface(command_lists[sub_i]);
+
+                if (sub_cmd_list->cmd.vk_cleanup_commands)
+                {
+                    cmd_cost[cmd_submit_count] = 0;
+                    buffer = &buffers[cmd_submit_count++];
+                    buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                    buffer->commandBuffer = sub_cmd_list->cmd.vk_cleanup_commands;
+                }
+            }
+
+            fixup_sink_begin_index = UINT32_MAX;
+        }
+        else if (fixup_sink_begin_index == UINT32_MAX)
+        {
+            /* We can suspend properly, defer inserting the cleanup commands. */
+            fixup_sink_begin_index = i;
         }
 
         if (cmd_list->debug_capture)
