@@ -3004,7 +3004,7 @@ struct d3d12_command_list_iteration_indirect_meta
 struct d3d12_command_list_iteration
 {
     VkCommandBuffer vk_command_buffer;
-    VkCommandBuffer vk_init_commands;
+    VkCommandBuffer vk_post_indirect_barrier_commands;
     uint32_t estimated_cost;
     struct d3d12_command_list_iteration_indirect_meta indirect_meta;
 };
@@ -3064,12 +3064,13 @@ struct d3d12_command_list_sequence
 
     /* Emit normal commands here. */
     VkCommandBuffer vk_command_buffer;
-    /* For various commands which should be thrown to the start of ID3D12CommandList. */
-    VkCommandBuffer vk_init_commands;
+    /* For query commands which should be thrown to the start of ID3D12CommandList.
+     * These commands can be hoisted to start of ExecuteCommandList if there are no hazards. */
+    VkCommandBuffer vk_query_reset_commands;
     /* For any command which is sensitive to INDIRECT_ARGUMENT barriers.
      * If equal to vk_command_buffer, it means it is not possible to split command buffers, and
      * we must use vk_command_buffer with appropriate barriers. */
-    VkCommandBuffer vk_init_commands_post_indirect_barrier;
+    VkCommandBuffer vk_post_indirect_barrier_commands;
 
     struct d3d12_command_list_render_pass_suspend_resume suspend_resume;
 
