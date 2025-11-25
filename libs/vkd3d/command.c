@@ -2253,6 +2253,12 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     d3d12_command_list_debug_mark_label(list, "Split", 0.0f, 0.0f, 0.0f, 1.0f);
 }
 
+static bool d3d12_command_list_allows_new_sequence(struct d3d12_command_list *list)
+{
+    /* We could in theory virtualize these queries, but that is extreme overkill. */
+    return list->cmd.active_non_inline_running_queries == 0;
+}
+
 static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *list)
 {
 #ifdef VKD3D_ENABLE_PROFILING
@@ -2265,8 +2271,7 @@ static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *
             !(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) &&
             vkd3d_atomic_uint32_load_explicit(&list->device->device_has_dgc_templates, vkd3d_memory_order_relaxed))
     {
-        /* We could in theory virtualize these queries, but that is extreme overkill. */
-        if (list->cmd.active_non_inline_running_queries == 0)
+        if (d3d12_command_list_allows_new_sequence(list))
             d3d12_command_list_begin_new_sequence(list);
         else
             WARN("Avoiding split due to long running scoped query.\n");
