@@ -19908,6 +19908,83 @@ fail:
     vkd3d_free(sub.bind_sparse.bind_infos);
 }
 
+static bool vkd3d_submission_has_query_reset_hazard(
+        UINT command_list_count, ID3D12CommandList * const *command_lists)
+{
+    unsigned int first_active_index = UINT32_MAX;
+    unsigned int active_command_buffers = 0;
+    struct vkd3d_query_ranges ranges;
+    unsigned int i, range_index;
+    bool ret = false;
+
+    memset(&ranges, 0, sizeof(ranges));
+
+    for (i = 0; i < command_list_count; i++)
+    {
+        struct d3d12_command_list *list = d3d12_command_list_from_iface(command_lists[i]);
+        if (list->query_ranges.count)
+            active_command_buffers++;
+        ranges.count += list->query_ranges.count;
+    }
+
+    /* There cannot be a hazard unless there are multiple command buffers reading from query heap. */
+    if (active_command_buffers <= 1)
+        return false;
+
+    vkd3d_array_reserve((void **)&ranges.ranges, &ranges.size, ranges.count, sizeof(*ranges.ranges));
+    ranges.count = 0;
+
+    /* No need to do awkward merges for the first command list since we know it will work. */
+    for (i = 0; i < command_list_count; i++)
+    {
+        struct d3d12_command_list *list = d3d12_command_list_from_iface(command_lists[i]);
+        if (list->query_ranges.count)
+        {
+            memcpy(ranges.ranges, list->query_ranges.ranges, list->query_ranges.count * sizeof(*list->query_ranges.ranges));
+            first_active_index = i;
+            ranges.count = list->query_ranges.count;
+            break;
+        }
+    }
+
+    for (i = 0; i < command_list_count; i++)
+    {
+        struct d3d12_command_list *list = d3d12_command_list_from_iface(command_lists[i]);
+
+        if (first_active_index == i)
+            continue;
+
+        for (range_index = 0; range_index < list->query_ranges.count; range_index++)
+        {
+            /* Try to find any conflict. */
+            const struct vkd3d_query_range *range = &list->query_ranges.ranges[range_index];
+            size_t pos;
+
+            if (vkd3d_find_query(ranges.ranges, ranges.count, range->vk_pool, range->index, &pos))
+            {
+                ret = true;
+                goto out;
+            }
+
+            /* Check if the range overlaps. */
+            if (pos < ranges.count &&
+                    ranges.ranges[pos].vk_pool == range->vk_pool &&
+                    range->index + range->count > ranges.ranges[pos].index)
+            {
+                ret = true;
+                goto out;
+            }
+
+            vkd3d_insert_query_range(&pos,
+                    range->vk_pool, range->index, range->count, range->flags, &ranges);
+        }
+    }
+
+out:
+    vkd3d_free(ranges.ranges);
+    return ret;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
@@ -19949,7 +20026,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     /* ExecuteCommandLists submission barrier buffer */
     num_command_buffers = command_queue->vkd3d_queue->barrier_command_buffer ? 1 : 0;
 
-    hazard_query_resets = true;
+    hazard_query_resets = vkd3d_submission_has_query_reset_hazard(command_list_count, command_lists);
 
     for (i = 0; i < command_list_count; ++i)
     {
