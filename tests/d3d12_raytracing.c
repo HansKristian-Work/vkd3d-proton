@@ -1961,10 +1961,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
                     }
                 }
 
-                /* Unknown why this fails. */
-                bug_if(is_mesa_intel_device(context.context.device))
                 ok(x == expected_x, "Ray color [%u].x mismatch (%f != %f).\n", i, x, expected_x);
-                bug_if(is_mesa_intel_device(context.context.device))
                 ok(y == expected_y, "Ray color [%u].y mismatch (%f != %f).\n", i, y, expected_y);
             }
         }
