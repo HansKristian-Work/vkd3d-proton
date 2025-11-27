@@ -3053,10 +3053,6 @@ struct d3d12_command_list_render_pass_suspend_resume
     /* If true, we have performed an action command, so it's not possible to attempt a resume. */
     bool block_resume;
 
-    /* If true, we have complex fixup work happening during resume,
-     * which blocks any hope of fusing. */
-    bool complex_resume;
-
     /* If true, we had to perform complex fixup code in the epilogue,
      * which blocks any hope of fusing. */
     bool complex_suspend;
@@ -3075,6 +3071,8 @@ struct d3d12_command_list_sequence
     unsigned int active_non_inline_running_queries;
     bool uses_dgc_compute_in_async_compute;
     bool clear_uav_pending;
+    bool observes_indirect_argument_barrier;
+    bool has_post_indirect_barrier_work;
 
     /* Number of draws, dispatches, copies etc. Used to fuse barrier-only
      * command buffers for staggered submissions. */
