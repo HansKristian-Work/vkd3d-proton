@@ -15367,193 +15367,188 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
      * to the first argument. Should avoid hard crashes for now. */
     arg_buffer_offset += sig_impl->argument_buffer_offset_for_command;
 
-    for (i = 0; i < signature_desc->NumArgumentDescs; ++i)
+    if (list->predication.fallback_enabled)
     {
-        const D3D12_INDIRECT_ARGUMENT_DESC *arg_desc = &signature_desc->pArgumentDescs[i];
+        union vkd3d_predicate_command_direct_args args;
+        enum vkd3d_predicate_command_type type;
+        VkDeviceAddress indirect_va;
 
-        if (list->predication.fallback_enabled)
-        {
-            union vkd3d_predicate_command_direct_args args;
-            enum vkd3d_predicate_command_type type;
-            VkDeviceAddress indirect_va;
-
-            switch (arg_desc->Type)
-            {
-                case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
-                case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
-                    if (count_buffer)
-                    {
-                        type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT_COUNT;
-                        indirect_va = count_impl->res.va + count_buffer_offset;
-                    }
-                    else
-                    {
-                        args.draw_count = max_command_count;
-                        type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT;
-                        indirect_va = 0;
-                    }
-                    break;
-
-                case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
-                case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
-                    type = VKD3D_PREDICATE_COMMAND_DISPATCH_INDIRECT;
-                    indirect_va = arg_impl->res.va + arg_buffer_offset;
-                    break;
-
-                default:
-                    FIXME("Ignoring unhandled argument type %#x.\n", arg_desc->Type);
-                    continue;
-            }
-
-            if (!d3d12_command_list_emit_predicated_command(list, type, indirect_va, &args, &scratch))
-                return;
-        }
-        else if (count_buffer)
-        {
-            /* Unroll to N normal indirect dispatches, use count buffer to mask dispatches to (0, 0, 0).
-             * Can use this path for indirect trace rays as well since as needed. */
-            if (arg_desc->Type == D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH)
-            {
-                if (!d3d12_command_list_emit_multi_dispatch_indirect_count(list,
-                        arg_impl->res.va + arg_buffer_offset,
-                        unrolled_stride, max_command_count,
-                        count_impl->res.va + count_buffer_offset, &scratch))
-                    return;
-
-                unrolled_stride = sizeof(VkDispatchIndirectCommand);
-            }
-            else
-            {
-                scratch.buffer = count_impl->res.vk_buffer;
-                scratch.offset = count_impl->mem.offset + count_buffer_offset;
-                scratch.va = count_impl->res.va + count_buffer_offset;
-            }
-        }
-        else
-        {
-            scratch.buffer = arg_impl->res.vk_buffer;
-            scratch.offset = arg_impl->mem.offset + arg_buffer_offset;
-            scratch.va = arg_impl->res.va + arg_buffer_offset;
-        }
-
-        d3d12_command_list_end_transfer_batch(list);
-        switch (arg_desc->Type)
+        switch (last_arg_desc->Type)
         {
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
-                if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_GRAPHICS))
-                {
-                    WARN("Failed to begin render pass, ignoring draw.\n");
-                    break;
-                }
-
-                if (count_buffer || list->predication.fallback_enabled)
-                {
-                    VK_CALL(vkCmdDrawIndirectCount(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
-                            max_command_count, signature_desc->ByteStride));
-                }
-                else
-                {
-                    VK_CALL(vkCmdDrawIndirect(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
-                }
-                break;
-
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
-                if (!d3d12_command_list_update_index_buffer(list))
-                    break;
-
-                if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_GRAPHICS))
+                if (count_buffer)
                 {
-                    WARN("Failed to begin render pass, ignoring draw.\n");
-                    break;
-                }
-
-                d3d12_command_list_check_index_buffer_strip_cut_value(list);
-
-                if (count_buffer || list->predication.fallback_enabled)
-                {
-                    VK_CALL(vkCmdDrawIndexedIndirectCount(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
-                            max_command_count, signature_desc->ByteStride));
+                    type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT_COUNT;
+                    indirect_va = count_impl->res.va + count_buffer_offset;
                 }
                 else
                 {
-                    VK_CALL(vkCmdDrawIndexedIndirect(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
-                }
-                break;
-
-            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
-                if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_MESH_GRAPHICS))
-                {
-                    WARN("Failed to begin render pass, ignoring draw.\n");
-                    break;
-                }
-
-                if (count_buffer || list->predication.fallback_enabled)
-                {
-                    VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
-                            max_command_count, signature_desc->ByteStride));
-                }
-                else
-                {
-                    /* Not very useful to do MDI without state change with mesh shaders, but ...
-                     * Has to work. */
-                    VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->cmd.vk_command_buffer,
-                            scratch.buffer, scratch.offset,
-                            max_command_count, signature_desc->ByteStride));
+                    args.draw_count = max_command_count;
+                    type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT;
+                    indirect_va = 0;
                 }
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
-                if (!d3d12_command_list_update_compute_state(list))
-                {
-                    WARN("Failed to update compute state, ignoring dispatch.\n");
-                    break;
-                }
-
-                /* Without state changes, we can always just unroll the dispatches.
-                 * Not the most useful feature ever, but it has to work. */
-                for (i = 0; i < max_command_count; i++)
-                {
-                    VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset));
-                    VKD3D_BREADCRUMB_AUX32(i);
-                    VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_UNROLL_COMPUTE);
-                    scratch.offset += unrolled_stride;
-                }
-                break;
-
-            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
-                if (max_command_count != 1)
-                    FIXME("Ignoring command count %u.\n", max_command_count);
-
-                if (count_buffer)
-                {
-                    FIXME_ONCE("Count buffers not supported for indirect ray dispatch.\n");
-                    break;
-                }
-
-                if (!d3d12_command_list_update_raygen_state(list))
-                {
-                    WARN("Failed to update raygen state, ignoring ray dispatch.\n");
-                    break;
-                }
-
-                if (!list->device->device_info.ray_tracing_maintenance1_features.rayTracingPipelineTraceRaysIndirect2)
-                {
-                    WARN("TraceRaysIndirect2 is not supported, ignoring ray dispatch.\n");
-                    break;
-                }
-
-                VK_CALL(vkCmdTraceRaysIndirect2KHR(list->cmd.vk_command_buffer, scratch.va));
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+                type = VKD3D_PREDICATE_COMMAND_DISPATCH_INDIRECT;
+                indirect_va = arg_impl->res.va + arg_buffer_offset;
                 break;
 
             default:
-                FIXME("Ignoring unhandled argument type %#x.\n", arg_desc->Type);
-                break;
+                FIXME("Ignoring unhandled argument type %#x.\n", last_arg_desc->Type);
+                return;
         }
+
+        if (!d3d12_command_list_emit_predicated_command(list, type, indirect_va, &args, &scratch))
+            return;
+    }
+    else if (count_buffer)
+    {
+        /* Unroll to N normal indirect dispatches, use count buffer to mask dispatches to (0, 0, 0).
+         * Can use this path for indirect trace rays as well since as needed. */
+        if (last_arg_desc->Type == D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH)
+        {
+            if (!d3d12_command_list_emit_multi_dispatch_indirect_count(list,
+                    arg_impl->res.va + arg_buffer_offset,
+                    unrolled_stride, max_command_count,
+                    count_impl->res.va + count_buffer_offset, &scratch))
+                return;
+
+            unrolled_stride = sizeof(VkDispatchIndirectCommand);
+        }
+        else
+        {
+            scratch.buffer = count_impl->res.vk_buffer;
+            scratch.offset = count_impl->mem.offset + count_buffer_offset;
+            scratch.va = count_impl->res.va + count_buffer_offset;
+        }
+    }
+    else
+    {
+        scratch.buffer = arg_impl->res.vk_buffer;
+        scratch.offset = arg_impl->mem.offset + arg_buffer_offset;
+        scratch.va = arg_impl->res.va + arg_buffer_offset;
+    }
+
+    d3d12_command_list_end_transfer_batch(list);
+    switch (last_arg_desc->Type)
+    {
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+            if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_GRAPHICS))
+            {
+                WARN("Failed to begin render pass, ignoring draw.\n");
+                break;
+            }
+
+            if (count_buffer || list->predication.fallback_enabled)
+            {
+                VK_CALL(vkCmdDrawIndirectCount(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
+                        arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
+                        max_command_count, signature_desc->ByteStride));
+            }
+            else
+            {
+                VK_CALL(vkCmdDrawIndirect(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
+                        arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
+            }
+            break;
+
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+            if (!d3d12_command_list_update_index_buffer(list))
+                break;
+
+            if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_GRAPHICS))
+            {
+                WARN("Failed to begin render pass, ignoring draw.\n");
+                break;
+            }
+
+            d3d12_command_list_check_index_buffer_strip_cut_value(list);
+
+            if (count_buffer || list->predication.fallback_enabled)
+            {
+                VK_CALL(vkCmdDrawIndexedIndirectCount(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
+                        arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
+                        max_command_count, signature_desc->ByteStride));
+            }
+            else
+            {
+                VK_CALL(vkCmdDrawIndexedIndirect(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
+                        arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
+            }
+            break;
+
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+            if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_MESH_GRAPHICS))
+            {
+                WARN("Failed to begin render pass, ignoring draw.\n");
+                break;
+            }
+
+            if (count_buffer || list->predication.fallback_enabled)
+            {
+                VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
+                        arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
+                        max_command_count, signature_desc->ByteStride));
+            }
+            else
+            {
+                /* Not very useful to do MDI without state change with mesh shaders, but ...
+                 * Has to work. */
+                VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->cmd.vk_command_buffer,
+                        scratch.buffer, scratch.offset,
+                        max_command_count, signature_desc->ByteStride));
+            }
+            break;
+
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+            if (!d3d12_command_list_update_compute_state(list))
+            {
+                WARN("Failed to update compute state, ignoring dispatch.\n");
+                break;
+            }
+
+            /* Without state changes, we can always just unroll the dispatches.
+             * Not the most useful feature ever, but it has to work. */
+            for (i = 0; i < max_command_count; i++)
+            {
+                VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset));
+                VKD3D_BREADCRUMB_AUX32(i);
+                VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_UNROLL_COMPUTE);
+                scratch.offset += unrolled_stride;
+            }
+            break;
+
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+            if (max_command_count != 1)
+                FIXME("Ignoring command count %u.\n", max_command_count);
+
+            if (count_buffer)
+            {
+                FIXME_ONCE("Count buffers not supported for indirect ray dispatch.\n");
+                break;
+            }
+
+            if (!d3d12_command_list_update_raygen_state(list))
+            {
+                WARN("Failed to update raygen state, ignoring ray dispatch.\n");
+                break;
+            }
+
+            if (!list->device->device_info.ray_tracing_maintenance1_features.rayTracingPipelineTraceRaysIndirect2)
+            {
+                WARN("TraceRaysIndirect2 is not supported, ignoring ray dispatch.\n");
+                break;
+            }
+
+            VK_CALL(vkCmdTraceRaysIndirect2KHR(list->cmd.vk_command_buffer, scratch.va));
+            break;
+
+        default:
+            FIXME("Ignoring unhandled argument type %#x.\n", last_arg_desc->Type);
+            break;
     }
 
     VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT);
