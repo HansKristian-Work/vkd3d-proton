@@ -2796,9 +2796,11 @@ struct vkd3d_query_range
 
 enum vkd3d_rendering_flags
 {
-    VKD3D_RENDERING_ACTIVE    = (1u << 0),
+    VKD3D_RENDERING_ACTIVE = (1u << 0),
     VKD3D_RENDERING_SUSPENDED = (1u << 1),
-    VKD3D_RENDERING_CURRENT   = (1u << 2),
+    VKD3D_RENDERING_CURRENT = (1u << 2),
+    VKD3D_RENDERING_END_OF_COMMAND_LIST = (1u << 3),
+    VKD3D_RENDERING_NEW_INSTANCE_ON_END_RENDERING = (1u << 4),
 };
 
 struct vkd3d_rendering_info
@@ -3003,7 +3005,7 @@ struct d3d12_command_list_iteration_indirect_meta
 struct d3d12_command_list_iteration
 {
     VkCommandBuffer vk_command_buffer;
-    VkCommandBuffer vk_init_commands;
+    VkCommandBuffer vk_post_indirect_barrier_commands;
     uint32_t estimated_cost;
     struct d3d12_command_list_iteration_indirect_meta indirect_meta;
 };
@@ -3014,6 +3016,26 @@ struct d3d12_command_list_iteration
 #define VKD3D_COMMAND_COST_HIGH             (16u)
 
 #define VKD3D_COMMAND_COST_MERGE_THRESHOLD  (VKD3D_COMMAND_COST_HIGH)
+
+struct d3d12_command_list_render_pass_suspend_resume_compat
+{
+    VkCommandBuffer vk_fixup_cmd_buffer;
+    /* 8 RTs + depth + stencil + VRS. Depth and stencil are bound separately in dynamic rendering,
+     * so do it like this for completeness' sake. */
+    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
+    VkImageLayout layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
+    uint32_t color_attachment_count;
+    uint32_t view_mask;
+    /* TODO: When we introduce clear ops, we may need to validate loadOp compatibility too. */
+};
+
+struct d3d12_command_list_render_pass_suspend_resume
+{
+    struct d3d12_command_list_render_pass_suspend_resume_compat resume, suspend;
+
+    /* If true, we have performed an action command, so it's not possible to attempt a resume. */
+    bool block_resume;
+};
 
 struct d3d12_command_list_sequence
 {
@@ -3028,6 +3050,8 @@ struct d3d12_command_list_sequence
     unsigned int active_non_inline_running_queries;
     bool uses_dgc_compute_in_async_compute;
     bool clear_uav_pending;
+    bool observes_indirect_argument_barrier;
+    bool has_post_indirect_barrier_work;
 
     /* Number of draws, dispatches, copies etc. Used to fuse barrier-only
      * command buffers for staggered submissions. */
@@ -3035,12 +3059,20 @@ struct d3d12_command_list_sequence
 
     /* Emit normal commands here. */
     VkCommandBuffer vk_command_buffer;
-    /* For various commands which should be thrown to the start of ID3D12CommandList. */
-    VkCommandBuffer vk_init_commands;
+    /* For query commands which should be thrown to the start of ID3D12CommandList.
+     * These commands can be hoisted to start of ExecuteCommandList if there are no hazards. */
+    VkCommandBuffer vk_query_reset_commands;
     /* For any command which is sensitive to INDIRECT_ARGUMENT barriers.
      * If equal to vk_command_buffer, it means it is not possible to split command buffers, and
      * we must use vk_command_buffer with appropriate barriers. */
-    VkCommandBuffer vk_init_commands_post_indirect_barrier;
+    VkCommandBuffer vk_post_indirect_barrier_commands;
+    /* For query resolves commands and other "fixups" which should be thrown to the end of ID3D12CommandList.
+     * These commands can be sunk to end of ExecuteCommandList if there are no hazards (but it's very hard to prove that).
+     * For suspend resume, this can be sunk to after the first iteration of the final resuming pass.
+     * A split point is conveniently set-up just for this purpose. */
+    VkCommandBuffer vk_cleanup_commands;
+
+    struct d3d12_command_list_render_pass_suspend_resume suspend_resume;
 
     struct d3d12_command_list_iteration_indirect_meta *indirect_meta;
 };
@@ -3101,6 +3133,7 @@ struct d3d12_command_list
         VkDeviceSize vk_buffer_offset;
         bool enabled_on_command_buffer;
         bool fallback_enabled;
+        bool current_enabled;
     } predication;
 
     /* This is VK_NULL_HANDLE when we are no longer sure which pipeline to bind,
@@ -5405,6 +5438,7 @@ struct d3d12_device
         bool amdgpu_broken_clearvram;
         bool amdgpu_broken_null_tile_mapping;
         bool tiler_renderpass_barriers;
+        bool tiler_suspend_resume;
     } workarounds;
 
 #ifdef _WIN64

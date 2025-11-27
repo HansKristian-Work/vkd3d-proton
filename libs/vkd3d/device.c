@@ -3486,6 +3486,8 @@ static void d3d12_device_cleanup_vendor_hacks(struct d3d12_device *device)
 #endif
 }
 
+VKD3D_DEBUG_CONTROL_BEHAVIOR_FLAGS vkd3d_debug_control_get_behavior_flags(void);
+
 static void d3d12_device_init_workarounds(struct d3d12_device *device)
 {
     uint32_t major, minor, patch;
@@ -3505,6 +3507,9 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
         case VK_DRIVER_ID_IMAGINATION_OPEN_SOURCE_MESA:
         case VK_DRIVER_ID_MESA_HONEYKRISP:
             device->workarounds.tiler_renderpass_barriers = true;
+            /* If the GPU can take advantage of tiling, we should aim for suspend resume properly.
+             * Treat this as a performance workaround (it kinda is, since it'll slow down CPU recording speed as a result). */
+            device->workarounds.tiler_suspend_resume = true;
             break;
         /* layered implementations are handled transparently */
         case VK_DRIVER_ID_MOLTENVK:
@@ -3515,6 +3520,16 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
         default:
             break;
     }
+
+    /* For testing purposes, allow us to exercise all code paths on all GPUs. */
+    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_TILER_SYNC)
+        device->workarounds.tiler_renderpass_barriers = true;
+    else if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_DISABLE_TILER_SYNC)
+        device->workarounds.tiler_renderpass_barriers = false;
+    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_SUSPEND_RESUME)
+        device->workarounds.tiler_suspend_resume = true;
+    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_DISABLE_SUSPEND_RESUME)
+        device->workarounds.tiler_suspend_resume = false;
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS)
         return;
