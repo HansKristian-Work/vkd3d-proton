@@ -2591,6 +2591,8 @@ static void test_render_pass_suspend_resume_opts(void)
         bool timestamp;
         bool occlusion_query;
         uint32_t query_index;
+        bool predication;
+        bool predication_barrier;
     };
 
     static const struct test
@@ -2699,6 +2701,39 @@ static void test_render_pass_suspend_resume_opts(void)
             {
                 { false, false, 0x1, false, false, 1, false, true },
                 { false, false, 0x1, false, false, 1, false, true },
+            }
+        },
+        {
+            "Conditional rendering (hoistable)",
+            2,
+            {
+                { false, false, 0x1, false, false, 1, false, false, 0, true, false },
+                { false, false, 0x1, false, false, 1, false, false, 0, true, false },
+            }
+        },
+        {
+            "Conditional rendering (not hoistable #1)",
+            2,
+            {
+                { false, false, 0x1, false, false, 1, false, false, 0, true, false },
+                { false, false, 0x1, false, false, 1, false, false, 0, true, true },
+            }
+        },
+        {
+            "Conditional rendering (not hoistable #2)",
+            2,
+            {
+                { false, false, 0x1, false, false, 1, false, false, 0, true, true },
+                { false, false, 0x1, false, false, 1, false, false, 0, true, false },
+            }
+        },
+        {
+            "Conditional rendering (partially hoistable)",
+            3,
+            {
+                { false, false, 0x1, false, false, 1, false, false, 0, true, true },
+                { false, false, 0x1, false, false, 1, false, false, 0, true, false },
+                { false, false, 0x1, false, false, 1, false, false, 0, true, false },
             }
         },
     };
@@ -2875,6 +2910,11 @@ static void test_render_pass_suspend_resume_opts(void)
                 set_rect(&sci, 0, 0, 16, 16);
                 ID3D12GraphicsCommandList_RSSetViewports(cmd, 1, &vp);
                 ID3D12GraphicsCommandList_RSSetScissorRects(cmd, 1, &sci);
+
+                if (iteration->predication_barrier)
+                    transition_resource_state(cmd, src, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+                if (iteration->predication)
+                    ID3D12GraphicsCommandList_SetPredication(cmd, src, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
 
                 if (iteration->occlusion_query)
                     ID3D12GraphicsCommandList_BeginQuery(cmd, occlusion, D3D12_QUERY_TYPE_OCCLUSION, iteration->query_index);
