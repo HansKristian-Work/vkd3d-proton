@@ -15310,6 +15310,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const D3D12_COMMAND_SIGNATURE_DESC *signature_desc = &sig_impl->desc;
+    const D3D12_INDIRECT_ARGUMENT_DESC *last_arg_desc;
     struct vkd3d_scratch_allocation scratch;
     uint32_t unrolled_stride;
     unsigned int i;
@@ -15327,6 +15328,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         FIXME("Count buffers not supported by Vulkan implementation.\n");
         return;
     }
+
+    last_arg_desc = &signature_desc->pArgumentDescs[signature_desc->NumArgumentDescs - 1];
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH * max_command_count;
 
@@ -15554,6 +15557,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     }
 
     VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT);
+
+    /* Need to ensure we mark action commands late so we can hit resume-path for render pass. */
+    d3d12_command_list_check_render_pass_validation(list,
+            last_arg_desc->Type == D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH ||
+            last_arg_desc->Type == D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS ?
+            "Non-drawing ExecuteIndirect called inside render pass\n" : NULL, true);
 
     if (list->state && list->state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         d3d12_command_list_check_compute_barrier(list);
