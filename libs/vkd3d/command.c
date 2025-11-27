@@ -2376,12 +2376,8 @@ static HRESULT d3d12_command_allocator_allocate_init_post_indirect_command_buffe
     if (list->cmd.vk_post_indirect_barrier_commands)
         return S_OK;
 
-    if (list->cmd.iteration_count == 1)
-    {
-        /* If we need batched init commands, there is no way we can get proper resume. */
-        list->cmd.suspend_resume.complex_resume = true;
-        list->cmd.suspend_resume.block_resume = true;
-    }
+    /* If we need batched init commands, it's possible we can get away with a resume
+     * as long as there are no indirect barriers. */
 
     assert(list->cmd.iteration_count != 0);
     iteration = &list->cmd.iterations[list->cmd.iteration_count - 1];
@@ -2415,6 +2411,7 @@ static HRESULT d3d12_command_allocator_allocate_init_post_indirect_command_buffe
     }
 
     list->cmd.vk_post_indirect_barrier_commands = iteration->vk_post_indirect_barrier_commands;
+    list->cmd.has_post_indirect_barrier_work = true;
 
     return S_OK;
 }
@@ -7917,7 +7914,8 @@ static void d3d12_command_list_check_render_pass_barrier(struct d3d12_command_li
 }
 
 static bool d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-        struct d3d12_command_list *first, struct d3d12_command_list *second, bool hazard_queries)
+        struct d3d12_command_list *first, struct d3d12_command_list *second,
+        bool hazard_queries, bool hoistable_post_indirect)
 {
     const struct d3d12_command_list_render_pass_suspend_resume_compat *suspend;
     const struct d3d12_command_list_render_pass_suspend_resume_compat *resume;
@@ -7935,7 +7933,9 @@ static bool d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
     if (hazard_queries && second->cmd.vk_query_reset_commands)
         return false;
 
-    if (first->cmd.suspend_resume.complex_suspend || second->cmd.suspend_resume.complex_resume)
+    /* Post-indirect work comes before the command buffer.
+     * If we cannot hoist the post-indirect work in second before first, we have to split. */
+    if (first->cmd.suspend_resume.complex_suspend || (second->cmd.has_post_indirect_barrier_work && !hoistable_post_indirect))
         return false;
 
     if (!suspend->vk_fixup_cmd_buffer || !resume->vk_fixup_cmd_buffer)
@@ -12091,6 +12091,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     d3d12_command_list_debug_mark_label(list, "Indirect Argument barrier", 1.0f, 1.0f, 0.0f, 1.0f);
                     /* Any indirect patching commands now have to go to normal command buffer, unless we split the sequence. */
                     list->cmd.vk_post_indirect_barrier_commands = list->cmd.vk_command_buffer;
+                    list->cmd.observes_indirect_argument_barrier = true;
                 }
 
                 if (!is_valid_resource_state(transition->StateBefore))
@@ -19000,6 +19001,7 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
         d3d12_command_list_debug_mark_label(list, "Indirect Argument barrier", 1.0f, 1.0f, 0.0f, 1.0f);
         /* Any indirect patching commands now have to go to normal command buffer, unless we split the sequence. */
         list->cmd.vk_post_indirect_barrier_commands = list->cmd.vk_command_buffer;
+        list->cmd.observes_indirect_argument_barrier = true;
     }
 
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE))
@@ -20093,6 +20095,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     struct d3d12_command_allocator **allocators;
     struct d3d12_resource **retained_resources;
     struct d3d12_command_queue_submission sub;
+    unsigned int indirect_barrier_hoist_index;
     struct d3d12_command_list *cmd_list;
     size_t num_retained_resources = 0;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -20124,6 +20127,19 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     num_command_buffers = command_queue->vkd3d_queue->barrier_command_buffer ? 1 : 0;
 
     hazard_query_resets = vkd3d_submission_has_query_reset_hazard(command_list_count, command_lists);
+    indirect_barrier_hoist_index = 0;
+
+    for (i = command_list_count; i != 0; --i)
+    {
+        cmd_list = d3d12_command_list_from_iface(command_lists[i - 1]);
+        if (cmd_list && cmd_list->cmd.observes_indirect_argument_barrier)
+        {
+            /* We can hoist any post-indirect command buffer before the next command list.
+             * The hope here is that any indirect setup work happens early in the submit (or ideally never). */
+            indirect_barrier_hoist_index = i;
+            break;
+        }
+    }
 
     for (i = 0; i < command_list_count; ++i)
     {
@@ -20144,7 +20160,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         if (cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer && (i == 0 ||
                 !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-                        d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list, hazard_query_resets)))
+                        d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list, hazard_query_resets,
+                        i - 1 >= indirect_barrier_hoist_index)))
             num_command_buffers++;
 
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
@@ -20157,7 +20174,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         if (cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
                 !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]), hazard_query_resets)))
+                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]), hazard_query_resets,
+                        i >= indirect_barrier_hoist_index)))
             num_command_buffers++;
 
         num_retained_resources += cmd_list->retained_resources_count;
@@ -20231,6 +20249,31 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     for (i = 0; i < command_list_count; ++i)
     {
+        if (i == indirect_barrier_hoist_index)
+        {
+            /* We can reorder all post-indirect work here. */
+            unsigned int sub_i;
+
+            for (sub_i = i; sub_i < command_list_count; sub_i++)
+            {
+                cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[sub_i]);
+                if (!cmd_list)
+                    continue;
+
+                for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
+                {
+                    if (cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands)
+                    {
+                        cmd_cost[cmd_submit_count] = cmd_list->cmd.iterations[iter].indirect_meta.need_preprocess_barrier
+                                ? VKD3D_COMMAND_COST_LOW : 0u;
+                        buffer = &buffers[cmd_submit_count++];
+                        buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                        buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands;
+                    }
+                }
+            }
+        }
+
         cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
 
         if (cmd_list->is_recording || !cmd_list->submit_allocator)
@@ -20273,7 +20316,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
-            if (cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands)
+            /* Emit non-hoistable post-indirect work here. */
+            if (i < indirect_barrier_hoist_index && cmd_list->cmd.iterations[iter].vk_post_indirect_barrier_commands)
             {
                 /* Assume high cost for DGC preprocessing, everything else is cheap enough to be ignored. */
                 cmd_cost[cmd_submit_count] = cmd_list->cmd.iterations[iter].indirect_meta.need_preprocess_barrier
@@ -20290,7 +20334,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
              * init fixup -> resume -> render pass instead. */
             if (iter == 0 && cmd_list->cmd.suspend_resume.resume.vk_fixup_cmd_buffer && (i == 0 ||
                     !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-                            d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list, hazard_query_resets)))
+                            d3d12_command_list_from_iface(command_lists[i - 1]), cmd_list, hazard_query_resets,
+                            i - 1 >= indirect_barrier_hoist_index)))
             {
                 cmd_cost[cmd_submit_count] = 0;
                 buffer = &buffers[cmd_submit_count++];
@@ -20308,7 +20353,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         /* Suspending fixup if we cannot fuse with next pass. */
         if (cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
                 !d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
-                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]), hazard_query_resets)))
+                        cmd_list, d3d12_command_list_from_iface(command_lists[i + 1]), hazard_query_resets,
+                        i >= indirect_barrier_hoist_index)))
         {
             cmd_cost[cmd_submit_count] = 0;
             buffer = &buffers[cmd_submit_count++];
