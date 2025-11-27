@@ -3058,6 +3058,12 @@ struct vkd3d_deferred_clear
     VkClearValue clear_value;
 };
 
+struct vkd3d_deferred_discard
+{
+    struct d3d12_resource *resource;
+    VkImageSubresourceRange subresources;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -3091,6 +3097,8 @@ struct d3d12_command_list
 
     struct vkd3d_deferred_clear deferred_clears[VKD3D_MAX_DEFERRED_CLEAR_COUNT];
     unsigned int deferred_clear_count;
+    struct vkd3d_deferred_discard deferred_discards[VKD3D_MAX_DEFERRED_CLEAR_COUNT];
+    unsigned int deferred_discard_count;
 
     struct d3d12_rtv_resolve *rtv_resolves;
     size_t rtv_resolve_size;

@@ -4140,7 +4140,7 @@ static VkPipelineStageFlags2 vk_queue_shader_stages(struct d3d12_device *device,
     return queue_shader_stages;
 }
 
-static void d3d12_command_list_flush_clears(struct d3d12_command_list *list,
+static void d3d12_command_list_discard_attachment(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const VkImageSubresourceRange *subresources);
 
 static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_list *list,
@@ -4157,7 +4157,7 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
             (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
     {
-        d3d12_command_list_flush_clears(list, resource, subresources);
+        d3d12_command_list_discard_attachment(list, resource, subresources);
 
         stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
@@ -4166,7 +4166,7 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     else if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
             (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
-        d3d12_command_list_flush_clears(list, resource, subresources);
+        d3d12_command_list_discard_attachment(list, resource, subresources);
 
         stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
         access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
@@ -5011,9 +5011,35 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
         VkRenderingAttachmentInfo *attachment, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlagBits aspect)
 {
+    struct vkd3d_deferred_discard *discard;
+    VkImageSubresourceRange subresources;
     struct vkd3d_deferred_clear *clear;
     VkExtent3D extent;
     unsigned int i;
+
+    subresources = vk_subresource_range_from_view(view);
+
+    if (aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+        subresources.aspectMask &= aspect;
+
+    for (i = 0u; i < list->deferred_discard_count; i++)
+    {
+        discard = &list->deferred_discards[i];
+
+        /* We can only discard if the discard covers *all* view subresources */
+        if (discard->resource == resource && (discard->subresources.aspectMask & aspect) &&
+                discard->subresources.baseMipLevel <= subresources.baseMipLevel &&
+                discard->subresources.baseMipLevel + discard->subresources.levelCount >= subresources.baseMipLevel + subresources.levelCount &&
+                discard->subresources.baseArrayLayer <= subresources.baseArrayLayer &&
+                discard->subresources.baseArrayLayer + discard->subresources.layerCount >= subresources.baseArrayLayer + subresources.layerCount)
+        {
+
+            attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+
+            *discard = list->deferred_discards[--list->deferred_discard_count];
+            break;
+        }
+    }
 
     for (i = 0u; i < list->deferred_clear_count; i++)
     {
@@ -5081,6 +5107,27 @@ static bool d3d12_command_list_resource_overlaps_attachment(struct d3d12_command
     return false;
 }
 
+static void d3d12_command_list_flush_discards(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const VkImageSubresourceRange *subresources)
+{
+    unsigned int src, dst;
+
+    for (src = 0, dst = 0; src < list->deferred_discard_count; src++)
+    {
+        const struct vkd3d_deferred_discard *discard = &list->deferred_discards[src];
+
+        if (!vkd3d_check_subresource_overlap(resource, subresources, discard->resource, &discard->subresources))
+        {
+            if (dst < src)
+                list->deferred_discards[dst] = list->deferred_discards[src];
+
+            dst++;
+        }
+    }
+
+    list->deferred_discard_count = dst;
+}
+
 static void d3d12_command_list_flush_clears(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const VkImageSubresourceRange *subresources)
 {
@@ -5107,6 +5154,8 @@ static void d3d12_command_list_flush_clears(struct d3d12_command_list *list,
     }
 
     list->deferred_clear_count = dst;
+
+    d3d12_command_list_flush_discards(list, resource, subresources);
 }
 
 static void d3d12_command_list_flush_clears_for_rendering(struct d3d12_command_list *list)
@@ -5133,6 +5182,38 @@ static void d3d12_command_list_flush_clears_for_rendering(struct d3d12_command_l
     }
 
     list->deferred_clear_count = dst;
+
+    for (src = 0, dst = 0; src < list->deferred_discard_count; src++)
+    {
+        const struct vkd3d_deferred_discard *discard = &list->deferred_discards[src];
+
+        if (!d3d12_command_list_resource_overlaps_attachment(list, discard->resource, &discard->subresources))
+        {
+            if (dst < src)
+                list->deferred_discards[src] = list->deferred_discards[dst];
+
+            dst++;
+        }
+    }
+
+    list->deferred_discard_count = dst;
+}
+
+static void d3d12_command_list_discard_attachment(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const VkImageSubresourceRange *subresources)
+{
+    struct vkd3d_deferred_discard *discard;
+
+    /* We could technically remove clears that are discarded, but this shouldn't
+     * happen anyway and some games rely on discard not modifying image contents */
+    d3d12_command_list_flush_clears(list, resource, subresources);
+
+    if (list->deferred_discard_count == ARRAY_SIZE(list->deferred_discards))
+        return;
+
+    discard = &list->deferred_discards[list->deferred_discard_count++];
+    discard->resource = resource;
+    discard->subresources = *subresources;
 }
 
 void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend)
@@ -6154,6 +6235,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->pending_queries_count = 0;
     list->dsv_resource_tracking_count = 0;
     list->deferred_clear_count = 0;
+    list->deferred_discard_count = 0;
     list->subresource_tracking_count = 0;
     list->transfer_batch.tracked_copy_buffer_count = 0;
     list->wbi_batch.batch_len = 0;
@@ -12719,6 +12801,8 @@ static void d3d12_command_list_defer_attachment_clear(struct d3d12_command_list 
     unsigned int i;
 
     subresources = vk_subresource_range_from_view(view);
+
+    d3d12_command_list_flush_discards(list, resource, &subresources);
 
     for (i = 0; i < list->deferred_clear_count; i++)
     {
