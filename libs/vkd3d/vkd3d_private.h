@@ -3172,6 +3172,7 @@ struct d3d12_command_list
         VkDeviceSize vk_buffer_offset;
         bool enabled_on_command_buffer;
         bool fallback_enabled;
+        bool current_enabled;
     } predication;
 
     /* This is VK_NULL_HANDLE when we are no longer sure which pipeline to bind,
