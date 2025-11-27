@@ -2073,6 +2073,37 @@ static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
     list->is_valid = false;
 }
 
+static void d3d12_command_list_update_conditional_rendering_state(struct d3d12_command_list *list, bool end)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkConditionalRenderingBeginInfoEXT begin_info;
+
+    if (!list->predication.enabled_on_command_buffer)
+        return;
+
+    if (end)
+    {
+        if (list->predication.current_enabled)
+        {
+            VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
+            list->predication.current_enabled = false;
+            list->cmd.suspend_resume.block_resume = true;
+        }
+    }
+    else if (!list->predication.current_enabled)
+    {
+        begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
+        begin_info.pNext = NULL;
+        begin_info.buffer = list->predication.vk_buffer;
+        begin_info.offset = list->predication.vk_buffer_offset;
+        begin_info.flags = 0;
+
+        VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_command_buffer, &begin_info));
+        list->predication.current_enabled = true;
+        list->cmd.suspend_resume.block_resume = true;
+    }
+}
+
 static void d3d12_command_list_check_render_pass_validation(
         struct d3d12_command_list *list, const char *user_driven_tag, bool action_command)
 {
@@ -2080,7 +2111,14 @@ static void d3d12_command_list_check_render_pass_validation(
         d3d12_command_list_mark_as_invalid(list, user_driven_tag);
 
     if (action_command)
-        list->cmd.suspend_resume.block_resume = true;
+    {
+        if (!list->cmd.suspend_resume.block_resume)
+        {
+            /* We deferred setting state until we could confirm or reject resume. */
+            d3d12_command_list_update_conditional_rendering_state(list, false);
+            list->cmd.suspend_resume.block_resume = true;
+        }
+    }
 }
 
 bool vkd3d_debug_control_is_test_suite(void);
@@ -2178,7 +2216,6 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
 static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkConditionalRenderingBeginInfoEXT conditional_begin_info;
     VkCommandBufferAllocateInfo command_buffer_info;
     struct d3d12_command_list_iteration *iteration;
     VkCommandBufferBeginInfo begin_info;
@@ -2230,8 +2267,7 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     if (!(list->rendering_info.state_flags & VKD3D_RENDERING_NEW_INSTANCE_ON_END_RENDERING))
         d3d12_command_list_end_current_render_pass(list, true);
 
-    if (list->predication.enabled_on_command_buffer)
-        VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
+    d3d12_command_list_update_conditional_rendering_state(list, true);
 
     if ((vr = VK_CALL(vkEndCommandBuffer(list->cmd.vk_command_buffer)) < 0))
         ERR("Failed to end command buffer, vr %d.\n", vr);
@@ -2241,16 +2277,7 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     list->cmd.indirect_meta = &list->cmd.iterations[list->cmd.iteration_count].indirect_meta;
     list->cmd.iteration_count++;
 
-    if (list->predication.enabled_on_command_buffer)
-    {
-        /* Rearm the conditional rendering. */
-        conditional_begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
-        conditional_begin_info.pNext = NULL;
-        conditional_begin_info.buffer = list->predication.vk_buffer;
-        conditional_begin_info.offset = list->predication.vk_buffer_offset;
-        conditional_begin_info.flags = 0;
-        VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_command_buffer, &conditional_begin_info));
-    }
+    d3d12_command_list_update_conditional_rendering_state(list, false);
 
     d3d12_command_list_invalidate_all_state(list);
     /* Extra special consideration since we're starting a fresh command buffer. */
@@ -5190,7 +5217,16 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
     }
 
     if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
+    {
+        /* Conditional rendering must either begin or end outside a render pass. */
+        d3d12_command_list_update_conditional_rendering_state(list, true);
+
         d3d12_command_list_end_rendering(list);
+
+        /* Don't break suspend-resume. */
+        if (!(list->rendering_info.state_flags & VKD3D_RENDERING_END_OF_COMMAND_LIST))
+            d3d12_command_list_update_conditional_rendering_state(list, false);
+    }
 
     /* Don't emit barriers for temporary suspension of the render pass */
     if (!suspend && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED)))
@@ -5889,6 +5925,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         return E_FAIL;
     }
 
+    d3d12_command_list_update_conditional_rendering_state(list, true);
+
 #ifdef VKD3D_ENABLE_PROFILING
     vkd3d_timestamp_profiler_end_command_buffer(list->device->timestamp_profiler, list);
 #endif
@@ -5902,12 +5940,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 
     list->rendering_info.state_flags |= VKD3D_RENDERING_END_OF_COMMAND_LIST;
     d3d12_command_list_decay_tracked_state(list);
-
-    if (list->predication.enabled_on_command_buffer)
-    {
-        VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
-        list->cmd.suspend_resume.complex_suspend = true;
-    }
 
     if (!d3d12_command_list_gather_pending_queries(list))
         d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
@@ -7670,7 +7702,11 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 
     if (!vkd3d_debug_control_is_test_suite())
         d3d12_command_list_debug_mark_begin_region(list, "RenderPass");
+
+    /* Conditional rendering must either begin or end outside a render pass. */
+    d3d12_command_list_update_conditional_rendering_state(list, true);
     d3d12_command_list_begin_rendering(list);
+    d3d12_command_list_update_conditional_rendering_state(list, false);
 
     list->rendering_info.state_flags |= VKD3D_RENDERING_ACTIVE;
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_SUSPENDED;
@@ -14467,7 +14503,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_predicate_ops *predicate_ops = &list->device->meta_ops.predicate;
     struct vkd3d_predicate_resolve_args resolve_args;
-    VkConditionalRenderingBeginInfoEXT begin_info;
     struct vkd3d_scratch_allocation scratch;
     VkCommandBuffer vk_patch_cmd_buffer;
     VkMemoryBarrier2 vk_barrier;
@@ -14476,13 +14511,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     TRACE("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x.\n",
             iface, buffer, aligned_buffer_offset, operation);
 
-    d3d12_command_list_end_current_render_pass(list, true);
-
     if (resource && (aligned_buffer_offset & 0x7))
         return;
 
-    if (list->predication.enabled_on_command_buffer)
-        VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
+    /* It's possible to set the same predication state twice, but the underlying memory could have changed
+     * in theory given appropriate barriers. */
+    d3d12_command_list_update_conditional_rendering_state(list, true);
 
     if (resource)
     {
@@ -14490,12 +14524,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
                 VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
                 sizeof(uint32_t), sizeof(uint32_t), ~0u, &scratch))
             return;
-
-        begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
-        begin_info.pNext = NULL;
-        begin_info.buffer = scratch.buffer;
-        begin_info.offset = scratch.offset;
-        begin_info.flags = 0;
 
         /* Even if it's not super relevant for performance yet, we need to hoist this to init buffer
          * since an ExecuteIndirect patch shader will need to read the predicate VA potentially. */
@@ -14508,6 +14536,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
 
         if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
         {
+            /* If we cannot hoist the predication work. */
+            d3d12_command_list_end_current_render_pass(list, true);
             d3d12_command_list_invalidate_current_pipeline(list, true);
             d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true,
                     &list->graphics_bindings);
@@ -14565,8 +14595,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         /* We could try to defer this barrier, but SetPredication is rare enough that we ignore that for now. */
         VK_CALL(vkCmdPipelineBarrier2(vk_patch_cmd_buffer, &dep_info));
 
-        if (list->predication.enabled_on_command_buffer)
-            VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_command_buffer, &begin_info));
+        /* Do not break suspend resume since begin/end conditional rendering is considered an action command. */
+        if (list->cmd.suspend_resume.block_resume)
+            d3d12_command_list_update_conditional_rendering_state(list, false);
     }
     else
     {
@@ -14787,6 +14818,9 @@ static void d3d12_command_list_execute_indirect_state_template_compute(
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
 
+    /* If this command breaks suspend, need to refresh it now. */
+    d3d12_command_list_update_conditional_rendering_state(list, false);
+
     if (count_buffer)
         count_va = count_buffer->res.va + count_buffer_offset;
 
@@ -14867,7 +14901,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     static const unsigned int max_direct_commands_for_split = 64;
-    VkConditionalRenderingBeginInfoEXT conditional_begin_info;
     struct vkd3d_scratch_allocation predication_allocation;
     struct vkd3d_scratch_allocation preprocess_allocation;
     struct vkd3d_scratch_allocation stream_allocation;
@@ -14875,6 +14908,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     struct vkd3d_scratch_allocation count_allocation;
     VkGeneratedCommandsPipelineInfoEXT pipeline_info;
     uint32_t minSequencesCountBufferOffsetAlignment;
+    bool old_predication_enabled_on_command_buffer;
     struct vkd3d_execute_indirect_args patch_args;
     struct vkd3d_pipeline_bindings *bindings;
     VkGeneratedCommandsInfoEXT generated_ext;
@@ -14899,15 +14933,31 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     require_custom_predication = false;
     restart_predication = false;
     explicit_preprocess = false;
+    old_predication_enabled_on_command_buffer = false;
 
     if (list->predication.va)
     {
-        /* Predication works on NV driver here, so we assume it's intended by spec.
-         * It does not work on RADV yet, so we'll fold predication in with our optimization work which
-         * generates a predicate anyway. */
+        bool fallback_predication = false;
+
         if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
                 !list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands &&
                 list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+        {
+            fallback_predication = true;
+        }
+        else if (!list->cmd.suspend_resume.block_resume && list->device->workarounds.tiler_suspend_resume)
+        {
+            /* We have not yet resumed. If we set the necessary state on this command buffer, we will break resume.
+             * Instead, use fallback path which avoids this problem.
+             * It's possible to avoid this problem by flushing state to the preprocess cmd buffer,
+             * but that's very awkward and adds way too much complexity. */
+            fallback_predication = true;
+        }
+
+        /* Predication works on NV driver here, so we assume it's intended by spec.
+         * It does not work on RADV yet, so we'll fold predication in with our optimization work which
+         * generates a predicate anyway. */
+        if (fallback_predication)
         {
             union vkd3d_predicate_command_direct_args args;
             enum vkd3d_predicate_command_type type;
@@ -14928,9 +14978,10 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
             if (restart_predication)
             {
-                /* Have to begin/end predication outside a render pass. */
-                d3d12_command_list_end_current_render_pass(list, true);
-                VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
+                d3d12_command_list_update_conditional_rendering_state(list, true);
+                /* Ensure that begin_render_pass doesn't re-arm conditional rendering until we're done. */
+                old_predication_enabled_on_command_buffer = list->predication.enabled_on_command_buffer;
+                list->predication.enabled_on_command_buffer = false;
             }
 
             d3d12_command_list_emit_predicated_command(list, type, count_va, &args, &predication_allocation);
@@ -15276,6 +15327,9 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         }
     }
 
+    /* If we risk breaking suspend-resume, this will be no-oped out. */
+    d3d12_command_list_update_conditional_rendering_state(list, false);
+
     if (explicit_preprocess)
     {
         d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
@@ -15287,6 +15341,8 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         }
         else
         {
+            VkConditionalRenderingBeginInfoEXT conditional_begin_info;
+
             /* With graphics NV_dgc, there are no requirements on bound state, except for pipeline. */
             /* NV_dgcc however requires that state in recording command buffer matches, but EXT_dgc provides a state cmd. */
             VK_CALL(vkCmdBindPipeline(list->cmd.vk_post_indirect_barrier_commands,
@@ -15302,7 +15358,8 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             /* Predication state also has to match. Also useful to nop out explicit preprocess too.
              * Assumption is that drivers will pull predication state from state command buffer on EXT,
              * since states have to match. */
-            if (list->predication.enabled_on_command_buffer)
+            if (list->predication.enabled_on_command_buffer &&
+                    list->cmd.vk_post_indirect_barrier_commands != list->cmd.vk_command_buffer)
             {
                 conditional_begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
                 conditional_begin_info.pNext = NULL;
@@ -15315,7 +15372,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
             VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_post_indirect_barrier_commands, &generated_nv));
 
-            if (list->predication.enabled_on_command_buffer)
+            if (list->cmd.vk_post_indirect_barrier_commands != list->cmd.vk_command_buffer)
                 VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_post_indirect_barrier_commands));
         }
 
@@ -15421,16 +15478,9 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     if (restart_predication)
     {
-        /* Have to begin/end predication outside a render pass. */
-        d3d12_command_list_end_current_render_pass(list, true);
-
         /* Rearm the conditional rendering. */
-        conditional_begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
-        conditional_begin_info.pNext = NULL;
-        conditional_begin_info.buffer = list->predication.vk_buffer;
-        conditional_begin_info.offset = list->predication.vk_buffer_offset;
-        conditional_begin_info.flags = 0;
-        VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_command_buffer, &conditional_begin_info));
+        list->predication.enabled_on_command_buffer = old_predication_enabled_on_command_buffer;
+        d3d12_command_list_update_conditional_rendering_state(list, false);
     }
 }
 
@@ -15638,6 +15688,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
             break;
 
         case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+            /* If we're breaking suspend resume here, need to latch conditional rendering state now.
+             * Otherwise, it will be refreshed in begin_render_pass. */
+            d3d12_command_list_update_conditional_rendering_state(list, false);
             if (!d3d12_command_list_update_compute_state(list))
             {
                 WARN("Failed to update compute state, ignoring dispatch.\n");
@@ -15656,6 +15709,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
             break;
 
         case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+            /* If we're breaking suspend resume here, need to latch conditional rendering state now. */
+            d3d12_command_list_update_conditional_rendering_state(list, false);
             if (max_command_count != 1)
                 FIXME("Ignoring command count %u.\n", max_command_count);
 
