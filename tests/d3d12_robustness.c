@@ -176,6 +176,7 @@ void test_buffers_oob_behavior_vectorized_byte_address(void)
     D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
     D3D12_FEATURE_DATA_D3D12_OPTIONS4 options4;
+    ID3D12PipelineState *read_pso_32bit_smem;
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[1];
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
@@ -197,6 +198,7 @@ void test_buffers_oob_behavior_vectorized_byte_address(void)
 #include "shaders/robustness/headers/oob_behavior_vectorized_byte_address_16bit_read.h"
 #include "shaders/robustness/headers/oob_behavior_vectorized_byte_address_16bit_write.h"
 #include "shaders/robustness/headers/oob_behavior_vectorized_byte_address_32bit_read.h"
+#include "shaders/robustness/headers/oob_behavior_vectorized_byte_address_32bit_read_smem.h"
 #include "shaders/robustness/headers/oob_behavior_vectorized_byte_address_32bit_write.h"
 
     if (!init_compute_test_context(&context))
@@ -245,7 +247,7 @@ void test_buffers_oob_behavior_vectorized_byte_address(void)
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    read_output_buffer = create_default_buffer(context.device, 8 * 16 * sizeof(uint32_t),
+    read_output_buffer = create_default_buffer(context.device, 12 * 16 * sizeof(uint32_t),
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -262,6 +264,8 @@ void test_buffers_oob_behavior_vectorized_byte_address(void)
 
     read_pso_32bit = create_compute_pipeline_state(context.device,
             context.root_signature, oob_behavior_vectorized_byte_address_32bit_read_dxil);
+    read_pso_32bit_smem = create_compute_pipeline_state(context.device,
+            context.root_signature, oob_behavior_vectorized_byte_address_32bit_read_smem_dxil);
 
     if (options4.Native16BitShaderOpsSupported)
     {
@@ -290,6 +294,7 @@ void test_buffers_oob_behavior_vectorized_byte_address(void)
         view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
         ID3D12Device_CreateUnorderedAccessView(context.device, output_buffer, NULL, &view, h);
         h.ptr += descriptor_size;
+        view.Buffer.NumElements = 16 * 12;
         ID3D12Device_CreateUnorderedAccessView(context.device, read_output_buffer, NULL, &view, h);
     }
 
@@ -334,6 +339,8 @@ void test_buffers_oob_behavior_vectorized_byte_address(void)
     }
 
     uav_barrier(command_list, output_buffer);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, read_pso_32bit_smem);
+    ID3D12GraphicsCommandList_Dispatch(command_list, 64, 1, 1);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, read_pso_32bit);
     ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
     if (read_pso_16bit)
@@ -399,6 +406,17 @@ void test_buffers_oob_behavior_vectorized_byte_address(void)
         }
     }
 
+    for (i = 8; i < 12; i++)
+    {
+        uint32_t value, expected;
+        for (j = 0; j < 16; j++)
+        {
+            value = get_readback_uint(&rb, 16 * i + j, 0, 0);
+            expected = j < 8 ? j : 0;
+            ok(value == expected, "32-bit smem value %u, %u: #%x != #%x.\n", i, j, value, expected);
+        }
+    }
+
     release_resource_readback(&rb);
     ID3D12DescriptorHeap_Release(gpu_heap);
     ID3D12DescriptorHeap_Release(cpu_heap);
@@ -408,6 +426,7 @@ void test_buffers_oob_behavior_vectorized_byte_address(void)
     if (write_pso_16bit)
         ID3D12PipelineState_Release(write_pso_16bit);
     ID3D12PipelineState_Release(read_pso_32bit);
+    ID3D12PipelineState_Release(read_pso_32bit_smem);
     if (read_pso_16bit)
         ID3D12PipelineState_Release(read_pso_16bit);
     destroy_test_context(&context);
