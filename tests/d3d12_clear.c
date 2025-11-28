@@ -1240,3 +1240,671 @@ void test_clear_uav_mismatch_heap(void)
     ID3D12Resource_Release(resource);
     destroy_test_context(&context);
 }
+
+void test_deferred_clears(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_array, rtv_uint, rtv_base, dsv;
+    D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_infos[2];
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_desc_array[4];
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12DescriptorHeap *rtv_heap, *dsv_heap;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_TEXTURE_BARRIER texture_barrier;
+    D3D12_RESOURCE_DESC resource_desc[2];
+    D3D12_RESOURCE_DESC1 resource_desc1;
+    ID3D12GraphicsCommandList7 *list7;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_BARRIER_GROUP barrier_group;
+    D3D12_RESOURCE_BARRIER barrier;
+    struct test_context_desc desc;
+    D3D12_ROOT_PARAMETER rs_arg;
+    struct test_context context;
+    ID3D12Resource *rt[6], *ds;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Device10 *device10;
+    ID3D12Heap *heap;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/clear/headers/ps_deferred_clear.h"
+#include "shaders/clear/headers/vs_deferred_clear.h"
+
+    static const FLOAT clear_green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    static const FLOAT clear_red[] = { 1.0f, 0.0f, 0.0f, 1.0f };
+    static const FLOAT clear_blue[] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    static const FLOAT clear_uint[] = { 63.0f, 127.0f, 191.0f, 255.0f };
+
+    union
+    {
+        float f;
+        uint32_t ui;
+    } depth;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&options12, 0, sizeof(options12));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS12, &options12, sizeof(options12));
+
+    context.viewport.TopLeftX = 0.0f;
+    context.viewport.TopLeftY = 0.0f;
+    context.viewport.Width = 16.0f;
+    context.viewport.Height = 16.0f;
+    context.viewport.MinDepth = 0.0f;
+    context.viewport.MaxDepth = 1.0f;
+
+    context.scissor_rect.left = 0u;
+    context.scissor_rect.top = 0u;
+    context.scissor_rect.right = 16u;
+    context.scissor_rect.bottom = 16u;
+
+    memset(&rs_arg, 0, sizeof(rs_arg));
+    rs_arg.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_arg.Constants.Num32BitValues = 1u;
+    rs_arg.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = 1u;
+    rs_desc.pParameters = &rs_arg;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN,
+            &vs_deferred_clear_dxbc, &ps_deferred_clear_dxbc, NULL);
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_EQUAL;
+    pso_desc.DepthStencilState.StencilEnable = TRUE;
+    pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_EQUAL;
+    pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
+    pso_desc.DepthStencilState.StencilReadMask = 0xffu;
+    pso_desc.DepthStencilState.StencilWriteMask = 0u;
+    pso_desc.NumRenderTargets = 4u;
+
+    for (i = 0u; i < 4u; i++)
+    {
+        pso_desc.RTVFormats[i] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        pso_desc.BlendState.RenderTarget[i].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    }
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    memset(&descriptor_heap_desc, 0u, sizeof(descriptor_heap_desc));
+    descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    descriptor_heap_desc.NumDescriptors = 1u;
+
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &descriptor_heap_desc,
+            &IID_ID3D12DescriptorHeap, (void**)&dsv_heap);
+    ok(hr == S_OK, "Failed to create DSV heap, hr %#x.\n", hr);
+
+    descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    descriptor_heap_desc.NumDescriptors = ARRAY_SIZE(rt) + 2u;
+
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &descriptor_heap_desc,
+            &IID_ID3D12DescriptorHeap, (void**)&rtv_heap);
+    ok(hr == S_OK, "Failed to create RTV heap, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(resource_desc, 0, sizeof(resource_desc));
+    resource_desc[0].Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc[0].Width = 16;
+    resource_desc[0].Height = 16;
+    resource_desc[0].DepthOrArraySize = 1u;
+    resource_desc[0].MipLevels = 1u;
+    resource_desc[0].SampleDesc.Count = 1u;
+    resource_desc[0].Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
+    resource_desc[0].Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc[0].Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    for (i = 0u; i < 4u; i++)
+    {
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+                D3D12_HEAP_FLAG_NONE, &resource_desc[0], D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+                &IID_ID3D12Resource, (void**)&rt[i]);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    }
+
+    /* Image with mismatched size */
+    resource_desc[0].Width = 8;
+    resource_desc[0].Height = 8;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc[0], D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+            &IID_ID3D12Resource, (void**)&rt[4]);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    /* Image with multiple layers */
+    resource_desc[0].Width = 16;
+    resource_desc[0].Height = 16;
+    resource_desc[0].DepthOrArraySize = 4u;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc[0], D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+            &IID_ID3D12Resource, (void**)&rt[5]);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    for (i = 0u; i < ARRAY_SIZE(rt); i++)
+    {
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+        rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_desc.Texture2DArray.ArraySize = 1u;
+
+        ID3D12Device_CreateRenderTargetView(context.device, rt[i], &rtv_desc,
+            get_cpu_rtv_handle(&context, rtv_heap, i));
+    }
+
+    rtv_base = get_cpu_rtv_handle(&context, rtv_heap, 0u);
+    rtv_array = get_cpu_rtv_handle(&context, rtv_heap, ARRAY_SIZE(rt));
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rtv_desc.Texture2DArray.ArraySize = 4u;
+
+    ID3D12Device_CreateRenderTargetView(context.device, rt[5], &rtv_desc, rtv_array);
+
+    rtv_uint = get_cpu_rtv_handle(&context, rtv_heap, ARRAY_SIZE(rt) + 1u);
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UINT;
+    rtv_desc.Texture2DArray.ArraySize = 1u;
+
+    ID3D12Device_CreateRenderTargetView(context.device, rt[0], &rtv_desc, rtv_uint);
+
+    /* Depth-stencil image */
+    resource_desc[0].DepthOrArraySize = 1u;
+    resource_desc[0].Format = DXGI_FORMAT_R32G8X24_TYPELESS;
+    resource_desc[0].Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc[0], D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL,
+            &IID_ID3D12Resource, (void**)&ds);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+    dsv = get_cpu_dsv_handle(&context, dsv_heap, 0u);
+
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dsv_desc.Texture2DArray.ArraySize = 1u;
+
+    ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc, dsv);
+
+    /* Test plain clear / discard into draw both before and after OMSetRenderTargets */
+    ID3D12GraphicsCommandList_DiscardResource(context.list, rt[2], NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv_heap, 0u), clear_green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0x80, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, &rtv_base, true, &dsv);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv_heap, 1u), clear_red, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv_heap, 3u), clear_blue, 0, NULL);
+
+    memset(&depth, 0, sizeof(depth));
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0u);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, rt[1], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, rt[3], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xff00ff00u, 0u);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt[1], 0, context.queue, context.list, 0xff0000ffu, 0u);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt[3], 0, context.queue, context.list, 0xffff0000u, 0u);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_float(ds, 0, context.queue, context.list, 1.0f, 0.0f);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(context.list, rt[1], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(context.list, rt[3], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+    /* Test clear into barrier */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv_heap, 0u), clear_red, 0, NULL);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xff0000ffu, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test duplicate clears */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, &rtv_base, true, &dsv);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv_heap, 0u), clear_blue, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv_heap, 0u), clear_red, 0, NULL);
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0u);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xff0000ffu, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test clear with different format */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, &rtv_base, true, &dsv);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_uint, clear_uint, 0, NULL);
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0u);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xffbf7f3f, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test separate aspect clears */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, &rtv_base, true, &dsv);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+        D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0xff, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+        D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0x40, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv_heap, 0u), clear_red, 0, NULL);
+
+    depth.f = 0.5f;
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0x40u);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xffff00ffu, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test depth-only clear for depth-stencil image */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, &rtv_base, true, &dsv);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+        D3D12_CLEAR_FLAG_DEPTH, 0.25f, 0xff, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv_heap, 0u), clear_red, 0, NULL);
+
+    depth.f = 0.25f;
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0x40u);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xffff00ffu, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test clear with mismatching size */
+    rtv_base = get_cpu_rtv_handle(&context, rtv_heap, 2u);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, &rtv_base, true, &dsv);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0x0, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_base, clear_green, 0, NULL);
+
+    depth.f = 1.0f;
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0xffu);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[2], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[2], 0, context.queue, context.list, 0xff00ff00u, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[2], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test overlapping clears with different views */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 5u), clear_blue, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_array, clear_red, 0, NULL);
+
+    transition_resource_state(context.list, rt[5], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0u; i < 4u; i++)
+    {
+        check_sub_resource_uint(rt[5], i, context.queue, context.list, 0xff0000ffu, 0u);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    transition_resource_state(context.list, rt[5], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test overlap with draw */
+    for (i = 0; i < 3; i++)
+        rtv_desc_array[i] = get_cpu_rtv_handle(&context, rtv_heap, i);
+
+    rtv_desc_array[3u] = get_cpu_rtv_handle(&context, rtv_heap, 5u);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, rtv_desc_array, false, &dsv);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 5u), clear_green, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_array, clear_blue, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0u, 0, NULL);
+
+    depth.f = 0.0f;
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0u);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[5], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0u; i < 4u; i++)
+    {
+        check_sub_resource_uint(rt[5], i, context.queue, context.list, i ? 0xffff0000u : 0xffff00ffu, 0u);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    transition_resource_state(context.list, rt[5], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test clear with overlap inside render pass */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, rtv_desc_array, false, &dsv);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 5u), clear_blue, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0u, 0, NULL);
+
+    depth.f = 0.0f;
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0xffu);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_array, clear_red, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0x0u);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[5], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0u; i < 4u; i++)
+    {
+        check_sub_resource_uint(rt[5], i, context.queue, context.list, i ? 0xff0000ffu : 0xffff00ffu, 0u);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    for (i = 0u; i < ARRAY_SIZE(rt); i++)
+        ID3D12Resource_Release(rt[i]);
+
+    ID3D12Resource_Release(ds);
+
+    /* Ensure that aliasing barriers also flush clears */
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc[0].Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc[0].Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc[0].Width = 64;
+    resource_desc[0].Height = 64;
+    resource_desc[0].DepthOrArraySize = 1u;
+    resource_desc[0].MipLevels = 1u;
+    resource_desc[0].SampleDesc.Count = 1u;
+    resource_desc[0].Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc[0].Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc[0].Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    resource_desc[1].Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc[1].Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc[1].Width = 64;
+    resource_desc[1].Height = 64;
+    resource_desc[1].DepthOrArraySize = 1u;
+    resource_desc[1].MipLevels = 1u;
+    resource_desc[1].SampleDesc.Count = 1u;
+    resource_desc[1].Format = DXGI_FORMAT_R32_UINT;
+    resource_desc[1].Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc[1].Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    alloc_infos[0] = ID3D12Device_GetResourceAllocationInfo(context.device, 0u, 1u, &resource_desc[0]);
+    alloc_infos[1] = ID3D12Device_GetResourceAllocationInfo(context.device, 0u, 1u, &resource_desc[1]);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.SizeInBytes = max(alloc_infos[0].SizeInBytes, alloc_infos[1].SizeInBytes);
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+
+    for (i = 0u; i < 2u; i++)
+    {
+        hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0, &resource_desc[i],
+            D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[i]);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        rtv_desc.Format = resource_desc[i].Format;
+
+        ID3D12Device_CreateRenderTargetView(context.device, rt[i], &rtv_desc, get_cpu_rtv_handle(&context, rtv_heap, i));
+    }
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 1), clear_red, 0, NULL);
+
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+    barrier.Aliasing.pResourceBefore = rt[1];
+    barrier.Aliasing.pResourceAfter = rt[0];
+    ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1u, &barrier);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 0), clear_green, 0, NULL);
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xff00ff00u, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test global aliasing barrier */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 0), clear_red, 0, NULL);
+
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+    ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1u, &barrier);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 1), clear_uint, 0, NULL);
+
+    transition_resource_state(context.list, rt[1], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[1], 0, context.queue, context.list, 63u, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[1], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test some less-than-valid aliasing use case where we clear RT1 but transition RT0 */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 1), clear_red, 0, NULL);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 1u, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    for (i = 0u; i < 2u; i++)
+        ID3D12Resource_Release(rt[i]);
+
+    ID3D12Heap_Release(heap);
+
+    ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device10, (void**)&device10);
+    ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList7, (void**)&list7);
+
+    if (device10 && list7 && options12.EnhancedBarriersSupported)
+    {
+        /* Test per-resource enhanced barrier */
+        memset(&resource_desc1, 0, sizeof(resource_desc1));
+        resource_desc1.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc1.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        resource_desc1.Width = 16u;
+        resource_desc1.Height = 16u;
+        resource_desc1.DepthOrArraySize = 1u;
+        resource_desc1.MipLevels = 1u;
+        resource_desc1.SampleDesc.Count = 1u;
+        resource_desc1.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        resource_desc1.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+        hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc1, D3D12_BARRIER_LAYOUT_RENDER_TARGET, NULL, NULL, 0, NULL,
+                &IID_ID3D12Resource, (void**)&rt[0]);
+        ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+
+        rtv_base = get_cpu_rtv_handle(&context, rtv_heap, 0);
+
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+        ID3D12Device_CreateRenderTargetView(context.device, rt[0], &rtv_desc, rtv_base);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_base, clear_blue, 0, NULL);
+
+        memset(&barrier_group, 0, sizeof(barrier_group));
+        barrier_group.Type = D3D12_BARRIER_TYPE_TEXTURE;
+        barrier_group.NumBarriers = 1u;
+        barrier_group.pTextureBarriers = &texture_barrier;
+
+        memset(&texture_barrier, 0, sizeof(texture_barrier));
+        texture_barrier.pResource = rt[0];
+        texture_barrier.SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+        texture_barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        texture_barrier.AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+        texture_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        texture_barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+        texture_barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+        texture_barrier.Subresources.NumArraySlices = 1u;
+        texture_barrier.Subresources.NumMipLevels = 1u;
+        texture_barrier.Subresources.NumPlanes = 1u;
+
+        ID3D12GraphicsCommandList7_Barrier(list7, 1u, &barrier_group);
+
+        check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xffff0000u, 0u);
+        reset_command_list(context.list, context.allocator);
+
+        ID3D12Resource_Release(rt[0]);
+
+        /* Test depth-stencil with enhanced barriers */
+        memset(&resource_desc1, 0, sizeof(resource_desc1));
+        resource_desc1.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc1.Format = DXGI_FORMAT_R32G8X24_TYPELESS;
+        resource_desc1.Width = 16u;
+        resource_desc1.Height = 16u;
+        resource_desc1.DepthOrArraySize = 1u;
+        resource_desc1.MipLevels = 1u;
+        resource_desc1.SampleDesc.Count = 1u;
+        resource_desc1.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        resource_desc1.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+        hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc1, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE, NULL, NULL, 0, NULL,
+                &IID_ID3D12Resource, (void**)&ds);
+        ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
+
+        memset(&dsv_desc, 0, sizeof(dsv_desc));
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        dsv_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+        ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc, dsv);
+        ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+                D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0u, 0u, NULL);
+
+        memset(&texture_barrier, 0, sizeof(texture_barrier));
+        texture_barrier.pResource = ds;
+        texture_barrier.SyncBefore = D3D12_BARRIER_SYNC_DEPTH_STENCIL;
+        texture_barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        texture_barrier.AccessBefore = D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
+        texture_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        texture_barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE;
+        texture_barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+        texture_barrier.Subresources.NumArraySlices = 1u;
+        texture_barrier.Subresources.NumMipLevels = 1u;
+        texture_barrier.Subresources.NumPlanes = 1u;
+
+        ID3D12GraphicsCommandList7_Barrier(list7, 1u, &barrier_group);
+
+        check_sub_resource_float(ds, 0, context.queue, context.list, 1.0f, 0.0f);
+        reset_command_list(context.list, context.allocator);
+
+        ID3D12Resource_Release(ds);
+    }
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
+
+    if (device10)
+        ID3D12Device10_Release(device10);
+
+    if (list7)
+        ID3D12GraphicsCommandList7_Release(list7);
+
+    destroy_test_context(&context);
+}
