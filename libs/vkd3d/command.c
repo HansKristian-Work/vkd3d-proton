@@ -6387,15 +6387,6 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
             d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics));
 }
 
-static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
-        uint32_t *width, uint32_t *height, uint32_t *layer_count)
-{
-    *width = list->fb_width;
-    *height = list->fb_height;
-    if (layer_count)
-        *layer_count = list->fb_layer_count;
-}
-
 static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *list)
 {
     struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
@@ -6494,13 +6485,12 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     }
 
     old_extent = rendering_info->info.renderArea.extent;
-    d3d12_command_list_get_fb_extent(list,
-            &rendering_info->info.renderArea.extent.width,
-            &rendering_info->info.renderArea.extent.height,
-            &rendering_info->info.layerCount);
+    rendering_info->info.renderArea.extent.width = list->fb_width;
+    rendering_info->info.renderArea.extent.height = list->fb_height;
+    rendering_info->info.layerCount = list->fb_layer_count;
 
-    /* It is robust in D3D12 to render with a scissor rect that out of bounds, but not so in Vulkan,
-     * so we might have to re-clamp the scissor state. */
+    /* It is robust in D3D12 to render with a scissor rect that out of bounds (if all render targets match size),
+     * but not so in Vulkan, so we might have to re-clamp the scissor state. */
     if (old_extent.width != rendering_info->info.renderArea.extent.width ||
             old_extent.height != rendering_info->info.renderArea.extent.height)
     {
