@@ -4432,7 +4432,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
         required_size = desc->Width;
     }
 
-    vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, 0);
+    vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, required_size);
 
     if (d3d12_resource_is_texture(object))
     {
