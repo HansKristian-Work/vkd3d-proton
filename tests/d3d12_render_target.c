@@ -2557,7 +2557,7 @@ void test_unused_attachments_mix_and_match(void)
     destroy_test_context(&context);
 }
 
-static void test_render_pass_suspend_resume_opts(void)
+static void test_render_pass_suspend_resume_opts(bool inline_clears)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     D3D12_FEATURE_DATA_D3D12_OPTIONS6 options6;
@@ -2792,6 +2792,7 @@ static void test_render_pass_suspend_resume_opts(void)
     {
         const struct test *test = &tests[test_index];
         static const float black_color[4] = { 0 };
+        ID3D12GraphicsCommandList *clear_list;
         float rtv_reference[2] = { 0.0f };
         uint8_t stencil_reference = 0;
         unsigned int render_pass;
@@ -2800,17 +2801,28 @@ static void test_render_pass_suspend_resume_opts(void)
         vkd3d_test_set_context("Test %u - %s", test_index, test->tag);
         begin_debug_region_printf(context.list, "Test %u - %s", test_index, test->tag);
 
+        /* Test difference between fusing clears and not fusing them. */
+        if (inline_clears)
+        {
+            clear_list = list[0];
+            ID3D12GraphicsCommandList_Close(context.list);
+            ID3D12GraphicsCommandList_Reset(clear_list, context.allocator, NULL);
+        }
+        else
+            clear_list = context.list;
+
         for (rtv_index = 0; rtv_index < ARRAY_SIZE(rtvs); rtv_index++)
         {
-            ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, rtv_index),
+            ID3D12GraphicsCommandList_ClearRenderTargetView(clear_list, get_cpu_rtv_handle(&context, rtv_heap, rtv_index),
                     black_color, 0, NULL);
         }
 
-        ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, ds.dsv_handle,
+        ID3D12GraphicsCommandList_ClearDepthStencilView(clear_list, ds.dsv_handle,
                 D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
                 0.0f, 0, 0, NULL);
 
-        ID3D12GraphicsCommandList_Close(context.list);
+        if (!inline_clears)
+            ID3D12GraphicsCommandList_Close(context.list);
         exec_command_list(context.queue, context.list);
 
         for (iter = 0; iter < test->num_iterations; iter++)
@@ -2818,7 +2830,8 @@ static void test_render_pass_suspend_resume_opts(void)
             const struct test_iteration *iteration = &test->iterations[iter];
             ID3D12GraphicsCommandList *cmd = list[iter];
 
-            ID3D12GraphicsCommandList_Reset(cmd, context.allocator, NULL);
+            if (iter || !inline_clears)
+                ID3D12GraphicsCommandList_Reset(cmd, context.allocator, NULL);
             insert_debug_label(cmd, "BeginIteration");
 
             /* Dummy action command intended to break suspend/resume. */
@@ -2921,13 +2934,21 @@ void test_render_pass_suspend_resume_opts_enabled(void)
 {
     vkd3d_set_behavior_flags(VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_SUSPEND_RESUME |
             VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_TILER_SYNC);
-    test_render_pass_suspend_resume_opts();
+    test_render_pass_suspend_resume_opts(false);
+    vkd3d_set_behavior_flags(0);
+}
+
+void test_render_pass_suspend_resume_opts_inline_clears(void)
+{
+    vkd3d_set_behavior_flags(VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_SUSPEND_RESUME |
+            VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_TILER_SYNC);
+    test_render_pass_suspend_resume_opts(true);
     vkd3d_set_behavior_flags(0);
 }
 
 void test_render_pass_suspend_resume_opts_disabled(void)
 {
     vkd3d_set_behavior_flags(VKD3D_DEBUG_CONTROL_BEHAVIOR_DISABLE_SUSPEND_RESUME);
-    test_render_pass_suspend_resume_opts();
+    test_render_pass_suspend_resume_opts(false);
     vkd3d_set_behavior_flags(0);
 }
