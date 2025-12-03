@@ -17304,6 +17304,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
 static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    bool suspending;
 
     TRACE("iface %p.\n", iface);
 
@@ -17317,15 +17318,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
 
     d3d12_command_list_debug_mark_begin_region(list, "EndRenderPass");
 
-    if (!(list->render_pass_flags & D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS))
+    list->is_inside_render_pass = false;
+    suspending = !!(list->render_pass_flags & D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
+    list->render_pass_flags = 0;
+
+    if (!suspending)
+    {
         d3d12_command_list_resolve_render_pass_attachments(list);
 
-    /* Bound render targets are implicitly unbound after the render pass */
-    list->is_inside_render_pass = false;
-    list->render_pass_flags = 0;
-    memset(list->rtvs, 0, sizeof(list->rtvs));
-    memset(&list->dsv, 0, sizeof(list->dsv));
-    list->rendering_info.info.colorAttachmentCount = 0;
+        /* Bound render targets are implicitly unbound after the render pass */
+
+        /* Do not clear this when suspending, since we need the compatibility information.
+         * It's not valid to do normal rendering before we have properly ended the render pass. */
+        memset(list->rtvs, 0, sizeof(list->rtvs));
+        memset(&list->dsv, 0, sizeof(list->dsv));
+        list->rendering_info.info.colorAttachmentCount = 0;
+    }
 
     d3d12_command_list_debug_mark_end_region(list);
 }
