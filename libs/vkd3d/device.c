@@ -3521,6 +3521,23 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
             break;
     }
 
+    /* Having to split render passes when there is a mismatch in load-store ops is unfortunate.
+     * Be spec correct by default, and go a bit out of spec if we know the drivers are sensible. */
+    switch (device->device_info.vulkan_1_2_properties.driverID)
+    {
+        case VK_DRIVER_ID_MESA_TURNIP:
+        case VK_DRIVER_ID_MESA_RADV:
+        case VK_DRIVER_ID_MESA_NVK:
+        case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
+        case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
+            /* Currently only relevant on Turnip really, since that's where we enable suspend-resume by default. */
+            device->workarounds.tiler_suspend_resume_relax_load_store_op = true;
+            break;
+
+        default:
+            break;
+    }
+
     /* For testing purposes, allow us to exercise all code paths on all GPUs. */
     if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_TILER_SYNC)
         device->workarounds.tiler_renderpass_barriers = true;

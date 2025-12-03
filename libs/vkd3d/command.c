@@ -7841,8 +7841,10 @@ static bool d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
         return false;
     if (memcmp(suspend->layouts, resume->layouts, sizeof(resume->layouts)) != 0)
         return false;
-    if (memcmp(suspend->load_ops, resume->load_ops, sizeof(resume->load_ops)) != 0)
-        return false;
+
+    if (!first->device->workarounds.tiler_suspend_resume_relax_load_store_op)
+        if (memcmp(suspend->load_ops, resume->load_ops, sizeof(resume->load_ops)) != 0)
+            return false;
 
     return suspend->color_attachment_count == resume->color_attachment_count && suspend->view_mask == resume->view_mask;
 }

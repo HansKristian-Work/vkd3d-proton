@@ -5475,6 +5475,7 @@ struct d3d12_device
         bool amdgpu_broken_null_tile_mapping;
         bool tiler_renderpass_barriers;
         bool tiler_suspend_resume;
+        bool tiler_suspend_resume_relax_load_store_op;
     } workarounds;
 
 #ifdef _WIN64
