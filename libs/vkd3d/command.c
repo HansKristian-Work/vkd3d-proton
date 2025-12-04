@@ -6191,14 +6191,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (d3d12_device_use_embedded_mutable_descriptors(list->device))
         vkd3d_memcpy_non_temporal_barrier();
 
-    list->rendering_info.state_flags |= VKD3D_RENDERING_END_OF_COMMAND_LIST;
-    d3d12_command_list_decay_tracked_state(list);
-
+    /* This will vanish very soon. We must not sink the End to a fixup command buffer. */
     if (list->predication.enabled_on_command_buffer)
     {
+        d3d12_command_list_end_current_render_pass(list, false);
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
-        list->cmd.suspend_resume.complex_suspend = true;
     }
+
+    list->rendering_info.state_flags |= VKD3D_RENDERING_END_OF_COMMAND_LIST;
+    d3d12_command_list_decay_tracked_state(list);
 
     if (!d3d12_command_list_gather_pending_queries(list))
         d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
