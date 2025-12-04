@@ -17569,7 +17569,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
 static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    bool suspending;
+    bool terminating;
 
     TRACE("iface %p.\n", iface);
 
@@ -17579,17 +17579,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
         return;
     }
 
-    d3d12_command_list_check_render_pass_validation(list, NULL, true);
-    d3d12_command_list_end_current_render_pass(list, false);
+    /* There is no need to actually end the render pass if we're suspending.
+     * If we're using actual suspend-resume we want the render pass to remain active when Close() is called
+     * so we can link them up. */
+    terminating = !(list->render_pass_flags & D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
 
-    d3d12_command_list_debug_mark_begin_region(list, "EndRenderPass");
-
-    list->is_inside_render_pass = false;
-    suspending = !!(list->render_pass_flags & D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
-    list->render_pass_flags = 0;
-
-    if (!suspending)
+    if (terminating)
     {
+        d3d12_command_list_check_render_pass_validation(list, NULL, true);
+
+        d3d12_command_list_end_current_render_pass(list, false);
+        d3d12_command_list_debug_mark_begin_region(list, "EndRenderPass");
+
         d3d12_command_list_resolve_render_pass_attachments(list);
 
         /* Bound render targets are implicitly unbound after the render pass */
@@ -17599,9 +17600,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
         memset(list->rtvs, 0, sizeof(list->rtvs));
         memset(&list->dsv, 0, sizeof(list->dsv));
         list->rendering_info.info.colorAttachmentCount = 0;
+        d3d12_command_list_debug_mark_end_region(list);
     }
 
-    d3d12_command_list_debug_mark_end_region(list);
+    list->is_inside_render_pass = false;
+    list->render_pass_flags = 0;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_command_list_iface *iface,
