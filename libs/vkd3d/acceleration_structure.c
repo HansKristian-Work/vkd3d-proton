@@ -83,7 +83,7 @@ static void vkd3d_acceleration_structure_convert_triangles(const struct d3d12_de
     if (desc->IndexFormat != DXGI_FORMAT_UNKNOWN)
     {
         if (!desc->IndexBuffer)
-            WARN("Application is using IndexBuffer = 0 and IndexFormat != UNKNOWN. Likely application bug.\n");
+            TRACE("Application is using IndexBuffer = 0 and IndexFormat != UNKNOWN. Likely application bug.\n");
 
         triangles->indexType =
                 desc->IndexFormat == DXGI_FORMAT_R16_UINT ?
