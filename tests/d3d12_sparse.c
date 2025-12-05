@@ -328,7 +328,7 @@ static void set_region_size(D3D12_TILE_REGION_SIZE *region, uint32_t num_tiles, 
     region->Depth = d;
 }
 
-void test_update_tile_mappings_remap_stress(void)
+static void test_update_tile_mappings_remap_inner(bool smem)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
@@ -346,6 +346,7 @@ void test_update_tile_mappings_remap_stress(void)
     HRESULT hr;
 
 #include "shaders/sparse/headers/update_tile_mappings.h"
+#include "shaders/sparse/headers/update_tile_mappings_smem.h"
 
     memset(&desc, 0, sizeof(desc));
     desc.no_render_target = true;
@@ -400,7 +401,7 @@ void test_update_tile_mappings_remap_stress(void)
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
     context.pipeline_state = create_compute_pipeline_state(
-            context.device, context.root_signature, update_tile_mappings_dxbc);
+            context.device, context.root_signature, smem ? update_tile_mappings_smem_dxbc : update_tile_mappings_dxbc);
 
     for (iter = 0; iter < 100; iter++)
     {
@@ -476,7 +477,7 @@ void test_update_tile_mappings_remap_stress(void)
                 ID3D12Resource_GetGPUVirtualAddress(resource) + OFFSET_INTO_PAGE);
         ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1,
                 ID3D12Resource_GetGPUVirtualAddress(output_resource));
-        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+        ID3D12GraphicsCommandList_Dispatch(context.list, smem ? 64 : 1, 1, 1);
         transition_resource_state(context.list, output_resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_COPY_SOURCE);
         get_buffer_readback_with_command_list(output_resource, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
@@ -508,6 +509,16 @@ void test_update_tile_mappings_remap_stress(void)
     ID3D12Resource_Release(output_resource);
     ID3D12Heap_Release(heap);
     destroy_test_context(&context);
+}
+
+void test_update_tile_mappings_remap_vmem(void)
+{
+    test_update_tile_mappings_remap_inner(false);
+}
+
+void test_update_tile_mappings_remap_smem(void)
+{
+    test_update_tile_mappings_remap_inner(true);
 }
 
 void test_update_tile_mappings(void)
