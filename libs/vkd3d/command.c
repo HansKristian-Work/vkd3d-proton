@@ -5156,6 +5156,7 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
     struct vkd3d_deferred_discard *discard;
     VkImageSubresourceRange subresources;
     struct vkd3d_deferred_clear *clear;
+    bool requires_barrier;
     VkExtent3D extent;
     unsigned int i;
 
@@ -5210,53 +5211,64 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
                 attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
                 attachment->clearValue = clear->clear_value;
 
-                clear->clear_aspects &= ~aspect;
-
                 /* Full subresource clears of non-committed must transition from UNDEFINED.
                  * Deferred clears only operate on full-subresource clears. */
-                if (d3d12_resource_may_alias_other_resources(clear->resource))
+                requires_barrier = d3d12_resource_may_alias_other_resources(clear->resource);
+
+                memset(&vk_image_barrier, 0, sizeof(vk_image_barrier));
+                vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                vk_image_barrier.image = clear->resource->res.vk_image;
+                vk_image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                vk_image_barrier.subresourceRange = vk_subresource_range_from_view(clear->view);
+
+                if (aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
                 {
-                    memset(&vk_image_barrier, 0, sizeof(vk_image_barrier));
-                    vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    vk_image_barrier.image = clear->resource->res.vk_image;
-                    vk_image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                    uint32_t plane_write_mask = 0;
+                    if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT)
+                        plane_write_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
+                    if (aspect & VK_IMAGE_ASPECT_STENCIL_BIT)
+                        plane_write_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
 
-                    if (aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+                    vk_image_barrier.newLayout = dsv_plane_optimal_mask_to_layout(
+                            d3d12_command_list_notify_dsv_writes(list, clear->resource, clear->view, plane_write_mask),
+                            resource->format->vk_aspect_mask);
+
+                    if (vk_image_barrier.newLayout != list->dsv_layout)
+                        requires_barrier = true;
+
+                    if (aspect != vk_image_barrier.subresourceRange.aspectMask)
                     {
-                        uint32_t plane_write_mask = 0;
-                        if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT)
-                            plane_write_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
-                        if (aspect & VK_IMAGE_ASPECT_STENCIL_BIT)
-                            plane_write_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
-
-                        vk_image_barrier.newLayout = dsv_plane_optimal_mask_to_layout(
-                                d3d12_command_list_notify_dsv_writes(list, clear->resource, clear->view, plane_write_mask),
-                                resource->format->vk_aspect_mask);
-
-                        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-                        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-                        vk_image_barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-                        vk_image_barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-                    }
-                    else
-                    {
-                        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                        vk_image_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-                        vk_image_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-
-                        vk_image_barrier.newLayout = d3d12_resource_pick_layout(clear->resource,
-                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                        vk_image_barrier.newLayout = (aspect & VK_IMAGE_ASPECT_DEPTH_BIT)
+                                ? vk_separate_depth_layout(vk_image_barrier.newLayout)
+                                : vk_separate_stencil_layout(vk_image_barrier.newLayout);
                     }
 
-                    vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    vk_image_barrier.subresourceRange = vk_subresource_range_from_view(clear->view);
+                    vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+                    vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+                    vk_image_barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                    vk_image_barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
                     vk_image_barrier.subresourceRange.aspectMask = aspect;
-
-                    d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &vk_image_barrier);
                 }
+                else
+                {
+                    vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                    vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                    vk_image_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+                    vk_image_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+
+                    vk_image_barrier.newLayout = d3d12_resource_pick_layout(clear->resource,
+                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                }
+
+                vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+                if (requires_barrier)
+                    d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &vk_image_barrier);
+
+                clear->clear_aspects &= ~aspect;
             }
 
             if (!clear->clear_aspects)
