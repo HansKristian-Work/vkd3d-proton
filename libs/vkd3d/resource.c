@@ -848,7 +848,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 
     if (resource && (resource->flags & VKD3D_RESOURCE_COMMITTED) &&
             device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory &&
-            !(heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
+            !(heap_flags & (D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_SHARED)))
     {
         image_info->initialLayout = VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT;
         resource->flags |= VKD3D_RESOURCE_ZERO_INITIALIZED;
