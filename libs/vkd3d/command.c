@@ -13465,7 +13465,7 @@ static void d3d12_command_list_defer_attachment_clear(struct d3d12_command_list 
     {
         clear = &list->deferred_clears[i];
 
-        if (clear->resource != resource || clear->view == view)
+        if (clear->view == view)
             continue;
 
         /* Submit clears if any clear overlaps with the given view */
