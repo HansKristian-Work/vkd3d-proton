@@ -13524,8 +13524,9 @@ static void d3d12_command_list_defer_attachment_clear(struct d3d12_command_list 
     clear->clear_value = *clear_value;
 
     /* If the clear overlaps with an active render target, end the render
-     * pass so that the clear gets processed before any subsequent draws */
-    if ((list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) &&
+     * pass so that the clear gets processed before any subsequent draws,
+     * and ensure that render targets are in the correct layout. */
+    if ((list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED)) &&
             d3d12_command_list_resource_overlaps_attachment(list, resource, &subresources))
         d3d12_command_list_end_current_render_pass(list, false);
 }
