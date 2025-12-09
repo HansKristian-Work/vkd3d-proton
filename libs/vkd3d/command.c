@@ -5364,8 +5364,14 @@ static void d3d12_command_list_flush_clears(struct d3d12_command_list *list,
 
 static void d3d12_command_list_flush_clears_for_rendering(struct d3d12_command_list *list)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkImageSubresourceRange clear_subresources;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
     unsigned int src, dst;
+
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
 
     for (src = 0, dst = 0; src < list->deferred_clear_count; src++)
     {
@@ -5375,6 +5381,17 @@ static void d3d12_command_list_flush_clears_for_rendering(struct d3d12_command_l
         if (d3d12_command_list_resource_overlaps_attachment(list, clear->resource, &clear_subresources))
         {
             d3d12_command_list_execute_deferred_clear(list, clear);
+
+            if (clear->clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+            {
+                barrier.srcStageMask |= VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+                barrier.srcAccessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            }
+            else
+            {
+                barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                barrier.srcAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            }
         }
         else
         {
@@ -5401,6 +5418,36 @@ static void d3d12_command_list_flush_clears_for_rendering(struct d3d12_command_l
     }
 
     list->deferred_discard_count = dst;
+
+    if (barrier.srcStageMask)
+    {
+        /* If we end up here, we recorded clear render passes that alias with bound render
+         * targets in some way, even if there is UB involved. Play it safe and wait for
+         * those clears to finish before rendering to avoid hangs or corruption. */
+        assert(!(list->rendering_info.state_flags & VKD3D_RENDERING_SUSPENDED));
+
+        if (list->rendering_info.info.colorAttachmentCount)
+        {
+            barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            barrier.dstAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        }
+
+        if (list->rendering_info.info.pDepthAttachment || list->rendering_info.info.pStencilAttachment)
+        {
+            barrier.dstStageMask |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            barrier.dstAccessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        }
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1u;
+        dep_info.pMemoryBarriers = &barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    }
 }
 
 static void d3d12_command_list_discard_attachment(struct d3d12_command_list *list,
