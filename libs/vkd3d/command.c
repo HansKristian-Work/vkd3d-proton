@@ -5149,35 +5149,39 @@ static bool vkd3d_check_subresource_overlap(struct d3d12_resource *a, const VkIm
 }
 
 static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *list,
-        VkRenderingAttachmentInfo *attachment, struct d3d12_resource *resource,
-        struct vkd3d_view *view, VkImageAspectFlagBits aspect,
+        VkRenderingAttachmentInfo *attachment, VkRenderingAttachmentInfo *stencil_attachment,
+        struct d3d12_resource *resource, struct vkd3d_view *view, VkImageAspectFlags aspect_mask,
         struct d3d12_command_list_barrier_batch *batch)
 {
-    struct vkd3d_deferred_discard *discard;
     VkImageSubresourceRange subresources;
-    struct vkd3d_deferred_clear *clear;
     bool requires_barrier;
     VkExtent3D extent;
     unsigned int i;
 
     subresources = vk_subresource_range_from_view(view);
 
-    if (aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
-        subresources.aspectMask &= aspect;
+    if (aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+        subresources.aspectMask &= aspect_mask;
 
     for (i = 0u; i < list->deferred_discard_count; i++)
     {
-        discard = &list->deferred_discards[i];
+        struct vkd3d_deferred_discard *discard = &list->deferred_discards[i];
 
-        /* We can only discard if the discard covers *all* view subresources */
-        if (discard->resource == resource && (discard->subresources.aspectMask & aspect) &&
+        /* Need to look at the view aspect mask here rather than the aspect_mask parameter since the
+         * latter would be COLOR_BIT for planar images, whereas discards refer to resource aspects. */
+        VkImageAspectFlags discard_aspects = discard->subresources.aspectMask & subresources.aspectMask;
+
+        if (discard->resource == resource && discard_aspects &&
                 discard->subresources.baseMipLevel <= subresources.baseMipLevel &&
                 discard->subresources.baseMipLevel + discard->subresources.levelCount >= subresources.baseMipLevel + subresources.levelCount &&
                 discard->subresources.baseArrayLayer <= subresources.baseArrayLayer &&
                 discard->subresources.baseArrayLayer + discard->subresources.layerCount >= subresources.baseArrayLayer + subresources.layerCount)
         {
+            if (discard_aspects != VK_IMAGE_ASPECT_STENCIL_BIT)
+                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 
-            attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            if (discard_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+                stencil_attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 
             *discard = list->deferred_discards[--list->deferred_discard_count];
             break;
@@ -5186,10 +5190,12 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
 
     for (i = 0u; i < list->deferred_clear_count; i++)
     {
-        clear = &list->deferred_clears[i];
+        struct vkd3d_deferred_clear *clear = &list->deferred_clears[i];
 
         if (clear->view == view)
         {
+            VkImageAspectFlags clear_aspects = clear->clear_aspects & aspect_mask;
+
             uint32_t layers = clear->view->info.texture.layer_count;
             extent = d3d12_resource_get_view_subresource_extent(clear->resource, clear->view);
 
@@ -5205,11 +5211,9 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
             else if (layers != list->fb_layer_count)
                 break;
 
-            if (clear->clear_aspects & aspect)
+            if (clear_aspects)
             {
                 VkImageMemoryBarrier2 vk_image_barrier;
-                attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                attachment->clearValue = clear->clear_value;
 
                 /* Full subresource clears of non-committed must transition from UNDEFINED.
                  * Deferred clears only operate on full-subresource clears. */
@@ -5221,26 +5225,31 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
                 vk_image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                 vk_image_barrier.subresourceRange = vk_subresource_range_from_view(clear->view);
 
-                if (aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+                if (aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
                 {
-                    uint32_t plane_write_mask = 0;
-                    if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT)
-                        plane_write_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
-                    if (aspect & VK_IMAGE_ASPECT_STENCIL_BIT)
-                        plane_write_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
-
-                    vk_image_barrier.newLayout = dsv_plane_optimal_mask_to_layout(
-                            d3d12_command_list_notify_dsv_writes(list, clear->resource, clear->view, plane_write_mask),
-                            resource->format->vk_aspect_mask);
-
-                    if (vk_image_barrier.newLayout != list->dsv_layout)
-                        requires_barrier = true;
-
-                    if (aspect != vk_image_barrier.subresourceRange.aspectMask)
+                    if (clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
                     {
-                        vk_image_barrier.newLayout = (aspect & VK_IMAGE_ASPECT_DEPTH_BIT)
-                                ? vk_separate_depth_layout(vk_image_barrier.newLayout)
-                                : vk_separate_stencil_layout(vk_image_barrier.newLayout);
+                        attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                        attachment->clearValue = clear->clear_value;
+                    }
+
+                    if (clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+                    {
+                        stencil_attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                        stencil_attachment->clearValue = clear->clear_value;
+                    }
+
+                    /* We never fuse clears of any aspects that are in a read-only layout
+                     * inside the render pass, so dsv_layout is fine */
+                    if (clear_aspects == vk_image_barrier.subresourceRange.aspectMask)
+                    {
+                        vk_image_barrier.newLayout = list->dsv_layout;
+                    }
+                    else
+                    {
+                        vk_image_barrier.newLayout = (clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+                                ? vk_separate_depth_layout(list->dsv_layout)
+                                : vk_separate_stencil_layout(list->dsv_layout);
                     }
 
                     vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
@@ -5249,10 +5258,13 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
                     vk_image_barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
                     vk_image_barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-                    vk_image_barrier.subresourceRange.aspectMask = aspect;
+                    vk_image_barrier.subresourceRange.aspectMask = clear_aspects;
                 }
                 else
                 {
+                    attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    attachment->clearValue = clear->clear_value;
+
                     vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
                     vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
                     vk_image_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -5268,7 +5280,7 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
                 if (requires_barrier)
                     d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &vk_image_barrier);
 
-                clear->clear_aspects &= ~aspect;
+                clear->clear_aspects &= ~clear_aspects;
             }
 
             if (!clear->clear_aspects)
@@ -6756,6 +6768,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     struct d3d12_graphics_pipeline_state *graphics = &list->state->graphics;
     struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
     struct d3d12_command_list_barrier_batch barrier;
+    VkImageAspectFlags dsv_optimal_aspects;
     VkExtent2D old_extent;
     unsigned int i;
 
@@ -6793,7 +6806,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 
             rendering_info->rtv_mask |= 1u << i;
 
-            d3d12_command_list_fuse_attachment_clear(list, attachment,
+            d3d12_command_list_fuse_attachment_clear(list, attachment, NULL,
                 list->rtvs[i].resource, list->rtvs[i].view, VK_IMAGE_ASPECT_COLOR_BIT, &barrier);
         }
         else
@@ -6812,6 +6825,8 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     {
         assert(list->dsv.view);
 
+        dsv_optimal_aspects = 0u;
+
         /* Spec says that to use pDepthAttachment or pStencilAttachment, with non-NULL image view,
          * the format must have the aspect mask set. */
         rendering_info->depth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -6823,10 +6838,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         if (list->dsv.view->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
         {
             if (list->dsv_plane_optimal_mask & (VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_DEPTH_STENCIL_PLANE_GENERAL))
-            {
-                d3d12_command_list_fuse_attachment_clear(list, &rendering_info->depth,
-                    list->dsv.resource, list->dsv.view, VK_IMAGE_ASPECT_DEPTH_BIT, &barrier);
-            }
+                dsv_optimal_aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
 
             rendering_info->info.pDepthAttachment = &rendering_info->depth;
         }
@@ -6834,12 +6846,15 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         if (list->dsv.view->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
         {
             if (list->dsv_plane_optimal_mask & (VKD3D_STENCIL_PLANE_OPTIMAL | VKD3D_DEPTH_STENCIL_PLANE_GENERAL))
-            {
-                d3d12_command_list_fuse_attachment_clear(list, &rendering_info->stencil,
-                    list->dsv.resource, list->dsv.view, VK_IMAGE_ASPECT_STENCIL_BIT, &barrier);
-            }
+                dsv_optimal_aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
             rendering_info->info.pStencilAttachment = &rendering_info->stencil;
+        }
+
+        if (dsv_optimal_aspects)
+        {
+            d3d12_command_list_fuse_attachment_clear(list, &rendering_info->depth, &rendering_info->stencil,
+                list->dsv.resource, list->dsv.view, dsv_optimal_aspects, &barrier);
         }
     }
     else
