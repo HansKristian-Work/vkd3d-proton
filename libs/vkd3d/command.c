@@ -5244,7 +5244,7 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 *stages |= VK_PIPELINE_STAGE_2_COPY_BIT;
                 /* When we have unified layouts we don't need to transition layouts to do copies,
                  * so we can do it "properly". */
-                if (d3d12_device_supports_unified_layouts(device))
+                if (d3d12_device_supports_unified_layouts(device) || d3d12_resource_is_buffer(resource))
                     *access |= VK_ACCESS_2_TRANSFER_READ_BIT;
                 break;
 
