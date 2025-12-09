@@ -1346,7 +1346,7 @@ void test_deferred_clears(void)
 
     memset(&descriptor_heap_desc, 0u, sizeof(descriptor_heap_desc));
     descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    descriptor_heap_desc.NumDescriptors = 1u;
+    descriptor_heap_desc.NumDescriptors = 2u;
 
     hr = ID3D12Device_CreateDescriptorHeap(context.device, &descriptor_heap_desc,
             &IID_ID3D12DescriptorHeap, (void**)&dsv_heap);
@@ -1447,7 +1447,12 @@ void test_deferred_clears(void)
     dsv_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     dsv_desc.Texture2DArray.ArraySize = 1u;
 
-    ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc, dsv);
+    ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc,
+                get_cpu_dsv_handle(&context, dsv_heap, 0u));
+
+    dsv_desc.Flags = D3D12_DSV_FLAG_READ_ONLY_DEPTH | D3D12_DSV_FLAG_READ_ONLY_STENCIL;
+    ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc,
+                get_cpu_dsv_handle(&context, dsv_heap, 1u));
 
     /* Test plain clear / discard into draw both before and after OMSetRenderTargets */
     ID3D12GraphicsCommandList_DiscardResource(context.list, rt[2], NULL);
@@ -1524,6 +1529,34 @@ void test_deferred_clears(void)
     reset_command_list(context.list, context.allocator);
 
     transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* Test DSV clear with read-only view */
+    dsv = get_cpu_dsv_handle(&context, dsv_heap, 1u);
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
+        D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0x96, 0, NULL);
+
+    depth.f = 1.0f;
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, &rtv_base, true, &dsv);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0u, depth.ui, 0u);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0x96u);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    bug_if(is_amd_vulkan_device(context.device) && !is_radv_device(context.device))
+    check_sub_resource_uint(rt[0], 0, context.queue, context.list, 0xffff00ffu, 0u);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    dsv = get_cpu_dsv_handle(&context, dsv_heap, 0u);
 
     /* Test clear with different format */
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 4u, &rtv_base, true, &dsv);
@@ -1871,7 +1904,7 @@ void test_deferred_clears(void)
 
         memset(&dsv_desc, 0, sizeof(dsv_desc));
         dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-        dsv_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        dsv_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
 
         ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc, dsv);
         ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv,
