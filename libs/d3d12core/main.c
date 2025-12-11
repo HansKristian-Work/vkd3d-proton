@@ -578,6 +578,7 @@ static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance
 
     static const char * const optional_instance_extensions[] =
     {
+        VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
         VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
         VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 #ifndef _WIN32
@@ -659,6 +660,7 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
 
     static const char * const optional_device_extensions[] =
     {
+        VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME,
         VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME,
     };
 
