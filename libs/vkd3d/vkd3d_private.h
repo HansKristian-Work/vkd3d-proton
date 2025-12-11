@@ -1465,17 +1465,17 @@ bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
         const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler);
 
-#define D3D12_DESC_ALIGNMENT 64
+#define D3D12_DESC_ALIGNMENT 32
 struct d3d12_rtv_desc
 {
-    DECLSPEC_ALIGN(D3D12_DESC_ALIGNMENT) VkSampleCountFlagBits sample_count;
-    const struct vkd3d_format *format;
-    unsigned int width;
-    unsigned int height;
-    unsigned int layer_count;
-    unsigned int plane_write_enable;
-    struct vkd3d_view *view;
+    DECLSPEC_ALIGN(D3D12_DESC_ALIGNMENT) struct vkd3d_view *view;
     struct d3d12_resource *resource;
+    const struct vkd3d_format *format;
+    uint16_t width;
+    uint16_t height;
+    uint16_t layer_count;
+    uint8_t sample_count;
+    uint8_t plane_write_enable;
 };
 STATIC_ASSERT(sizeof(struct d3d12_rtv_desc) == D3D12_DESC_ALIGNMENT);
 
