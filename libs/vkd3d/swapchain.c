@@ -2163,7 +2163,8 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
         write_info.dstArrayElement = 0;
         write_info.descriptorCount = 1;
         image_info.imageView = chain->user.vk_image_views[chain->request.user_index];
-        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_info.imageLayout = d3d12_device_supports_unified_layouts(chain->queue->device) ?
+                VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         image_info.sampler = VK_NULL_HANDLE;
 
         VK_CALL(vkCmdPushDescriptorSetKHR(vk_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
