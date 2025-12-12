@@ -474,8 +474,22 @@ static inline ID3D12Resource *demo_swapchain_get_back_buffer(struct demo_swapcha
 
 static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
-    IDXGIVkSwapChain_Present(swapchain->swapchain, 1, 0, NULL);
+    DXGI_VK_FRAME_STATISTICS stats;
+    IDXGIVkSwapChain2 *swapchain2;
+    IDXGIVkSwapChain_Present(swapchain->swapchain, 2, 0, NULL);
     acquire_eventfd(swapchain->fd);
+
+    if (SUCCEEDED(IDXGIVkSwapChain_QueryInterface(swapchain->swapchain, &IID_IDXGIVkSwapChain2, (void **)&swapchain2)))
+    {
+#if 0
+        /* For testing */
+        IDXGIVkSwapChain2_SetTargetFrameRate(swapchain2, 50.0f);
+#endif
+
+        IDXGIVkSwapChain2_GetFrameStatistics(swapchain2, &stats);
+        fprintf(stderr, "gears: present %"PRIu64", QPC %.3f * 10^9.\n", stats.PresentCount, (double)stats.PresentQPCTime * 1e-9);
+        IDXGIVkSwapChain2_Release(swapchain2);
+    }
 }
 
 static inline HANDLE demo_create_event(void)
