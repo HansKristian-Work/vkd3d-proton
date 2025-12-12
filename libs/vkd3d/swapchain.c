@@ -159,6 +159,7 @@ struct dxgi_vk_swap_chain
          * we need to do our own accumulation estimates. */
         uint64_t last_absolute_time;
         uint64_t last_absolute_time_domain_id;
+        int64_t negative_error;
 
         /* Feedback so that submit thread knows how to compute future present requests.
          * Wait thread will write to these while holding locks. */
@@ -1916,22 +1917,38 @@ static void dxgi_vk_swap_chain_poll_time_domains(struct dxgi_vk_swap_chain *chai
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkSwapchainTimeDomainPropertiesEXT props;
+    uint32_t i;
 
     memset(&props, 0, sizeof(props));
     props.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_TIME_DOMAIN_PROPERTIES_EXT;
     props.timeDomainCount = ARRAY_SIZE(chain->timing.time_domains);
     props.pTimeDomains = chain->timing.time_domains;
     props.pTimeDomainIds = chain->timing.time_domain_ids;
+    chain->timing.time_domains_count = 0;
 
     if (VK_CALL(vkGetSwapchainTimeDomainPropertiesEXT(chain->queue->device->vk_device,
             chain->present.vk_swapchain, &props, &chain->timing.time_domain_update_count)) < 0)
     {
-        chain->timing.time_domains_count = 0;
         WARN("Failed to query time domain properties for swapchain.\n");
         return;
     }
 
-    chain->timing.time_domains_count = props.timeDomainCount;
+    /* VK_TIME_DOMAIN_DEVICE is a little iffy. Prefer using something else so we don't have to
+     * consider the current spec holes around timestamps (period and valid bits) and present timing.
+     * Only NV proprietary exposes DOMAIN_DEVICE for presentation timings. They support multiple domains anyway,
+     * and we can safely ignore it.
+     * Ignore QPC domain too for now until we're forced to,
+     * since it gets kinda messy w.r.t. setting timestamps. */
+    for (i = 0; i < props.timeDomainCount; i++)
+    {
+        if (chain->timing.time_domains[i] != VK_TIME_DOMAIN_DEVICE_KHR &&
+                chain->timing.time_domain_ids[i] != VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR)
+        {
+            chain->timing.time_domains[chain->timing.time_domains_count] = chain->timing.time_domains[i];
+            chain->timing.time_domain_ids[chain->timing.time_domains_count] = chain->timing.time_domain_ids[i];
+            chain->timing.time_domains_count++;
+        }
+    }
 }
 
 static void dxgi_vk_swap_chain_poll_calibration(struct dxgi_vk_swap_chain *chain)
@@ -1961,6 +1978,7 @@ static void dxgi_vk_swap_chain_poll_calibration(struct dxgi_vk_swap_chain *chain
                 infos[1].timeDomain == VK_TIME_DOMAIN_SWAPCHAIN_LOCAL_EXT)
         {
             memset(&swapchain_info, 0, sizeof(swapchain_info));
+            swapchain_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CALIBRATED_TIMESTAMP_INFO_EXT;
             swapchain_info.swapchain = chain->present.vk_swapchain;
             swapchain_info.timeDomainId = chain->timing.time_domain_ids[i];
             swapchain_info.presentStage = chain->timing.present_stage;
@@ -2633,8 +2651,13 @@ static bool dxgi_vk_swap_chain_setup_present_timing_request(
     if (chain->timing.last_absolute_time_domain_id != timing_info->timeDomainId)
     {
         chain->timing.last_absolute_time = 0;
+        chain->timing.negative_error = 0;
         chain->timing.last_absolute_time_domain_id = timing_info->timeDomainId;
     }
+
+    /* Account for driver bugs (NV on X11, minimized) where images are presented way too soon. */
+    chain->timing.last_absolute_time -= chain->timing.negative_error;
+    chain->timing.negative_error = 0;
 
 #define DELTA_NS 500000
 
@@ -3109,6 +3132,8 @@ static void dxgi_vk_swap_chain_update_past_presentation(struct dxgi_vk_swap_chai
     {
         if (chain->timing.time_domain_ids[i] == time_domain_id && chain->timing.time_domains[i] == time_domain)
         {
+            int64_t delta;
+
             /* This can happen. */
             if (time == 0)
             {
@@ -3116,7 +3141,7 @@ static void dxgi_vk_swap_chain_update_past_presentation(struct dxgi_vk_swap_chai
                 break;
             }
 
-            int64_t delta = (int64_t)time - (int64_t)chain->timing.calibration[i][1];
+            delta = (int64_t)time - (int64_t)chain->timing.calibration[i][1];
 
 #ifdef _WIN32
             {
@@ -3207,6 +3232,25 @@ static void dxgi_vk_swap_chain_poll_past_presentation(struct dxgi_vk_swap_chain 
             /* This really shouldn't happen. */
             ERR("Implementation bug, report is not marked complete.\n");
             continue;
+        }
+
+        if (!chain->present.timing_relative && timings[i].targetTime)
+        {
+            int64_t error_ns = times[i].time - timings[i].targetTime;
+            if (chain->debug_latency)
+                INFO("Absolute timing error: %.3f ms.\n", (double)error_ns * 1e-6);
+
+            if (error_ns < 0)
+            {
+                if (error_ns < -10000000)
+                    FIXME_ONCE("Driver bug, targetTime reported is way early.\n");
+
+                /* NV driver bug when minimizing. It seems to ignore targetTime in this case and happily
+                 * blasts ahead at full rate. */
+                pthread_mutex_lock(&chain->timing.lock);
+                chain->timing.negative_error = -error_ns;
+                pthread_mutex_unlock(&chain->timing.lock);
+            }
         }
 
         if (times[i].stage != chain->timing.present_stage)
