@@ -295,10 +295,22 @@ static inline ID3D12Resource *demo_swapchain_get_back_buffer(struct demo_swapcha
     return buffer;
 }
 
+#define debug_printf(...) do { char buf[1024]; snprintf(buf, sizeof(buf), __VA_ARGS__); OutputDebugStringA(buf); } while(0)
+
 static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
-    IDXGISwapChain3_Present(swapchain->swapchain, 1, 0);
+    DXGI_FRAME_STATISTICS stats;
+    IDXGISwapChain3_Present(swapchain->swapchain, 2, 0);
     WaitForSingleObject(swapchain->handle, INFINITE);
+
+    if (SUCCEEDED(IDXGISwapChain3_GetFrameStatistics(swapchain->swapchain, &stats)))
+    {
+        LARGE_INTEGER freq;
+        QueryPerformanceFrequency(&freq);
+        debug_printf("gears: present %u, QPC %.3f s.\n", stats.SyncRefreshCount, (double)stats.SyncQPCTime.QuadPart / (double)freq.QuadPart);
+    }
+	else
+		debug_printf("gears: Failed to get frame stats.\n");
 }
 
 static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
