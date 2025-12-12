@@ -352,6 +352,9 @@ VK_DEVICE_EXT_PFN(vkGetShaderModuleIdentifierEXT)
 /* VK_KHR_present_wait */
 VK_DEVICE_EXT_PFN(vkWaitForPresentKHR)
 
+/* VK_KHR_present_wait2 */
+VK_DEVICE_EXT_PFN(vkWaitForPresent2KHR)
+
 /* VK_EXT_descriptor_buffer */
 VK_DEVICE_EXT_PFN(vkGetDescriptorEXT)
 VK_DEVICE_EXT_PFN(vkCmdBindDescriptorBuffersEXT)
@@ -390,6 +393,12 @@ VK_DEVICE_EXT_PFN(vkCmdCopyMicromapEXT)
 
 /* VK_AMD_anti_lag */
 VK_DEVICE_EXT_PFN(vkAntiLagUpdateAMD)
+
+/* VK_EXT_present_timing */
+VK_DEVICE_EXT_PFN(vkGetPastPresentationTimingEXT)
+VK_DEVICE_EXT_PFN(vkGetSwapchainTimeDomainPropertiesEXT)
+VK_DEVICE_EXT_PFN(vkGetSwapchainTimingPropertiesEXT)
+VK_DEVICE_EXT_PFN(vkSetSwapchainPresentTimingQueueSizeEXT)
 
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN

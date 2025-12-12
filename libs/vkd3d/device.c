@@ -87,6 +87,9 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_CALIBRATED_TIMESTAMPS, KHR_calibrated_timestamps),
     VK_EXTENSION(KHR_COOPERATIVE_MATRIX, KHR_cooperative_matrix),
     VK_EXTENSION(KHR_UNIFIED_IMAGE_LAYOUTS, KHR_unified_image_layouts),
+    VK_EXTENSION(KHR_PRESENT_ID_2, KHR_present_id2),
+    VK_EXTENSION(KHR_PRESENT_WAIT_2, KHR_present_wait2),
+    VK_EXTENSION(EXT_PRESENT_TIMING, EXT_present_timing),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -156,6 +159,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 
 static const struct vkd3d_optional_extension_info optional_extensions_user[] =
 {
+    VK_EXTENSION(KHR_SURFACE_MAINTENANCE_1, KHR_surface_maintenance1),
+    VK_EXTENSION(KHR_SWAPCHAIN_MAINTENANCE_1, KHR_swapchain_maintenance1),
     VK_EXTENSION(EXT_SURFACE_MAINTENANCE_1, EXT_surface_maintenance1),
     VK_EXTENSION(EXT_SWAPCHAIN_MAINTENANCE_1, EXT_swapchain_maintenance1),
 };
@@ -2169,9 +2174,9 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->fault_features);
     }
 
-    if (vulkan_info->EXT_swapchain_maintenance1)
+    if (vulkan_info->KHR_swapchain_maintenance1 || vulkan_info->EXT_swapchain_maintenance1)
     {
-        info->swapchain_maintenance1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT;
+        info->swapchain_maintenance1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->swapchain_maintenance1_features);
     }
 
@@ -2252,6 +2257,24 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->unified_image_layouts_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->unified_image_layouts_features);
+    }
+
+    if (vulkan_info->KHR_present_id2)
+    {
+        info->present_id2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_2_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->present_id2_features);
+    }
+
+    if (vulkan_info->KHR_present_wait2)
+    {
+        info->present_wait2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_2_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->present_wait2_features);
+    }
+
+    if (vulkan_info->EXT_present_timing)
+    {
+        info->present_timing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->present_timing_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
