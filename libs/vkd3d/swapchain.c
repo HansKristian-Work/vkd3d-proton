@@ -1228,17 +1228,29 @@ static void STDMETHODCALLTYPE dxgi_vk_swap_chain_SetTargetFrameRate(IDXGIVkSwapC
 
     if (frame_rate != 0.0)
     {
+        uint64_t target_interval_ns;
+        bool reset_stats;
+        bool enable;
+
         /* Target frame rate may be negative, in which case we should only engage the limiter
          * if the measured frame rate is higher than expected, e.g. due to the actual display
          * refresh rate not matching the display mode used for the swap chain. */
         INFO("Set target frame rate to %.1lf FPS.\n", fabs(frame_rate));
 
-        chain->frame_rate_limit.enable = frame_rate > 0.0;
-        chain->frame_rate_limit.target_interval_ns = (uint64_t)(1.0e9 / fabs(frame_rate));
-        chain->frame_rate_limit.next_deadline_ns = 0;
+        target_interval_ns = (uint64_t)(1.0e9 / fabs(frame_rate));
+        enable = frame_rate > 0.0;
+        reset_stats = chain->frame_rate_limit.enable != enable ||
+                chain->frame_rate_limit.target_interval_ns != target_interval_ns;
 
-        chain->frame_rate_limit.heuristic_frame_time_ns = 0;
-        chain->frame_rate_limit.heuristic_frame_count = 0;
+        chain->frame_rate_limit.enable = enable;
+
+        if (reset_stats)
+        {
+            chain->frame_rate_limit.target_interval_ns = target_interval_ns;
+            chain->frame_rate_limit.next_deadline_ns = 0;
+            chain->frame_rate_limit.heuristic_frame_time_ns = 0;
+            chain->frame_rate_limit.heuristic_frame_count = 0;
+        }
     }
     else
     {
