@@ -6260,6 +6260,126 @@ void test_wmma_special_conversions(void)
     destroy_test_context(&context);
 }
 
+void test_wmma_element_wise(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    float input_data[2 * 16 * 16];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j;
+
+#include "shaders/sm_advanced/headers/cs_wmma_element_wise.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_wmma_element_wise_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 10 * 16 * 16 * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    for (i = 0; i < 256; i++)
+    {
+        input_data[i] = i - 100.5f;
+        input_data[256 + i] = i - 99.5f;
+    }
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (j = 0; j < 2; j++)
+    {
+        for (i = 0; i < 256; i++)
+        {
+            float a, b, value, expected_add, expected_sub, expected_mul, expected_div, expected_times;
+            const char *tag = j ? "FP16" : "FP32";
+
+            a = input_data[i];
+            b = input_data[256 + i];
+
+            if (j)
+            {
+                a = quant_fp16(a);
+                b = quant_fp16(b);
+            }
+
+            expected_add = a + b;
+            expected_sub = a - b;
+            expected_mul = a * b;
+            expected_div = a / b;
+            expected_times = a * b;
+
+            if (j)
+            {
+                expected_add = quant_fp16(expected_add);
+                expected_sub = quant_fp16(expected_sub);
+                expected_mul = quant_fp16(expected_mul);
+                expected_div = quant_fp16(expected_div);
+                expected_times = quant_fp16(expected_times);
+            }
+
+            value = get_readback_float(&rb, 256 * (j * 5 + 0) + i, 0);
+            ok(value == expected_add, "%s ADD Value %u: Expected %f, got %f\n", tag, i, expected_add, value);
+
+            value = get_readback_float(&rb, 256 * (j * 5 + 1) + i, 0);
+            ok(value == expected_sub, "%s SUB Value %u: Expected %f, got %f\n", tag, i, expected_sub, value);
+
+            value = get_readback_float(&rb, 256 * (j * 5 + 2) + i, 0);
+            ok(value == expected_mul, "%s MUL Value %u: Expected %f, got %f\n", tag, i, expected_mul, value);
+
+            value = get_readback_float(&rb, 256 * (j * 5 + 3) + i, 0);
+            ok(compare_float(value, expected_div, j ? 20000 : 16), "%s DIV Value %u: Expected %f, got %f\n", tag, i, expected_div, value);
+
+            /* AMD doesn't implement this. Maybe TIMES is a lingering opcode. Anyway ... */
+            value = get_readback_float(&rb, 256 * (j * 5 + 4) + i, 0);
+            ok(value == expected_times || value == 0.0f, "%s TIMES Value %u: Expected %f, got %f\n", tag, i, expected_times, value);
+        }
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+
+    destroy_test_context(&context);
+}
+
 void test_vs_instance_input_nonuniform_workarounds(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
