@@ -6851,7 +6851,8 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
 
 static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *list)
 {
-    struct d3d12_graphics_pipeline_state *graphics = &list->state->graphics;
+    struct d3d12_graphics_pipeline_state *graphics = list->active_pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+            list->active_pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS ? &list->state->graphics : NULL;
     struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
     struct d3d12_command_list_barrier_batch barrier;
     VkExtent2D old_extent;
@@ -6865,8 +6866,15 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     rendering_info->info.renderArea.extent.width = list->fb_width;
     rendering_info->info.renderArea.extent.height = list->fb_height;
 
-    rendering_info->info.viewMask = graphics->multiview.dynamic_mask ?
-            list->dynamic_state.view_mask : graphics->multiview.view_mask;
+    if (graphics)
+    {
+        rendering_info->info.viewMask = graphics->multiview.dynamic_mask ?
+                list->dynamic_state.view_mask : graphics->multiview.view_mask;
+    }
+    else
+    {
+        rendering_info->info.viewMask = 0;
+    }
 
     /* In multiview, it's the mask that controls active layers. */
     if (rendering_info->info.viewMask != 0)
@@ -8203,15 +8211,18 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     d3d12_command_list_flush_rtas_batch(list);
 
     d3d12_command_list_promote_dsv_layout(list);
-    if (!d3d12_command_list_update_graphics_pipeline(list, pipeline_type))
+    if (pipeline_type != VKD3D_PIPELINE_TYPE_NONE && !d3d12_command_list_update_graphics_pipeline(list, pipeline_type))
         return false;
     if (!d3d12_command_list_update_rendering_info(list))
         return false;
 
-    if (list->dynamic_state.dirty_flags)
-        d3d12_command_list_update_dynamic_state(list);
+    if (pipeline_type != VKD3D_PIPELINE_TYPE_NONE)
+    {
+        if (list->dynamic_state.dirty_flags)
+            d3d12_command_list_update_dynamic_state(list);
 
-    d3d12_command_list_update_descriptors(list);
+        d3d12_command_list_update_descriptors(list);
+    }
 
     if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
     {
@@ -8243,18 +8254,21 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     list->rendering_info.state_flags |= VKD3D_RENDERING_ACTIVE;
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_SUSPENDED;
 
-    graphics = &list->state->graphics;
-    if (graphics->xfb_buffer_count)
+    if (pipeline_type != VKD3D_PIPELINE_TYPE_NONE)
     {
-        list->xfb_buffer_count = graphics->xfb_buffer_count;
+        graphics = &list->state->graphics;
+        if (graphics->xfb_buffer_count)
+        {
+            list->xfb_buffer_count = graphics->xfb_buffer_count;
 
-        if (!d3d12_command_list_fixup_null_xfb_buffers(list, list->xfb_buffer_count))
-            return false;
+            if (!d3d12_command_list_fixup_null_xfb_buffers(list, list->xfb_buffer_count))
+                return false;
 
-        VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
-                list->so_buffers, list->so_buffer_offsets, list->so_buffer_sizes));
-        VK_CALL(vkCmdBeginTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
-                list->so_counter_buffers, list->so_counter_buffer_offsets));
+            VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
+                    list->so_buffers, list->so_buffer_offsets, list->so_buffer_sizes));
+            VK_CALL(vkCmdBeginTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, list->xfb_buffer_count,
+                    list->so_counter_buffers, list->so_counter_buffer_offsets));
+        }
     }
 
 #ifdef VKD3D_ENABLE_PROFILING
@@ -17944,6 +17958,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
     {
         d3d12_command_list_mark_as_invalid(list, "EndRenderPass called outside a render pass.\n");
         return;
+    }
+
+    if (!(list->rendering_info.info.flags & VKD3D_RENDERING_ACTIVE))
+    {
+        /* If we never started the render pass due to no draw calls,
+         * forcefully start it so that we can get the fused clears in the proper render pass,
+         * and not forcing a separate clear. */
+        d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_NONE);
     }
 
     /* There is no need to actually end the render pass if we're suspending.
