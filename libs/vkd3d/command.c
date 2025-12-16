@@ -7730,19 +7730,33 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
              * but it's out of spec in Vulkan,
              * and NV can crash GPU if scissor is out of bounds in some cases. */
             VkRect2D clamped_scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
-            VkExtent2D max_sci_extent, max_fb_extent;
+            VkOffset2D top_left, bottom_right;
+            const VkViewport *viewport;
+            VkExtent2D max_fb_extent;
             const VkRect2D *scissor;
 
             max_fb_extent = list->rendering_info.info.renderArea.extent;
 
             for (i = 0; i < dyn_state->viewport_count; i++)
             {
+                viewport = &dyn_state->viewports[i];
                 scissor = &dyn_state->scissors[i];
-                max_sci_extent.width = max((int)max_fb_extent.width - scissor->offset.x, 0);
-                max_sci_extent.height = max((int)max_fb_extent.height - scissor->offset.y, 0);
-                clamped_scissors[i].offset = scissor->offset;
-                clamped_scissors[i].extent.width = min(max_sci_extent.width, scissor->extent.width);
-                clamped_scissors[i].extent.height = min(max_sci_extent.height, scissor->extent.height);
+
+                /* Need to take possible negative viewport height into account */
+                top_left.x = max(scissor->offset.x, (int)(max(0.0f, viewport->x)));
+                top_left.y = max(scissor->offset.y, (int)(max(0.0f,
+                    min(viewport->y, viewport->y + viewport->height))));
+
+                bottom_right.x = min((int)max_fb_extent.width, (int)max(0.0f, viewport->x + viewport->width));
+                bottom_right.y = min((int)max_fb_extent.height, (int)max(0.0f,
+                    max(viewport->y, viewport->y + viewport->height)));
+
+                bottom_right.x = max(bottom_right.x, top_left.x);
+                bottom_right.y = max(bottom_right.y, top_left.y);
+
+                clamped_scissors[i].offset = top_left;
+                clamped_scissors[i].extent.width = min(scissor->extent.width, (uint32_t)(bottom_right.x - top_left.x));
+                clamped_scissors[i].extent.height = min(scissor->extent.height, (uint32_t)(bottom_right.y - top_left.y));
             }
 
             VK_CALL(vkCmdSetScissorWithCount(list->cmd.vk_command_buffer,
@@ -11313,11 +11327,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
     if (dyn_state->viewport_count != viewport_count)
     {
         dyn_state->viewport_count = viewport_count;
-        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
         d3d12_command_list_invalidate_current_pipeline(list, false);
     }
 
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT;
+    /* Always dirty scissor to recompute the implicit clip area */
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(d3d12_command_list_iface *iface,
