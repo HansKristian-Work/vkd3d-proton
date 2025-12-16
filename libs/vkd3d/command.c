@@ -17562,8 +17562,9 @@ static void d3d12_command_list_load_render_pass_dsv(struct d3d12_command_list *l
     VkImageAspectFlags aspect_flags = dsv_info->format->vk_aspect_mask;
     VkImageAspectFlags clear_aspects = 0u, discard_aspects = 0u;
     VkImageSubresourceRange subresource_range;
+    bool full_resource_clear_or_discard;
     VkClearValue clear_value;
-    bool full_resource_clear;
+    bool fully_covers;
 
     vk_clear_depth_stencil_value_from_d3d12(&clear_value.depthStencil,
             &ds->DepthBeginningAccess.Clear.ClearValue,
@@ -17582,9 +17583,10 @@ static void d3d12_command_list_load_render_pass_dsv(struct d3d12_command_list *l
     clear_aspects &= aspect_flags;
     discard_aspects &= aspect_flags;
 
-    full_resource_clear = d3d12_resource_may_alias_other_resources(dsv_info->resource) &&
-            vkd3d_rtv_and_aspects_fully_cover_resource(dsv_info->resource, dsv_info->view, clear_aspects);
-    d3d12_command_list_track_resource_usage(list, dsv_info->resource, !full_resource_clear);
+    fully_covers = vkd3d_rtv_and_aspects_fully_cover_resource(dsv_info->resource, dsv_info->view,
+            clear_aspects | discard_aspects);
+    full_resource_clear_or_discard = d3d12_resource_may_alias_other_resources(dsv_info->resource) && fully_covers;
+    d3d12_command_list_track_resource_usage(list, dsv_info->resource, !full_resource_clear_or_discard);
 
     if (clear_aspects)
     {
@@ -17596,6 +17598,14 @@ static void d3d12_command_list_load_render_pass_dsv(struct d3d12_command_list *l
     {
         subresource_range = vk_subresource_range_from_view(dsv_info->view);
         subresource_range.aspectMask = discard_aspects;
+
+        /* Could consider partial plane promotes, but ignore until there's a use case. */
+        if (fully_covers)
+        {
+            unsigned int resource_subresource_count = d3d12_resource_get_sub_resource_count(dsv_info->resource);
+            d3d12_command_list_notify_dsv_discard(list, dsv_info->resource, 0,
+                    resource_subresource_count, resource_subresource_count);
+        }
 
         d3d12_command_list_discard_attachment_barrier(list, dsv_info->resource, &subresource_range, false);
     }
