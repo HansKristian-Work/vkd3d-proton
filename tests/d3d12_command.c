@@ -351,15 +351,18 @@ void test_fractional_viewports(void)
     };
     static const float viewport_offsets[] =
     {
-        0.0f, 1.0f / 2.0f, 1.0f / 4.0f, 1.0f / 8.0f, 1.0f / 16.0f, 1.0f / 32.0f,
-        1.0f / 64.0f, 1.0f / 128.0f, 1.0f / 256.0f, 63.0f / 128.0f,
+        0.0f, 1.0f / 2.0f, 1.0f / 4.0f, 3.0f / 4.0f, 1.0f / 8.0f, 1.0f / 16.0f, 1.0f / 32.0f,
+        1.0f / 64.0f, 1.0f / 128.0f, 1.0f / 256.0f, 63.0f / 128.0f, 127.0f / 128.0f,
     };
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     desc.no_root_signature = true;
+    desc.rt_width = 34;
+    desc.rt_height = 34;
     if (!init_test_context(&context, &desc))
         return;
+
     command_list = context.list;
     queue = context.queue;
 
@@ -380,12 +383,15 @@ void test_fractional_viewports(void)
 
     for (i = 0; i < ARRAY_SIZE(viewport_offsets); ++i)
     {
-        set_viewport(&viewport, viewport_offsets[i], viewport_offsets[i],
-                context.render_target_desc.Width, context.render_target_desc.Height, 0.0f, 1.0f);
+        set_viewport(&viewport, viewport_offsets[i] + 1.0f, viewport_offsets[i] + 1.0f,
+                (float)(context.render_target_desc.Width) - 2.0f,
+                (float)(context.render_target_desc.Height) - 2.0f, 0.0f, 1.0f);
 
         if (i)
+        {
             transition_resource_state(command_list, context.render_target,
                     D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -407,9 +413,25 @@ void test_fractional_viewports(void)
             for (x = 0; x < rb.width; ++x)
             {
                 const struct vec4 *v = get_readback_vec4(&rb, x, y);
-                struct vec4 expected = {x + 0.5f, y + 0.5f,
-                        (x + 0.5f - viewport_offsets[i]) / context.render_target_desc.Width,
-                        1.0f - (y + 0.5f - viewport_offsets[i]) / context.render_target_desc.Height};
+                struct vec4 expected = { 1.0f, 1.0f, 1.0f, 1.0f };
+                struct vec2 vp_pos;
+
+                vp_pos.x = (float)x + 0.5f;
+                vp_pos.y = (float)y + 0.5f;
+
+                if (x && y && x + 1u < rb.width && y + 1u < rb.height && vp_pos.x >= viewport.TopLeftX && vp_pos.y >= viewport.TopLeftY)
+                {
+                    expected.x = (float)x + 0.5f;
+                    expected.y = (float)y + 0.5f;
+                    expected.z = (x - 0.5f - viewport_offsets[i]) / (float)(context.render_target_desc.Width - 2u);
+                    expected.w = 1.0f - (y - 0.5f - viewport_offsets[i]) / (float)(context.render_target_desc.Height - 2u);
+                }
+
+                expected.x /= (float)(context.render_target_desc.SampleDesc.Count);
+                expected.y /= (float)(context.render_target_desc.SampleDesc.Count);
+                expected.z /= (float)(context.render_target_desc.SampleDesc.Count);
+                expected.w /= (float)(context.render_target_desc.SampleDesc.Count);
+
                 ok(compare_float(v->x, expected.x, 0) && compare_float(v->y, expected.y, 0),
                         "Got fragcoord {%.8e, %.8e}, expected {%.8e, %.8e} at (%u, %u), offset %.8e.\n",
                         v->x, v->y, expected.x, expected.y, x, y, viewport_offsets[i]);
