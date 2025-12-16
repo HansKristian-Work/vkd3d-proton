@@ -4007,7 +4007,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkRenderingAttachmentInfo attachment_info, stencil_attachment_info;
-    VkImageLayout initial_layouts[2], final_layouts[2];
+    VkImageLayout initial_layouts[2], rp_layouts[2], final_layouts[2];
     VkImageMemoryBarrier2 image_barriers[2];
     VkRenderingInfo rendering_info;
     bool requires_discard_barrier;
@@ -4072,7 +4072,8 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
 
     if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
-        initial_layouts[0] = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
+        uint32_t plane_optimal_mask;
+        initial_layouts[0] = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, &plane_optimal_mask);
 
         if (separate_ds_layouts)
         {
@@ -4087,29 +4088,39 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
         if (clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
             plane_write_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
 
+        /* This might be read-only if we couldn't promote the entire aspect in one go. */
         final_layouts[0] = dsv_plane_optimal_mask_to_layout(
                 d3d12_command_list_notify_dsv_writes(list, resource, view, plane_write_mask),
                 resource->format->vk_aspect_mask);
 
+        /* For layered DSV where we only clear a single layer, we may
+         * need to transition into OPTIMAL to clear, then transition out back to common READ_ONLY state
+         * to not break tracking. */
+        rp_layouts[0] = dsv_plane_optimal_mask_to_layout(
+                plane_optimal_mask | plane_write_mask, resource->format->vk_aspect_mask);
+
         if (separate_ds_layouts)
         {
             /* Do not transition aspects that we are not supposed to clear */
+            rp_layouts[1] = vk_separate_stencil_layout(rp_layouts[0]);
+            rp_layouts[0] = vk_separate_depth_layout(rp_layouts[0]);
             final_layouts[1] = vk_separate_stencil_layout(final_layouts[0]);
             final_layouts[0] = vk_separate_depth_layout(final_layouts[0]);
 
-            attachment_info.imageLayout = final_layouts[0];
-            stencil_attachment_info.imageLayout = final_layouts[1];
+            attachment_info.imageLayout = rp_layouts[0];
+            stencil_attachment_info.imageLayout = rp_layouts[1];
         }
         else
         {
-            attachment_info.imageLayout = final_layouts[0];
-            stencil_attachment_info.imageLayout = final_layouts[0];
+            attachment_info.imageLayout = rp_layouts[0];
+            stencil_attachment_info.imageLayout = rp_layouts[0];
         }
     }
     else
     {
         attachment_info.imageLayout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         initial_layouts[0] = attachment_info.imageLayout;
+        rp_layouts[0] = attachment_info.imageLayout;
         final_layouts[0] = attachment_info.imageLayout;
     }
 
@@ -4129,13 +4140,14 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
         requires_discard_barrier = d3d12_resource_may_alias_other_resources(resource);
         if (separate_ds_layouts)
         {
-            if (initial_layouts[0] != final_layouts[0] || initial_layouts[1] != final_layouts[1])
+            if (initial_layouts[0] != rp_layouts[0] || initial_layouts[1] != rp_layouts[1])
                 requires_discard_barrier = true;
         }
-        else if (initial_layouts[0] != final_layouts[0])
+        else if (initial_layouts[0] != rp_layouts[0])
             requires_discard_barrier = true;
 
         /* Can only discard 3D images if we cover all layers at once.
+         * (FIXME: This changes in maintenance9)
          * > check takes care of REMAINING_LAYERS. */
         if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
             if (view->info.texture.layer_idx != 0 || view->info.texture.layer_count < resource->desc.DepthOrArraySize)
@@ -4160,7 +4172,8 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
         stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
         access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-        if (!clear_op || clear_aspects != view->format->vk_aspect_mask)
+        /* Make LOAD_OP_LOAD work. */
+        if (!clear_op)
             access |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
     }
     else
@@ -4168,6 +4181,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
         stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 
+        /* Make LOAD_OP_LOAD work. */
         if (!clear_op)
             access |= VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
     }
@@ -4179,7 +4193,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
 
     for (i = 0; i < (separate_ds_layouts ? 2 : 1); i++)
     {
-        if (initial_layouts[i] != final_layouts[i])
+        if (initial_layouts[i] != rp_layouts[i])
         {
             VkImageMemoryBarrier2 *barrier = &image_barriers[dep_info.imageMemoryBarrierCount++];
 
@@ -4192,7 +4206,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
             barrier->dstStageMask = stages;
             barrier->dstAccessMask = access;
             barrier->oldLayout = initial_layouts[i];
-            barrier->newLayout = final_layouts[i];
+            barrier->newLayout = rp_layouts[i];
             barrier->subresourceRange.aspectMask = view->format->vk_aspect_mask;
             barrier->subresourceRange.baseMipLevel = view->info.texture.miplevel_idx;
             barrier->subresourceRange.levelCount = 1;
@@ -4234,6 +4248,52 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
 
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         d3d12_command_list_sync_tiler_renderpass_writes(list, &rendering_info);
+    }
+
+    dep_info.imageMemoryBarrierCount = 0;
+
+    for (i = 0; i < (separate_ds_layouts ? 2 : 1); i++)
+    {
+        if (rp_layouts[i] != final_layouts[i])
+        {
+            VkImageMemoryBarrier2 *barrier = &image_barriers[dep_info.imageMemoryBarrierCount++];
+            assert(clear_op);
+            assert(view->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
+
+            memset(barrier, 0, sizeof(*barrier));
+            barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier->image = resource->res.vk_image;
+            barrier->srcStageMask = stages;
+            barrier->dstStageMask = stages;
+            barrier->srcAccessMask = access;
+            /* This is always a decay back to read-only depth-stencil. */
+            barrier->dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+            barrier->oldLayout = rp_layouts[i];
+            barrier->newLayout = final_layouts[i];
+            barrier->subresourceRange.aspectMask = view->format->vk_aspect_mask;
+            barrier->subresourceRange.baseMipLevel = view->info.texture.miplevel_idx;
+            barrier->subresourceRange.levelCount = 1;
+            barrier->subresourceRange.baseArrayLayer = view->info.texture.layer_idx;
+            barrier->subresourceRange.layerCount = view->info.texture.layer_count;
+
+            if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+            {
+                barrier->subresourceRange.baseArrayLayer = 0;
+                barrier->subresourceRange.layerCount = 1;
+            }
+
+            if (separate_ds_layouts)
+                barrier->subresourceRange.aspectMask = i ? VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
+        }
+    }
+
+    if (dep_info.imageMemoryBarrierCount)
+    {
+        VKD3D_BREADCRUMB_TAG("clear-barrier");
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        d3d12_command_list_check_render_pass_validation(list, NULL, true);
     }
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
