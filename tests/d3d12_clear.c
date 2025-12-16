@@ -1257,11 +1257,9 @@ void test_deferred_clears(void)
     D3D12_RESOURCE_DESC resource_desc[2];
     D3D12_RESOURCE_DESC1 resource_desc1;
     ID3D12GraphicsCommandList7 *list7;
-    D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_BARRIER_GROUP barrier_group;
     D3D12_RESOURCE_BARRIER barrier;
     struct test_context_desc desc;
-    D3D12_ROOT_PARAMETER rs_arg;
     struct test_context context;
     ID3D12Resource *rt[6], *ds;
     D3D12_HEAP_DESC heap_desc;
@@ -1287,6 +1285,7 @@ void test_deferred_clears(void)
     memset(&desc, 0, sizeof(desc));
     desc.no_render_target = true;
     desc.no_pipeline = true;
+    desc.no_root_signature = true;
 
     if (!init_test_context(&context, &desc))
         return;
@@ -1306,17 +1305,7 @@ void test_deferred_clears(void)
     context.scissor_rect.right = 16u;
     context.scissor_rect.bottom = 16u;
 
-    memset(&rs_arg, 0, sizeof(rs_arg));
-    rs_arg.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    rs_arg.Constants.Num32BitValues = 1u;
-    rs_arg.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-
-    memset(&rs_desc, 0, sizeof(rs_desc));
-    rs_desc.NumParameters = 1u;
-    rs_desc.pParameters = &rs_arg;
-
-    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    context.root_signature = create_32bit_constants_root_signature(context.device, 0, 1, D3D12_SHADER_VISIBILITY_VERTEX);
 
     init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN,
             &vs_deferred_clear_dxbc, &ps_deferred_clear_dxbc, NULL);
