@@ -17550,7 +17550,7 @@ static void d3d12_command_list_load_render_pass_rtv(struct d3d12_command_list *l
     else if (load_op == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
     {
         subresource_range = vk_subresource_range_from_view(rtv_info->view);
-        d3d12_command_list_discard_attachment(list, rtv_info->resource, &subresource_range);
+        d3d12_command_list_discard_attachment_barrier(list, rtv_info->resource, &subresource_range, false);
     }
 }
 
@@ -17597,7 +17597,7 @@ static void d3d12_command_list_load_render_pass_dsv(struct d3d12_command_list *l
         subresource_range = vk_subresource_range_from_view(dsv_info->view);
         subresource_range.aspectMask = discard_aspects;
 
-        d3d12_command_list_discard_attachment(list, dsv_info->resource, &subresource_range);
+        d3d12_command_list_discard_attachment_barrier(list, dsv_info->resource, &subresource_range, false);
     }
 }
 
