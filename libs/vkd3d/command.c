@@ -5238,11 +5238,28 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
                 discard->subresources.baseArrayLayer <= subresources.baseArrayLayer &&
                 discard->subresources.baseArrayLayer + discard->subresources.layerCount >= subresources.baseArrayLayer + subresources.layerCount)
         {
+            uint32_t dsv_plane_write_mask = 0;
+
             if (discard_aspects != VK_IMAGE_ASPECT_STENCIL_BIT)
                 attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 
+            /* Discarding implies a write. Need to promote the active dsv layout for the upcoming render pass. */
+
+            if (discard_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+                dsv_plane_write_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
+
             if (discard_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+            {
                 stencil_attachment->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                dsv_plane_write_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
+            }
+
+            if (dsv_plane_write_mask)
+            {
+                list->dsv_plane_optimal_mask |= dsv_plane_write_mask;
+                list->dsv_layout = dsv_plane_optimal_mask_to_layout(list->dsv_plane_optimal_mask,
+                        resource->format->vk_aspect_mask);
+            }
 
             *discard = list->deferred_discards[--list->deferred_discard_count];
             break;
