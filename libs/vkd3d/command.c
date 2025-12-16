@@ -17531,6 +17531,7 @@ static void d3d12_command_list_load_render_pass_rtv(struct d3d12_command_list *l
         struct d3d12_rtv_desc *rtv_info, const D3D12_RENDER_PASS_RENDER_TARGET_DESC *rt)
 {
     VkAttachmentLoadOp load_op = vk_load_op_from_d3d12(rt->BeginningAccess.Type);
+    VkImageSubresourceRange subresource_range;
     VkClearValue clear_value;
     bool full_resource_clear;
 
@@ -17545,6 +17546,11 @@ static void d3d12_command_list_load_render_pass_rtv(struct d3d12_command_list *l
     {
         d3d12_command_list_defer_attachment_clear(list, rtv_info->resource,
                 rtv_info->view, VK_IMAGE_ASPECT_COLOR_BIT, &clear_value);
+    }
+    else if (load_op == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+    {
+        subresource_range = vk_subresource_range_from_view(rtv_info->view);
+        d3d12_command_list_discard_attachment(list, rtv_info->resource, &subresource_range);
     }
 }
 
