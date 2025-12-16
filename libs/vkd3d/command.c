@@ -17522,8 +17522,9 @@ static void d3d12_command_list_load_render_pass_rtv(struct d3d12_command_list *l
 
     vk_clear_color_value_from_d3d12(&clear_value.color, &rt->BeginningAccess.Clear.ClearValue);
 
-    full_resource_clear = vkd3d_rtv_and_aspects_fully_cover_resource(rtv_info->resource, rtv_info->view,
-            load_op != VK_ATTACHMENT_LOAD_OP_LOAD ? rtv_info->format->vk_aspect_mask : 0u);
+    full_resource_clear = d3d12_resource_may_alias_other_resources(rtv_info->resource) &&
+            vkd3d_rtv_and_aspects_fully_cover_resource(rtv_info->resource, rtv_info->view,
+                    load_op != VK_ATTACHMENT_LOAD_OP_LOAD ? rtv_info->format->vk_aspect_mask : 0u);
     d3d12_command_list_track_resource_usage(list, rtv_info->resource, !full_resource_clear);
 
     if (load_op == VK_ATTACHMENT_LOAD_OP_CLEAR)
@@ -17561,7 +17562,8 @@ static void d3d12_command_list_load_render_pass_dsv(struct d3d12_command_list *l
     clear_aspects &= aspect_flags;
     discard_aspects &= aspect_flags;
 
-    full_resource_clear = vkd3d_rtv_and_aspects_fully_cover_resource(dsv_info->resource, dsv_info->view, clear_aspects);
+    full_resource_clear = d3d12_resource_may_alias_other_resources(dsv_info->resource) &&
+            vkd3d_rtv_and_aspects_fully_cover_resource(dsv_info->resource, dsv_info->view, clear_aspects);
     d3d12_command_list_track_resource_usage(list, dsv_info->resource, !full_resource_clear);
 
     if (clear_aspects)
