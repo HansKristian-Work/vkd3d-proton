@@ -1930,3 +1930,219 @@ void test_deferred_clears(void)
 
     destroy_test_context(&context);
 }
+
+void test_deferred_clears_dsv_layout(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE ds_handle;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *dsv;
+    ID3D12Resource *ds;
+    unsigned int i, j;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+
+    enum dsv_style
+    {
+        LAYER0 = 0,
+        LAYER1,
+        BOTH
+    };
+
+    /* Try to exhaustively test every possible combination that can come up. */
+    static const struct test
+    {
+        enum dsv_style style;
+        bool ro_depth;
+        bool ro_stencil;
+        D3D12_CLEAR_FLAGS clear;
+        float depth;
+        uint8_t stencil;
+        float draw_depth;
+        uint8_t draw_stencil;
+        bool skip_draw;
+    } tests[] = {
+        { BOTH, false, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+        { BOTH, true, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 11, 0.75f, 20 },
+        { BOTH, false, true, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 12, 0.75f, 20 },
+        { BOTH, true, true, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 13, 0.75f, 20 },
+
+        /* Cannot promote fully due to partial subresource. */
+        { LAYER0, false, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 30, 0.75f, 20 },
+        { LAYER0, true, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 31, 0.75f, 20 },
+        { LAYER0, false, true, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 32, 0.75f, 20 },
+        { LAYER0, true, true, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 33, 0.75f, 20 },
+
+        /* Cannot promote fully due to partial subresource. */
+        { LAYER1, false, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+        { LAYER1, true, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+        { LAYER1, false, true, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+        { LAYER1, true, true, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+
+        /* Partial aspects clear, with and without all subresources active. */
+        { BOTH, false, false, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 10, 0.75f, 20 },
+        { BOTH, false, false, D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+        { BOTH, false, false, 0, 0.5f, 10, 0.75f, 20 },
+        { BOTH, true, true, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 10, 0.75f, 20 },
+        { BOTH, true, true, D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+        { BOTH, true, true, 0, 0.5f, 10, 0.75f, 20 },
+
+        { LAYER0, false, false, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 10, 0.75f, 20 },
+        { LAYER1, false, false, D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+        { LAYER1, false, false, 0, 0.5f, 10, 0.75f, 20 },
+        { LAYER0, true, true, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 10, 0.75f, 20 },
+        { LAYER1, true, true, D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20 },
+        { LAYER1, true, true, 0, 0.5f, 10, 0.75f, 20 },
+
+        /* Skip draws, hit the pure clear path. */
+        { BOTH, false, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20, true },
+        { BOTH, false, false, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 10, 0.75f, 20, true },
+        { BOTH, false, false, D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20, true },
+
+        { LAYER0, false, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20, true },
+        { LAYER0, false, false, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 10, 0.75f, 20, true },
+        { LAYER0, false, false, D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20, true },
+
+        { LAYER1, false, false, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20, true },
+        { LAYER1, false, false, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 10, 0.75f, 20, true },
+        { LAYER1, false, false, D3D12_CLEAR_FLAG_STENCIL, 0.5f, 10, 0.75f, 20, true },
+    };
+
+#include "shaders/clear/headers/ps_deferred_clear.h"
+#include "shaders/clear/headers/vs_deferred_clear.h"
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    dsv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 12);
+
+    /* With multiple subresources, it gets harder to deal with DSV promotion. */
+    ds = create_default_texture2d(context.device, 16, 16, 2, 1,
+            DXGI_FORMAT_D32_FLOAT_S8X24_UINT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+    context.root_signature = create_32bit_constants_root_signature(context.device, 0, 1, D3D12_SHADER_VISIBILITY_VERTEX);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN,
+            &vs_deferred_clear_dxbc, &ps_deferred_clear_dxbc, NULL);
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.StencilEnable = TRUE;
+    pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
+    pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
+    pso_desc.DepthStencilState.StencilReadMask = 0xffu;
+    pso_desc.DepthStencilState.StencilWriteMask = 0xffu;
+
+    ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+
+    for (j = 0; j < 3; j++)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+            memset(&dsv_desc, 0, sizeof(dsv_desc));
+            dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+            dsv_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+            dsv_desc.Texture2DArray.FirstArraySlice = j & 1;
+            dsv_desc.Texture2DArray.ArraySize = j == 2 ? 2 : 1;
+            if (i & 1)
+                dsv_desc.Flags |= D3D12_DSV_FLAG_READ_ONLY_DEPTH;
+            if (i & 2)
+                dsv_desc.Flags |= D3D12_DSV_FLAG_READ_ONLY_STENCIL;
+
+            ID3D12Device_CreateDepthStencilView(context.device, ds,
+                    &dsv_desc, get_cpu_dsv_handle(&context, dsv, 4 * j + i));
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        const struct test *test = &tests[i];
+
+        vkd3d_test_set_context("Test %u", i);
+
+        /* Covers both layers. */
+        ds_handle = get_cpu_dsv_handle(&context, dsv, 8);
+
+        /* Clear in a separate command list so we can focus on the tracking we care about. */
+        transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, ds_handle,
+                D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0xff, 0, NULL);
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+        /* Makes it easier to see where layout bugs happen. */
+        wait_queue_idle(context.device, context.queue);
+
+        begin_debug_region_printf(context.list, "Test %u", i);
+
+        ds_handle = get_cpu_dsv_handle(&context, dsv, test->style * 4 + test->ro_stencil * 2 + test->ro_depth);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, TRUE, &ds_handle);
+        if (test->clear)
+        {
+            ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, ds_handle, test->clear,
+                    test->depth, test->stencil, 0, NULL);
+        }
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 0, 1, &test->draw_depth, 0);
+        ID3D12GraphicsCommandList_OMSetStencilRef(context.list, test->draw_stencil);
+        set_viewport(&vp, 0, 0, 16, 16, 0, 1);
+        set_rect(&sci, 0, 0, 16, 16);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+
+        if (!test->skip_draw)
+            ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+        transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        end_debug_region(context.list);
+
+        for (j = 0; j < 2; j++)
+        {
+            float expected = 1.0f;
+            if (test->style == BOTH || test->style == j)
+            {
+                if (test->clear & D3D12_CLEAR_FLAG_DEPTH)
+                    expected = test->depth;
+
+                /* We only draw to the base layer. */
+                if (!test->ro_depth && !test->skip_draw && j == (test->style & 1))
+                    expected = test->draw_depth;
+            }
+            check_sub_resource_float(ds, j + 0, context.queue, context.list, expected, 0);
+            reset_command_list(context.list, context.allocator);
+        }
+
+        for (j = 0; j < 2; j++)
+        {
+            uint8_t expected = 0xff;
+            if (test->style == BOTH || test->style == j)
+            {
+                if (test->clear & D3D12_CLEAR_FLAG_STENCIL)
+                    expected = test->stencil;
+                if (!test->ro_stencil && !test->skip_draw && j == (test->style & 1))
+                    expected = test->draw_stencil;
+            }
+            check_sub_resource_uint8(ds, j + 2, context.queue, context.list, expected, 0);
+            reset_command_list(context.list, context.allocator);
+        }
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Resource_Release(ds);
+    ID3D12DescriptorHeap_Release(dsv);
+    destroy_test_context(&context);
+}
