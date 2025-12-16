@@ -4023,6 +4023,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     memset(initial_layouts, 0, sizeof(initial_layouts));
+    memset(rp_layouts, 0, sizeof(rp_layouts));
     memset(final_layouts, 0, sizeof(final_layouts));
 
     memset(&attachment_info, 0, sizeof(attachment_info));
@@ -5233,7 +5234,6 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
                     {
                         attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
                         attachment->clearValue = clear->clear_value;
-
                         plane_write_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
                     }
 
@@ -5241,16 +5241,35 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
                     {
                         stencil_attachment->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
                         stencil_attachment->clearValue = clear->clear_value;
-
                         plane_write_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
                     }
 
+                    /* It's possible that the PSO uses read-only depth-stencil, but CLEARs happen always,
+                     * so we have proved the resource is in DEPTH_WRITE state for the relevant aspects. */
+                    d3d12_command_list_notify_dsv_writes(list, clear->resource, clear->view, plane_write_mask);
+                    list->dsv_plane_optimal_mask |= plane_write_mask;
+                    list->dsv_layout = dsv_plane_optimal_mask_to_layout(list->dsv_plane_optimal_mask, resource->format->vk_aspect_mask);
+
                     /* We need to ensure that we transition to the same layout that the render pass transition
-                     * will use as a source layout when transitioning to dsv_layout. Ideally we transition to
-                     * dsv_layout directly, so promote using the current plane optimal mask. */
-                    vk_image_barrier.newLayout = dsv_plane_optimal_mask_to_layout(
-                            d3d12_command_list_notify_dsv_writes(list, clear->resource, clear->view, plane_write_mask),
-                            resource->format->vk_aspect_mask);
+                     * will use as a source layout when transitioning to dsv_layout.
+                     *
+                     * We may only be clearing out partial subresources. Rendering must happen with
+                     * optimal layouts since we CLEAR them, but the overall resource may not be considered OPTIMAL yet.
+                     *
+                     * When starting the render-pass, the layout transitions are based on the "outside" render pass layout,
+                     * i.e. the layout we can deduce from overall state.
+                     * For single layer/mip DS, this is trivially the same as dsv_layout. */
+                    vk_image_barrier.newLayout = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
+
+                    /* When promoting DSV layouts like this, it's likely that something changed.
+                     * We've called notify_dsv_writes, so if that caused promotion to happen, we have to deal with it here.
+                     * Just go ahead and do the barrier unconditionally here unless we're trivially using GENERAL
+                     * layouts for DSV anyway. This is always valid since if we only promote e.g. DEPTH,
+                     * we rely on separate depth-stencil layouts to only discard that aspect.
+                     * If we don't clear e.g. STENCIL, there cannot have been promotion,
+                     * so we don't have to transition that aspect. */
+                    if (list->dsv_layout != VK_IMAGE_LAYOUT_GENERAL)
+                        requires_barrier = true;
 
                     if (clear_aspects != vk_image_barrier.subresourceRange.aspectMask)
                     {
@@ -6775,7 +6794,6 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     struct d3d12_graphics_pipeline_state *graphics = &list->state->graphics;
     struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
     struct d3d12_command_list_barrier_batch barrier;
-    VkImageAspectFlags dsv_optimal_aspects;
     VkExtent2D old_extent;
     unsigned int i;
 
@@ -6832,8 +6850,6 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     {
         assert(list->dsv.view);
 
-        dsv_optimal_aspects = 0u;
-
         /* Spec says that to use pDepthAttachment or pStencilAttachment, with non-NULL image view,
          * the format must have the aspect mask set. */
         rendering_info->depth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -6843,26 +6859,13 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         rendering_info->stencil = rendering_info->depth;
 
         if (list->dsv.view->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-        {
-            if (list->dsv_plane_optimal_mask & (VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_DEPTH_STENCIL_PLANE_GENERAL))
-                dsv_optimal_aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
-
             rendering_info->info.pDepthAttachment = &rendering_info->depth;
-        }
 
         if (list->dsv.view->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
-        {
-            if (list->dsv_plane_optimal_mask & (VKD3D_STENCIL_PLANE_OPTIMAL | VKD3D_DEPTH_STENCIL_PLANE_GENERAL))
-                dsv_optimal_aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
-
             rendering_info->info.pStencilAttachment = &rendering_info->stencil;
-        }
 
-        if (dsv_optimal_aspects)
-        {
-            d3d12_command_list_fuse_attachment_clear(list, &rendering_info->depth, &rendering_info->stencil,
-                list->dsv.resource, list->dsv.view, dsv_optimal_aspects, &barrier);
-        }
+        d3d12_command_list_fuse_attachment_clear(list, &rendering_info->depth, &rendering_info->stencil,
+                list->dsv.resource, list->dsv.view, list->dsv.view->format->vk_aspect_mask, &barrier);
     }
     else
     {
