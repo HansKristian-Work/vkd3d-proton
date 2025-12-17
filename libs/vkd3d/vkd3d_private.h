@@ -3042,6 +3042,9 @@ struct d3d12_command_list_render_pass_suspend_resume_compat
     VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
     VkImageLayout layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
     VkAttachmentLoadOp load_ops[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
+    VkImageView resolve_views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    VkResolveModeFlagBits resolve_modes[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    /* Render pass resolves always use GENERAL. */
     uint32_t color_attachment_count;
     uint32_t view_mask;
 };
@@ -5745,6 +5748,15 @@ bool d3d12_device_supports_workgraphs(const struct d3d12_device *device);
 static inline bool d3d12_device_supports_unified_layouts(const struct d3d12_device *device)
 {
     return device->device_info.unified_image_layouts_features.unifiedImageLayouts == VK_TRUE;
+}
+
+static inline bool d3d12_device_prefers_render_pass_resolves(const struct d3d12_device *device)
+{
+    /* Only bother with this if unified layouts are supported since we don't
+     * want to deal with odd layout transitions if we can help it, and the primary
+     * driver we care about here supports unifiedImageLayouts. */
+    return device->device_info.unified_image_layouts_features.unifiedImageLayouts == VK_TRUE &&
+            device->workarounds.tiler_suspend_resume;
 }
 
 static inline void d3d12_device_register_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
