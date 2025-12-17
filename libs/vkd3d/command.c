@@ -6476,7 +6476,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (!d3d12_command_list_gather_pending_queries(list))
         d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
 
-    d3d12_command_list_check_render_pass_validation(list, "Close called with an active render pass.\n", false);
+    if (!(list->render_pass_flags & D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS))
+        d3d12_command_list_check_render_pass_validation(list, "Close called with an active render pass.\n", false);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
@@ -6899,6 +6900,14 @@ static void vkd3d_copy_non_resolve_attachment_info(VkRenderingAttachmentInfo *ds
     dst->imageLayout = src->imageLayout;
     dst->clearValue = src->clearValue;
     dst->imageView = src->imageView;
+}
+
+static void vkd3d_copy_resolve_attachment_info(VkRenderingAttachmentInfo *dst,
+        const VkRenderingAttachmentInfo *src)
+{
+    dst->resolveMode = src->resolveMode;
+    dst->resolveImageLayout = src->resolveImageLayout;
+    dst->resolveImageView = src->resolveImageView;
 }
 
 static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *list)
@@ -18118,28 +18127,53 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
         UINT rt_count, const D3D12_RENDER_PASS_RENDER_TARGET_DESC *render_targets,
         const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *depth_stencil, D3D12_RENDER_PASS_FLAGS flags)
 {
+    VkRenderingAttachmentInfo rtv_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    VkRenderingAttachmentInfo depth, stencil;
     struct d3d12_rtv_desc *rtv_desc;
     VkImageAspectFlags dsv_aspects;
     VkFormat prev_dsv_format;
     unsigned int i, rt_index;
+    bool inline_resuming;
+    bool resuming;
 
     TRACE("iface %p, rt_count %u, render_targets %p, depth_stencil %p, flags %#x.\n",
             iface, rt_count, render_targets, depth_stencil, flags);
 
-    d3d12_command_list_check_render_pass_validation(list, "BeginRenderPass called inside a render pass.\n", true);
+    /* It's possible we're attempting to resume an existing suspend in the same command buffer,
+     * however, it's not *necessarily* compatible because D3D12 render passes are being
+     * annoying as usual. */
+    resuming = (flags & D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+    inline_resuming = resuming && (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE);
 
-    d3d12_command_list_invalidate_rendering_info(list);
-    d3d12_command_list_end_current_render_pass(list, false);
+    /* If this could link up to a previous command buffer, don't block resume. */
+    if (!resuming)
+    {
+        d3d12_command_list_check_render_pass_validation(list,
+                "Non-resuming BeginRenderPass called inside a render pass.\n", true);
+    }
+
+    if (!inline_resuming)
+    {
+        /* Force a new render pass since we may need to enforce loadOps.
+         * loadOps don't apply to resuming passes. */
+        d3d12_command_list_invalidate_rendering_info(list);
+        d3d12_command_list_end_current_render_pass(list, false);
+    }
+
+    if (!resuming)
+        d3d12_command_list_debug_mark_begin_region(list, "BeginRenderPass");
 
     prev_dsv_format = list->dsv.format ? list->dsv.format->vk_format : VK_FORMAT_UNDEFINED;
 
     list->is_inside_render_pass = true;
     list->render_pass_flags = flags;
+
+    /* It's fine to clear these early.
+     * We don't need this information to be able to safely end a suspended render pass
+     * in case we are not compatible. */
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
-
-    d3d12_command_list_debug_mark_begin_region(list, "BeginRenderPass");
 
     for (i = 0, rt_index = 0; i < rt_count; i++)
     {
@@ -18161,7 +18195,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                 VKD3D_BREADCRUMB_AUX32(i);
                 VKD3D_BREADCRUMB_TAG("RTV bind");
 
-                if (!(flags & D3D12_RENDER_PASS_FLAG_RESUMING_PASS))
+                /* We have to assume there can be splits, which makes CLEAR unsafe.
+                 * To be able to fuse these, we rely on relaxed load-op compatibility to allow the linkage
+                 * despite being wrong. */
+                if (!resuming)
                     d3d12_command_list_load_render_pass_rtv(list, &list->rtvs[rt_index], rt);
             }
             else
@@ -18180,6 +18217,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
     {
         if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(depth_stencil->cpuDescriptor)) && rtv_desc->resource)
         {
+            /* TODO: If stencil or depth is NO_ACCESS we probably want to skip binding it. */
             dsv_aspects = rtv_desc->format->vk_aspect_mask;
 
             if (d3d12_render_pass_beginning_access_binds_to_rasterizer(depth_stencil->DepthBeginningAccess.Type, flags, VK_IMAGE_ASPECT_DEPTH_BIT) ||
@@ -18191,7 +18229,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                 VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie.index);
                 VKD3D_BREADCRUMB_TAG("DSV bind");
 
-                if (!(flags & D3D12_RENDER_PASS_FLAG_RESUMING_PASS))
+                /* We have to assume there can be splits, which makes CLEAR unsafe.
+                 * To be able to fuse these, we rely on relaxed load-op compatibility to allow the linkage
+                 * despite being wrong. */
+                if (!resuming)
                     d3d12_command_list_load_render_pass_dsv(list, &list->dsv, depth_stencil);
             }
         }
@@ -18205,6 +18246,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
     d3d12_command_list_recompute_fb_size(list);
 
     rt_index = 0;
+
+    memset(rtv_attachments, 0, sizeof(rtv_attachments));
+    memset(&depth, 0, sizeof(depth));
+    memset(&stencil, 0, sizeof(stencil));
+
     for (i = 0; i < rt_count; i++)
     {
         const D3D12_RENDER_PASS_RENDER_TARGET_DESC *rt = &render_targets[i];
@@ -18217,7 +18263,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                     VK_IMAGE_ASPECT_COLOR_BIT, flags))
             {
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
-                        &list->rendering_info.rtv[rt_index], &rt->EndingAccess.Resolve, VK_IMAGE_ASPECT_COLOR_BIT);
+                        &rtv_attachments[rt_index], &rt->EndingAccess.Resolve, VK_IMAGE_ASPECT_COLOR_BIT);
             }
         }
 
@@ -18237,7 +18283,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                     VK_IMAGE_ASPECT_DEPTH_BIT, flags))
             {
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
-                        &list->rendering_info.depth, &depth_stencil->DepthEndingAccess.Resolve,
+                        &depth, &depth_stencil->DepthEndingAccess.Resolve,
                         VK_IMAGE_ASPECT_DEPTH_BIT);
             }
         }
@@ -18250,15 +18296,69 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                     VK_IMAGE_ASPECT_STENCIL_BIT, flags))
             {
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
-                        &list->rendering_info.stencil, &depth_stencil->StencilEndingAccess.Resolve,
+                        &stencil, &depth_stencil->StencilEndingAccess.Resolve,
                         VK_IMAGE_ASPECT_STENCIL_BIT);
             }
         }
     }
 
+    /* Verify compatibility. Keep using the same render pass instance. */
+    if (inline_resuming)
+    {
+        VkImageAspectFlags bound_dsv_aspects = list->dsv.view ? list->dsv.format->vk_aspect_mask : 0;
+        bool valid = list->rendering_info.info.colorAttachmentCount == rt_index;
+
+        if (valid)
+            valid = bound_dsv_aspects == dsv_aspects;
+
+        if (valid && (bound_dsv_aspects & VK_IMAGE_ASPECT_DEPTH_BIT))
+        {
+            valid = (list->dsv.view ? list->dsv.view->vk_image_view : VK_NULL_HANDLE) ==
+                    list->rendering_info.depth.imageView;
+        }
+
+        if (valid && (bound_dsv_aspects & VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            valid = (list->dsv.view ? list->dsv.view->vk_image_view : VK_NULL_HANDLE) ==
+                    list->rendering_info.stencil.imageView;
+        }
+
+        if (valid)
+        {
+            /* Resolve layout is always GENERAL if view is non-null. */
+            valid = depth.resolveImageView == list->rendering_info.depth.resolveImageView &&
+                    depth.resolveMode == list->rendering_info.depth.resolveMode &&
+                    stencil.resolveImageView == list->rendering_info.stencil.resolveImageView &&
+                    stencil.resolveMode == list->rendering_info.stencil.resolveMode;
+        }
+
+        for (i = 0; valid && i < rt_index; i++)
+        {
+            valid = (list->rtvs[i].view ? list->rtvs[i].view->vk_image_view : VK_NULL_HANDLE) ==
+                    list->rendering_info.rtv[i].imageView &&
+                    rtv_attachments[i].resolveMode == list->rendering_info.rtv[i].resolveMode &&
+                    rtv_attachments[i].resolveImageView == list->rendering_info.rtv[i].resolveImageView;
+        }
+
+        if (!valid)
+        {
+            FIXME_ONCE("Application is attempting to resume a render pass, but the attachments are incompatible.\n");
+            d3d12_command_list_invalidate_rendering_info(list);
+            d3d12_command_list_end_current_render_pass(list, false);
+        }
+    }
+
+    /* Now it's safe to clobber list->rendering_info. */
+    for (i = 0; i < rt_index; i++)
+        vkd3d_copy_resolve_attachment_info(&list->rendering_info.rtv[i], &rtv_attachments[i]);
+    vkd3d_copy_resolve_attachment_info(&list->rendering_info.depth, &depth);
+    vkd3d_copy_resolve_attachment_info(&list->rendering_info.stencil, &stencil);
+
     list->rendering_info.info.colorAttachmentCount = rt_index;
     d3d12_command_list_invalidate_ds_state(list, prev_dsv_format);
-    d3d12_command_list_debug_mark_end_region(list);
+
+    if (!resuming)
+        d3d12_command_list_debug_mark_end_region(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_list_iface *iface)
@@ -18325,10 +18425,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
         list->rendering_info.info.colorAttachmentCount = 0;
 
         d3d12_command_list_debug_mark_end_region(list);
+        list->is_inside_render_pass = false;
+        list->render_pass_flags = 0;
     }
-
-    list->is_inside_render_pass = false;
-    list->render_pass_flags = 0;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_command_list_iface *iface,
