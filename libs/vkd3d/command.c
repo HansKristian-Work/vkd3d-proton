@@ -5612,7 +5612,6 @@ static void d3d12_command_list_copy_render_pass_suspend_resume_compat(
         compat->layouts[i] = list->rendering_info.info.pColorAttachments[i].imageLayout;
         compat->load_ops[i] = list->rendering_info.info.pColorAttachments[i].loadOp;
         compat->resolve_views[i] = list->rendering_info.info.pColorAttachments[i].resolveImageView;
-        compat->resolve_modes[i] = list->rendering_info.info.pColorAttachments[i].resolveMode;
     }
 
     if (list->rendering_info.info.pDepthAttachment)
@@ -5622,8 +5621,6 @@ static void d3d12_command_list_copy_render_pass_suspend_resume_compat(
         compat->load_ops[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 0] = list->rendering_info.info.pDepthAttachment->loadOp;
         compat->resolve_views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 0] =
                 list->rendering_info.info.pDepthAttachment->resolveImageView;
-        compat->resolve_modes[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 0] =
-                list->rendering_info.info.pDepthAttachment->resolveMode;
     }
 
     if (list->rendering_info.info.pStencilAttachment)
@@ -5633,13 +5630,11 @@ static void d3d12_command_list_copy_render_pass_suspend_resume_compat(
         compat->load_ops[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1] = list->rendering_info.info.pStencilAttachment->loadOp;
         compat->resolve_views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1] =
                 list->rendering_info.info.pStencilAttachment->resolveImageView;
-        compat->resolve_modes[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1] =
-                list->rendering_info.info.pStencilAttachment->resolveMode;
     }
 
     compat->views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2] = list->rendering_info.vrs.imageView;
     compat->layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2] = list->rendering_info.vrs.imageLayout;
-    compat->load_ops[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2] = VK_ATTACHMENT_LOAD_OP_LOAD;
+    /* LOAD and STORE is fixed for VRS. */
 
     compat->color_attachment_count = list->rendering_info.info.colorAttachmentCount;
     compat->view_mask = list->rendering_info.info.viewMask;
@@ -5709,6 +5704,7 @@ static void d3d12_command_list_end_rendering(struct d3d12_command_list *list)
         /* We attempted to suspend, but we need to emit some other code, so that's not going to work.
          * End the render pass properly. */
         list->rendering_info.info.flags |= VK_RENDERING_RESUMING_BIT;
+
         VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &list->rendering_info.info));
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         list->rendering_info.info.flags &= ~VK_RENDERING_RESUMING_BIT;
@@ -6950,10 +6946,10 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     for (i = 0; i < rendering_info->info.colorAttachmentCount; i++)
     {
         VkRenderingAttachmentInfo *attachment = &rendering_info->rtv[i];
+        attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 
         if (list->rtvs[i].view)
         {
-            attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             attachment->imageView = list->rtvs[i].view->vk_image_view;
             attachment->imageLayout = d3d12_resource_pick_layout(
                     list->rtvs[i].resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -6965,7 +6961,6 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         }
         else
         {
-            attachment->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             attachment->imageView = VK_NULL_HANDLE;
             attachment->imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         }
@@ -8193,8 +8188,6 @@ static bool d3d12_command_list_render_pass_suspend_resume_avoids_fixup(
     if (!first->device->workarounds.tiler_suspend_resume_relax_load_store_op)
     {
         if (memcmp(suspend->load_ops, resume->load_ops, sizeof(resume->load_ops)) != 0)
-            return false;
-        if (memcmp(suspend->resolve_modes, resume->resolve_modes, sizeof(resume->resolve_modes)) != 0)
             return false;
     }
 
@@ -17615,6 +17608,7 @@ static void d3d12_command_list_load_render_pass_rtv(struct d3d12_command_list *l
     {
         d3d12_command_list_defer_attachment_clear(list, rtv_info->resource,
                 rtv_info->view, VK_IMAGE_ASPECT_COLOR_BIT, &clear_value);
+        list->rendering_info.has_pending_render_pass_load_store_work = true;
     }
     else if (load_op == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
     {
@@ -17661,6 +17655,7 @@ static void d3d12_command_list_load_render_pass_dsv(struct d3d12_command_list *l
     {
         d3d12_command_list_defer_attachment_clear(list, dsv_info->resource,
             dsv_info->view, clear_aspects, &clear_value);
+        list->rendering_info.has_pending_render_pass_load_store_work = true;
     }
 
     if (discard_aspects)
@@ -18073,6 +18068,13 @@ static bool d3d12_render_pass_beginning_access_binds_to_rasterizer(D3D12_RENDER_
     return false;
 }
 
+static bool d3d12_render_pass_ending_access_discards(const D3D12_RENDER_PASS_ENDING_ACCESS *access)
+{
+    return access->Type == D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_DISCARD ||
+            (access->Type == D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE &&
+                    !access->Resolve.PreserveResolveSource);
+}
+
 static void d3d12_command_list_setup_render_pass_attachment_resolve(
         struct d3d12_command_list *list,
         VkRenderingAttachmentInfo *attachment,
@@ -18132,10 +18134,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
     VkRenderingAttachmentInfo depth, stencil;
     struct d3d12_rtv_desc *rtv_desc;
     VkImageAspectFlags dsv_aspects;
+    bool resuming, suspending;
     VkFormat prev_dsv_format;
     unsigned int i, rt_index;
     bool inline_resuming;
-    bool resuming;
+    bool can_discard;
 
     TRACE("iface %p, rt_count %u, render_targets %p, depth_stencil %p, flags %#x.\n",
             iface, rt_count, render_targets, depth_stencil, flags);
@@ -18143,8 +18146,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
     /* It's possible we're attempting to resume an existing suspend in the same command buffer,
      * however, it's not *necessarily* compatible because D3D12 render passes are being
      * annoying as usual. */
-    resuming = (flags & D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+    resuming = !!(flags & D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+    suspending = !!(flags & D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
     inline_resuming = resuming && (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE);
+    can_discard = !suspending && list->device->workarounds.tiler_suspend_resume_relax_load_store_op;
 
     /* If this could link up to a previous command buffer, don't block resume. */
     if (!resuming)
@@ -18200,6 +18205,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                  * despite being wrong. */
                 if (!resuming)
                     d3d12_command_list_load_render_pass_rtv(list, &list->rtvs[rt_index], rt);
+
+                if (can_discard && d3d12_render_pass_ending_access_discards(&rt->EndingAccess))
+                    list->rendering_info.pending_discardable_mask |= 1u << rt_index;
             }
             else
             {
@@ -18234,6 +18242,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                  * despite being wrong. */
                 if (!resuming)
                     d3d12_command_list_load_render_pass_dsv(list, &list->dsv, depth_stencil);
+
+                if (can_discard)
+                {
+                    if (d3d12_render_pass_ending_access_discards(&depth_stencil->DepthEndingAccess))
+                        list->rendering_info.pending_discardable_mask |= 1u << D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
+                    if (d3d12_render_pass_ending_access_discards(&depth_stencil->StencilEndingAccess))
+                        list->rendering_info.pending_discardable_mask |= 2u << D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
+                }
             }
         }
         else
@@ -18264,6 +18280,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
             {
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
                         &rtv_attachments[rt_index], &rt->EndingAccess.Resolve, VK_IMAGE_ASPECT_COLOR_BIT);
+
+                /* If possible, we should avoid redundant resolves.
+                 * We only hit this path if we can assume relaxed load-op/store-op rules.
+                 * Only set actual resolve mode when we finalize the render pass in EndRenderPass. */
+                if (!suspending)
+                {
+                    list->rendering_info.pending_resolves[rt_index] = rtv_attachments[rt_index].resolveMode;
+                    list->rendering_info.has_pending_render_pass_load_store_work = true;
+                }
+                rtv_attachments[rt_index].resolveMode = VK_RESOLVE_MODE_NONE;
             }
         }
 
@@ -18285,6 +18311,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
                         &depth, &depth_stencil->DepthEndingAccess.Resolve,
                         VK_IMAGE_ASPECT_DEPTH_BIT);
+
+                if (!suspending)
+                {
+                    list->rendering_info.pending_resolve_depth = depth.resolveMode;
+                    list->rendering_info.has_pending_render_pass_load_store_work = true;
+                }
+                depth.resolveMode = VK_RESOLVE_MODE_NONE;
             }
         }
 
@@ -18298,6 +18331,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
                         &stencil, &depth_stencil->StencilEndingAccess.Resolve,
                         VK_IMAGE_ASPECT_STENCIL_BIT);
+
+                if (!suspending)
+                {
+                    list->rendering_info.pending_resolve_stencil = stencil.resolveMode;
+                    list->rendering_info.has_pending_render_pass_load_store_work = true;
+                }
+                stencil.resolveMode = VK_RESOLVE_MODE_NONE;
             }
         }
     }
@@ -18327,16 +18367,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
         {
             /* Resolve layout is always GENERAL if view is non-null. */
             valid = depth.resolveImageView == list->rendering_info.depth.resolveImageView &&
-                    depth.resolveMode == list->rendering_info.depth.resolveMode &&
-                    stencil.resolveImageView == list->rendering_info.stencil.resolveImageView &&
-                    stencil.resolveMode == list->rendering_info.stencil.resolveMode;
+                    stencil.resolveImageView == list->rendering_info.stencil.resolveImageView;
         }
 
         for (i = 0; valid && i < rt_index; i++)
         {
             valid = (list->rtvs[i].view ? list->rtvs[i].view->vk_image_view : VK_NULL_HANDLE) ==
                     list->rendering_info.rtv[i].imageView &&
-                    rtv_attachments[i].resolveMode == list->rendering_info.rtv[i].resolveMode &&
                     rtv_attachments[i].resolveImageView == list->rendering_info.rtv[i].resolveImageView;
         }
 
@@ -18375,7 +18412,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
         return;
     }
 
-    if (!(list->rendering_info.info.flags & VKD3D_RENDERING_ACTIVE))
+    if (list->rendering_info.has_pending_render_pass_load_store_work &&
+            !(list->rendering_info.info.flags & VKD3D_RENDERING_ACTIVE))
     {
         /* If we never started the render pass due to no draw calls,
          * forcefully start it so that we can get the fused clears in the proper render pass,
@@ -18390,7 +18428,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
 
     if (terminating)
     {
+        uint32_t discard_mask = list->rendering_info.pending_discardable_mask;
         d3d12_command_list_check_render_pass_validation(list, NULL, true);
+
+        /* If we're using relaxed store op path, we can flag the discard here. */
+        if (discard_mask & (1u << D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT))
+            list->rendering_info.depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        if (discard_mask & (2u << D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT))
+            list->rendering_info.stencil.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+        discard_mask &= (1u << D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT) - 1u;
+        while (discard_mask)
+            list->rendering_info.rtv[vkd3d_bitmask_iter32(&discard_mask)].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+        for (i = 0; i < list->rendering_info.info.colorAttachmentCount; i++)
+            list->rendering_info.rtv[i].resolveMode = list->rendering_info.pending_resolves[i];
+        list->rendering_info.depth.resolveMode = list->rendering_info.pending_resolve_depth;
+        list->rendering_info.stencil.resolveMode = list->rendering_info.pending_resolve_stencil;
+
+        /* If we made it all the way here with render pass intact, we can emit a proper DONT_CARE store.
+         * Otherwise, there might have been splits which means we need incremental rendering, i.e.
+         * we cannot just discard. */
 
         d3d12_command_list_end_current_render_pass(list, false);
         d3d12_command_list_debug_mark_begin_region(list, "EndRenderPass");
@@ -18404,20 +18462,28 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
         memset(list->rtvs, 0, sizeof(list->rtvs));
         memset(&list->dsv, 0, sizeof(list->dsv));
 
+        list->rendering_info.pending_discardable_mask = 0;
+        memset(list->rendering_info.pending_resolves, 0, sizeof(list->rendering_info.pending_resolves));
+        list->rendering_info.pending_resolve_depth = VK_RESOLVE_MODE_NONE;
+        list->rendering_info.pending_resolve_stencil = VK_RESOLVE_MODE_NONE;
+
         /* If we're not terminating the render pass, it's not legal to do normal rendering.
          * Need to keep the resolve information around so that we can punt this information
          * to suspend compat. */
         for (i = 0; i < list->rendering_info.info.colorAttachmentCount; i++)
         {
             list->rendering_info.rtv[i].resolveMode = VK_RESOLVE_MODE_NONE;
+            list->rendering_info.rtv[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             list->rendering_info.rtv[i].resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             list->rendering_info.rtv[i].resolveImageView = VK_NULL_HANDLE;
         }
 
+        list->rendering_info.depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         list->rendering_info.depth.resolveMode = VK_RESOLVE_MODE_NONE;
         list->rendering_info.depth.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         list->rendering_info.depth.resolveImageView = VK_NULL_HANDLE;
 
+        list->rendering_info.stencil.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         list->rendering_info.stencil.resolveMode = VK_RESOLVE_MODE_NONE;
         list->rendering_info.stencil.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         list->rendering_info.stencil.resolveImageView = VK_NULL_HANDLE;
