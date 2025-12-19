@@ -136,6 +136,8 @@ struct vkd3d_vulkan_info
     bool KHR_fragment_shader_barycentric;
     bool KHR_external_memory_win32;
     bool KHR_external_semaphore_win32;
+    bool KHR_present_wait2;
+    bool KHR_present_id2;
     bool KHR_present_wait;
     bool KHR_present_id;
     bool KHR_maintenance5;
@@ -184,6 +186,7 @@ struct vkd3d_vulkan_info
     bool EXT_zero_initialize_device_memory;
     bool EXT_opacity_micromap;
     bool EXT_shader_float8;
+    bool EXT_present_timing;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -212,6 +215,8 @@ struct vkd3d_vulkan_info
 
     /* Optional extensions which are enabled externally as optional extensions
      * if swapchain/surface extensions are enabled. */
+    bool KHR_surface_maintenance1;
+    bool KHR_swapchain_maintenance1;
     bool EXT_surface_maintenance1;
     bool EXT_swapchain_maintenance1;
 
@@ -5012,7 +5017,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
     VkPhysicalDeviceFaultFeaturesEXT fault_features;
-    VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT swapchain_maintenance1_features;
+    VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR swapchain_maintenance1_features;
     VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR shader_maximal_reconvergence_features;
     VkPhysicalDeviceShaderQuadControlFeaturesKHR shader_quad_control_features;
     VkPhysicalDeviceRawAccessChainsFeaturesNV raw_access_chains_nv;
@@ -5028,6 +5033,9 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
     VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unified_image_layouts_features;
+    VkPhysicalDevicePresentId2FeaturesKHR present_id2_features;
+    VkPhysicalDevicePresentWait2FeaturesKHR present_wait2_features;
+    VkPhysicalDevicePresentTimingFeaturesEXT present_timing_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
