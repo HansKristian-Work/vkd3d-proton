@@ -2753,6 +2753,8 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
         {
             const struct vkd3d_shader_code dxbc = { code_list[i]->pShaderBytecode, code_list[i]->BytecodeLength };
             compat->dxbc_blob_hashes[output_index] = vkd3d_shader_hash(&dxbc);
+            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+                INFO("Shader hash: %016"PRIx64".\n", compat->dxbc_blob_hashes[output_index]);
             compat->dxbc_blob_hashes[output_index] = hash_fnv1_iterate_u8(compat->dxbc_blob_hashes[output_index], i);
             output_index++;
         }
