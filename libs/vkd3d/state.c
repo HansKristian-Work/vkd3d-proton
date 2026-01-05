@@ -5870,7 +5870,11 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     vkd3d_pipeline_cache_compat_from_state_desc(&object->pipeline_cache_compat, desc);
     if (object->root_signature)
+    {
         object->pipeline_cache_compat.root_signature_compat_hash = object->root_signature->pso_compatibility_hash;
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            INFO(" ... Root signature: %016"PRIx64".\n", object->root_signature->pso_compatibility_hash);
+    }
 
     desc_cached_pso = &desc->cached_pso;
 
