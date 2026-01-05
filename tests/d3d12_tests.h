@@ -170,6 +170,7 @@ decl_test(test_copy_texture);
 decl_test(test_copy_texture_ds_edge_cases);
 decl_test(test_copy_texture_buffer);
 decl_test(test_copy_texture_bc_rgba);
+decl_test(test_copy_texture_mismatch_format);
 decl_test(test_copy_buffer_texture);
 decl_test(test_copy_block_compressed_texture);
 decl_test(test_copy_buffer_overlap);

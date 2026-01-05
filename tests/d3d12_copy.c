@@ -951,6 +951,73 @@ void test_copy_texture_bc_rgba(void)
     destroy_test_context(&context);
 }
 
+void test_copy_texture_mismatch_format(void)
+{
+    static const FLOAT gray_unorm[] = { 10.0f / 255.0f, 10.0f / 255.0f, 10.0f / 255.0f, 10.0f / 255.0f };
+    static const FLOAT gray[] = { 0.5f, 0.5f, 0.5f, 0.5f };
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12Resource *rgba16f, *rgba8;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *rtv;
+    uint32_t readback_value;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    rgba16f = create_default_texture2d(context.device, 2560, 1440, 1, 1, DXGI_FORMAT_R16G16B16A16_FLOAT,
+        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    rgba8 = create_default_texture2d(context.device, 2560, 1440, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2);
+    ID3D12Device_CreateRenderTargetView(context.device, rgba16f, NULL,
+        get_cpu_rtv_handle(&context, rtv, 0));
+    ID3D12Device_CreateRenderTargetView(context.device, rgba8, NULL,
+        get_cpu_rtv_handle(&context, rtv, 1));
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv, 0), gray, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv, 1), gray_unorm, 0, NULL);
+
+    ID3D12Device_CreateRenderTargetView(context.device, rgba8, NULL,
+        get_cpu_rtv_handle(&context, rtv, 0));
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+        get_cpu_rtv_handle(&context, rtv, 1), gray_unorm, 0, NULL);
+
+    transition_resource_state(context.list, rgba16f, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, rgba8, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    /* Invalid usage. Callisto Protocol hits this and D3D12 validation yells (but does not issue a device lost).
+     * AMD behavior is to do the bitwise copy (but I cannot reproduce a fault).
+     * NV behavior seems to be ignoring the call. */
+    ID3D12GraphicsCommandList_CopyResource(context.list, rgba8, rgba16f);
+    transition_resource_state(context.list, rgba8, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(rgba8, 0, &rb, context.queue, context.list);
+
+    /* vkd3d-proton skips the copy due to risk of GPU hangs. */
+    readback_value = get_readback_uint(&rb, 0, 0, 0);
+    ok(readback_value == 0x0a0a0a0a || readback_value == 0x38003800, "Expected 0x0a0a0a0a or 0x38003800, got #%x\n", readback_value);
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(rgba16f);
+    ID3D12Resource_Release(rgba8);
+    ID3D12DescriptorHeap_Release(rtv);
+
+    destroy_test_context(&context);
+}
+
 void test_copy_buffer_to_depth_stencil(void)
 {
     ID3D12Resource *src_buffer_stencil = NULL;
