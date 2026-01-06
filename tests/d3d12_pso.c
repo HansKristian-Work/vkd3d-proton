@@ -4649,3 +4649,107 @@ void test_gs_topology_mismatch_dxil(void)
 {
     test_gs_topology_mismatch(true);
 }
+
+void test_descriptor_range_validation(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    ID3D12PipelineState *pso = NULL;
+    D3D12_DESCRIPTOR_RANGE range[3];
+    ID3D12RootSignature *rs = NULL;
+    struct test_context context;
+
+#include "shaders/pso/headers/descriptor_range_validation.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(range, 0, sizeof(range));
+    memset(&rs_param, 0, sizeof(rs_param));
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(range);
+    rs_param[0].DescriptorTable.pDescriptorRanges = range;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].Descriptor.RegisterSpace = 10;
+
+    range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    range[0].BaseShaderRegister = 0;
+    range[0].NumDescriptors = 2;
+    range[0].OffsetInDescriptorsFromTableStart = 0;
+    range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    range[1].BaseShaderRegister = 2;
+    range[1].NumDescriptors = 2;
+    range[1].OffsetInDescriptorsFromTableStart = 2;
+
+    /* Unsized array. It can bind just fine to this range. */
+    range[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    range[2].BaseShaderRegister = 0;
+    range[2].RegisterSpace = 1;
+    range[2].NumDescriptors = 2;
+    range[2].OffsetInDescriptorsFromTableStart = 4;
+
+    /* Verify that sized arrays cannot spill over, even if there are corresponding bindings right next to it. */
+    create_root_signature(context.device, &rs_desc, &rs);
+
+    pso = create_compute_pipeline_state_unchecked(context.device, rs, descriptor_range_validation_dxil);
+    ok(!pso, "Unexpected success.\n");
+    if (pso)
+        ID3D12PipelineState_Release(pso);
+
+    /* Ensure that the range is sensible now. */
+    ID3D12RootSignature_Release(rs);
+    rs = NULL;
+    range[0].BaseShaderRegister = 1;
+    range[1].BaseShaderRegister = 3;
+    create_root_signature(context.device, &rs_desc, &rs);
+    pso = create_compute_pipeline_state_unchecked(context.device, rs, descriptor_range_validation_dxil);
+    ok(pso, "Unexpected failure.\n");
+    if (pso)
+        ID3D12PipelineState_Release(pso);
+
+    /* Have the unsized array start out of bounds. */
+    ID3D12RootSignature_Release(rs);
+    rs = NULL;
+    range[2].BaseShaderRegister = 0;
+    range[2].NumDescriptors = 1;
+    create_root_signature(context.device, &rs_desc, &rs);
+    pso = create_compute_pipeline_state_unchecked(context.device, rs, descriptor_range_validation_dxil);
+    ok(!pso, "Unexpected success.\n");
+    if (pso)
+        ID3D12PipelineState_Release(pso);
+
+    /* Bind a single descriptor to the unbounded. Single it's bindless, it shouldn't change anything. */
+    ID3D12RootSignature_Release(rs);
+    rs = NULL;
+    range[2].BaseShaderRegister = 1;
+    range[2].NumDescriptors = 1;
+    create_root_signature(context.device, &rs_desc, &rs);
+    pso = create_compute_pipeline_state_unchecked(context.device, rs, descriptor_range_validation_dxil);
+    ok(pso, "Unexpected failure.\n");
+    if (pso)
+        ID3D12PipelineState_Release(pso);
+
+    /* Try to bind unsized array to a root UAV. */
+    ID3D12RootSignature_Release(rs);
+    rs = NULL;
+    range[2].BaseShaderRegister = 0;
+    range[2].RegisterSpace = 100;
+    range[2].NumDescriptors = 1;
+    rs_param[1].Descriptor.RegisterSpace = 1;
+    rs_param[1].Descriptor.ShaderRegister = 1;
+    create_root_signature(context.device, &rs_desc, &rs);
+    pso = create_compute_pipeline_state_unchecked(context.device, rs, descriptor_range_validation_dxil);
+    ok(pso, "Unexpected failure.\n");
+    if (pso)
+        ID3D12PipelineState_Release(pso);
+
+    if (rs)
+        ID3D12RootSignature_Release(rs);
+    destroy_test_context(&context);
+}
