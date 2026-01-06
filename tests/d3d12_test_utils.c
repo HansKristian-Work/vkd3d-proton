@@ -819,7 +819,7 @@ ID3D12RootSignature *create_texture_root_signature_(unsigned int line,
 }
 
 ID3D12PipelineState *create_compute_pipeline_state_(unsigned int line, ID3D12Device *device,
-        ID3D12RootSignature *root_signature, const D3D12_SHADER_BYTECODE cs)
+        ID3D12RootSignature *root_signature, const D3D12_SHADER_BYTECODE cs, bool checked)
 {
     D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
     ID3D12PipelineState *pipeline_state = NULL;
@@ -832,7 +832,8 @@ ID3D12PipelineState *create_compute_pipeline_state_(unsigned int line, ID3D12Dev
     pipeline_state_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
     hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok_(line)(SUCCEEDED(hr), "Failed to create compute pipeline state, hr %#x.\n", hr);
+    if (checked)
+        ok_(line)(SUCCEEDED(hr), "Failed to create compute pipeline state, hr %#x.\n", hr);
     return pipeline_state;
 }
 

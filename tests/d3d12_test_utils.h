@@ -1590,7 +1590,7 @@ bool context_supports_dxil_(unsigned int line, struct test_context *context);
 
 bool init_compute_test_context_(unsigned int line, struct test_context *context);
 ID3D12PipelineState *create_compute_pipeline_state_(unsigned int line, ID3D12Device *device,
-        ID3D12RootSignature *root_signature, const D3D12_SHADER_BYTECODE cs);
+        ID3D12RootSignature *root_signature, const D3D12_SHADER_BYTECODE cs, bool checked);
 
 struct depth_stencil_resource
 {
@@ -1627,7 +1627,8 @@ create_32bit_constants_root_signature_(__LINE__, a, b, c, e, 0)
 #define create_32bit_constants_root_signature_flags(a, b, c, e, f) \
 create_32bit_constants_root_signature_(__LINE__, a, b, c, e, f)
 #define create_texture_root_signature(a, b, c, d) create_texture_root_signature_(__LINE__, a, b, c, d, NULL)
-#define create_compute_pipeline_state(a, b, c) create_compute_pipeline_state_(__LINE__, a, b, c)
+#define create_compute_pipeline_state(a, b, c) create_compute_pipeline_state_(__LINE__, a, b, c, true)
+#define create_compute_pipeline_state_unchecked(a, b, c) create_compute_pipeline_state_(__LINE__, a, b, c, false)
 #define create_command_signature(a, b) create_command_signature_(__LINE__, a, b)
 #define init_compute_test_context(context) init_compute_test_context_(__LINE__, context)
 #define context_supports_dxil(context) context_supports_dxil_(__LINE__, context)
