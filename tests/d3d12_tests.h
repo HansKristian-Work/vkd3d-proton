@@ -526,3 +526,4 @@ decl_test(test_deferred_clears_dsv_layout);
 decl_test(test_render_pass_suspend_resume_opts_enabled);
 decl_test(test_render_pass_suspend_resume_opts_inline_clears);
 decl_test(test_render_pass_suspend_resume_opts_disabled);
+decl_test(test_static_sampler_dynamic_index);
