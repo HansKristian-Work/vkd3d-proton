@@ -100,6 +100,9 @@ static bool vkd3d_shader_resource_binding_is_global_heap(const struct vkd3d_shad
 static bool dxil_resource_is_in_range(const struct vkd3d_shader_resource_binding *binding,
                                       const dxil_spv_d3d_binding *d3d_binding)
 {
+    uint32_t available_bindings;
+    bool is_inside_range;
+
     if (vkd3d_shader_resource_binding_is_global_heap(binding) && dxil_resource_is_global_heap(d3d_binding))
         return true;
 
@@ -108,8 +111,23 @@ static bool dxil_resource_is_in_range(const struct vkd3d_shader_resource_binding
     if (d3d_binding->register_index < binding->register_index)
         return false;
 
-    return binding->register_count == UINT_MAX ||
-           ((d3d_binding->register_index - binding->register_index) < binding->register_count);
+    /* Unbounded in root signature, so it's always in bounds. */
+    if (binding->register_count == UINT_MAX)
+        return true;
+
+    is_inside_range = (d3d_binding->register_index - binding->register_index) < binding->register_count;
+    if (!is_inside_range)
+        return false;
+
+    /* The DXIL binding is unbounded, so it consumes whatever it can consume.
+     * In some cases, this means 1 descriptor, which trivializes the unsized array.
+     * This is normally benign, however, as a special case we need to demote unsized array or static descriptors
+     * in some cases. dxil-spirv will retry the binding query with range of 1. */
+    if (d3d_binding->range_size == UINT32_MAX)
+        return (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS) || binding->register_count != 1;
+
+    available_bindings = binding->register_count - (d3d_binding->register_index - binding->register_index);
+    return d3d_binding->range_size <= available_bindings;
 }
 
 static bool vkd3d_shader_binding_is_root_descriptor(const struct vkd3d_shader_resource_binding *binding)
