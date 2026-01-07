@@ -1811,6 +1811,8 @@ void test_deferred_clears(void)
 
     transition_resource_state(context.list, rt[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
+    /* On Adreno the image compression is incompatible between the two render target image formats */
+    bug_if(is_adreno_device(context.device))
     check_sub_resource_uint(rt[0], 0, context.queue, context.list, 1u, 0u);
     reset_command_list(context.list, context.allocator);
 
