@@ -6613,3 +6613,120 @@ void test_large_buffer_descriptors(void)
     destroy_test_context(&context);
 }
 
+void test_static_sampler_dynamic_index(void)
+{
+    D3D12_STATIC_SAMPLER_DESC static_samplers[4];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_DESCRIPTOR_RANGE desc_range;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    D3D12_SUBRESOURCE_DATA data[4];
+    float upload_data[4][8 * 8];
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *texture;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/descriptors/headers/static_sampler_dynamic_index.h"
+#include "shaders/descriptors/headers/static_sampler_dynamic_index_fixed.h"
+
+    struct test_context context;
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(static_samplers, 0, sizeof(static_samplers));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    memset(&desc_range, 0, sizeof(desc_range));
+
+    for (i = 0; i < ARRAY_SIZE(static_samplers); i++)
+    {
+        static_samplers[i].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        static_samplers[i].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        static_samplers[i].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        static_samplers[i].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        static_samplers[i].MinLOD = (float)i;
+        static_samplers[i].MaxLOD = (float)i;
+        static_samplers[i].RegisterSpace = 100;
+        static_samplers[i].ShaderRegister = i;
+        static_samplers[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[0].DescriptorTable.NumDescriptorRanges = 1;
+    rs_param[0].DescriptorTable.pDescriptorRanges = &desc_range;
+
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+
+    desc_range.NumDescriptors = 1;
+    desc_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_desc.NumStaticSamplers = ARRAY_SIZE(static_samplers);
+    rs_desc.pStaticSamplers = static_samplers;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    /* Fixed array size should be checked by runtime and rejected. */
+    context.pipeline_state = create_compute_pipeline_state_unchecked(context.device, context.root_signature, static_sampler_dynamic_index_fixed_dxil);
+    ok(!context.pipeline_state, "Unexpected success.\n");
+    if (context.pipeline_state)
+        ID3D12PipelineState_Release(context.pipeline_state);
+
+    /* Unsized array bypasses this for whatever reason. */
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, static_sampler_dynamic_index_dxil);
+
+    texture = create_default_texture2d(context.device, 8, 8, 1, 4, DXGI_FORMAT_R32_FLOAT,
+        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    output = create_default_buffer(context.device, 4 * sizeof(float),
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    for (i = 0; i < ARRAY_SIZE(data); i++)
+    {
+        unsigned int j;
+        for (j = 0; j < ARRAY_SIZE(upload_data[i]); j++)
+            upload_data[i][j] = 1.0f + i;
+
+        data[i].pData = upload_data[i];
+        data[i].RowPitch = 32;
+        data[i].SlicePitch = 32 * 8;
+    }
+
+    upload_texture_data(texture, data, 4, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    ID3D12Device_CreateShaderResourceView(context.device, texture, NULL,
+        get_cpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+        get_gpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1,
+        ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 4, 1, 1);
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+    for (i = 0; i < 4; i++)
+    {
+        float value, expected;
+        value = get_readback_float(&rb, i, 0);
+
+        /* Both NV and AMD native return the first sampler here. */
+        expected = 1.0f;
+        ok(value == expected, "Output %u: expected %f, got %f.\n", i, expected, value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(texture);
+    ID3D12Resource_Release(output);
+    destroy_test_context(&context);
+}
+
