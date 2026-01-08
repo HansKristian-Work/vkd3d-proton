@@ -1819,7 +1819,7 @@ static void test_fence_pending_signal_cpu_rewind(bool use_shared)
 
             /* The heavy-GPU-load dispatch will take more time on weaker GPUs */
             if (is_adreno_device(context.device))
-               wait_timeout = 8000;
+                wait_timeout = 8000;
 
             /* GPU is busy now. Reset the fence to 0 while there's a pending signal to 10.
              * Technically this is a bit racy. */
