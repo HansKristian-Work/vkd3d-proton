@@ -1815,6 +1815,11 @@ static void test_fence_pending_signal_cpu_rewind(bool use_shared)
         else
         {
             unsigned int wait_result;
+            unsigned int wait_timeout = 2000;
+
+            /* The heavy-GPU-load dispatch will take more time on weaker GPUs */
+            if (is_adreno_device(context.device))
+               wait_timeout = 8000;
 
             /* GPU is busy now. Reset the fence to 0 while there's a pending signal to 10.
              * Technically this is a bit racy. */
@@ -1834,7 +1839,7 @@ static void test_fence_pending_signal_cpu_rewind(bool use_shared)
             ok(SUCCEEDED(hr), "Failed to queue event signal, hr #%x.\n", hr);
 
             /* Add a timeout just in case to avoid a deadlock. */
-            wait_result = wait_event(event, 2000);
+            wait_result = wait_event(event, wait_timeout);
             ok(wait_result == WAIT_OBJECT_0, "Expected WAIT_OBJECT_0, got %u.\n", wait_result);
 
             value = ID3D12Fence_GetCompletedValue(fence);
