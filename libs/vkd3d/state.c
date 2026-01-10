@@ -4521,7 +4521,20 @@ static bool vkd3d_shader_semantic_is_generated_for_stage(enum vkd3d_sysval_seman
             return curr_stage == VK_SHADER_STAGE_VERTEX_BIT;
 
         case VKD3D_SV_PRIMITIVE_ID:
-            return prev_stage == VK_SHADER_STAGE_VERTEX_BIT;
+            /* Per HLSL semantics, SV_PrimitiveID is a system value that may be provided as an
+            * input without being explicitly exported by the previous stage. In particular,
+            * it can be read by HS/DS/GS/PS.
+            *
+            * Therefore, when validating signature linkage, allow SV_PrimitiveID to be missing
+            * from the previous stage output signature for those stages.
+            *
+            * If the previous stage *does* export it, we still validate register/component matching
+            * in vkd3d_validate_shader_io_signatures().
+            */
+            return curr_stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT ||
+                curr_stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT ||
+                curr_stage == VK_SHADER_STAGE_GEOMETRY_BIT ||
+                curr_stage == VK_SHADER_STAGE_FRAGMENT_BIT;
 
         case VKD3D_SV_IS_FRONT_FACE:
         case VKD3D_SV_SAMPLE_INDEX:
