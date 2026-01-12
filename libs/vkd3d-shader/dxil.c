@@ -26,6 +26,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <dxil_spirv_c.h>
+#include "vkd3d_device_vkd3d_ext.h"
 
 static bool dxil_match_shader_visibility(enum vkd3d_shader_visibility visibility,
                                          dxil_spv_shader_stage stage)
@@ -273,6 +274,53 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
         return DXIL_SPV_TRUE;
 }
 
+static bool dxil_srv_remap_input_attachment(const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings,
+        unsigned int desc_set, const dxil_spv_d3d_binding *d3d_binding, dxil_spv_srv_vulkan_binding *vk_binding)
+{
+    unsigned int i;
+
+    for (i = 0; i < mappings->NumRenderTargets; i++)
+    {
+        if (d3d_binding->register_space == mappings->RenderTargets[i].RegisterSpace &&
+            d3d_binding->register_index == mappings->RenderTargets[i].ShaderRegister)
+        {
+            vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+            /* Rely on implicit mappings provided by DRLR. */
+            vk_binding->buffer_binding.input_attachment_index = i;
+            vk_binding->buffer_binding.bindless.use_heap = DXIL_SPV_FALSE;
+            vk_binding->buffer_binding.set = desc_set;
+            vk_binding->buffer_binding.binding = i;
+            return true;
+        }
+    }
+
+    if (mappings->EnableDepth && d3d_binding->register_space == mappings->Depth.RegisterSpace &&
+        d3d_binding->register_index == mappings->Depth.ShaderRegister)
+    {
+        vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+        /* No InputAttachmentIndex implicitly maps to depth-stencil in DRLR. */
+        vk_binding->buffer_binding.input_attachment_index = -1u;
+        vk_binding->buffer_binding.bindless.use_heap = DXIL_SPV_FALSE;
+        vk_binding->buffer_binding.set = desc_set;
+        vk_binding->buffer_binding.binding = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 0;
+        return true;
+    }
+
+    if (mappings->EnableStencil && d3d_binding->register_space == mappings->Stencil.RegisterSpace &&
+        d3d_binding->register_index == mappings->Stencil.ShaderRegister)
+    {
+        vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+        /* No InputAttachmentIndex implicitly maps to depth-stencil in DRLR. */
+        vk_binding->buffer_binding.input_attachment_index = -1u;
+        vk_binding->buffer_binding.bindless.use_heap = DXIL_SPV_FALSE;
+        vk_binding->buffer_binding.set = desc_set;
+        vk_binding->buffer_binding.binding = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1;
+        return true;
+    }
+
+    return false;
+}
+
 static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
                                     dxil_spv_srv_vulkan_binding *vk_binding)
 {
@@ -285,6 +333,17 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
     resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->kind, true);
     resource_flags = dxil_resource_flags_from_kind(d3d_binding->kind, false);
     use_ssbo = resource_flags_ssbo != resource_flags;
+
+    if (shader_interface_info->input_attachment_mappings &&
+        d3d_binding->range_size == 1 &&
+        (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_TEXTURE_2D ||
+            d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_TEXTURE_2DMS))
+    {
+        if (dxil_srv_remap_input_attachment(shader_interface_info->input_attachment_mappings,
+            shader_interface_info->input_attachment_mappings_desc_set,
+            d3d_binding, vk_binding))
+            return DXIL_SPV_TRUE;
+    }
 
     if (use_ssbo && dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
             d3d_binding, &vk_binding->buffer_binding, resource_flags_ssbo))

@@ -2685,6 +2685,12 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
         shader_interface->patch_location_offset = state->graphics.cached_desc.patch_location_offset;
     }
 
+    if (stage == VK_SHADER_STAGE_FRAGMENT_BIT && root_signature->use_input_attachments)
+    {
+        shader_interface->input_attachment_mappings = &root_signature->input_attachment_mappings;
+        shader_interface->input_attachment_mappings_desc_set = root_signature->input_attachment_descriptor_set;
+    }
+
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     shader_interface->descriptor_qa_payload_binding = &root_signature->descriptor_qa_payload_binding;
     shader_interface->descriptor_qa_control_binding = &root_signature->descriptor_qa_control_binding;
