@@ -5794,6 +5794,8 @@ void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *li
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
     if (bindings->root_signature->hoist_info.num_desc)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
+    if (bindings->root_signature->use_input_attachments)
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_INPUT_ATTACHMENT_SET;
 
     d3d12_command_list_invalidate_push_constants(bindings);
 
@@ -6132,7 +6134,8 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
     }
 
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt)
-            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1))
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt2))
     {
         d3d12_command_list_vkd3d_ext_AddRef(&command_list->ID3D12GraphicsCommandListExt_iface);
         *object = &command_list->ID3D12GraphicsCommandListExt_iface;
@@ -7349,6 +7352,24 @@ static void d3d12_command_list_update_static_samplers(struct d3d12_command_list 
     bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
 }
 
+static void d3d12_command_list_update_input_attachments(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings, VkPipelineBindPoint vk_bind_point,
+        VkPipelineLayout layout)
+{
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const uint32_t buffer_index = 0;
+
+    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_INPUT_ATTACHMENT_SET;
+
+    if (vk_bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS || !root_signature->use_input_attachments)
+        return;
+
+    VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, vk_bind_point,
+            layout, root_signature->input_attachment_descriptor_set, 1,
+            &buffer_index, &bindings->input_attachment_desc_buffer_offset));
+}
+
 static void d3d12_command_list_update_root_constants(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings,
         VkPipelineLayout layout, VkShaderStageFlags push_stages)
@@ -7629,6 +7650,8 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 
     if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET)
         d3d12_command_list_update_static_samplers(list, bindings, vk_bind_point, layout);
+    if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_INPUT_ATTACHMENT_SET)
+        d3d12_command_list_update_input_attachments(list, bindings, vk_bind_point, layout);
 
     /* If we can, hoist descriptors from the descriptor heap into fake root parameters. */
     if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS)
@@ -19607,13 +19630,21 @@ static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12Comma
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
-extern CONST_VTBL struct ID3D12GraphicsCommandListExt1Vtbl d3d12_command_list_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext_vtbl;
 
-static void d3d12_command_list_init_attachment_info(VkRenderingAttachmentInfo *attachment_info)
+static void d3d12_command_list_init_attachment_info(struct d3d12_device *device,
+    VkRenderingAttachmentInfo *attachment_info,
+    VkRenderingAttachmentFlagsInfoKHR *flags_info)
 {
     attachment_info->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     attachment_info->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     attachment_info->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    if (device->device_info.maintenance10_features.maintenance10)
+    {
+        flags_info->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_FLAGS_INFO_KHR;
+        attachment_info->pNext = flags_info;
+    }
 }
 
 static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, struct vkd3d_rendering_info *rendering_info)
@@ -19624,11 +19655,18 @@ static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, 
     rendering_info->info.colorAttachmentCount = 0;
     rendering_info->info.pColorAttachments = rendering_info->rtv;
 
-    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
-        d3d12_command_list_init_attachment_info(&rendering_info->rtv[i]);
+    /* Opt-out of programmable blending support for now.
+     * Could be overridden by an alternative interface later. */
+    if (d3d12_device_supports_tiler_optimizations(device) && device->device_info.maintenance10_features.maintenance10)
+        rendering_info->info.flags |= VK_RENDERING_LOCAL_READ_CONCURRENT_ACCESS_CONTROL_BIT_KHR;
 
-    d3d12_command_list_init_attachment_info(&rendering_info->depth);
-    d3d12_command_list_init_attachment_info(&rendering_info->stencil);
+    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+        d3d12_command_list_init_attachment_info(device, &rendering_info->rtv[i], &rendering_info->flags_info[i]);
+
+    d3d12_command_list_init_attachment_info(device, &rendering_info->depth,
+            &rendering_info->flags_info[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 0]);
+    d3d12_command_list_init_attachment_info(device, &rendering_info->stencil,
+            &rendering_info->flags_info[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1]);
 
     if (device->device_info.fragment_shading_rate_features.attachmentFragmentShadingRate)
     {

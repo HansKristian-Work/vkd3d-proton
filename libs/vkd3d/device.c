@@ -4179,7 +4179,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
     }
 
     if (IsEqualGUID(riid, &IID_ID3D12DeviceExt)
-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt1))
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt1)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt2))
     {
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
@@ -5759,7 +5760,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(d3d12_device_i
 
     debug_ignored_node_mask(node_mask);
 
-    if (FAILED(hr = d3d12_root_signature_create(device, bytecode, bytecode_length, &object)))
+    if (FAILED(hr = d3d12_root_signature_create(device, bytecode, bytecode_length, NULL, &object)))
         return hr;
 
     return return_interface(&object->ID3D12RootSignature_iface,
@@ -9945,7 +9946,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     }
 }
 
-extern CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12DeviceExt2Vtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDevice2Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
