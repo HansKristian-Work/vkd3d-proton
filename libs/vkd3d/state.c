@@ -1754,6 +1754,36 @@ HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
     return S_OK;
 }
 
+static vkd3d_shader_hash_t d3d12_root_signature_hash_input_attachments(
+        vkd3d_shader_hash_t hash, const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings)
+{
+    unsigned int i;
+
+    hash = hash_fnv1_iterate_u32(hash, mappings->NumRenderTargets);
+    hash = hash_fnv1_iterate_u32(hash, mappings->EnableDepth);
+    hash = hash_fnv1_iterate_u32(hash, mappings->EnableStencil);
+
+    for (i = 0; i < mappings->NumRenderTargets; i++)
+    {
+        hash = hash_fnv1_iterate_u32(hash, mappings->RenderTargets[i].RegisterSpace);
+        hash = hash_fnv1_iterate_u32(hash, mappings->RenderTargets[i].ShaderRegister);
+    }
+
+    if (mappings->EnableDepth)
+    {
+        hash = hash_fnv1_iterate_u32(hash, mappings->Depth.RegisterSpace);
+        hash = hash_fnv1_iterate_u32(hash, mappings->Depth.ShaderRegister);
+    }
+
+    if (mappings->EnableStencil)
+    {
+        hash = hash_fnv1_iterate_u32(hash, mappings->Stencil.RegisterSpace);
+        hash = hash_fnv1_iterate_u32(hash, mappings->Stencil.ShaderRegister);
+    }
+
+    return hash;
+}
+
 static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device,
         const void *bytecode, size_t bytecode_length,
         const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings,
@@ -1802,6 +1832,12 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
     object->pso_compatibility_hash = compatibility_hash;
     object->layout_compatibility_hash = vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
             &root_signature_desc.vkd3d.v_1_2);
+
+    if (mappings)
+    {
+        object->pso_compatibility_hash = d3d12_root_signature_hash_input_attachments(
+            object->pso_compatibility_hash, mappings);
+    }
 
     /* Inline the root signature blob inside the SPIR-V. */
     if (SUCCEEDED(hr) && !raw_payload &&
