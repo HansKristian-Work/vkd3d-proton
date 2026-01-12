@@ -4857,7 +4857,8 @@ void test_large_texel_buffer_view(void)
 
         if (tests[i].element_count > (1 << D3D12_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP))
         {
-            if (is_adreno_device(context.device)) {
+            if (is_adreno_device(context.device))
+            {
                 skip("Adreno doesn't support more than D3D12-specified minimum of 2^27 texel buffer elements\n");
                 continue;
             }
