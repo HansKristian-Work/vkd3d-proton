@@ -111,6 +111,53 @@ interface ID3D12DeviceExt1 : ID3D12DeviceExt
     HRESULT GetVulkanQueueInfoEx(ID3D12CommandQueue *queue, VkQueue *vk_queue, UINT32 *vk_queue_index, UINT32 *vk_queue_flags, UINT32 *vk_queue_family);
 }
 
+typedef struct D3D12_VK_INPUT_ATTACHMENT_MAPPING
+{
+    UINT RegisterSpace;
+    UINT ShaderRegister;
+} D3D12_VK_INPUT_ATTACHMENT_MAPPING;
+
+typedef struct D3D12_VK_INPUT_ATTACHMENT_MAPPINGS
+{
+    UINT NumRenderTargets;
+    D3D12_VK_INPUT_ATTACHMENT_MAPPING RenderTargets[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    BOOL EnableDepth;
+    BOOL EnableStencil;
+    D3D12_VK_INPUT_ATTACHMENT_MAPPING Depth;
+    D3D12_VK_INPUT_ATTACHMENT_MAPPING Stencil;
+} D3D12_VK_INPUT_ATTACHMENT_MAPPINGS;
+
+typedef enum D3D12_VK_TILER_OPTIMIZATION_TIER
+{
+    D3D12_VK_TILER_OPTIMIZATION_NOT_SUPPORTED = 0,
+    D3D12_VK_TILER_OPTIMIZATION_TIER_1 = 1,
+} D3D12_VK_TILER_OPTIMIZATION_TIER;
+
+[
+    uuid(b7798d22-9fce-434d-8eeb-c3cef1056125),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceExt2 : ID3D12DeviceExt1
+{
+    D3D12_VK_TILER_OPTIMIZATION_TIER GetTilerOptimizationTier();
+    HRESULT OptInToTilerOptimizations();
+    UINT GetInputAttachmentDescriptorsCount();
+    HRESULT CreateRootSignatureWithInputAttachments(
+            UINT node_mask,
+            const void *bytecode, SIZE_T bytecode_length,
+            const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings,
+            REFIID riid, void **root_signature);
+    void CreateInputAttachmentDescriptors(
+            UINT render_target_descriptor_count,
+            const D3D12_CPU_DESCRIPTOR_HANDLE *render_target_descriptors,
+            BOOL single_descriptor_handle,
+            const D3D12_CPU_DESCRIPTOR_HANDLE *depth_descriptor,
+            const D3D12_CPU_DESCRIPTOR_HANDLE *stencil_descriptor,
+            D3D12_CPU_DESCRIPTOR_HANDLE base_descriptor);
+}
+
 /* 1:1 implementation of ffx_antilag2_dx12.h */
 struct AmdAntiLagAPIData_v1
 {
