@@ -263,6 +263,7 @@ bool d3d12_device_supports_tiler_optimizations(const struct d3d12_device *device
     props = &device->device_info.descriptor_buffer_properties;
 
     return d3d12_device_uses_descriptor_buffers(device) &&
+            device->device_info.custom_resolve_features.customResolve &&
             device->device_info.unified_image_layouts_features.unifiedImageLayouts &&
             device->device_info.dynamic_rendering_local_read_features.dynamicRenderingLocalRead &&
             props->descriptorBufferOffsetAlignment <= props->inputAttachmentDescriptorSize;

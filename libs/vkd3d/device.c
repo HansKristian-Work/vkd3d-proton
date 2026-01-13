@@ -89,6 +89,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_UNIFIED_IMAGE_LAYOUTS, KHR_unified_image_layouts),
     VK_EXTENSION(KHR_MAINTENANCE_10, KHR_maintenance10),
     VK_EXTENSION(KHR_DYNAMIC_RENDERING_LOCAL_READ, KHR_dynamic_rendering_local_read),
+    VK_EXTENSION(EXT_CUSTOM_RESOLVE, EXT_custom_resolve),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -2270,6 +2271,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->dynamic_rendering_local_read_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->dynamic_rendering_local_read_features);
+    }
+
+    if (vulkan_info->EXT_custom_resolve)
+    {
+        info->custom_resolve_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_RESOLVE_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->custom_resolve_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));

@@ -19660,6 +19660,10 @@ static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, 
     if (d3d12_device_supports_tiler_optimizations(device) && device->device_info.maintenance10_features.maintenance10)
         rendering_info->info.flags |= VK_RENDERING_LOCAL_READ_CONCURRENT_ACCESS_CONTROL_BIT_KHR;
 
+    /* To be able to do custom MSAA resolves. This shouldn't impact any relevant implementation. */
+    if (d3d12_device_supports_tiler_optimizations(device))
+        rendering_info->info.flags |= VK_RENDERING_FRAGMENT_REGION_BIT_EXT;
+
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
         d3d12_command_list_init_attachment_info(device, &rendering_info->rtv[i], &rendering_info->flags_info[i]);
 

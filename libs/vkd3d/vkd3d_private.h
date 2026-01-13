@@ -186,6 +186,7 @@ struct vkd3d_vulkan_info
     bool EXT_zero_initialize_device_memory;
     bool EXT_opacity_micromap;
     bool EXT_shader_float8;
+    bool EXT_custom_resolve;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -5046,6 +5047,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMaintenance10FeaturesKHR maintenance10_features;
     VkPhysicalDeviceMaintenance10PropertiesKHR maintenance10_properties;
     VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR dynamic_rendering_local_read_features;
+    VkPhysicalDeviceCustomResolveFeaturesEXT custom_resolve_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
