@@ -3242,3 +3242,173 @@ void test_input_attachments(void)
     ID3D12DeviceExt2_Release(device_ext2);
     destroy_test_context(&context);
 }
+
+void test_input_attachments_feedback(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_VK_INPUT_ATTACHMENT_MAPPINGS mappings;
+    ID3D12GraphicsCommandListExt2 *list_ext2;
+    struct test_context_desc context_desc;
+    static const float black[4] = { 0 };
+    D3D12_CPU_DESCRIPTOR_HANDLE depth;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvs;
+    ID3D12DeviceExt2 *device_ext2;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *descs;
+    ID3D12DescriptorHeap *rtv;
+    ID3D12DescriptorHeap *dsv;
+    ID3D12Resource *color;
+    ID3D12Resource *ds;
+    D3D12_VIEWPORT vp;
+    unsigned int x, y;
+    D3D12_RECT sci;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/render_target/headers/vs_no_attachments.h"
+#include "shaders/render_target/headers/ps_input_attachment_feedback.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    memset(&context, 0, sizeof(context));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12DeviceExt2, (void **)&device_ext2)))
+    {
+        skip("ID3D12DeviceExt2 not supported, skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (ID3D12DeviceExt2_GetTilerOptimizationTier(device_ext2) < D3D12_VK_TILER_OPTIMIZATION_TIER_1)
+    {
+        skip("Tiler optimization tier 1 not supported, skipping.\n");
+        ID3D12DeviceExt2_Release(device_ext2);
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandListExt2, (void **)&list_ext2)))
+    {
+        skip("ID3D12GraphicsCommandListExt2 not supported, skipping.\n");
+        ID3D12DeviceExt2_Release(device_ext2);
+        destroy_test_context(&context);
+        return;
+    }
+
+    ID3D12DeviceExt2_OptInToTilerOptimizations(device_ext2);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+
+    mappings.NumRenderTargets = 1;
+    mappings.EnableDepth = TRUE;
+    mappings.RenderTargets[0].RegisterSpace = 1;
+    mappings.RenderTargets[0].ShaderRegister = 100;
+    mappings.Depth.RegisterSpace = 1;
+    mappings.Depth.ShaderRegister = 101;
+
+    create_root_signature_with_input_attachments(context.device, &rs_desc, &mappings, &context.root_signature);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R32_UINT,
+            &vs_no_attachments_dxbc,
+            &ps_input_attachment_feedback_dxbc, NULL);
+
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    color = create_default_texture2d(context.device, 64, 64, 1, 1,
+            DXGI_FORMAT_R32_UINT,
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ds = create_default_texture2d(context.device, 64, 64, 1, 1,
+            DXGI_FORMAT_D32_FLOAT,
+            D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+    rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    dsv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    rtvs = get_cpu_rtv_handle(&context, rtv, 0);
+    depth = get_cpu_dsv_handle(&context, dsv, 0);
+
+    ID3D12Device_CreateRenderTargetView(context.device, color, NULL, rtvs);
+    ID3D12Device_CreateDepthStencilView(context.device, ds, NULL, depth);
+
+    descs = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+        ID3D12DeviceExt2_GetInputAttachmentDescriptorsCount(device_ext2));
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &descs);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+
+    /* Write input attachment descriptors to heap. */
+    ID3D12DeviceExt2_CreateInputAttachmentDescriptors(device_ext2, 1, &rtvs, TRUE,
+            &depth, NULL, get_cpu_descriptor_handle(&context, descs, 0));
+    ID3D12GraphicsCommandListExt2_SetRootSignatureInputAttachments(list_ext2,
+            get_gpu_descriptor_handle(&context, descs, 0));
+
+    set_viewport(&vp, 0, 0, 64, 64, 0, 1);
+    set_rect(&sci, 0, 0, 64, 64);
+
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, 0x60);
+    ID3D12GraphicsCommandListExt2_SetInputAttachmentFeedback(list_ext2, 0x1, TRUE, FALSE);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtvs, TRUE, &depth);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtvs, black, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, depth, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, NULL);
+
+    for (i = 0; i < 4; i++)
+    {
+        /* Need to sync with the clear. */
+        ID3D12GraphicsCommandListExt2_InputAttachmentPixelBarrier(list_ext2);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+    }
+
+    transition_resource_state(context.list, color, D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(color, 0, &rb, context.queue, context.list);
+    for (y = 0; y < 64; y++)
+    {
+        for (x = 0; x < 64; x++)
+        {
+            uint32_t rt = 0;
+            float d = 0.0f;
+            uint32_t value;
+
+            /* Resolve the feedback. */
+            for (i = 0; i < 4; i++)
+            {
+                rt += (uint32_t)(d * 1024.0f);
+                d += (x + 0.5f) / 1024.0f + (y + 0.5f) / 512.0f;
+            }
+
+            value = get_readback_uint(&rb, x, y, 0);
+            ok(value == rt, "coord %u, %u: expected %u, got %u\n", x, y, rt, value);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(color);
+    ID3D12Resource_Release(ds);
+    ID3D12DescriptorHeap_Release(descs);
+    ID3D12DescriptorHeap_Release(rtv);
+    ID3D12DescriptorHeap_Release(dsv);
+    ID3D12GraphicsCommandListExt2_Release(list_ext2);
+    ID3D12DeviceExt2_Release(device_ext2);
+    destroy_test_context(&context);
+}

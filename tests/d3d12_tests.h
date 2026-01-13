@@ -529,3 +529,4 @@ decl_test(test_render_pass_suspend_resume_opts_disabled);
 decl_test(test_static_sampler_dynamic_index);
 decl_test(test_descriptor_range_validation);
 decl_test(test_input_attachments);
+decl_test(test_input_attachments_feedback);
