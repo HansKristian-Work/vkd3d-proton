@@ -915,6 +915,31 @@ static inline HRESULT create_root_signature(ID3D12Device *device, const D3D12_RO
     return hr;
 }
 
+static inline HRESULT create_root_signature_with_input_attachments(ID3D12Device *device,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings,
+        ID3D12RootSignature **root_signature)
+{
+    ID3D12DeviceExt2 *ext2;
+    ID3DBlob *blob;
+    HRESULT hr;
+
+    if (FAILED(hr = ID3D12Device_QueryInterface(device, &IID_ID3D12DeviceExt2, (void **)&ext2)))
+        return hr;
+
+    if (FAILED(hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, NULL)))
+    {
+        ID3D12DeviceExt2_Release(ext2);
+        return hr;
+    }
+
+    hr = ID3D12DeviceExt2_CreateRootSignatureWithInputAttachments(ext2, 0, ID3D10Blob_GetBufferPointer(blob),
+            ID3D10Blob_GetBufferSize(blob), mappings, &IID_ID3D12RootSignature, (void **)root_signature);
+
+    ID3D12DeviceExt2_Release(ext2);
+    ID3D10Blob_Release(blob);
+    return hr;
+}
+
 static inline HRESULT create_versioned_root_signature(ID3D12Device *device, const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc,
         ID3D12RootSignature **root_signature)
 {
