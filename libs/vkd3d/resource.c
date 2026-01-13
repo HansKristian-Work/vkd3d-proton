@@ -984,6 +984,13 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         image_info->extent = d3d12_resource_desc_get_padded_feedback_extent(desc);
     }
 
+    if (device->tiler_optimizations.enable && (image_info->usage & (
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) &&
+        (image_info->usage & VK_IMAGE_USAGE_SAMPLED_BIT))
+    {
+        image_info->usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+    }
+
     if (resource)
     {
         /* Cases where we need to force images into GENERAL layout at all times.
@@ -5434,6 +5441,7 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     object->format = format;
     object->info.texture.vk_view_type = desc->view_type;
     object->info.texture.aspect_mask = desc->aspect_mask;
+    object->info.texture.image_usage = desc->image_usage;
     object->info.texture.miplevel_idx = desc->miplevel_idx;
     object->info.texture.layer_idx = desc->layer_idx;
     object->info.texture.layer_count = desc->layer_count;
@@ -7690,6 +7698,8 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     key.view_type = VKD3D_VIEW_TYPE_IMAGE;
     key.u.texture.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    if (device->tiler_optimizations.enable)
+        key.u.texture.image_usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
 
     if (desc)
     {
@@ -7800,6 +7810,33 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 
     key.view_type = VKD3D_VIEW_TYPE_IMAGE;
     key.u.texture.image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    if (device->tiler_optimizations.enable)
+    {
+        key.u.texture.image_usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+
+        if (key.u.texture.format->vk_aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            /* For framebuffers, aspect mask is ignored. */
+            if (desc &&
+                (desc->Flags & D3D12_DSV_FLAG_READ_ONLY_DEPTH) &&
+                !(desc->Flags & D3D12_DSV_FLAG_READ_ONLY_STENCIL))
+            {
+                key.u.texture.aspect_mask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            }
+            else if (desc &&
+                (desc->Flags & D3D12_DSV_FLAG_READ_ONLY_STENCIL) &&
+                !(desc->Flags & D3D12_DSV_FLAG_READ_ONLY_DEPTH))
+            {
+                key.u.texture.aspect_mask = VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+            else
+            {
+                /* Just pick something. Depth is more likely to be used than stencil.
+                 * An input attachment cannot have both aspects. */
+                key.u.texture.image_usage &= ~VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+            }
+        }
+    }
 
     if (desc)
     {

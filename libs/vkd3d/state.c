@@ -1480,6 +1480,16 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
         context.vk_set += 1;
     }
 
+    if (root_signature->use_input_attachments)
+    {
+        assert(context.vk_set < VKD3D_MAX_DESCRIPTOR_SETS);
+        root_signature->set_layouts[context.vk_set] = device->bindless_state.input_attachment_set_layout;
+        root_signature->input_attachment_descriptor_set = context.vk_set;
+
+        context.vk_binding = 0;
+        context.vk_set += 1;
+    }
+
     if (FAILED(hr = d3d12_root_signature_init_push_constants(root_signature, desc, &info,
             &push_constant_range)))
         return hr;
@@ -1674,7 +1684,8 @@ HRESULT d3d12_root_signature_create_work_graph_layout(struct d3d12_root_signatur
 }
 
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
-        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc,
+        const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings)
 {
     HRESULT hr;
 
@@ -1686,6 +1697,13 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->d3d12_flags = desc->Flags;
     /* needed by some methods, increment ref count later */
     root_signature->device = device;
+
+    if (mappings)
+    {
+        root_signature->input_attachment_mappings = *mappings;
+        root_signature->use_input_attachments =
+            mappings->NumRenderTargets || mappings->EnableDepth || mappings->EnableStencil;
+    }
 
     if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE)
         hr = d3d12_root_signature_init_local(root_signature, device, desc);
@@ -1719,7 +1737,7 @@ HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
         return E_OUTOFMEMORY;
 
     memset(&desc, 0, sizeof(desc));
-    hr = d3d12_root_signature_init(object, device, &desc);
+    hr = d3d12_root_signature_init(object, device, &desc, NULL);
 
     /* For pipeline libraries, (and later DXR to some degree), we need a way to
      * compare root signature objects. */
@@ -1736,8 +1754,40 @@ HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
     return S_OK;
 }
 
+static vkd3d_shader_hash_t d3d12_root_signature_hash_input_attachments(
+        vkd3d_shader_hash_t hash, const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings)
+{
+    unsigned int i;
+
+    hash = hash_fnv1_iterate_u32(hash, mappings->NumRenderTargets);
+    hash = hash_fnv1_iterate_u32(hash, mappings->EnableDepth);
+    hash = hash_fnv1_iterate_u32(hash, mappings->EnableStencil);
+
+    for (i = 0; i < mappings->NumRenderTargets; i++)
+    {
+        hash = hash_fnv1_iterate_u32(hash, mappings->RenderTargets[i].RegisterSpace);
+        hash = hash_fnv1_iterate_u32(hash, mappings->RenderTargets[i].ShaderRegister);
+    }
+
+    if (mappings->EnableDepth)
+    {
+        hash = hash_fnv1_iterate_u32(hash, mappings->Depth.RegisterSpace);
+        hash = hash_fnv1_iterate_u32(hash, mappings->Depth.ShaderRegister);
+    }
+
+    if (mappings->EnableStencil)
+    {
+        hash = hash_fnv1_iterate_u32(hash, mappings->Stencil.RegisterSpace);
+        hash = hash_fnv1_iterate_u32(hash, mappings->Stencil.ShaderRegister);
+    }
+
+    return hash;
+}
+
 static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device,
-        const void *bytecode, size_t bytecode_length, bool raw_payload,
+        const void *bytecode, size_t bytecode_length,
+        const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings,
+        bool raw_payload,
         struct d3d12_root_signature **root_signature)
 {
     const struct vkd3d_shader_code dxbc = {bytecode, bytecode_length};
@@ -1775,13 +1825,19 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
         return E_OUTOFMEMORY;
     }
 
-    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12.Desc_1_2);
+    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12.Desc_1_2, mappings);
 
     /* For pipeline libraries, (and later DXR to some degree), we need a way to
      * compare root signature objects. */
     object->pso_compatibility_hash = compatibility_hash;
     object->layout_compatibility_hash = vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
             &root_signature_desc.vkd3d.v_1_2);
+
+    if (mappings)
+    {
+        object->pso_compatibility_hash = d3d12_root_signature_hash_input_attachments(
+            object->pso_compatibility_hash, mappings);
+    }
 
     /* Inline the root signature blob inside the SPIR-V. */
     if (SUCCEEDED(hr) && !raw_payload &&
@@ -1811,16 +1867,17 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device,
         const void *bytecode, size_t bytecode_length,
+        const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings,
         struct d3d12_root_signature **root_signature)
 {
-    return d3d12_root_signature_create_from_blob(device, bytecode, bytecode_length, false, root_signature);
+    return d3d12_root_signature_create_from_blob(device, bytecode, bytecode_length, mappings, false, root_signature);
 }
 
 HRESULT d3d12_root_signature_create_raw(struct d3d12_device *device,
         const void *payload, size_t payload_length,
         struct d3d12_root_signature **root_signature)
 {
-    return d3d12_root_signature_create_from_blob(device, payload, payload_length, true, root_signature);
+    return d3d12_root_signature_create_from_blob(device, payload, payload_length, NULL, true, root_signature);
 }
 
 unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature,
@@ -2662,6 +2719,12 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
     else if (stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
     {
         shader_interface->patch_location_offset = state->graphics.cached_desc.patch_location_offset;
+    }
+
+    if (stage == VK_SHADER_STAGE_FRAGMENT_BIT && root_signature->use_input_attachments)
+    {
+        shader_interface->input_attachment_mappings = &root_signature->input_attachment_mappings;
+        shader_interface->input_attachment_mappings_desc_set = root_signature->input_attachment_descriptor_set;
     }
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
@@ -7458,6 +7521,34 @@ static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bind
     }
 }
 
+static HRESULT vkd3d_bindless_state_init_tiler_optimizations(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device)
+{
+    VkDescriptorSetLayoutBinding bindings[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDescriptorSetLayoutCreateInfo info;
+    unsigned int i;
+    VkResult vr;
+
+    for (i = 0; i < ARRAY_SIZE(bindings); i++)
+    {
+        bindings[i].binding = i;
+        bindings[i].descriptorCount = 1;
+        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+        bindings[i].pImmutableSamplers = NULL;
+        bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+
+    memset(&info, 0, sizeof(info));
+    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    info.bindingCount = ARRAY_SIZE(bindings);
+    info.pBindings = bindings;
+    info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+    vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &info, NULL, &bindless_state->input_attachment_set_layout));
+    return hresult_from_vk_result(vr);
+}
+
 HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device)
 {
@@ -7609,6 +7700,10 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
                 vkd3d_bindless_embedded_mutable_packed_metadata_offset(device);
     }
 
+    if (d3d12_device_supports_tiler_optimizations(device))
+        if (FAILED(hr = vkd3d_bindless_state_init_tiler_optimizations(bindless_state, device)))
+            goto fail;
+
     return S_OK;
 
 fail:
@@ -7627,6 +7722,8 @@ void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->set_info[i].vk_set_layout, NULL));
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->set_info[i].vk_host_set_layout, NULL));
     }
+
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->input_attachment_set_layout, NULL));
 }
 
 static inline uint32_t vkd3d_bindless_state_get_extra_binding_index(uint32_t extra_flag, uint32_t set_flags)

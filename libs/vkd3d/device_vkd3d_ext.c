@@ -257,7 +257,242 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx(d3d
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
+bool d3d12_device_supports_tiler_optimizations(const struct d3d12_device *device)
+{
+    const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props;
+    props = &device->device_info.descriptor_buffer_properties;
+
+    return d3d12_device_uses_descriptor_buffers(device) &&
+            device->device_info.custom_resolve_features.customResolve &&
+            device->device_info.unified_image_layouts_features.unifiedImageLayouts &&
+            device->device_info.dynamic_rendering_local_read_features.dynamicRenderingLocalRead &&
+            props->descriptorBufferOffsetAlignment <= props->inputAttachmentDescriptorSize;
+}
+
+static D3D12_VK_TILER_OPTIMIZATION_TIER STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetTilerOptimizationTier(
+    ID3D12DeviceExt2 *iface)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    TRACE("iface %p", iface);
+    return d3d12_device_supports_tiler_optimizations(device) ? D3D12_VK_TILER_OPTIMIZATION_TIER_1 : D3D12_VK_TILER_OPTIMIZATION_NOT_SUPPORTED;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_OptInToTilerOptimizations(
+    ID3D12DeviceExt2 *iface)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    TRACE("iface %p", iface);
+
+    if (!d3d12_device_supports_tiler_optimizations(device))
+        return E_FAIL;
+
+    device->tiler_optimizations.enable = true;
+    return S_OK;
+}
+
+static UINT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetInputAttachmentDescriptorsCount(
+        ID3D12DeviceExt2 *iface)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDeviceSize size;
+
+    TRACE("iface %p", iface);
+
+    VK_CALL(vkGetDescriptorSetLayoutSizeEXT(device->vk_device,
+            device->bindless_state.input_attachment_set_layout, &size));
+
+    size = align64(size, device->bindless_state.descriptor_buffer_cbv_srv_uav_size);
+    /* This should be 10 (8 + 1 + 1), but in descriptor buffers, drivers are free to do weird things. */
+    return size >> device->bindless_state.descriptor_buffer_cbv_srv_uav_size_log2;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateRootSignatureWithInputAttachments(
+        ID3D12DeviceExt2 *iface, UINT node_mask,
+        const void *bytecode, SIZE_T bytecode_length,
+        const D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *mappings,
+        REFIID riid, void **root_signature)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    struct d3d12_root_signature *object;
+    HRESULT hr;
+
+    TRACE("iface %p, node_mask 0x%08x, bytecode %p, bytecode_length %lu, mappings %p, riid %s, root_signature %p.\n",
+            iface, node_mask, bytecode, bytecode_length, mappings, debugstr_guid(riid), root_signature);
+    debug_ignored_node_mask(node_mask);
+
+    if (FAILED(hr = d3d12_root_signature_create(device, bytecode, bytecode_length, mappings, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12RootSignature_iface,
+            &IID_ID3D12RootSignature, riid, root_signature);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateInputAttachmentDescriptors(
+        ID3D12DeviceExt2 *iface,
+        UINT render_target_descriptor_count, const D3D12_CPU_DESCRIPTOR_HANDLE *render_target_descriptors,
+        BOOL single_descriptor_handle,
+        const D3D12_CPU_DESCRIPTOR_HANDLE *depth_descriptor,
+        const D3D12_CPU_DESCRIPTOR_HANDLE *stencil_descriptor,
+        D3D12_CPU_DESCRIPTOR_HANDLE base_descriptor)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct d3d12_rtv_desc *rtv_desc;
+    VkDescriptorGetInfoEXT get_info;
+    VkDescriptorImageInfo image;
+    uint8_t *base_payload;
+    VkDeviceSize offset;
+    unsigned int i;
+
+    if (!device->tiler_optimizations.enable)
+    {
+        ERR("Tiler optimizations are not enabled on device.\n");
+        return;
+    }
+
+    get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+    get_info.pNext = NULL;
+    get_info.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+    get_info.data.pInputAttachmentImage = &image;
+
+    if (d3d12_device_use_embedded_mutable_descriptors(device))
+    {
+        struct d3d12_desc_split_embedded d = d3d12_desc_decode_embedded_resource_va(base_descriptor.ptr);
+        base_payload = d.payload;
+    }
+    else
+    {
+        struct d3d12_desc_split d = d3d12_desc_decode_va(base_descriptor.ptr);
+        struct vkd3d_descriptor_binding binding;
+        uint32_t info_index;
+
+        info_index = vkd3d_bindless_state_find_set_info_index_fast(device,
+            VKD3D_BINDLESS_STATE_INFO_INDEX_MUTABLE_SPLIT_TYPED,
+            VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_IMAGE);
+
+        binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
+        base_payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+    }
+
+    for (i = 0; i < render_target_descriptor_count; ++i)
+    {
+        if (single_descriptor_handle)
+        {
+            if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(*render_target_descriptors)))
+                rtv_desc += i;
+        }
+        else
+        {
+            rtv_desc = d3d12_rtv_desc_from_cpu_handle(render_target_descriptors[i]);
+        }
+
+        if (!rtv_desc || !rtv_desc->view)
+            continue;
+
+        if (!(rtv_desc->view->info.texture.image_usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT))
+        {
+            FIXME("RTV %u does not enable INPUT_ATTACHMENT usage.\n", i);
+            continue;
+        }
+
+        VK_CALL(vkGetDescriptorSetLayoutBindingOffsetEXT(device->vk_device,
+                device->bindless_state.input_attachment_set_layout, i, &offset));
+
+        /* Only allow input attachment path with unified image layouts. */
+        image.imageView = rtv_desc->view->vk_image_view;
+        image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image.sampler = VK_NULL_HANDLE;
+
+        VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+            device->device_info.descriptor_buffer_properties.inputAttachmentDescriptorSize,
+            base_payload + offset));
+    }
+
+    if (depth_descriptor)
+    {
+        if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(*depth_descriptor)) && rtv_desc->view)
+        {
+            bool supports_input_attachment =
+                !!(rtv_desc->view->info.texture.image_usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT);
+
+            if (!supports_input_attachment)
+            {
+                FIXME("Depth DSV does not enable INPUT_ATTACHMENT usage. "
+                    "Ensure that exactly one of D3D12_DSV_FLAG_READ_ONLY_DEPTH or "
+                    "D3D12_DSV_FLAG_READ_ONLY_STENCIL is enabled on the view to disambiguate.\n");
+            }
+            else if (rtv_desc->view->info.texture.aspect_mask != VK_IMAGE_ASPECT_DEPTH_BIT)
+            {
+                FIXME("Depth DSV does not enable only DEPTH aspect. "
+                    "Ensure that exactly one of D3D12_DSV_FLAG_READ_ONLY_DEPTH or "
+                    "D3D12_DSV_FLAG_READ_ONLY_STENCIL is enabled on the view to disambiguate.\n");
+            }
+            else
+            {
+                /* Only allow input attachment path with unified image layouts. */
+                image.imageView = rtv_desc->view->vk_image_view;
+                image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                image.sampler = VK_NULL_HANDLE;
+
+                VK_CALL(vkGetDescriptorSetLayoutBindingOffsetEXT(device->vk_device,
+                        device->bindless_state.input_attachment_set_layout,
+                        D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 0, &offset));
+
+                VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                        device->device_info.descriptor_buffer_properties.inputAttachmentDescriptorSize,
+                        base_payload + offset));
+            }
+        }
+        else
+        {
+            FIXME("Null DSV cannot be used with input attachments.\n");
+        }
+    }
+
+    if (stencil_descriptor)
+    {
+        if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(*stencil_descriptor)) && rtv_desc->view)
+        {
+            bool supports_input_attachment =
+                !!(rtv_desc->view->info.texture.image_usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT);
+
+            if (!supports_input_attachment)
+            {
+                FIXME("Stencil DSV does not enable INPUT_ATTACHMENT usage. "
+                    "Ensure that exactly one of D3D12_DSV_FLAG_READ_ONLY_DEPTH or "
+                    "D3D12_DSV_FLAG_READ_ONLY_STENCIL is enabled on the view to disambiguate.\n");
+            }
+            else if (rtv_desc->view->info.texture.aspect_mask != VK_IMAGE_ASPECT_STENCIL_BIT)
+            {
+                FIXME("Stencil DSV does not enable only STENCIL aspect. "
+                    "Ensure that exactly one of D3D12_DSV_FLAG_READ_ONLY_DEPTH or "
+                    "D3D12_DSV_FLAG_READ_ONLY_STENCIL is enabled on the view to disambiguate.\n");
+            }
+            else
+            {
+                /* Only allow input attachment path with unified image layouts. */
+                image.imageView = rtv_desc->view->vk_image_view;
+                image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                image.sampler = VK_NULL_HANDLE;
+
+                VK_CALL(vkGetDescriptorSetLayoutBindingOffsetEXT(device->vk_device,
+                        device->bindless_state.input_attachment_set_layout,
+                        D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1, &offset));
+
+                VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                        device->device_info.descriptor_buffer_properties.inputAttachmentDescriptorSize,
+                        base_payload + offset));
+            }
+        }
+        else
+        {
+            FIXME("Null DSV cannot be used with input attachments.\n");
+        }
+    }
+}
+
+CONST_VTBL struct ID3D12DeviceExt2Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_vkd3d_ext_QueryInterface,
@@ -276,8 +511,14 @@ CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
     /* ID3D12DeviceExt1 methods */
     d3d12_device_vkd3d_ext_CreateResourceFromBorrowedHandle,
     d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx,
-};
 
+    /* ID3D12DeviceExt2 methods */
+    d3d12_device_vkd3d_ext_GetTilerOptimizationTier,
+    d3d12_device_vkd3d_ext_OptInToTilerOptimizations,
+    d3d12_device_vkd3d_ext_GetInputAttachmentDescriptorsCount,
+    d3d12_device_vkd3d_ext_CreateRootSignatureWithInputAttachments,
+    d3d12_device_vkd3d_ext_CreateInputAttachmentDescriptors,
+};
 
 static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(d3d12_dxvk_interop_device_iface *iface)
 {

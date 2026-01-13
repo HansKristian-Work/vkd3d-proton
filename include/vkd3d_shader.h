@@ -31,6 +31,8 @@
 extern "C" {
 #endif  /* __cplusplus */
 
+struct D3D12_VK_INPUT_ATTACHMENT_MAPPINGS;
+
 enum vkd3d_shader_compiler_option
 {
     VKD3D_SHADER_STRIP_DEBUG = 0x00000001,
@@ -326,6 +328,9 @@ struct vkd3d_shader_interface_info
     unsigned int root_parameter_mapping_count;
     const void *root_signature_blob;
     size_t root_signature_blob_size;
+
+    const struct D3D12_VK_INPUT_ATTACHMENT_MAPPINGS *input_attachment_mappings;
+    unsigned int input_attachment_mappings_desc_set;
 };
 
 struct vkd3d_shader_descriptor_table

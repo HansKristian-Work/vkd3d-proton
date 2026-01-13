@@ -87,6 +87,9 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_CALIBRATED_TIMESTAMPS, KHR_calibrated_timestamps),
     VK_EXTENSION(KHR_COOPERATIVE_MATRIX, KHR_cooperative_matrix),
     VK_EXTENSION(KHR_UNIFIED_IMAGE_LAYOUTS, KHR_unified_image_layouts),
+    VK_EXTENSION(KHR_MAINTENANCE_10, KHR_maintenance10),
+    VK_EXTENSION(KHR_DYNAMIC_RENDERING_LOCAL_READ, KHR_dynamic_rendering_local_read),
+    VK_EXTENSION(EXT_CUSTOM_RESOLVE, EXT_custom_resolve),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -2256,6 +2259,26 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->unified_image_layouts_features);
     }
 
+    if (vulkan_info->KHR_maintenance10)
+    {
+        info->maintenance10_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_10_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->maintenance10_features);
+        info->maintenance10_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_10_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, &info->maintenance10_properties);
+    }
+
+    if (vulkan_info->KHR_dynamic_rendering_local_read)
+    {
+        info->dynamic_rendering_local_read_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->dynamic_rendering_local_read_features);
+    }
+
+    if (vulkan_info->EXT_custom_resolve)
+    {
+        info->custom_resolve_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_RESOLVE_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->custom_resolve_features);
+    }
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
@@ -4163,7 +4186,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
     }
 
     if (IsEqualGUID(riid, &IID_ID3D12DeviceExt)
-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt1))
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt1)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt2))
     {
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
@@ -5743,7 +5767,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(d3d12_device_i
 
     debug_ignored_node_mask(node_mask);
 
-    if (FAILED(hr = d3d12_root_signature_create(device, bytecode, bytecode_length, &object)))
+    if (FAILED(hr = d3d12_root_signature_create(device, bytecode, bytecode_length, NULL, &object)))
         return hr;
 
     return return_interface(&object->ID3D12RootSignature_iface,
@@ -9929,7 +9953,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     }
 }
 
-extern CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12DeviceExt2Vtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDevice2Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
