@@ -17804,7 +17804,8 @@ static void d3d12_command_list_resolve_render_pass_attachments(struct d3d12_comm
 
 static bool d3d12_command_list_deduce_attachment_resolve(struct d3d12_command_list *list,
         struct d3d12_rtv_desc *rtv,
-        const D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_PARAMETERS *args, VkImageAspectFlagBits aspect)
+        const D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_PARAMETERS *args, VkImageAspectFlagBits aspect,
+        bool requires_independent_none, bool requires_independent)
 {
     VkImageSubresourceLayers src, dst, dst_base;
     struct d3d12_resource *resolve_dst;
@@ -17853,11 +17854,15 @@ static bool d3d12_command_list_deduce_attachment_resolve(struct d3d12_command_li
         const VkPhysicalDeviceVulkan12Properties *vk12 = &list->device->device_info.vulkan_1_2_properties;
         VkResolveModeFlagBits vk_mode = vk_resolve_mode_from_d3d12(args->ResolveMode);
 
-        /* We could do a bit better here if we correlate depth and stencil attachments,
-         * but I think all relevant implementations support this? */
-        if (!vk12->independentResolve)
+        if (requires_independent && !vk12->independentResolve)
         {
             FIXME_ONCE("Cannot do attachment resolve without independentResolve feature.\n");
+            return false;
+        }
+
+        if (requires_independent_none && !vk12->independentResolveNone)
+        {
+            FIXME_ONCE("Cannot do attachment resolve without independentResolveNone feature.\n");
             return false;
         }
 
@@ -17940,7 +17945,7 @@ static bool d3d12_command_list_add_render_pass_resolve(struct d3d12_command_list
         struct d3d12_rtv_desc *rtv,
         const D3D12_RENDER_PASS_BEGINNING_ACCESS *beginning,
         const D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_PARAMETERS *args, VkImageAspectFlagBits aspect,
-        D3D12_RENDER_PASS_FLAGS flags)
+        D3D12_RENDER_PASS_FLAGS flags, bool requires_independent_none, bool requires_independent)
 {
     VkImageResolve2 region, *src_region;
     struct d3d12_rtv_resolve *resolve;
@@ -17960,8 +17965,11 @@ static bool d3d12_command_list_add_render_pass_resolve(struct d3d12_command_list
     d3d12_command_list_track_resource_usage(list, dst, false);
 
     binds_to_raster = d3d12_render_pass_beginning_access_binds_to_rasterizer(beginning->Type, flags, aspect);
-    if (binds_to_raster && d3d12_command_list_deduce_attachment_resolve(list, rtv, args, aspect))
+    if (binds_to_raster && d3d12_command_list_deduce_attachment_resolve(list, rtv, args, aspect,
+            requires_independent_none, requires_independent))
+    {
         return true;
+    }
 
     /* Only do fallback resolves in the non-suspending pass. */
     if (list->render_pass_flags & D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS)
@@ -18276,7 +18284,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
             rtv_desc = d3d12_rtv_desc_from_cpu_handle(rt->cpuDescriptor);
             if (d3d12_command_list_add_render_pass_resolve(list,
                     rtv_desc, &rt->BeginningAccess, &rt->EndingAccess.Resolve,
-                    VK_IMAGE_ASPECT_COLOR_BIT, flags))
+                    VK_IMAGE_ASPECT_COLOR_BIT, flags, false, false))
             {
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
                         &rtv_attachments[rt_index], &rt->EndingAccess.Resolve, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -18299,14 +18307,34 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
 
     if (depth_stencil)
     {
+        bool requires_independent_ds_none = false;
+        bool requires_independent_ds = false;
+
         rtv_desc = d3d12_rtv_desc_from_cpu_handle(depth_stencil->cpuDescriptor);
+
+        if (dsv_aspects == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            int num_resolves =
+                (depth_stencil->DepthEndingAccess.Type == D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE) +
+                (depth_stencil->StencilEndingAccess.Type == D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE);
+
+            if (num_resolves == 1)
+            {
+                requires_independent_ds_none = true;
+            }
+            else if (num_resolves == 2)
+            {
+                requires_independent_ds = depth_stencil->DepthEndingAccess.Resolve.ResolveMode !=
+                    depth_stencil->StencilEndingAccess.Resolve.ResolveMode;
+            }
+        }
 
         if (depth_stencil->DepthEndingAccess.Type == D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE &&
                 (dsv_aspects & VK_IMAGE_ASPECT_DEPTH_BIT))
         {
             if (d3d12_command_list_add_render_pass_resolve(list,
                     rtv_desc, &depth_stencil->DepthBeginningAccess, &depth_stencil->DepthEndingAccess.Resolve,
-                    VK_IMAGE_ASPECT_DEPTH_BIT, flags))
+                    VK_IMAGE_ASPECT_DEPTH_BIT, flags, requires_independent_ds_none, requires_independent_ds))
             {
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
                         &depth, &depth_stencil->DepthEndingAccess.Resolve,
@@ -18326,7 +18354,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
         {
             if (d3d12_command_list_add_render_pass_resolve(list,
                     rtv_desc, &depth_stencil->StencilBeginningAccess, &depth_stencil->StencilEndingAccess.Resolve,
-                    VK_IMAGE_ASPECT_STENCIL_BIT, flags))
+                    VK_IMAGE_ASPECT_STENCIL_BIT, flags, requires_independent_ds_none, requires_independent_ds))
             {
                 d3d12_command_list_setup_render_pass_attachment_resolve(list,
                         &stencil, &depth_stencil->StencilEndingAccess.Resolve,
