@@ -4674,7 +4674,12 @@ static bool vkd3d_shader_semantic_is_generated_for_stage(enum vkd3d_sysval_seman
             return curr_stage == VK_SHADER_STAGE_VERTEX_BIT;
 
         case VKD3D_SV_PRIMITIVE_ID:
-            return prev_stage == VK_SHADER_STAGE_VERTEX_BIT;
+            return curr_stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT ||
+                    curr_stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT ||
+                    curr_stage == VK_SHADER_STAGE_GEOMETRY_BIT ||
+                    (curr_stage == VK_SHADER_STAGE_FRAGMENT_BIT &&
+                        prev_stage != VK_SHADER_STAGE_GEOMETRY_BIT &&
+                        prev_stage != VK_SHADER_STAGE_MESH_BIT_EXT);
 
         case VKD3D_SV_IS_FRONT_FACE:
         case VKD3D_SV_SAMPLE_INDEX:
