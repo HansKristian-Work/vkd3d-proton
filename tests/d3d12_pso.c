@@ -4753,3 +4753,105 @@ void test_descriptor_range_validation(void)
         ID3D12RootSignature_Release(rs);
     destroy_test_context(&context);
 }
+
+void test_primitive_id_read_tess_geom(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    D3D12_SO_DECLARATION_ENTRY so_entry;
+    D3D12_STREAM_OUTPUT_BUFFER_VIEW sov;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    UINT stride = 16;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/pso/headers/vs_prim_id_read.h"
+#include "shaders/pso/headers/hs_prim_id_read.h"
+#include "shaders/pso/headers/ds_prim_id_read.h"
+#include "shaders/pso/headers/gs_prim_id_read.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    context.root_signature = create_empty_root_signature(context.device, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT);
+
+    init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN, NULL,
+            NULL, 0, NULL, 0);
+
+    pso_desc.VS = vs_prim_id_read_dxbc;
+    pso_desc.HS = hs_prim_id_read_dxbc;
+    pso_desc.DS = ds_prim_id_read_dxbc;
+    pso_desc.GS = gs_prim_id_read_dxbc;
+    pso_desc.StreamOutput.NumEntries = 1;
+    pso_desc.StreamOutput.NumStrides = 1;
+    pso_desc.StreamOutput.pBufferStrides = &stride;
+    pso_desc.StreamOutput.pSODeclaration = &so_entry;
+    pso_desc.StreamOutput.RasterizedStream = D3D12_SO_NO_RASTERIZED_STREAM;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    so_entry.ComponentCount = 4;
+    so_entry.OutputSlot = 0;
+    so_entry.SemanticIndex = 0;
+    so_entry.SemanticName = "PRIM";
+    so_entry.StartComponent = 0;
+    so_entry.Stream = 0;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create pipeline.\n");
+
+    if (FAILED(hr))
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_STREAM_OUT);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    sov.BufferFilledSizeLocation = ID3D12Resource_GetGPUVirtualAddress(output);
+    sov.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(output) + 16;
+    sov.SizeInBytes = 4096 - 16;
+    ID3D12GraphicsCommandList_SOSetTargets(context.list, 0, 1, &sov);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 4, 2, 0, 0);
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_STREAM_OUT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    {
+        const uint32_t prims_per_patch = 6;
+        uint32_t expected_count = 4 * 2 * prims_per_patch * sizeof(struct vec4);
+        ok(get_readback_uint(&rb, 0, 0, 0) == expected_count, "Expected size %u, got %u.\n",
+            expected_count, get_readback_uint(&rb, 0, 0, 0));
+    }
+
+    for (i = 0; i < 6 * 4 * 2; i++)
+    {
+        uint32_t ds_prim, hs_prim, iid, gs_prim;
+
+        ds_prim = get_readback_uint(&rb, i * 4 + 0 + 4, 0, 0);
+        hs_prim = get_readback_uint(&rb, i * 4 + 1 + 4, 0, 0);
+        iid = get_readback_uint(&rb, i * 4 + 2 + 4, 0, 0);
+        gs_prim = get_readback_uint(&rb, i * 4 + 3 + 4, 0, 0);
+
+        /* PrimitiveID restarts per-instance */
+        ok(ds_prim == (i / 6) % 4, "Prim %u: expected ds_prim = %u, got %u\n", i, (i / 6) % 4, ds_prim);
+        ok(hs_prim == (i / 6) % 4, "Prim %u: expected hs_prim = %u, got %u\n", i, (i / 6) % 4, hs_prim);
+        ok(iid == i / (6 * 4), "Prim %u: expected iid = %u, got %u\n", i, i / (6 * 4), iid);
+
+        /* GS inherits the primitive ID for the patch, not the primitive post expansion. */
+        ok(gs_prim == (i / 6) % 4, "Prim %u: expected gs_prim = %u, got %u\n", i, (i / 6) % 4, gs_prim);
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(output);
+    destroy_test_context(&context);
+}
