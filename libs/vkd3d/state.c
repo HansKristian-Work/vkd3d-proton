@@ -3782,45 +3782,32 @@ static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *forma
 STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
 
 static uint32_t d3d12_graphics_pipeline_state_get_plane_optimal_mask(
-        struct d3d12_graphics_pipeline_state *graphics, const struct vkd3d_format *dynamic_dsv_format)
+        struct d3d12_graphics_pipeline_state *graphics)
 {
-    VkFormat dsv_format = VK_FORMAT_UNDEFINED;
     uint32_t plane_optimal_mask = 0;
     VkImageAspectFlags aspects = 0;
 
-    if (dynamic_dsv_format)
-    {
-        if (graphics->dsv_format)
-        {
-            dsv_format = graphics->dsv_format->vk_format;
-            aspects = graphics->dsv_format->vk_aspect_mask;
-        }
-        else if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
-        {
-            dsv_format = dynamic_dsv_format->vk_format;
-            aspects = dynamic_dsv_format->vk_aspect_mask;
-        }
-    }
+    if (graphics->dsv_format)
+        aspects = graphics->dsv_format->vk_aspect_mask;
+    else if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
+        aspects = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 
-    if (dsv_format)
-    {
-        if ((aspects & VK_IMAGE_ASPECT_DEPTH_BIT) &&
-                ((graphics->ds_desc.depthTestEnable || graphics->ds_desc.depthBoundsTestEnable) && graphics->ds_desc.depthWriteEnable))
-            plane_optimal_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
+    if ((aspects & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+            ((graphics->ds_desc.depthTestEnable || graphics->ds_desc.depthBoundsTestEnable) && graphics->ds_desc.depthWriteEnable))
+        plane_optimal_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
 
-        if ((aspects & VK_IMAGE_ASPECT_STENCIL_BIT) &&
-                (graphics->ds_desc.stencilTestEnable && (graphics->ds_desc.front.writeMask | graphics->ds_desc.back.writeMask)))
-            plane_optimal_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
+    if ((aspects & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+            (graphics->ds_desc.stencilTestEnable && (graphics->ds_desc.front.writeMask | graphics->ds_desc.back.writeMask)))
+        plane_optimal_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
 
-        /* If our format does not have both aspects, use same state across the aspects so that we are more likely
-         * to match one of our common formats, DS_READ_ONLY or DS_OPTIMAL.
-         * Otherwise, we are very likely to hit the DS write / stencil read layout. */
-        if (!(aspects & VK_IMAGE_ASPECT_DEPTH_BIT))
-            plane_optimal_mask |= (plane_optimal_mask & VKD3D_STENCIL_PLANE_OPTIMAL) ? VKD3D_DEPTH_PLANE_OPTIMAL : 0;
+    /* If our format does not have both aspects, use same state across the aspects so that we are more likely
+     * to match one of our common formats, DS_READ_ONLY or DS_OPTIMAL.
+     * Otherwise, we are very likely to hit the DS write / stencil read layout. */
+    if (!(aspects & VK_IMAGE_ASPECT_DEPTH_BIT))
+        plane_optimal_mask |= (plane_optimal_mask & VKD3D_STENCIL_PLANE_OPTIMAL) ? VKD3D_DEPTH_PLANE_OPTIMAL : 0;
 
-        if (!(aspects & VK_IMAGE_ASPECT_STENCIL_BIT))
-            plane_optimal_mask |= (plane_optimal_mask & VKD3D_DEPTH_PLANE_OPTIMAL) ? VKD3D_STENCIL_PLANE_OPTIMAL : 0;
-    }
+    if (!(aspects & VK_IMAGE_ASPECT_STENCIL_BIT))
+        plane_optimal_mask |= (plane_optimal_mask & VKD3D_DEPTH_PLANE_OPTIMAL) ? VKD3D_STENCIL_PLANE_OPTIMAL : 0;
 
     return plane_optimal_mask;
 }
@@ -5674,10 +5661,8 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
                 state->vk_pso_cache, 0, &graphics->pipeline_dynamic_states)))
             return E_OUTOFMEMORY;
     }
-    else
-    {
-        graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, NULL);
-    }
+
+    graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics);
 
     return S_OK;
 }
@@ -6400,10 +6385,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
      * If we notice that the base pipeline's DSV format does not match the dynamic DSV format, we fall-back to create a new render pass. */
     if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics) && dsv_format)
         TRACE("Compiling %p with fallback DSV format %#x.\n", state, dsv_format->vk_format);
-
-    /* FIXME: This gets modified on late recompilation, could there be thread safety issues here?
-     * For GENERAL depth-stencil, this mask should not matter at all, but there might be edge cases for tracked DSV. */
-    graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, dsv_format);
 
     if (key)
     {
