@@ -4257,7 +4257,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
         if (rp_layouts[i] != final_layouts[i])
         {
             VkImageMemoryBarrier2 *barrier = &image_barriers[dep_info.imageMemoryBarrierCount++];
-            assert(clear_op);
+            assert(load_op == VK_ATTACHMENT_LOAD_OP_CLEAR);
             assert(view->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
 
             memset(barrier, 0, sizeof(*barrier));
