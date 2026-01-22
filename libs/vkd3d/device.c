@@ -893,6 +893,15 @@ static const struct vkd3d_shader_quirk_info control_quirks = {
     control_hashes, ARRAY_SIZE(control_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash rottr_hashes[] = {
+    /* Game forgets to transition depth to pixel shader resource. */
+    { 0x7d1af7d0c7d63856, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
+};
+
+static const struct vkd3d_shader_quirk_info rottr_quirks = {
+    rottr_hashes, ARRAY_SIZE(rottr_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -961,6 +970,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Borderlands4.exe", &bl4_quirks },
     /* Control (870780). */
     { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", &control_quirks },
+	/* Rise of the Tomb Raider */
+    { VKD3D_STRING_COMPARE_EXACT, "ROTTR.exe", &rottr_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
