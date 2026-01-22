@@ -5310,6 +5310,9 @@ static void d3d12_command_list_fuse_attachment_clear(struct d3d12_command_list *
                     list->dsv_plane_optimal_mask |= plane_write_mask;
                     list->dsv_layout = dsv_plane_optimal_mask_to_layout(list->dsv_plane_optimal_mask, resource->format->vk_aspect_mask);
 
+                    attachment->imageLayout = list->dsv_layout;
+                    stencil_attachment->imageLayout = list->dsv_layout;
+
                     /* We need to ensure that we transition to the same layout that the render pass transition
                      * will use as a source layout when transitioning to dsv_layout.
                      *
