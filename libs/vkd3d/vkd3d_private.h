@@ -5102,7 +5102,7 @@ struct vkd3d_cached_command_allocator
 struct vkd3d_device_swapchain_info
 {
     struct dxgi_vk_swap_chain *low_latency_swapchain;
-    uint32_t swapchain_count;
+    uint32_t vk_swapchain_count;
     bool mode;
     bool boost;
     union
@@ -5751,21 +5751,13 @@ static inline void d3d12_device_register_swapchain(struct d3d12_device *device, 
 {
     spinlock_acquire(&device->low_latency_swapchain_spinlock);
 
-    if (!device->swapchain_info.low_latency_swapchain && device->swapchain_info.swapchain_count == 0)
+    if (!device->swapchain_info.low_latency_swapchain)
     {
         dxgi_vk_swap_chain_incref(chain);
         device->swapchain_info.low_latency_swapchain = chain;
         dxgi_vk_swap_chain_set_latency_sleep_mode(chain, device->swapchain_info.mode,
                 device->swapchain_info.boost, device->swapchain_info.minimum_us);
     }
-    else
-    {
-        if (device->swapchain_info.low_latency_swapchain)
-            dxgi_vk_swap_chain_decref(device->swapchain_info.low_latency_swapchain);
-        device->swapchain_info.low_latency_swapchain = NULL;
-    }
-
-    device->swapchain_info.swapchain_count++;
 
     spinlock_release(&device->low_latency_swapchain_spinlock);
 }
@@ -5779,8 +5771,6 @@ static inline void d3d12_device_remove_swapchain(struct d3d12_device *device, st
         dxgi_vk_swap_chain_decref(chain);
         device->swapchain_info.low_latency_swapchain = NULL;
     }
-
-    device->swapchain_info.swapchain_count--;
 
     spinlock_release(&device->low_latency_swapchain_spinlock);
 }
