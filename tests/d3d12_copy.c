@@ -329,6 +329,7 @@ void test_copy_texture(void)
 void test_copy_texture_ds_edge_cases(void)
 {
     ID3D12GraphicsCommandList *command_list;
+    ID3D12DescriptorHeap *resource_heap;
     struct depth_stencil_resource ds;
     struct test_context_desc desc;
     struct test_context context;
@@ -380,6 +381,10 @@ void test_copy_texture_ds_edge_cases(void)
     queue = context.queue;
 
     heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    resource_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    /* Ensure that we have some test coverage for fallback copy + heap. */
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &resource_heap);
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -460,6 +465,7 @@ void test_copy_texture_ds_edge_cases(void)
     }
     vkd3d_test_set_context(NULL);
 
+    ID3D12DescriptorHeap_Release(resource_heap);
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
@@ -1706,6 +1712,7 @@ void test_multisample_resolve_formats(void)
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_RESOURCE_DESC resource_desc;
+    ID3D12DescriptorHeap *desc_heap;
     struct test_context_desc desc;
     D3D12_ROOT_PARAMETER rs_param;
     D3D12_RECT scissor, src_rect;
@@ -1961,6 +1968,8 @@ void test_multisample_resolve_formats(void)
     transition_resource_state(context.list, rt_s32_ms, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
     transition_resource_state(context.list, ds_ms, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
 
+    desc_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
     for (i = 0; i < ARRAY_SIZE(resolve_modes); i++)
     {
         D3D12_RESOLVE_MODE mode = resolve_modes[i];
@@ -2036,6 +2045,10 @@ void test_multisample_resolve_formats(void)
                 ID3D12GraphicsCommandList1_ResolveSubresourceRegion(command_list1,
                         image_u32, 0, dst_x, dst_y, rt_u32_ms, 0, j ? &src_rect : NULL,
                         DXGI_FORMAT_R32_UINT, mode);
+
+                /* Bind this late. Ensure we get some coverage for both heap based compute resolve and
+                 * legacy path. */
+                ID3D12GraphicsCommandList1_SetDescriptorHeaps(command_list1, 1, &desc_heap);
                 ID3D12GraphicsCommandList1_ResolveSubresourceRegion(command_list1,
                         image_s32, 0, dst_x, dst_y, rt_s32_ms, 0, j ? &src_rect : NULL,
                         DXGI_FORMAT_R32_SINT, mode);
@@ -2196,6 +2209,7 @@ void test_multisample_resolve_formats(void)
     ID3D12RootSignature_Release(rs_setup_stencil);
 
     ID3D12GraphicsCommandList1_Release(command_list1);
+    ID3D12DescriptorHeap_Release(desc_heap);
 
     destroy_test_context(&context);
 }

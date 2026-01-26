@@ -510,7 +510,7 @@ void test_update_root_descriptors(void)
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    pipeline_state = create_compute_pipeline_state(device, root_signature, update_root_descriptors_dxbc);
+    pipeline_state = create_compute_pipeline_state(device, root_signature, update_root_descriptors_dxil);
 
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
@@ -4896,7 +4896,8 @@ void test_undefined_descriptor_heap_mismatch_types(void)
     reset_command_list(context.list, context.allocator);
 
     radv_32b_layout = is_radv_device(context.device) &&
-            is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_buffer") &&
+            (is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_buffer") ||
+             is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap")) &&
             ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) == 32;
 
     for (j = 0; j < TYPE_COUNT; j++)
