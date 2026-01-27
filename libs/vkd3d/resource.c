@@ -6756,6 +6756,8 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
     if (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
     {
         usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT;
+        if (device->bindless_state.heap_redzone_size)
+            usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
         if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, usage, alloc_size,
                 "descriptor-buffer", &descriptor_heap->descriptor_buffer.vk_buffer)))

@@ -576,22 +576,6 @@ static HRESULT d3d12_root_signature_init_global_heaps(struct d3d12_root_signatur
         }
     }
 
-    /* Global mapping to peek at descriptor count */
-    {
-        mapping = &root_signature->mappings[root_signature->mappings_count++];
-        memset(mapping, 0, sizeof(*mapping));
-        mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-        mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT;
-        mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-        mapping->descriptorSet = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
-        mapping->firstBinding = VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS;
-        mapping->bindingCount = VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS_COUNT;
-        mapping->sourceData.heapData.heapOffset = 0;
-        mapping->sourceData.constantOffset.heapArrayStride =
-                align(root_signature->device->device_info.descriptor_heap_properties.bufferDescriptorSize,
-                        root_signature->device->device_info.descriptor_heap_properties.bufferDescriptorAlignment);
-    }
-
     return S_OK;
 }
 
