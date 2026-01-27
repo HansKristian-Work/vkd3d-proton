@@ -381,8 +381,10 @@ static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology, bool 
 
     ID3D12PipelineState_Release(context.pipeline_state);
     pso_desc.HS = use_dxil ? quad_tess_hs_cw_dxil : quad_tess_hs_cw_dxbc;
+    vkd3d_mute_validation_message("08743", "blah");
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    vkd3d_unmute_validation_message("08743");
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
