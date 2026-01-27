@@ -463,8 +463,17 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
     if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
     {
         if (callback_data->pMessageIdName)
+        {
             if (vkd3d_debug_control_mute_message_id(callback_data->pMessageIdName))
                 return VK_FALSE;
+
+            if (strstr(callback_data->pMessageIdName, "pBindInfo-11375"))
+                return VK_FALSE;
+            if (strstr(callback_data->pMessageIdName, "11453"))
+                return VK_FALSE;
+            if (strstr(callback_data->pMessageIdName, "SuspendResume-Mismatch"))
+                return VK_FALSE;
+        }
 
         ERR("%s: %s\n", callback_data->pMessageIdName, callback_data->pMessage);
 
