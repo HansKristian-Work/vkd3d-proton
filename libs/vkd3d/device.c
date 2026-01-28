@@ -467,8 +467,6 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
             if (vkd3d_debug_control_mute_message_id(callback_data->pMessageIdName))
                 return VK_FALSE;
 
-            if (strstr(callback_data->pMessageIdName, "pBindInfo-11375"))
-                return VK_FALSE;
             if (strstr(callback_data->pMessageIdName, "11453"))
                 return VK_FALSE;
             if (strstr(callback_data->pMessageIdName, "SuspendResume-Mismatch"))
