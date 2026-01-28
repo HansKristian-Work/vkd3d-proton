@@ -6144,6 +6144,13 @@ void test_custom_border_color_limits(void)
         ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2,
                 ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heaps[i]));
         ID3D12GraphicsCommandList_Dispatch(context.list, 2048 / 64, 1, 1);
+
+#if 0
+        /* Temporary hack to make the test pass on first beta driver. */
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+#endif
     }
 
     transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -6165,7 +6172,7 @@ void test_custom_border_color_limits(void)
 
         /* NV will fail around 4k unique samplers. */
         if (is_nvidia_device(context.device))
-            is_todo = flat_index >= 4000;
+            is_todo = !is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap") && flat_index >= 4000;
         else if (is_amd_vulkan_device(context.device) ||
                 is_adreno_device(context.device) ||
                 is_mesa_intel_device(context.device))

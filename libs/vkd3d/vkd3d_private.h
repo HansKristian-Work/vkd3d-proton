@@ -3713,6 +3713,7 @@ struct vkd3d_sampler_custom_border_color
 {
     VkBorderColor border_color;
     VkClearColorValue color;
+    uint32_t index;
 };
 
 /* Static samplers */
@@ -3722,6 +3723,8 @@ struct vkd3d_sampler_state
     struct vkd3d_sampler_custom_border_color *border_colors;
     size_t border_color_bank_size;
     size_t border_color_count;
+    bool noop_registration;
+    uint32_t noop_registration_index;
 };
 
 uint32_t vkd3d_sampler_state_register_custom_border_color(

@@ -1535,11 +1535,20 @@ uint32_t vkd3d_sampler_state_register_custom_border_color(
 
     pthread_mutex_lock(&state->mutex);
 
+    if (state->noop_registration)
+    {
+        i = state->noop_registration_index;
+        goto unlock;
+    }
+
     for (i = 0; i < state->border_color_count; i++)
     {
         if (state->border_colors[i].border_color == border_color &&
             memcmp(&state->border_colors[i].color, &info->customBorderColor, sizeof(VkClearColorValue)) == 0)
+        {
+            i = state->border_colors[i].index;
             goto unlock;
+        }
     }
 
     if (state->border_color_count == state->border_color_bank_size)
@@ -1548,14 +1557,24 @@ uint32_t vkd3d_sampler_state_register_custom_border_color(
         goto unlock;
     }
 
-    if (VK_CALL(vkRegisterCustomBorderColorEXT(device->vk_device, info, VK_TRUE, &i)) != VK_SUCCESS)
+    if (VK_CALL(vkRegisterCustomBorderColorEXT(device->vk_device, info, VK_FALSE, &i)) != VK_SUCCESS)
     {
         ERR("Failed to allocate custom border color index.\n");
         i = UINT32_MAX;
     }
 
+    /* Some drivers simply do not care about custom border colors and will just return the same value indefinitely.
+     * If we detect that drivers don't care, just skip the registration in the future. */
+    if (state->border_color_count == 1 && i == state->border_colors[0].index)
+    {
+        state->noop_registration = true;
+        state->noop_registration_index = i;
+        goto unlock;
+    }
+
     state->border_colors[state->border_color_count].border_color = border_color;
     state->border_colors[state->border_color_count].color = info->customBorderColor;
+    state->border_colors[state->border_color_count].index = i;
     state->border_color_count++;
 
 unlock:
