@@ -7326,22 +7326,24 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     uint64_t descriptor_table_mask;
     VkPushDataInfoEXT info;
 
-    assert(root_signature->descriptor_table_count);
-    descriptor_table_mask = root_signature->descriptor_table_mask;
-
-    while (descriptor_table_mask)
+    if (root_signature->descriptor_table_count)
     {
-        root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
-        table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
-        table_offsets[table->table_index] = bindings->descriptor_tables[root_parameter_index];
-    }
+        descriptor_table_mask = root_signature->descriptor_table_mask;
 
-    memset(&info, 0, sizeof(info));
-    info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    info.data.address = table_offsets;
-    info.data.size = root_signature->descriptor_table_count * sizeof(uint32_t);
-    info.offset = root_signature->descriptor_table_offset;
-    VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &info));
+        while (descriptor_table_mask)
+        {
+            root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
+            table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
+            table_offsets[table->table_index] = bindings->descriptor_tables[root_parameter_index];
+        }
+
+        memset(&info, 0, sizeof(info));
+        info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        info.data.address = table_offsets;
+        info.data.size = root_signature->descriptor_table_count * sizeof(uint32_t);
+        info.offset = root_signature->descriptor_table_offset;
+        VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &info));
+    }
 
     bindings->dirty_table_offsets = false;
 }
