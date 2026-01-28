@@ -2236,6 +2236,8 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
         shader_interface_info.flags &= ~VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV;
         shader_interface_info.bindings = rs->bindings;
         shader_interface_info.binding_count = rs->binding_count;
+        shader_interface_info.push_constant_buffers = module->root_signature->root_constants;
+        shader_interface_info.push_constant_buffer_count = module->root_signature->root_constant_count;
         shader_interface_info.num_root_descriptors = module->root_signature->root_parameters_raw_va_count;
         shader_interface_info.num_root_constants = module->root_signature->root_parameters_constant_dwords;
         shader_interface_info.push_constant_ubo_binding.set = VKD3D_SHADER_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET;
