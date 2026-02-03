@@ -4624,17 +4624,8 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
     return true;
 }
 
-static DXGI_FORMAT d3d12_device_get_typeless_format(struct d3d12_device *device, DXGI_FORMAT format)
-{
-    if (format < device->format_compatibility_list_count)
-        return device->format_compatibility_lists[format].typeless_format;
-
-    return DXGI_FORMAT_UNKNOWN;
-}
-
 static UINT d3d12_device_get_format_displayable_features(struct d3d12_device *device, DXGI_FORMAT format)
 {
-    DXGI_FORMAT typeless_format;
     unsigned int i;
     UINT flags;
 
@@ -4650,18 +4641,20 @@ static UINT d3d12_device_get_format_displayable_features(struct d3d12_device *de
         DXGI_FORMAT_R16G16B16A16_FLOAT,
     };
 
-    typeless_format = d3d12_device_get_typeless_format(device, format);
     flags = 0u;
 
     for (i = 0; i < ARRAY_SIZE(displayable_formats); i++)
     {
         if (displayable_formats[i] == format)
+        {
             flags |= D3D12_FORMAT_SUPPORT1_DISPLAY;
-        else if (typeless_format && d3d12_device_get_typeless_format(device, displayable_formats[i]) == typeless_format)
-            flags |= D3D12_FORMAT_SUPPORT1_BACK_BUFFER_CAST;
+
+            if (format < device->format_compatibility_list_count && device->format_compatibility_lists[format].format_count > 1)
+                flags |= D3D12_FORMAT_SUPPORT1_BACK_BUFFER_CAST;
+        }
     }
 
-    return (flags & D3D12_FORMAT_SUPPORT1_DISPLAY) ? flags : 0u;
+    return flags;
 }
 
 static bool d3d12_format_is_streamout_compatible(DXGI_FORMAT format)
