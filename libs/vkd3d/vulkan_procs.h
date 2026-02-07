@@ -198,6 +198,7 @@ VK_DEVICE_PFN(vkWaitForFences)
 VK_DEVICE_PFN(vkWaitSemaphores)
 VK_DEVICE_PFN(vkCmdSetDepthWriteEnable)
 VK_DEVICE_PFN(vkResetQueryPool)
+VK_DEVICE_PFN(vkCmdBlitImage)
 
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
@@ -327,6 +328,7 @@ VK_DEVICE_EXT_PFN(vkCmdCuLaunchKernelNVX)
 /* VK_NVX_image_view_handle */
 VK_DEVICE_EXT_PFN(vkGetImageViewHandleNVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewAddressNVX)
+VK_DEVICE_EXT_PFN(vkGetDeviceCombinedImageSamplerIndexNVX)
 
 /* VK_VALVE_descriptor_set_host_mapping */
 VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutHostMappingInfoVALVE)
@@ -351,14 +353,6 @@ VK_DEVICE_EXT_PFN(vkGetShaderModuleIdentifierEXT)
 
 /* VK_KHR_present_wait */
 VK_DEVICE_EXT_PFN(vkWaitForPresentKHR)
-
-/* VK_EXT_descriptor_buffer */
-VK_DEVICE_EXT_PFN(vkGetDescriptorEXT)
-VK_DEVICE_EXT_PFN(vkCmdBindDescriptorBuffersEXT)
-VK_DEVICE_EXT_PFN(vkCmdBindDescriptorBufferEmbeddedSamplersEXT)
-VK_DEVICE_EXT_PFN(vkCmdSetDescriptorBufferOffsetsEXT)
-VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutSizeEXT)
-VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutBindingOffsetEXT)
 
 /* VK_EXT_pageable_device_local_memory */
 VK_DEVICE_EXT_PFN(vkSetDeviceMemoryPriorityEXT)
@@ -390,6 +384,17 @@ VK_DEVICE_EXT_PFN(vkCmdCopyMicromapEXT)
 
 /* VK_AMD_anti_lag */
 VK_DEVICE_EXT_PFN(vkAntiLagUpdateAMD)
+
+/* VK_KHR_descriptor_heap */
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceDescriptorSizeEXT)
+VK_DEVICE_EXT_PFN(vkWriteSamplerDescriptorsEXT)
+VK_DEVICE_EXT_PFN(vkWriteResourceDescriptorsEXT)
+VK_DEVICE_EXT_PFN(vkCmdBindSamplerHeapEXT)
+VK_DEVICE_EXT_PFN(vkCmdBindResourceHeapEXT)
+VK_DEVICE_EXT_PFN(vkCmdPushDataEXT)
+VK_DEVICE_EXT_PFN(vkGetImageOpaqueCaptureDataEXT)
+VK_DEVICE_EXT_PFN(vkRegisterCustomBorderColorEXT)
+VK_DEVICE_EXT_PFN(vkUnregisterCustomBorderColorEXT)
 
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN

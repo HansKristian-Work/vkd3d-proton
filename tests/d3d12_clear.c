@@ -919,11 +919,16 @@ void test_clear_unordered_access_view_image(void)
 
 void test_uav_clear_exhaustive_descriptors(void)
 {
+    /* Engineer the range so that we get to test clear_uav_with_copy. */
+    const uint32_t SLOW_INDEX_LO = 32 * 1024 + 4000;
+    const uint32_t SLOW_INDEX_HI = 32 * 1024 + 4200;
+    struct resource_readback rb_rt;
     struct test_context context;
     struct resource_readback rb;
     ID3D12DescriptorHeap *gpu;
     ID3D12DescriptorHeap *cpu;
     ID3D12Resource *buffer;
+    ID3D12Resource *tex_rt;
     ID3D12Resource *tex;
     unsigned int i, j;
 
@@ -938,6 +943,10 @@ void test_uav_clear_exhaustive_descriptors(void)
     /* Pick a format that is deliberately hard to deal with w.r.t. NaN clears. */
     tex = create_default_texture2d(context.device, 64, 64, 1024, 1, DXGI_FORMAT_R16G16B16A16_FLOAT,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    /* We don't end up with full uint MUTABLE on these resources. Need fallback clears most likely. */
+    tex_rt = create_default_texture2d(context.device, 64, 64, 1024, 1, DXGI_FORMAT_R16G16B16A16_FLOAT,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS |
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     /* 64k descriptors. */
     for (j = 0; j < 64; j++)
@@ -945,6 +954,8 @@ void test_uav_clear_exhaustive_descriptors(void)
         for (i = 0; i < 1024; i++)
         {
             D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+            unsigned int heap_index;
+            bool use_rtv_tex;
             memset(&uav_desc, 0, sizeof(uav_desc));
 
             uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
@@ -952,10 +963,13 @@ void test_uav_clear_exhaustive_descriptors(void)
             uav_desc.Texture2DArray.FirstArraySlice = i;
             uav_desc.Texture2DArray.ArraySize = 1;
 
-            ID3D12Device_CreateUnorderedAccessView(context.device, tex, NULL, &uav_desc,
-                    get_cpu_descriptor_handle(&context, cpu, i + 1024 * j));
-            ID3D12Device_CreateUnorderedAccessView(context.device, tex, NULL, &uav_desc,
-                    get_cpu_descriptor_handle(&context, gpu, i + 1024 * j));
+            heap_index = i + 1024 * j;
+            use_rtv_tex = heap_index >= SLOW_INDEX_LO && heap_index <= SLOW_INDEX_HI;
+
+            ID3D12Device_CreateUnorderedAccessView(context.device, use_rtv_tex ? tex_rt : tex, NULL, &uav_desc,
+                    get_cpu_descriptor_handle(&context, cpu, heap_index));
+            ID3D12Device_CreateUnorderedAccessView(context.device, use_rtv_tex ? tex_rt : tex, NULL, &uav_desc,
+                    get_cpu_descriptor_handle(&context, gpu, heap_index));
         }
     }
 
@@ -998,6 +1012,7 @@ void test_uav_clear_exhaustive_descriptors(void)
     for (i = 32 * 1024; i < 64 * 1024; i++)
     {
         uint32_t values[4] = { (i >> 0) & 0xff, (i >> 8) & 0xff, 0, 0 };
+        bool use_rtv_tex;
         D3D12_RECT rect;
 
         rect.left = 0;
@@ -1013,9 +1028,11 @@ void test_uav_clear_exhaustive_descriptors(void)
             values[3] = 0xffff;
         }
 
+        use_rtv_tex = i >= SLOW_INDEX_LO && i <= SLOW_INDEX_HI;
+
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
                 get_gpu_descriptor_handle(&context, gpu, i),
-                get_cpu_descriptor_handle(&context, cpu, i), tex,
+                get_cpu_descriptor_handle(&context, cpu, i), use_rtv_tex ? tex_rt : tex,
                 values, 1, &rect);
     }
 
@@ -1065,11 +1082,16 @@ void test_uav_clear_exhaustive_descriptors(void)
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     transition_resource_state(context.list, tex,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, tex_rt,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     for (i = 0; i < 1024; i++)
     {
+        bool use_rtv_tex;
         uint32_t y;
         get_texture_readback_with_command_list(tex, i, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+        get_texture_readback_with_command_list(tex_rt, i, &rb_rt, context.queue, context.list);
 
         for (y = 0; y < 64; y++)
         {
@@ -1078,6 +1100,7 @@ void test_uav_clear_exhaustive_descriptors(void)
             uint64_t value;
 
             descriptor_index = i + y * 1024;
+            use_rtv_tex = descriptor_index >= SLOW_INDEX_LO && descriptor_index <= SLOW_INDEX_HI;
 
             if (descriptor_index < 32 * 1024)
             {
@@ -1094,12 +1117,13 @@ void test_uav_clear_exhaustive_descriptors(void)
                 expected = 0xfffffffefffdfffc;
             }
 
-            value = get_readback_uint64(&rb, 0, y);
+            value = get_readback_uint64(use_rtv_tex ? &rb_rt : &rb, 0, y);
             ok(expected == value, "desc %u, line %u: Expected %"PRIx64", got %"PRIx64".\n",
                     i, y, expected, value);
         }
 
         release_resource_readback(&rb);
+        release_resource_readback(&rb_rt);
         reset_command_list(context.list, context.allocator);
     }
 
@@ -1155,6 +1179,7 @@ void test_uav_clear_exhaustive_descriptors(void)
     ID3D12DescriptorHeap_Release(cpu);
     ID3D12Resource_Release(buffer);
     ID3D12Resource_Release(tex);
+    ID3D12Resource_Release(tex_rt);
     destroy_test_context(&context);
 }
 

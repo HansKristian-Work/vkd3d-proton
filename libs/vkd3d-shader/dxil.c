@@ -68,15 +68,8 @@ static unsigned dxil_resource_flags_from_kind(dxil_spv_resource_kind kind, bool 
                 return VKD3D_SHADER_BINDING_FLAG_BUFFER;
 
         case DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER:
-            return VKD3D_SHADER_BINDING_FLAG_BUFFER;
-
         case DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE:
-            /* Acceleration structures use aux buffer to store raw AS pointers.
-             * As root descriptors, we should check for buffer flag instead. */
-            if (ssbo)
-                return VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
-            else
-                return VKD3D_SHADER_BINDING_FLAG_BUFFER;
+            return VKD3D_SHADER_BINDING_FLAG_BUFFER;
 
         default:
             return VKD3D_SHADER_BINDING_FLAG_IMAGE;
@@ -95,6 +88,23 @@ static bool vkd3d_shader_resource_binding_is_global_heap(const struct vkd3d_shad
     return binding->register_index == UINT32_MAX &&
             binding->register_space == UINT32_MAX &&
             binding->register_count == UINT32_MAX;
+}
+
+static bool vkd3d_virtual_descriptor_set_is_single(uint32_t desc_set)
+{
+    switch (desc_set)
+    {
+        case VKD3D_SHADER_STATIC_SAMPLERS_VIRTUAL_DESCRIPTOR_SET:
+        case VKD3D_SHADER_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET:
+        case VKD3D_SHADER_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET:
+        case VKD3D_SHADER_STATIC_LOCAL_SAMPLERS_VIRTUAL_DESCRIPTOR_SET:
+        case VKD3D_SHADER_LOCAL_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET:
+        case VKD3D_SHADER_LOCAL_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 static bool dxil_resource_is_in_range(const struct vkd3d_shader_resource_binding *binding,
@@ -124,31 +134,24 @@ static bool dxil_resource_is_in_range(const struct vkd3d_shader_resource_binding
      * This is normally benign, however, as a special case we need to demote unsized array or static descriptors
      * in some cases. dxil-spirv will retry the binding query with range of 1. */
     if (d3d_binding->range_size == UINT32_MAX)
-        return (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS) || binding->register_count != 1;
+        return !vkd3d_virtual_descriptor_set_is_single(binding->binding.set) || binding->register_count != 1;
 
     available_bindings = binding->register_count - (d3d_binding->register_index - binding->register_index);
     return d3d_binding->range_size <= available_bindings;
-}
-
-static bool vkd3d_shader_binding_is_root_descriptor(const struct vkd3d_shader_resource_binding *binding)
-{
-    const uint32_t relevant_flags = VKD3D_SHADER_BINDING_FLAG_RAW_VA |
-                                    VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
-    const uint32_t expected_flags = VKD3D_SHADER_BINDING_FLAG_RAW_VA;
-    return (binding->flags & relevant_flags) == expected_flags;
 }
 
 struct vkd3d_dxil_remap_userdata
 {
     const struct vkd3d_shader_interface_info *shader_interface_info;
     const struct vkd3d_shader_interface_local_info *shader_interface_local_info;
-    unsigned int num_root_descriptors;
 };
 
 struct vkd3d_dxil_remap_info
 {
     const struct vkd3d_shader_resource_binding *bindings;
     unsigned int binding_count;
+    uint32_t shader_interface_flags;
+
     unsigned int num_root_descriptors;
     unsigned int descriptor_table_offset_words;
 };
@@ -160,77 +163,109 @@ static dxil_spv_bool dxil_remap_inner(
         dxil_spv_vulkan_binding *vk_binding,
         uint32_t resource_flags)
 {
-    unsigned int root_descriptor_index = 0;
     unsigned int i;
+
+    /* SM 6.6 heap is redirected to virtual descriptor set. */
+    if (dxil_resource_is_global_heap(d3d_binding))
+    {
+        memset(vk_binding, 0, sizeof(*vk_binding));
+        vk_binding->set = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+        vk_binding->binding = VKD3D_SHADER_GLOBAL_HEAP_BINDING;
+        vk_binding->bindless.use_heap = DXIL_SPV_TRUE;
+        if (resource_flags & VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER)
+        {
+            if (remap->shader_interface_flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER)
+            {
+                vk_binding->binding = VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING;
+                vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS;
+            }
+            else
+            {
+                vk_binding->binding = VKD3D_SHADER_UAV_COUNTER_GLOBAL_HEAP_BINDING;
+                vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+            }
+        }
+
+        return DXIL_SPV_TRUE;
+    }
 
     for (i = 0; i < remap->binding_count; i++)
     {
         const struct vkd3d_shader_resource_binding *binding = &remap->bindings[i];
-        const uint32_t mask = ~(VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_RAW_VA);
-        uint32_t match_flags = binding->flags & mask;
 
         if (binding->type == descriptor_type &&
             dxil_resource_is_in_range(binding, d3d_binding) &&
-            (match_flags & resource_flags) == resource_flags &&
             dxil_match_shader_visibility(binding->shader_visibility, d3d_binding->stage))
         {
+            bool lower_explicit_heap;
+            bool uav_counter;
+            bool raw_va;
+
             memset(vk_binding, 0, sizeof(*vk_binding));
 
-            if (vkd3d_shader_binding_is_root_descriptor(binding))
-            {
-                vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS;
-                vk_binding->root_constant_index = root_descriptor_index;
-            }
-            else if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
-            {
-                vk_binding->bindless.use_heap = DXIL_SPV_TRUE;
-                vk_binding->set = binding->binding.set;
-                vk_binding->binding = binding->binding.binding;
+            vk_binding->set = binding->binding.set;
+            vk_binding->binding = binding->binding.binding + d3d_binding->register_index - binding->register_index;
 
-                if (dxil_resource_is_global_heap(d3d_binding))
+            uav_counter = !!(resource_flags & VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER);
+            raw_va = uav_counter && (remap->shader_interface_flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER);
+            lower_explicit_heap = (resource_flags & VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING) || raw_va;
+
+#if 0
+            /* Test path to lower to explicit indexing. */
+            if (vk_binding->set < 100)
+                lower_explicit_heap = true;
+#endif
+
+#define LOWER_SBT_ACCESS 0
+
+            /* If we're lowering SBTs. This depends on descriptor QA being used or similar. */
+            if (LOWER_SBT_ACCESS)
+            {
+                if ((vk_binding->set >= VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE &&
+                     vk_binding->set < VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE + 100) ||
+                    (vk_binding->set >= VKD3D_SHADER_UAV_COUNTER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE &&
+                     vk_binding->set < VKD3D_SHADER_UAV_COUNTER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE + 100))
                 {
-                    vk_binding->bindless.heap_root_offset = 0; /* No constant offset. */
-                    vk_binding->root_constant_index = UINT32_MAX; /* No push offset. */
+                    lower_explicit_heap = true;
+                    vk_binding->set %= 100;
+                }
+            }
+
+            if (lower_explicit_heap)
+            {
+                /* Rewrite to explicit SM 6.6 model. */
+                uint32_t table_offset = vk_binding->binding;
+                uint32_t table_index = vk_binding->set;
+
+                vk_binding->set = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+                if (raw_va)
+                {
+                    vk_binding->binding = VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING;
+                    vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS;
+                }
+                else if (uav_counter)
+                {
+                    vk_binding->binding = VKD3D_SHADER_UAV_COUNTER_GLOBAL_HEAP_BINDING;
+                    vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
                 }
                 else
                 {
-                    vk_binding->bindless.heap_root_offset = binding->descriptor_offset +
-                            d3d_binding->register_index - binding->register_index;
-                    vk_binding->root_constant_index = binding->descriptor_table + remap->descriptor_table_offset_words;
-
-                    if (vk_binding->root_constant_index < 2 * remap->num_root_descriptors)
-                    {
-                        ERR("Bindless push constant table offset is impossible. %u < 2 * %u\n",
-                                vk_binding->root_constant_index, remap->num_root_descriptors);
-                        return DXIL_SPV_FALSE;
-                    }
-                    vk_binding->root_constant_index -= 2 * remap->num_root_descriptors;
+                    vk_binding->binding = VKD3D_SHADER_GLOBAL_HEAP_BINDING;
                 }
 
-                /* Acceleration structures are mapped to SSBO uvec2[] array instead of normal heap. */
-                if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE)
-                {
-                    vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
-                }
-                else if (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV &&
-                        (binding->flags & VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER) &&
-                        !(binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA))
-                {
-                    /* Force texel buffer path for UAV counters if we need to. */
-                    vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
-                }
+                vk_binding->bindless.use_heap = DXIL_SPV_TRUE;
+                vk_binding->root_constant_index = table_index +
+                        remap->descriptor_table_offset_words - 2 * remap->num_root_descriptors;
+                vk_binding->bindless.heap_root_offset = table_offset;
             }
-            else
+            else if (uav_counter)
             {
-                vk_binding->set = binding->binding.set;
-                vk_binding->binding = binding->binding.binding + d3d_binding->register_index - binding->register_index;
+                vk_binding->set += VKD3D_SHADER_UAV_COUNTER_SET_OFFSET;
+                vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
             }
 
             return DXIL_SPV_TRUE;
         }
-
-        if (vkd3d_shader_binding_is_root_descriptor(binding))
-            root_descriptor_index++;
     }
 
     return DXIL_SPV_FALSE;
@@ -249,8 +284,9 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
 
     remap_info.bindings = shader_interface_info->bindings;
     remap_info.binding_count = shader_interface_info->binding_count;
-    remap_info.descriptor_table_offset_words = shader_interface_info->descriptor_tables.offset / sizeof(uint32_t);
-    remap_info.num_root_descriptors = remap->num_root_descriptors;
+    remap_info.shader_interface_flags = shader_interface_info->flags;
+    remap_info.num_root_descriptors = shader_interface_info->num_root_descriptors;
+    remap_info.descriptor_table_offset_words = shader_interface_info->descriptor_table_offset_words;
 
     if (!dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags))
     {
@@ -261,10 +297,10 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
              * Root descriptor and constants are resolved internally in dxil-spirv. */
             remap_info.bindings = shader_interface_local_info->bindings;
             remap_info.binding_count = shader_interface_local_info->binding_count;
-            /* Not relevant. */
-            remap_info.descriptor_table_offset_words = 0;
-            remap_info.num_root_descriptors = 0;
-            return dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags);
+
+            /* TODO: Force lowering? */
+            return dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding,
+                    resource_flags);
         }
         else
             return DXIL_SPV_FALSE;
@@ -276,39 +312,58 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
 static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
                                     dxil_spv_srv_vulkan_binding *vk_binding)
 {
-    const struct vkd3d_shader_interface_info *shader_interface_info;
     const struct vkd3d_dxil_remap_userdata *remap = userdata;
     unsigned int resource_flags, resource_flags_ssbo;
     bool use_ssbo;
 
-    shader_interface_info = remap->shader_interface_info;
     resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->kind, true);
     resource_flags = dxil_resource_flags_from_kind(d3d_binding->kind, false);
     use_ssbo = resource_flags_ssbo != resource_flags;
+
+    if (use_ssbo)
+        use_ssbo = d3d_binding->alignment >= remap->shader_interface_info->min_ssbo_alignment;
+
+#if VKD3D_FORCE_HEAP_ROBUSTNESS
+    /* If we have enabled descriptor QA, we force lowering for all arrayed resources. */
+    if (d3d_binding->range_size > 1)
+    {
+        resource_flags_ssbo |= VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING;
+        resource_flags |= VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING;
+    }
+#endif
 
     if (use_ssbo && dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
             d3d_binding, &vk_binding->buffer_binding, resource_flags_ssbo))
     {
         vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
-        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
-        {
-            vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
-            vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
-        }
         return DXIL_SPV_TRUE;
     }
     else
     {
-        vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
-        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
+        if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE)
         {
-            vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
-            vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
+            vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_IDENTITY;
+            return dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
+                    d3d_binding, &vk_binding->buffer_binding, resource_flags);
+        }
+        else
+        {
+            vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
+
+            if (!dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
+                    d3d_binding, &vk_binding->buffer_binding, resource_flags))
+                return DXIL_SPV_FALSE;
+
+            if (vk_binding->buffer_binding.set == VKD3D_SHADER_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET)
+            {
+                vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS;
+                vk_binding->buffer_binding.bindless.use_heap = DXIL_SPV_FALSE;
+                vk_binding->buffer_binding.root_constant_index = vk_binding->buffer_binding.binding;
+            }
+
+            return DXIL_SPV_TRUE;
         }
     }
-
-    return dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
-            d3d_binding, &vk_binding->buffer_binding, resource_flags);
 }
 
 static dxil_spv_bool dxil_sampler_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
@@ -420,15 +475,33 @@ static dxil_spv_bool dxil_shader_stage_input_remap(void *userdata, const dxil_sp
 static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_binding *d3d_binding,
                                     dxil_spv_uav_vulkan_binding *vk_binding)
 {
-    const struct vkd3d_shader_interface_info *shader_interface_info;
     const struct vkd3d_dxil_remap_userdata *remap = userdata;
     unsigned int resource_flags, resource_flags_ssbo;
     bool use_ssbo;
 
-    shader_interface_info = remap->shader_interface_info;
     resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, true);
     resource_flags = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, false);
     use_ssbo = resource_flags != resource_flags_ssbo;
+
+    if (use_ssbo)
+        use_ssbo = d3d_binding->d3d_binding.alignment >= remap->shader_interface_info->min_ssbo_alignment;
+
+    /* We can use this flag any time we need to lower to manual heap addressing. */
+    if (d3d_binding->has_counter &&
+        (remap->shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    {
+        resource_flags_ssbo |= VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING;
+        resource_flags |= VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING;
+    }
+
+#if VKD3D_FORCE_HEAP_ROBUSTNESS
+    /* If we have enabled descriptor QA, we force lowering for all arrayed resources. */
+    if (d3d_binding->d3d_binding.range_size > 1)
+    {
+        resource_flags_ssbo |= VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING;
+        resource_flags |= VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING;
+    }
+#endif
 
     if (use_ssbo)
     {
@@ -436,11 +509,6 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
                 &vk_binding->buffer_binding, resource_flags_ssbo))
         {
             vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
-            if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
-            {
-                vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
-                vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
-            }
         }
         else if (!dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
                 &vk_binding->buffer_binding, resource_flags))
@@ -452,11 +520,6 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
             /* By default, we use TEXEL_BUFFER unless dxil_remap remaps it to BDA.
              * We won't trigger SSBO path when using BDA. */
             vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
-            if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
-            {
-                vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
-                vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
-            }
         }
     }
     else
@@ -468,17 +531,24 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
             return DXIL_SPV_FALSE;
         }
 
-        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
+        if (vk_binding->buffer_binding.set == VKD3D_SHADER_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET)
         {
-            vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
-            vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
+            vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS;
+            vk_binding->buffer_binding.bindless.use_heap = DXIL_SPV_FALSE;
+            vk_binding->buffer_binding.root_constant_index = vk_binding->buffer_binding.binding;
         }
     }
 
     if (d3d_binding->has_counter)
     {
+        resource_flags = VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
+#if VKD3D_FORCE_HEAP_ROBUSTNESS
+        if (d3d_binding->d3d_binding.range_size > 1)
+            resource_flags |= VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING;
+#endif
+
         if (!dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
-                &vk_binding->counter_binding, VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER))
+                &vk_binding->counter_binding, resource_flags))
         {
             return DXIL_SPV_FALSE;
         }
@@ -492,36 +562,47 @@ static dxil_spv_bool dxil_cbv_remap(void *userdata, const dxil_spv_d3d_binding *
 {
     const struct vkd3d_shader_interface_info *shader_interface_info;
     const struct vkd3d_dxil_remap_userdata *remap = userdata;
+    uint32_t num_root_descriptors;
+    uint32_t resource_flags;
     unsigned int i;
 
     shader_interface_info = remap->shader_interface_info;
+    num_root_descriptors = shader_interface_info->num_root_descriptors;
 
     /* Try to map to root constant -> push constant. */
     for (i = 0; i < shader_interface_info->push_constant_buffer_count; i++)
     {
         const struct vkd3d_shader_push_constant_buffer *push = &shader_interface_info->push_constant_buffers[i];
         if (push->register_space == d3d_binding->register_space &&
-            push->register_index == d3d_binding->register_index &&
-            dxil_match_shader_visibility(push->shader_visibility, d3d_binding->stage))
+                push->register_index == d3d_binding->register_index &&
+                dxil_match_shader_visibility(push->shader_visibility, d3d_binding->stage))
         {
             memset(vk_binding, 0, sizeof(*vk_binding));
             vk_binding->push_constant = DXIL_SPV_TRUE;
             vk_binding->vulkan.push_constant.offset_in_words = push->offset / sizeof(uint32_t);
-            if (vk_binding->vulkan.push_constant.offset_in_words < remap->num_root_descriptors * 2)
+            if (vk_binding->vulkan.push_constant.offset_in_words < num_root_descriptors * 2)
             {
                 ERR("Root descriptor offset of %u is impossible with %u root descriptors.\n",
-                    vk_binding->vulkan.push_constant.offset_in_words, remap->num_root_descriptors);
+                        vk_binding->vulkan.push_constant.offset_in_words, num_root_descriptors);
                 return DXIL_SPV_FALSE;
             }
-            vk_binding->vulkan.push_constant.offset_in_words -= remap->num_root_descriptors * 2;
+            vk_binding->vulkan.push_constant.offset_in_words -= num_root_descriptors * 2;
             return DXIL_SPV_TRUE;
         }
     }
 
+    resource_flags = VKD3D_SHADER_BINDING_FLAG_BUFFER;
+
+#if VKD3D_FORCE_HEAP_ROBUSTNESS
+    /* If we have enabled descriptor QA, we force lowering for all arrayed resources. */
+    if (d3d_binding->range_size > 1)
+        resource_flags |= VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING;
+#endif
+
     vk_binding->push_constant = DXIL_SPV_FALSE;
     return dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_CBV,
             d3d_binding, &vk_binding->vulkan.uniform_binding,
-            VKD3D_SHADER_BINDING_FLAG_BUFFER);
+            resource_flags);
 }
 
 static void vkd3d_dxil_log_callback(void *userdata, dxil_spv_log_level level, const char *msg)
@@ -647,8 +728,7 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         }
     }
 
-    if ((quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
-            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    if (quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS)
     {
         /* Checking for RAW_VA_ALIAS_DESCRIPTOR_BUFFER is technically not needed,
          * but only RADV is affected here and NV miscompiles shaders if you only query OpArrayLength
@@ -688,8 +768,8 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
 
         /* If we don't have an offset buffer, never enter a situation where it may be used by dxil-spirv.
          * This is relevant for e.g. 16-bit structured buffers with awkward alignments. */
-        if ((shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER) == 0)
-            helper.alignment = 1;
+        //if ((shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER) == 0)
+        helper.alignment = 1;
 
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
@@ -702,24 +782,12 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
     {
         const struct dxil_spv_option_root_constant_inline_uniform_block helper =
                 { { DXIL_SPV_OPTION_ROOT_CONSTANT_INLINE_UNIFORM_BLOCK },
-                        shader_interface_info->push_constant_ubo_binding->set,
-                        shader_interface_info->push_constant_ubo_binding->binding,
-                        DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support PUSH_CONSTANTS_AS_UNIFORM_BUFFER.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER)
-    {
-        static const struct dxil_spv_option_bindless_cbv_ssbo_emulation helper =
-                { { DXIL_SPV_OPTION_BINDLESS_CBV_SSBO_EMULATION },
+                    shader_interface_info->push_constant_ubo_binding.set,
+                    shader_interface_info->push_constant_ubo_binding.binding,
                     DXIL_SPV_TRUE };
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
-            ERR("dxil-spirv does not support BINDLESS_CBV_AS_STORAGE_BUFFER.\n");
+            ERR("dxil-spirv does not support PUSH_CONSTANTS_AS_UNIFORM_BUFFER.\n");
             return VKD3D_ERROR_NOT_IMPLEMENTED;
         }
     }
@@ -731,18 +799,6 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
-        }
-    }
-
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
-    {
-        const struct dxil_spv_option_bindless_typed_buffer_offsets helper =
-                { { DXIL_SPV_OPTION_BINDLESS_TYPED_BUFFER_OFFSETS },
-                    DXIL_SPV_TRUE };
-        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
-        {
-            ERR("dxil-spirv does not support BINDLESS_TYPED_BUFFER_OFFSETS.\n");
             return VKD3D_ERROR_NOT_IMPLEMENTED;
         }
     }
@@ -822,12 +878,12 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
         }
     }
 
-    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER)
+    //if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER)
     {
         const struct dxil_spv_option_physical_address_descriptor_indexing helper =
                 { { DXIL_SPV_OPTION_PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING },
                     shader_interface_info->descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress),
-                    0 };
+                    shader_interface_info->descriptor_raw_va_offset / sizeof(VkDeviceAddress) };
 
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
@@ -1215,6 +1271,30 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
         }
     }
 
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV)
+    {
+        /* Redirect these through PUSH_DATA CBV. */
+        dxil_spv_converter_set_meta_descriptor(converter,
+                DXIL_SPV_META_DESCRIPTOR_RESOURCE_DESCRIPTOR_HEAP_SIZE,
+                DXIL_SPV_META_DESCRIPTOR_KIND_UBO_CONTAINING_CONSTANT,
+                VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET,
+                VKD3D_SHADER_GLOBAL_HEAP_SIZE_BINDING);
+
+        dxil_spv_converter_set_meta_descriptor(converter,
+                DXIL_SPV_META_DESCRIPTOR_RAW_DESCRIPTOR_HEAP_VIEW,
+                DXIL_SPV_META_DESCRIPTOR_KIND_UBO_CONTAINING_BDA,
+                VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET,
+                VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING);
+    }
+    else
+    {
+        dxil_spv_converter_set_meta_descriptor(converter,
+                DXIL_SPV_META_DESCRIPTOR_RAW_DESCRIPTOR_HEAP_VIEW,
+                DXIL_SPV_META_DESCRIPTOR_KIND_READONLY_SSBO,
+                VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET,
+                VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING);
+    }
+
     return VKD3D_OK;
 }
 
@@ -1226,16 +1306,12 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 {
     uint32_t wave_size_min, wave_size_max, wave_size_preferred;
     struct vkd3d_dxil_remap_userdata remap_userdata;
-    unsigned int raw_va_binding_count = 0;
-    unsigned int num_root_descriptors = 0;
-    unsigned int root_constant_words = 0;
     unsigned int heuristic_min_wave_size;
     unsigned int heuristic_max_wave_size;
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
     dxil_spv_shader_stage stage;
-    unsigned int i, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
     uint32_t quirks;
@@ -1291,45 +1367,16 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         goto end;
     }
 
-    /* Figure out how many words we need for push constants. */
-    for (i = 0; i < shader_interface_info->push_constant_buffer_count; i++)
-    {
-        max_size = shader_interface_info->push_constant_buffers[i].offset +
-                                shader_interface_info->push_constant_buffers[i].size;
-        max_size = (max_size + 3) / 4;
-        if (max_size > root_constant_words)
-            root_constant_words = max_size;
-    }
-
-    max_size = shader_interface_info->descriptor_tables.offset / sizeof(uint32_t) +
-               shader_interface_info->descriptor_tables.count;
-    if (max_size > root_constant_words)
-        root_constant_words = max_size;
-
-    for (i = 0; i < shader_interface_info->binding_count; i++)
-    {
-        if (shader_interface_info->bindings[i].flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
-            raw_va_binding_count++;
-
-        if (vkd3d_shader_binding_is_root_descriptor(&shader_interface_info->bindings[i]))
-            num_root_descriptors++;
-    }
-
-    /* Root constants come after root descriptors. Offset the counts. */
-    if (root_constant_words < num_root_descriptors * 2)
-        root_constant_words = num_root_descriptors * 2;
-    root_constant_words -= num_root_descriptors * 2;
-
     if ((ret = vkd3d_dxil_converter_set_options(converter, shader_interface_info, compiler_args, quirks,
-            spirv->meta.hash, NULL, raw_va_binding_count || num_root_descriptors)))
+        spirv->meta.hash, NULL,
+        !!(shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))))
         goto end;
 
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = NULL;
-    remap_userdata.num_root_descriptors = num_root_descriptors;
 
-    dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
-    dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);
+    dxil_spv_converter_set_root_constant_word_count(converter, shader_interface_info->num_root_constants);
+    dxil_spv_converter_set_root_descriptor_count(converter, shader_interface_info->num_root_descriptors);
     dxil_spv_converter_set_srv_remapper(converter, dxil_srv_remap, &remap_userdata);
     dxil_spv_converter_set_sampler_remapper(converter, dxil_sampler_remap, &remap_userdata);
     dxil_spv_converter_set_uav_remapper(converter, dxil_uav_remap, &remap_userdata);
@@ -1472,12 +1519,10 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     const struct vkd3d_shader_resource_binding *resource_binding;
     const struct vkd3d_shader_root_parameter *root_parameter;
     struct vkd3d_dxil_remap_userdata remap_userdata;
-    unsigned int num_root_descriptors = 0;
-    unsigned int root_constant_words = 0;
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
-    unsigned int i, j, max_size;
+    unsigned int i, j; //, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
     uint32_t quirks;
@@ -1527,34 +1572,13 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         goto end;
     }
 
-    /* Figure out how many words we need for push constants. */
-    for (i = 0; i < shader_interface_info->push_constant_buffer_count; i++)
-    {
-        max_size = shader_interface_info->push_constant_buffers[i].offset +
-                   shader_interface_info->push_constant_buffers[i].size;
-        max_size = (max_size + 3) / 4;
-        if (max_size > root_constant_words)
-            root_constant_words = max_size;
-    }
-
-    max_size = shader_interface_info->descriptor_tables.offset / sizeof(uint32_t) +
-               shader_interface_info->descriptor_tables.count;
-    if (max_size > root_constant_words)
-        root_constant_words = max_size;
-
-    for (i = 0; i < shader_interface_info->binding_count; i++)
-        if (vkd3d_shader_binding_is_root_descriptor(&shader_interface_info->bindings[i]))
-            num_root_descriptors++;
-
-    /* Push local root parameters. We cannot rely on callbacks here
-     * since the local root signature has a physical layout in ShaderRecordKHR
-     * which needs to be precisely specified up front. */
     for (i = 0; i < shader_interface_local_info->local_root_parameter_count; i++)
     {
         root_parameter = &shader_interface_local_info->local_root_parameters[i];
         switch (root_parameter->parameter_type)
         {
             case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                /* Only this path will actually end up being used. But have to declare everything so we compute proper offset. */
                 record_constant_buffer =
                         &shader_interface_local_info->shader_record_constant_buffers[root_parameter->constant.constant_index];
                 dxil_spv_converter_add_local_root_constants(converter,
@@ -1562,17 +1586,40 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                         root_parameter->constant.constant_count);
                 break;
 
-            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
-                if (dxil_spv_converter_begin_local_root_descriptor_table(converter) != DXIL_SPV_SUCCESS)
-                {
-                    ret = VKD3D_ERROR_INVALID_ARGUMENT;
-                    goto end;
-                }
+            case D3D12_ROOT_PARAMETER_TYPE_CBV:
+                /* Dummy parameters to make dxil-spirv happy. These are mapped with proper API elsewhere. */
+                dxil_spv_converter_add_local_root_descriptor(converter, DXIL_SPV_RESOURCE_CLASS_UAV, UINT32_MAX, UINT32_MAX);
+                break;
 
+            case D3D12_ROOT_PARAMETER_TYPE_SRV:
+            case D3D12_ROOT_PARAMETER_TYPE_UAV:
+                if (shader_interface_info->min_ssbo_alignment > 1)
+                {
+                    dxil_spv_converter_add_local_root_descriptor(converter,
+                            root_parameter->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV ?
+                            DXIL_SPV_RESOURCE_CLASS_SRV : DXIL_SPV_RESOURCE_CLASS_UAV,
+                            root_parameter->descriptor.binding->register_space,
+                            root_parameter->descriptor.binding->register_index);
+                }
+                else
+                {
+                    /* Dummy parameters to make dxil-spirv happy. These are mapped with proper API elsewhere. */
+                    dxil_spv_converter_add_local_root_descriptor(converter, DXIL_SPV_RESOURCE_CLASS_UAV,
+                            UINT32_MAX, UINT32_MAX);
+                }
+                break;
+
+            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            {
+                bool has_entry = false;
+                dxil_spv_converter_begin_local_root_descriptor_table(converter);
                 for (j = 0; j < root_parameter->descriptor_table.binding_count; j++)
                 {
                     dxil_spv_resource_class resource_class;
                     resource_binding = &root_parameter->descriptor_table.first_binding[j];
+
+                    if (!LOWER_SBT_ACCESS)
+                        continue;
 
                     switch (resource_binding->type)
                     {
@@ -1600,45 +1647,25 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                     dxil_spv_converter_add_local_root_descriptor_table(converter,
                             resource_class,
                             resource_binding->register_space, resource_binding->register_index,
-                            resource_binding->register_count, resource_binding->descriptor_offset);
+                            resource_binding->register_count, resource_binding->binding.binding);
+                    has_entry = true;
                 }
 
-                if (dxil_spv_converter_end_local_root_descriptor_table(converter) != DXIL_SPV_SUCCESS)
+                if (!has_entry)
                 {
-                    ret = VKD3D_ERROR_INVALID_ARGUMENT;
-                    goto end;
+                    /* Dummy parameters to make dxil-spirv happy. These are mapped with proper API elsewhere. */
+                    dxil_spv_converter_add_local_root_descriptor_table(converter,
+                            DXIL_SPV_RESOURCE_CLASS_UAV, UINT32_MAX, 0, 0, 0);
                 }
-                break;
 
-            case D3D12_ROOT_PARAMETER_TYPE_CBV:
-                dxil_spv_converter_add_local_root_descriptor(converter,
-                        DXIL_SPV_RESOURCE_CLASS_CBV, root_parameter->descriptor.binding->register_space,
-                        root_parameter->descriptor.binding->register_index);
+                dxil_spv_converter_end_local_root_descriptor_table(converter);
                 break;
-
-            case D3D12_ROOT_PARAMETER_TYPE_SRV:
-                dxil_spv_converter_add_local_root_descriptor(converter,
-                        DXIL_SPV_RESOURCE_CLASS_SRV, root_parameter->descriptor.binding->register_space,
-                        root_parameter->descriptor.binding->register_index);
-                break;
-
-            case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                dxil_spv_converter_add_local_root_descriptor(converter,
-                        DXIL_SPV_RESOURCE_CLASS_UAV, root_parameter->descriptor.binding->register_space,
-                        root_parameter->descriptor.binding->register_index);
-                break;
+            }
 
             default:
-                ret = VKD3D_ERROR_INVALID_ARGUMENT;
-                goto end;
+                break;
         }
     }
-
-    /* Root constants come after root descriptors. Offset the counts. */
-    if (root_constant_words < num_root_descriptors * 2)
-        root_constant_words = num_root_descriptors * 2;
-    root_constant_words -= num_root_descriptors * 2;
-
     if ((ret = vkd3d_dxil_converter_set_options(converter, shader_interface_info, compiler_args, quirks,
             spirv->meta.hash, export, true)))
         goto end;
@@ -1647,10 +1674,9 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
 
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = shader_interface_local_info;
-    remap_userdata.num_root_descriptors = num_root_descriptors;
 
-    dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
-    dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);
+    dxil_spv_converter_set_root_constant_word_count(converter, shader_interface_info->num_root_constants);
+    dxil_spv_converter_set_root_descriptor_count(converter, shader_interface_info->num_root_descriptors);
     dxil_spv_converter_set_srv_remapper(converter, dxil_srv_remap, &remap_userdata);
     dxil_spv_converter_set_sampler_remapper(converter, dxil_sampler_remap, &remap_userdata);
     dxil_spv_converter_set_uav_remapper(converter, dxil_uav_remap, &remap_userdata);

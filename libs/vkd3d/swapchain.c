@@ -278,7 +278,7 @@ static void dxgi_vk_swap_chain_wait_acquire_semaphore(struct dxgi_vk_swap_chain 
 
     wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     wait_info.semaphore = vk_semaphore;
-    wait_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    wait_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT;
 
     submit_info.pSignalSemaphoreInfos = &signal_info;
     submit_info.signalSemaphoreInfoCount = 1;
@@ -1903,7 +1903,7 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     swapchain_create_info.imageColorSpace = surface_format.colorSpace;
     swapchain_create_info.imageFormat = surface_format.format;
     swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     swapchain_create_info.presentMode = present_mode;
@@ -2076,7 +2076,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkRenderingAttachmentInfo attachment_info;
-    VkImageMemoryBarrier2 image_barrier;
+    VkImageMemoryBarrier2 image_barrier[2];
     VkDescriptorImageInfo image_info;
     VkWriteDescriptorSet write_info;
     struct d3d12_resource *resource;
@@ -2084,6 +2084,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
     VkDependencyInfo dep_info;
     VkViewport viewport;
     bool blank_present;
+    bool blit_command;
 
     /* If application intends to present before we have rendered to it,
      * it is valid, but we need to ignore the blit, just clear backbuffer. */
@@ -2127,24 +2128,54 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
         viewport.height = chain->present.backbuffer_height;
     }
 
+    /* Avoids having to go back to legacy heap. */
+    blit_command = !blank_present &&
+            viewport.width == (float)chain->present.backbuffer_width &&
+            viewport.height == (float)chain->present.backbuffer_height;
+
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep_info.imageMemoryBarrierCount = 1;
-    dep_info.pImageMemoryBarriers = &image_barrier;
+    dep_info.imageMemoryBarrierCount = blit_command ? 2 : 1;
+    dep_info.pImageMemoryBarriers = image_barrier;
 
     /* srcStage = COLOR_ATTACHMENT to link up to acquire semaphore. */
-    memset(&image_barrier, 0, sizeof(image_barrier));
-    image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    image_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    image_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    image_barrier.image = chain->present.vk_backbuffer_images[swapchain_index];
-    image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    image_barrier.subresourceRange.levelCount = 1;
-    image_barrier.subresourceRange.layerCount = 1;
+    memset(image_barrier, 0, sizeof(image_barrier));
+    image_barrier[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    image_barrier[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+
+    if (blit_command)
+    {
+        image_barrier[0].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+        image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+        image_barrier[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        image_barrier[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+        image_barrier[1].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+        image_barrier[1].dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+        image_barrier[1].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+        image_barrier[1].oldLayout = chain->user.backbuffers[chain->request.user_index]->common_layout;
+        image_barrier[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        image_barrier[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        image_barrier[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        image_barrier[1].image = chain->user.backbuffers[chain->request.user_index]->res.vk_image;
+        image_barrier[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_barrier[1].subresourceRange.levelCount = 1;
+        image_barrier[1].subresourceRange.layerCount = 1;
+    }
+    else
+    {
+        image_barrier[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        image_barrier[0].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        image_barrier[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+
+    image_barrier[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    image_barrier[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    image_barrier[0].image = chain->present.vk_backbuffer_images[swapchain_index];
+    image_barrier[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_barrier[0].subresourceRange.levelCount = 1;
+    image_barrier[0].subresourceRange.layerCount = 1;
 
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
             chain->queue->device->vk_info.EXT_debug_utils)
@@ -2161,43 +2192,86 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
     }
 
     VK_CALL(vkCmdPipelineBarrier2(vk_cmd, &dep_info));
-    VK_CALL(vkCmdBeginRendering(vk_cmd, &rendering_info));
 
-    if (!blank_present)
+    if (blit_command)
     {
-        VK_CALL(vkCmdSetViewport(vk_cmd, 0, 1, &viewport));
-        VK_CALL(vkCmdSetScissor(vk_cmd, 0, 1, &rendering_info.renderArea));
-        VK_CALL(vkCmdBindPipeline(vk_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        VkImageBlit blit;
+        memset(&blit, 0, sizeof(blit));
+        blit.dstSubresource.layerCount = 1;
+        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource = blit.dstSubresource;
+
+        blit.srcOffsets[1].x = (int)chain->desc.Width;
+        blit.srcOffsets[1].y = (int)chain->desc.Height;
+        blit.srcOffsets[1].z = 1;
+
+        blit.dstOffsets[1].x = (int)chain->present.backbuffer_width;
+        blit.dstOffsets[1].y = (int)chain->present.backbuffer_height;
+        blit.dstOffsets[1].z = 1;
+
+        VK_CALL(vkCmdBlitImage(vk_cmd, chain->user.backbuffers[chain->request.user_index]->res.vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                chain->present.vk_backbuffer_images[swapchain_index],
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1, &blit, VK_FILTER_LINEAR));
+    }
+    else
+    {
+        VK_CALL(vkCmdBeginRendering(vk_cmd, &rendering_info));
+
+        if (!blank_present)
+        {
+            VK_CALL(vkCmdSetViewport(vk_cmd, 0, 1, &viewport));
+            VK_CALL(vkCmdSetScissor(vk_cmd, 0, 1, &rendering_info.renderArea));
+            VK_CALL(vkCmdBindPipeline(vk_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     chain->present.pipeline.vk_pipeline));
 
-        write_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_info.pNext = NULL;
-        write_info.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write_info.pBufferInfo = NULL;
-        write_info.dstSet = VK_NULL_HANDLE;
-        write_info.pTexelBufferView = NULL;
-        write_info.pImageInfo = &image_info;
-        write_info.dstBinding = 0;
-        write_info.dstArrayElement = 0;
-        write_info.descriptorCount = 1;
-        image_info.imageView = chain->user.vk_image_views[chain->request.user_index];
-        image_info.imageLayout = d3d12_resource_pick_layout(chain->user.backbuffers[chain->request.user_index], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        image_info.sampler = VK_NULL_HANDLE;
+            write_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_info.pNext = NULL;
+            write_info.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_info.pBufferInfo = NULL;
+            write_info.dstSet = VK_NULL_HANDLE;
+            write_info.pTexelBufferView = NULL;
+            write_info.pImageInfo = &image_info;
+            write_info.dstBinding = 0;
+            write_info.dstArrayElement = 0;
+            write_info.descriptorCount = 1;
+            image_info.imageView = chain->user.vk_image_views[chain->request.user_index];
+            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info.imageLayout = d3d12_resource_pick_layout(chain->user.backbuffers[chain->request.user_index], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            image_info.sampler = VK_NULL_HANDLE;
 
-        VK_CALL(vkCmdPushDescriptorSetKHR(vk_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            /* We will never have a heap here, so it's meaningless to try to use heap.
+             * It's expected that driver will inherit the heap if it cares.
+             * We could try using vkCmdBlitImage instead when possible. */
+            VK_CALL(vkCmdPushDescriptorSetKHR(vk_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     chain->present.pipeline.vk_pipeline_layout, 0, 1, &write_info));
 
-        VK_CALL(vkCmdDraw(vk_cmd, 3, 1, 0, 0));
+            VK_CALL(vkCmdDraw(vk_cmd, 3, 1, 0, 0));
+        }
+
+        VK_CALL(vkCmdEndRendering(vk_cmd));
     }
 
-    VK_CALL(vkCmdEndRendering(vk_cmd));
+    if (blit_command)
+    {
+        image_barrier[1].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+        image_barrier[1].srcAccessMask = VK_ACCESS_2_NONE;
+        image_barrier[1].dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+        image_barrier[1].dstAccessMask = VK_ACCESS_2_NONE;
+        image_barrier[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        image_barrier[1].newLayout = chain->user.backbuffers[chain->request.user_index]->common_layout;
+    }
+    else
+    {
+        image_barrier[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        image_barrier[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    }
 
-    image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    image_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-    image_barrier.dstAccessMask = VK_ACCESS_2_NONE;
-    image_barrier.oldLayout = image_barrier.newLayout;
-    image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    image_barrier[0].dstAccessMask = VK_ACCESS_2_NONE;
+    image_barrier[0].oldLayout = image_barrier[0].newLayout;
+    image_barrier[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     VK_CALL(vkCmdPipelineBarrier2(vk_cmd, &dep_info));
 
@@ -2273,7 +2347,7 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     memset(&wait_semaphore_info, 0, sizeof(wait_semaphore_info));
     wait_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     wait_semaphore_info.semaphore = chain->present.vk_acquire_semaphore[chain->present.acquire_semaphore_index];
-    wait_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    wait_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT;
 
     memset(signal_semaphore_info, 0, sizeof(signal_semaphore_info));
     signal_semaphore_info[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
