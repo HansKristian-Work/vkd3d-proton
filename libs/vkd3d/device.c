@@ -5804,9 +5804,6 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_embedded(d3
             d3d12_uav_info->surfaceHandle = d3d12_device_find_shader_visible_descriptor_heap_offset(device, descriptor.ptr,
                     D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-            if (d3d12_uav_info->surfaceHandle == UINT32_MAX)
-                FIXME("Could not find shader visible descriptor heap.\n");
-
             /* Is this even used? */
             d3d12_uav_info->gpuVAStart = 0;
             d3d12_uav_info->gpuVASize = 0;
