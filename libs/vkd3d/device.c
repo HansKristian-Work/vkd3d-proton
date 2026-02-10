@@ -865,7 +865,7 @@ static const struct vkd3d_shader_quirk_info death_stranding_quirks = {
 
 static const struct vkd3d_shader_quirk_hash wuthering_waves_hashes[] = {
     /* LightGridInjectionCS. Forgets to UAV barrier after ClearCS. */
-    { 0xc9d920e5cce36266, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
+    { 0x3961a9adabf4e1e4, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info wuthering_waves_quirks = {
@@ -4600,17 +4600,8 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
     return true;
 }
 
-static DXGI_FORMAT d3d12_device_get_typeless_format(struct d3d12_device *device, DXGI_FORMAT format)
-{
-    if (format < device->format_compatibility_list_count)
-        return device->format_compatibility_lists[format].typeless_format;
-
-    return DXGI_FORMAT_UNKNOWN;
-}
-
 static UINT d3d12_device_get_format_displayable_features(struct d3d12_device *device, DXGI_FORMAT format)
 {
-    DXGI_FORMAT typeless_format;
     unsigned int i;
     UINT flags;
 
@@ -4626,18 +4617,20 @@ static UINT d3d12_device_get_format_displayable_features(struct d3d12_device *de
         DXGI_FORMAT_R16G16B16A16_FLOAT,
     };
 
-    typeless_format = d3d12_device_get_typeless_format(device, format);
     flags = 0u;
 
     for (i = 0; i < ARRAY_SIZE(displayable_formats); i++)
     {
         if (displayable_formats[i] == format)
+        {
             flags |= D3D12_FORMAT_SUPPORT1_DISPLAY;
-        else if (typeless_format && d3d12_device_get_typeless_format(device, displayable_formats[i]) == typeless_format)
-            flags |= D3D12_FORMAT_SUPPORT1_BACK_BUFFER_CAST;
+
+            if (format < device->format_compatibility_list_count && device->format_compatibility_lists[format].format_count > 1)
+                flags |= D3D12_FORMAT_SUPPORT1_BACK_BUFFER_CAST;
+        }
     }
 
-    return (flags & D3D12_FORMAT_SUPPORT1_DISPLAY) ? flags : 0u;
+    return flags;
 }
 
 static bool d3d12_format_is_streamout_compatible(DXGI_FORMAT format)
@@ -4672,10 +4665,10 @@ static bool d3d12_format_is_streamout_compatible(DXGI_FORMAT format)
 static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D12_FEATURE_DATA_FORMAT_SUPPORT *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct vkd3d_format *format, *dsv_format;
     VkPhysicalDeviceImageFormatInfo2 format_info;
     VkImageFormatProperties2 format_properties;
     VkFormatFeatureFlags2 image_features;
-    const struct vkd3d_format *format;
     VkResult vr;
 
     data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
@@ -4696,8 +4689,10 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         return S_OK;
     }
 
+    dsv_format = vkd3d_get_format(device, data->Format, true);
+
     if (!(format = vkd3d_get_format(device, data->Format, false)))
-        format = vkd3d_get_format(device, data->Format, true);
+        format = dsv_format;
     if (!format)
         return E_FAIL;
 
@@ -4715,12 +4710,15 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     else
         image_features = format->vk_format_features;
 
-    if (format->vk_format_features_buffer)
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
-    if (format->vk_format_features_buffer & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
-    if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
+    if (format->type != VKD3D_FORMAT_TYPE_TYPELESS)
+    {
+        if (format->vk_format_features_buffer)
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
+        if (format->vk_format_features_buffer & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
+        if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
+    }
 
     if (d3d12_format_is_streamout_compatible(data->Format))
         data->Support1 |= D3D12_FORMAT_SUPPORT1_SO_BUFFER;
@@ -4731,7 +4729,12 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
 
         /* Planar formats only support 2D textures with one mip */
         if (!(format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT))
-            data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D | D3D12_FORMAT_SUPPORT1_TEXTURECUBE | D3D12_FORMAT_SUPPORT1_MIP;
+        {
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURECUBE | D3D12_FORMAT_SUPPORT1_MIP;
+
+            if (max(format->block_height, format->block_width) == 1)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D;
+        }
 
         /* 3D depth-stencil images are not supported */
         if (format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
@@ -4743,53 +4746,69 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
 
         data->Support1 |= d3d12_device_get_format_displayable_features(device, format->dxgi_format);
     }
-    if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT)
+
+    /* Rendering and shader usage features are not set for typeless formats,
+     * but they are reported for video formats for some reason */
+    if (format->type != VKD3D_FORMAT_TYPE_TYPELESS || (format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT))
     {
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_LOAD | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD
-                | D3D12_FORMAT_SUPPORT1_SHADER_GATHER;
-        if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
+        bool is_dsv_format = format == dsv_format &&
+            (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+            ((dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) || dsv_format->plane_count < 2);
+
+        if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT)
         {
-            data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE;
+            /* Do not report any shader usage flags for actual depth-stencil view formats */
+            if (!is_dsv_format)
+            {
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_LOAD | D3D12_FORMAT_SUPPORT1_SHADER_GATHER;
+
+                if (format->supported_sample_counts != VK_SAMPLE_COUNT_1_BIT)
+                    data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD;
+
+                if ((image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT) && (format->vk_aspect_mask != VK_IMAGE_ASPECT_STENCIL_BIT))
+                    data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE;
+
+                /* Need to consider all formats here that can be used to read depth */
+                if (dsv_format && dsv_format->vk_aspect_mask == VK_IMAGE_ASPECT_DEPTH_BIT)
+                {
+                    data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE_COMPARISON
+                            | D3D12_FORMAT_SUPPORT1_SHADER_GATHER_COMPARISON;
+                }
+            }
         }
-        if (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+        if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT)
         {
-            data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE_COMPARISON
-                    | D3D12_FORMAT_SUPPORT1_SHADER_GATHER_COMPARISON;
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_RENDER_TARGET | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
+
+            if (device->device_info.features2.features.logicOp && format->type == VKD3D_FORMAT_TYPE_UINT)
+                data->Support2 |= D3D12_FORMAT_SUPPORT2_OUTPUT_MERGER_LOGIC_OP;
+
+            /* This bit seems to only indicate support for AVERAGE resolves and is
+             * not reported for integer or depth/stencil formats on native drivers. */
+            if (format->type == VKD3D_FORMAT_TYPE_OTHER)
+                data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
         }
-    }
-    if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT)
-    {
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_RENDER_TARGET | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
-
-        if (device->device_info.features2.features.logicOp && format->type == VKD3D_FORMAT_TYPE_UINT)
-            data->Support2 |= D3D12_FORMAT_SUPPORT2_OUTPUT_MERGER_LOGIC_OP;
-
-        /* This bit seems to only indicate support for AVERAGE resolves and is
-         * not reported for integer or depth/stencil formats on native drivers. */
-        if (format->type == VKD3D_FORMAT_TYPE_OTHER)
-            data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
-    }
-    if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT)
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_BLENDABLE;
-    if (image_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT)
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
-    if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT)
-    {
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
-        if (image_features & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT)
-            data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
-        if (image_features & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT)
-            data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
-    }
-
-    if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT)
-    {
-        data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
-                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_BITWISE_OPS
-                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_COMPARE_STORE_OR_COMPARE_EXCHANGE
-                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_EXCHANGE
-                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_SIGNED_MIN_OR_MAX
-                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
+        if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT)
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_BLENDABLE;
+        if ((image_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT) && is_dsv_format)
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
+        if ((image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT) && !is_dsv_format)
+        {
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
+            if (image_features & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT)
+                data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
+            if (image_features & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT)
+                data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
+        }
+        if ((image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT) && !is_dsv_format)
+        {
+            data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
+                    | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_BITWISE_OPS
+                    | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_COMPARE_STORE_OR_COMPARE_EXCHANGE
+                    | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_EXCHANGE
+                    | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_SIGNED_MIN_OR_MAX
+                    | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
+        }
     }
 
     /* Do not support tiled resources for planar formats, matches D3D12. */

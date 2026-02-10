@@ -1519,7 +1519,13 @@ static void dxgi_vk_swap_chain_destroy_swapchain_in_present_task(struct dxgi_vk_
     chain->present.current_backbuffer_index = UINT32_MAX;
 
     if (chain->queue->device->vk_info.NV_low_latency2)
+    {
+        spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
+        chain->queue->device->swapchain_info.vk_swapchain_count--;
+        spinlock_release(&chain->queue->device->low_latency_swapchain_spinlock);
+
         pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
+    }
 }
 
 static VkColorSpaceKHR convert_color_space(DXGI_COLOR_SPACE_TYPE dxgi_color_space)
@@ -1952,6 +1958,18 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     /* If low latency is supported restore the current low latency state now */
     if (chain->queue->device->vk_info.NV_low_latency2)
     {
+        struct d3d12_device *device = chain->queue->device;
+
+        spinlock_acquire(&device->low_latency_swapchain_spinlock);
+        device->swapchain_info.vk_swapchain_count++;
+
+        if (device->swapchain_info.vk_swapchain_count > 1 && device->swapchain_info.low_latency_swapchain)
+        {
+            dxgi_vk_swap_chain_decref(device->swapchain_info.low_latency_swapchain);
+            device->swapchain_info.low_latency_swapchain = NULL;
+        }
+        spinlock_release(&device->low_latency_swapchain_spinlock);
+
         dxgi_vk_swap_chain_set_low_latency_state(chain, &chain->present.low_latency_state);
         pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
     }
