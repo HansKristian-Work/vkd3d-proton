@@ -961,6 +961,7 @@ void test_create_reserved_resource(void)
     D3D12_CLEAR_VALUE clear_value;
     D3D12_HEAP_FLAGS heap_flags;
     ID3D12Resource *resource;
+    ID3D12Device10 *device10;
     bool standard_swizzle;
     ID3D12Device *device;
     ULONG refcount;
@@ -1119,6 +1120,37 @@ void test_create_reserved_resource(void)
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
+
+    if (SUCCEEDED(hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void**)&device10)))
+    {
+        /* Castable format with UAV usage */
+        DXGI_FORMAT castable_format = DXGI_FORMAT_R32G32_UINT;
+
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Width = 1024;
+        resource_desc.Height = 1024;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.Format = DXGI_FORMAT_BC1_UNORM;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        hr = ID3D12Device10_CreateReservedResource2(device10,
+            &resource_desc, D3D12_BARRIER_LAYOUT_GENERIC_READ, NULL, NULL,
+            1, &castable_format, &IID_ID3D12Resource, (void **)&resource);
+        ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+
+        if (SUCCEEDED(hr))
+            ID3D12Resource_Release(resource);
+
+        ID3D12Device10_Release(device10);
+    }
+    else
+    {
+        skip("ID3D12Device10 not supported.\n");
+    }
 
 done:
     refcount = ID3D12Device_Release(device);
