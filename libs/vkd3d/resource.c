@@ -648,6 +648,32 @@ static bool d3d12_device_should_use_image_compression_control(struct d3d12_devic
             device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_NVIDIA_PROPRIETARY;
 }
 
+static VkImageUsageFlags vkd3d_filter_supported_image_usage(VkImageUsageFlags usage, VkFormatFeatureFlags2 features)
+{
+    if (!(features & VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT))
+        usage &= ~VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
+    if (!(features & VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT))
+        usage &= ~VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+    if (!(features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT))
+        usage &= ~VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    if (!(features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT))
+        usage &= ~VK_IMAGE_USAGE_STORAGE_BIT;
+
+    if (!(features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT))
+        usage &= ~VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+    if (!(features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT))
+        usage &= ~VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+    if (!(features & VK_FORMAT_FEATURE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR))
+        usage &= ~VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+
+    return usage;
+}
+
 static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource,
@@ -942,11 +968,18 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         VkSparseImageFormatProperties sparse_infos[2];
         uint32_t sparse_info_count = ARRAY_SIZE(sparse_infos);
 
-        // D3D12 only allows sparse images with one aspect, so we can only
-        // get one struct for metadata aspect and one for the data aspect
+        /* D3D12 only allows sparse images with one aspect, so we can only
+         * get one struct for metadata aspect and one for the data aspect.
+         *
+         * FIXME We cannot pass any information about castable formats here,
+         * and RADV will fail this query if we pass an image usage flag that
+         * is not natively supported by the queried format. Filter out any
+         * unsupported format flags as a workaround. This should be fine
+         * since castable format properties are validated elsewhere. */
         VK_CALL(vkGetPhysicalDeviceSparseImageFormatProperties(
                 device->vk_physical_device, image_info->format,
-                image_info->imageType, image_info->samples, image_info->usage,
+                image_info->imageType, image_info->samples,
+                vkd3d_filter_supported_image_usage(image_info->usage, format->vk_format_features),
                 image_info->tiling, &sparse_info_count, sparse_infos));
 
         if (!sparse_info_count)
