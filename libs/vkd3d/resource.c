@@ -3019,6 +3019,12 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
                 WARN("D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS cannot be set for buffers.\n");
                 return E_INVALIDARG;
             }
+
+            if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+            {
+                WARN("D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL cannot be set for buffers.\n");
+                return E_INVALIDARG;
+            }
             break;
 
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
