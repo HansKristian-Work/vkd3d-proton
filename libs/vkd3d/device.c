@@ -7289,16 +7289,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device
             flags, &pipeline_library)))
         return hr;
 
-    if (lib)
-    {
-        return return_interface(&pipeline_library->ID3D12PipelineLibrary_iface,
-                &IID_ID3D12PipelineLibrary, iid, lib);
-    }
-    else
-    {
-        ID3D12PipelineLibrary1_Release(&pipeline_library->ID3D12PipelineLibrary_iface);
-        return S_FALSE;
-    }
+    return return_interface(&pipeline_library->ID3D12PipelineLibrary_iface,
+            &IID_ID3D12PipelineLibrary, iid, lib);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetEventOnMultipleFenceCompletion(d3d12_device_iface *iface,
