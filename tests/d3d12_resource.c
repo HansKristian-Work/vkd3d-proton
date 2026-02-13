@@ -961,6 +961,7 @@ void test_create_reserved_resource(void)
     D3D12_CLEAR_VALUE clear_value;
     D3D12_HEAP_FLAGS heap_flags;
     ID3D12Resource *resource;
+    ID3D12Device10 *device10;
     bool standard_swizzle;
     ID3D12Device *device;
     ULONG refcount;
@@ -1119,6 +1120,37 @@ void test_create_reserved_resource(void)
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
+
+    if (SUCCEEDED(hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void**)&device10)))
+    {
+        /* Castable format with UAV usage */
+        DXGI_FORMAT castable_format = DXGI_FORMAT_R32G32_UINT;
+
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Width = 1024;
+        resource_desc.Height = 1024;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.Format = DXGI_FORMAT_BC1_UNORM;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        hr = ID3D12Device10_CreateReservedResource2(device10,
+            &resource_desc, D3D12_BARRIER_LAYOUT_GENERIC_READ, NULL, NULL,
+            1, &castable_format, &IID_ID3D12Resource, (void **)&resource);
+        ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+
+        if (SUCCEEDED(hr))
+            ID3D12Resource_Release(resource);
+
+        ID3D12Device10_Release(device10);
+    }
+    else
+    {
+        skip("ID3D12Device10 not supported.\n");
+    }
 
 done:
     refcount = ID3D12Device_Release(device);
@@ -6179,5 +6211,50 @@ void test_use_before_alloc_stress(void)
         ID3D12Resource_Release(dummy_res);
     ID3D12Fence_Release(fence);
     ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+void test_buffer_rtv_dsv_usage(void)
+{
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct test_context context;
+    ID3D12Resource *resource;
+    D3D12_RESOURCE_DESC desc;
+    HRESULT hr;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 1;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x\n", hr);
+
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+    /* For some reason, this is allowed. */
+    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", hr);
+
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+    if (SUCCEEDED(hr))
+        ID3D12Resource_Release(resource);
+    /* But not this ... */
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+
     destroy_test_context(&context);
 }
