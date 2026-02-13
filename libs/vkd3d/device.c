@@ -5260,9 +5260,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
-            /* Would require some sort of wine
-             * interop to support file handles */
+            /* Complete support would require some sort of wine
+             * interop to support file handles and kernels to deal with file mappings properly.
+             * We cannot easily query that here, but noone seems to rely on that particular feature.
+             * We support the simpler cases, however,
+             * and at least one ISV has asked for this to be exposed. */
+#ifdef _WIN32
+            data->Supported = device->vk_info.EXT_external_memory_host;
+#else
+            /* Cannot easily support this on native Linux since we don't have VirtualQuery() and friends.
+             * Not important enough to support to bother implementing it ourselves. */
             data->Supported = FALSE;
+#endif
 
             TRACE("Existing heaps %#x.\n", data->Supported);
             return S_OK;
