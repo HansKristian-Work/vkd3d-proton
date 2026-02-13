@@ -9445,6 +9445,10 @@ static void vkd3d_memory_info_get_topology(struct vkd3d_memory_topology *topolog
         flags = device->memory_properties.memoryTypes[i].propertyFlags;
         heap_index = device->memory_properties.memoryTypes[i].heapIndex;
 
+        /* Ignore these types. We never use them and they won't be HOST_VISIBLE. */
+        if (flags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)
+            continue;
+
         if (heap_index == topology->largest_device_local_heap_index &&
                 (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0 &&
                 (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0)

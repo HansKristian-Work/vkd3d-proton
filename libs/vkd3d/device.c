@@ -4630,6 +4630,10 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
 
     for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
     {
+		/* Ignore these types. We never use them and they won't be HOST_VISIBLE. */
+		if (device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)
+			continue;
+
         if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
             return false;
         if (coherent && !(device->memory_properties.memoryTypes[i].propertyFlags
