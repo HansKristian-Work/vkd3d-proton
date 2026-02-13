@@ -144,10 +144,8 @@ struct d3d12_wg_state_object_program
 struct d3d12_wg_state_object_module
 {
     VkShaderModule vk_module;
-    VkDescriptorSetLayout vk_set_layout;
-    VkPipelineLayout vk_pipeline_layout;
     struct d3d12_root_signature *root_signature;
-    uint32_t push_set_index;
+    struct vkd3d_fused_root_signature_mappings *mappings;
 };
 
 struct d3d12_wg_state_object_data
@@ -1213,8 +1211,7 @@ static void d3d12_wg_state_object_cleanup(struct d3d12_wg_state_object *state_ob
     for (i = 0; i < state_object->modules_count; i++)
     {
         VK_CALL(vkDestroyShaderModule(state_object->device->vk_device, state_object->modules[i].vk_module, NULL));
-        VK_CALL(vkDestroyDescriptorSetLayout(state_object->device->vk_device, state_object->modules[i].vk_set_layout, NULL));
-        VK_CALL(vkDestroyPipelineLayout(state_object->device->vk_device, state_object->modules[i].vk_pipeline_layout, NULL));
+        vkd3d_free(state_object->modules[i].mappings);
         if (state_object->modules[i].root_signature)
             d3d12_root_signature_dec_ref(state_object->modules[i].root_signature);
     }
@@ -1771,6 +1768,7 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     const struct vkd3d_shader_library_entry_point *entry;
+    VkPipelineCreateFlags2CreateInfo flags2_info;
     VkComputePipelineCreateInfo pipeline_info;
     VkSpecializationInfo spec_info;
     uint32_t spec_constant_index;
@@ -1820,9 +1818,9 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
     vkd3d_array_reserve((void **)&tmp->map_entries, &tmp->map_entries_size, tmp->spec_data_count, sizeof(*tmp->map_entries));
 
     pipeline_info.stage.module = object->modules[entry_point_index].vk_module;
-    pipeline_info.layout = object->modules[entry_point_index].vk_pipeline_layout;
-    if (d3d12_device_uses_descriptor_buffers(object->device))
-        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    if (object->modules[entry_point_index].mappings)
+        pipeline_info.stage.pNext = &object->modules[entry_point_index].mappings->mapping_info;
+
     spec_info.pData = tmp->spec_data;
     spec_info.dataSize = tmp->spec_data_count * sizeof(uint32_t);
     spec_info.pMapEntries = tmp->map_entries;
@@ -1896,6 +1894,11 @@ static HRESULT d3d12_wg_state_object_compile_pipeline(
             map_entry->constantID = entries[i].spec_id;
         }
     }
+
+    memset(&flags2_info, 0, sizeof(flags2_info));
+    flags2_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+    flags2_info.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT | pipeline_info.flags;
+    vk_prepend_struct(&pipeline_info, &flags2_info);
 
     /* CPU node entry, static payload. */
     if (is_broadcast)
@@ -2167,7 +2170,6 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
     const struct d3d12_state_object_association *global_rs_assoc;
     const struct d3d12_state_object_association *local_rs_assoc;
     struct vkd3d_shader_interface_info shader_interface_info;
-    struct vkd3d_shader_descriptor_binding push_ubo_binding;
     struct vkd3d_shader_compile_arguments compile_args;
     struct vkd3d_shader_code dxil, spirv;
 
@@ -2190,8 +2192,6 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
 
     memset(&shader_interface_info, 0, sizeof(shader_interface_info));
     memset(&shader_interface_local_info, 0, sizeof(shader_interface_local_info));
-
-    shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
 
     shader_interface_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     shader_interface_info.xfb_info = NULL;
@@ -2226,69 +2226,56 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
         d3d12_root_signature_inc_ref(module->root_signature = global_rs_assoc->root_signature);
     }
 
-    /* Create a modified pipeline layout which uses the work graph layout.
-     * It uses push constants for various metadata, and moves root parameters to push UBO. */
-    if (FAILED(hr = d3d12_root_signature_create_work_graph_layout(
-            module->root_signature, &module->vk_set_layout, &module->vk_pipeline_layout)))
-        return hr;
-
     if (module->root_signature)
     {
         struct d3d12_root_signature *rs = module->root_signature;
         /* We might have different bindings per PSO, even if they are considered pipeline layout compatible.
          * Register/space declaration could differ, but those don't change the Vulkan pipeline layout. */
-        shader_interface_info.flags = d3d12_root_signature_get_shader_interface_flags(rs, VKD3D_PIPELINE_TYPE_COMPUTE);
-        shader_interface_info.descriptor_tables.offset = rs->descriptor_table_offset;
-        shader_interface_info.descriptor_tables.count = rs->descriptor_table_count;
+        shader_interface_info.flags = d3d12_root_signature_get_shader_interface_flags(rs);
+        /* Cannot lower these in any useful way. */
+        shader_interface_info.flags &= ~VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV;
         shader_interface_info.bindings = rs->bindings;
         shader_interface_info.binding_count = rs->binding_count;
-        shader_interface_info.push_constant_buffers = rs->root_constants;
-        shader_interface_info.push_constant_buffer_count = rs->root_constant_count;
+        shader_interface_info.push_constant_buffers = module->root_signature->root_constants;
+        shader_interface_info.push_constant_buffer_count = module->root_signature->root_constant_count;
+        shader_interface_info.num_root_descriptors = module->root_signature->root_parameters_raw_va_count;
+        shader_interface_info.num_root_constants = module->root_signature->root_parameters_constant_dwords;
+        shader_interface_info.push_constant_ubo_binding.set = VKD3D_SHADER_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET;
+        shader_interface_info.push_constant_ubo_binding.binding = 0;
+        shader_interface_info.descriptor_table_offset_words =
+            module->root_signature->descriptor_table_offset / sizeof(uint32_t);
+        shader_interface_info.descriptor_raw_va_offset = object->device->bindless_state.uav_counter_embedded_offset;
+        shader_interface_info.min_ssbo_alignment = object->device->bindless_state.min_ssbo_alignment;
+        shader_interface_info.flags |= VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER;
         /* TODO: EXTENDED_DEBUG_UTILS mapping. */
-        shader_interface_info.push_constant_ubo_binding = &rs->push_constant_ubo_binding;
-        shader_interface_info.offset_buffer_binding = &rs->offset_buffer_binding;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
         shader_interface_info.descriptor_qa_payload_binding = &rs->descriptor_qa_payload_binding;
         shader_interface_info.descriptor_qa_control_binding = &rs->descriptor_qa_control_binding;
 #endif
-
-        if (!(shader_interface_info.flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK))
-        {
-            push_ubo_binding.binding = 0;
-            push_ubo_binding.set = rs->compute.num_set_layouts;
-            shader_interface_info.push_constant_ubo_binding = &push_ubo_binding;
-            shader_interface_info.flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK;
-        }
-
-        module->push_set_index = rs->compute.push_constant_range.size ? push_ubo_binding.set : UINT32_MAX;
-    }
-    else
-    {
-        module->push_set_index = UINT32_MAX;
     }
 
     if (local_rs_assoc)
     {
         struct d3d12_root_signature *rs = local_rs_assoc->root_signature;
+
+        shader_interface_local_info.bindings = rs->bindings;
+        shader_interface_local_info.binding_count = rs->binding_count;
         shader_interface_local_info.local_root_parameters = rs->parameters;
         shader_interface_local_info.local_root_parameter_count = rs->parameter_count;
         shader_interface_local_info.shader_record_constant_buffers = rs->root_constants;
         shader_interface_local_info.shader_record_buffer_count = rs->root_constant_count;
-
-        if (rs->static_sampler_count)
-        {
-            FIXME("Static samplers not implemented yet.\n");
-            return E_NOTIMPL;
-        }
-
-        shader_interface_local_info.bindings = rs->bindings;
-        shader_interface_local_info.binding_count = rs->binding_count;
-
         /* Promote state which might only be active in local root signature. */
-        shader_interface_info.flags |= d3d12_root_signature_get_shader_interface_flags(rs, VKD3D_PIPELINE_TYPE_COMPUTE);
-        if (rs->compute.flags & (VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER | VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER))
-            shader_interface_info.offset_buffer_binding = &rs->offset_buffer_binding;
+        shader_interface_info.flags |= d3d12_root_signature_get_shader_interface_flags(rs);
     }
+
+    if (module->root_signature && local_rs_assoc)
+        module->mappings = d3d12_state_object_build_workgraph_root_signature_mappings(module->root_signature, local_rs_assoc->root_signature);
+    else if (module->root_signature)
+        module->mappings = d3d12_state_object_build_workgraph_root_signature_mappings(module->root_signature, NULL);
+    else if (local_rs_assoc)
+        module->mappings = d3d12_state_object_build_workgraph_root_signature_mappings(NULL, local_rs_assoc->root_signature);
+    else
+        module->mappings = NULL;
 
     memset(&dxil, 0, sizeof(dxil));
     memset(&spirv, 0, sizeof(spirv));
@@ -2569,73 +2556,6 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
     d3d12_command_list_debug_mark_end_region(list);
 }
 
-static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_list *list,
-        const struct d3d12_wg_state_object *state,
-        const struct d3d12_wg_state_object_program *program,
-        const struct d3d12_wg_state_object_module *module,
-        VkBuffer vk_root_parameter_buffer, VkDeviceSize vk_root_parameter_buffer_offset)
-{
-    const struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkDescriptorBufferInfo buffer_info;
-    VkWriteDescriptorSet write;
-    unsigned int i;
-
-    if (d3d12_device_uses_descriptor_buffers(list->device))
-    {
-        VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                module->vk_pipeline_layout, 0, bindless_state->set_count,
-                bindless_state->vk_descriptor_buffer_indices,
-                list->descriptor_heap.buffers.vk_offsets));
-    }
-    else
-    {
-        for (i = 0; i < bindless_state->set_count; i++)
-        {
-            if (list->descriptor_heap.sets.vk_sets[i])
-            {
-                VK_CALL(vkCmdBindDescriptorSets(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                        module->vk_pipeline_layout, i, 1,
-                        &list->descriptor_heap.sets.vk_sets[i], 0, NULL));
-            }
-        }
-    }
-
-    if (module->push_set_index != UINT32_MAX)
-    {
-        memset(&write, 0, sizeof(write));
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.pBufferInfo = &buffer_info;
-
-        buffer_info.offset = vk_root_parameter_buffer_offset;
-        buffer_info.buffer = vk_root_parameter_buffer;
-        buffer_info.range = sizeof(union vkd3d_root_parameter_data);
-
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer,
-                VK_PIPELINE_BIND_POINT_COMPUTE, module->vk_pipeline_layout, module->push_set_index, 1, &write));
-    }
-
-    if (module->root_signature)
-    {
-        if (module->root_signature->vk_sampler_set)
-        {
-            VK_CALL(vkCmdBindDescriptorSets(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    module->vk_pipeline_layout,
-                    module->root_signature->sampler_descriptor_set,
-                    1, &module->root_signature->vk_sampler_set, 0, NULL));
-        }
-        else if (module->root_signature->vk_sampler_descriptor_layout)
-        {
-            VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    module->vk_pipeline_layout, module->root_signature->sampler_descriptor_set));
-        }
-    }
-
-    /* TODO: Bind local sampler set. */
-}
-
 static unsigned int d3d12_command_list_workgraph_remaining_levels(
         const struct d3d12_wg_state_object_program *program,
         unsigned int level,
@@ -2679,17 +2599,14 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
     const struct vkd3d_shader_node_input_data *node_input;
     struct vkd3d_shader_node_input_push_signature push;
     struct vkd3d_scratch_allocation offset_scratch;
-    VkPipelineLayout vk_layout;
+    VkPushDataInfoEXT push_info;
     uint32_t table_index;
 
     memset(&push, 0, sizeof(push));
-    vk_layout = state->modules[node_index].vk_pipeline_layout;
+    d3d12_command_list_update_descriptor_heaps(list);
 
-    /* Just rebind resources every time. We have to execute intermediate shaders anyway,
-     * which clobbers all descriptor state. */
-    d3d12_command_list_workgraph_bind_resources(list, state, program,
-            &state->modules[node_index],
-            vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
+    push.root_parameter_bda = vkd3d_get_buffer_device_address(list->device, vk_root_parameter_buffer) +
+            vk_root_parameter_buffer_offset;
 
     node_input = state->entry_points[node_index].node_input;
 
@@ -2726,9 +2643,12 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
             program->pipelines[node_index].vk_static_cpu_node_entry_pipeline :
             program->pipelines[node_index].vk_cpu_node_entry_pipeline));
 
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            0, sizeof(push), &push));
+    memset(&push_info, 0, sizeof(push_info));
+    push_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_info.data.address = &push;
+    push_info.data.size = sizeof(push);
+    push_info.offset = 0;
+    VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &push_info));
 
     if (desc->NumRecords == 1 && node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
     {
@@ -2840,10 +2760,7 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
             VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, WG_DIVIDER, num_wgs_x / WG_DIVIDER, amplification));
 
         push.node_linear_offset_bda += sizeof(uint32_t);
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-                sizeof(uint32_t), &push.node_linear_offset_bda));
+        VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &push_info));
 
         /* Secondary offset */
         if (num_wgs_x % WG_DIVIDER)
@@ -2870,10 +2787,7 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
             VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, WG_DIVIDER, num_wgs_x / WG_DIVIDER, 1));
 
         push.node_linear_offset_bda += sizeof(uint32_t);
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-                sizeof(uint32_t), &push.node_linear_offset_bda));
+        VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &push_info));
 
         /* Secondary offset */
         if (num_wgs_x % WG_DIVIDER)
@@ -2928,9 +2842,9 @@ static void d3d12_command_list_emit_distribute_workgroups(struct d3d12_command_l
     args.node_share_mapping_va = program->share_mapping_scratch_offset + list->wg_state.BackingMemory.StartAddress;
     args.num_nodes = state->entry_points_count;
 
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-            program->workgroup_distributor.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            0, sizeof(args), &args));
+    d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+            program->workgroup_distributor.vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
 
     if (list->device->vk_info.EXT_debug_utils)
         d3d12_command_list_debug_mark_label(list, "Distribute Work Groups", 1.0f, 0.8f, 0.8f, 1.0f);
@@ -2969,10 +2883,9 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
     args.unrolled_offsets = state->unrolled_offsets.va;
     args.packed_offset_counts = list->wg_state.BackingMemory.StartAddress + program->required_scratch_size;
 
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+    d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
             program->payload_offset_expander.vk_pipeline_layout,
-            VK_SHADER_STAGE_COMPUTE_BIT,
-            0, sizeof(args), &args));
+            VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
 
     if (list->device->vk_info.EXT_debug_utils)
     {
@@ -3003,10 +2916,9 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
         VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 program->complete_compaction.vk_pipeline));
 
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+        d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
                 program->complete_compaction.vk_pipeline_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT,
-                0, sizeof(complete_args), &complete_args));
+                VK_SHADER_STAGE_COMPUTE_BIT, sizeof(complete_args), &complete_args);
 
         wgx = complete_args.node_count;
         wgx = align(complete_args.node_count, vkd3d_meta_get_workgraph_complete_compaction_workgroup_size()) /
@@ -3047,19 +2959,16 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     VkDeviceAddress primary_linear_offset_bda;
     VkDeviceSize vk_secondary_indirect_offset;
     VkDeviceSize vk_primary_indirect_offset;
+    VkPushDataInfoEXT push_info;
     VkBuffer vk_indirect_buffer;
-    VkPipelineLayout vk_layout;
     unsigned int table_index;
 
     memset(&push, 0, sizeof(push));
-    vk_layout = state->modules[node_index].vk_pipeline_layout;
     node_input = state->entry_points[node_index].node_input;
 
-    /* Just rebind resources every time. We have to execute intermediate shaders anyway,
-     * which clobbers all descriptor state. */
-    d3d12_command_list_workgraph_bind_resources(list, state, program,
-            &state->modules[node_index],
-            vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
+    d3d12_command_list_update_descriptor_heaps(list);
+    push.root_parameter_bda = vkd3d_get_buffer_device_address(list->device, vk_root_parameter_buffer) +
+            vk_root_parameter_buffer_offset;
 
     push.node_payload_output_bda = output_va;
     push.node_remaining_recursion_levels = d3d12_command_list_workgraph_remaining_levels(program, level, node_index);
@@ -3134,9 +3043,13 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     }
 
     push.node_linear_offset_bda = primary_linear_offset_bda;
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            0, sizeof(push), &push));
+
+    memset(&push_info, 0, sizeof(push_info));
+    push_info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push_info.data.address = &push;
+    push_info.data.size = sizeof(push);
+    push_info.offset = 0;
+    VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &push_info));
 
     if (list->device->vk_info.EXT_debug_utils)
     {
@@ -3146,21 +3059,10 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     }
 
     if (d3d12_wg_requires_primary_execution(state))
-    {
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-                sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
-
         VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_primary_indirect_offset));
-    }
 
     push.node_linear_offset_bda = secondary_linear_offset_bda;
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
-            sizeof(VkDeviceAddress), &push.node_linear_offset_bda));
-
+    VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &push_info));
     VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, vk_indirect_buffer, vk_secondary_indirect_offset));
 
     VKD3D_BREADCRUMB_AUX32(level);
@@ -3278,8 +3180,10 @@ static bool d3d12_command_list_workgraph_setup_indirect(
     args.entry_point_mapping_va = entry_scratch.va;
     args.num_entry_points = program->num_pipelines;
 
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, program->gpu_input_setup.vk_pipeline_layout,
-            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+    d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+            program->gpu_input_setup.vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
+
     VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, program->gpu_input_setup.vk_pipeline));
 
     num_wgs = align(args.num_entry_points, vkd3d_meta_get_workgraph_setup_gpu_input_workgroup_size()) /
@@ -3447,8 +3351,7 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
     d3d12_command_list_debug_mark_begin_region(list, "WGDispatch");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
-    d3d12_command_list_update_descriptor_buffers(list);
+    d3d12_command_list_invalidate_root_parameters(list);
 
     d3d12_command_list_workgraph_barrier(list,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,

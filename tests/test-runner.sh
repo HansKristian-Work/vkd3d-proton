@@ -86,6 +86,7 @@ fi
 run_tests() {
 	while (($counter < $nr_cpus)) ; do
 		# output to /dev/null by default
+		echo "Running ${tests[$test_idx]} ..."
 		if [[ -z "$output_dir" ]] ; then
 			VKD3D_TEST_MATCH=${tests[$test_idx]} "$d3d12_bin" &>/dev/null &
 		else

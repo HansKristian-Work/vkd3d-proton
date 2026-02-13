@@ -146,6 +146,7 @@ enum vkd3d_shader_binding_flag
     VKD3D_SHADER_BINDING_FLAG_BINDLESS   = 0x00000008,
     VKD3D_SHADER_BINDING_FLAG_RAW_VA     = 0x00000010,
     VKD3D_SHADER_BINDING_FLAG_RAW_SSBO   = 0x00000020,
+    VKD3D_SHADER_BINDING_FLAG_FORCE_EXPLICIT_HEAP_INDEXING = 0x00000040,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_BINDING_FLAG),
 };
@@ -211,10 +212,7 @@ struct vkd3d_shader_resource_binding
     unsigned int register_space;
     unsigned int register_index;
     unsigned int register_count;
-    unsigned int descriptor_table;
-    unsigned int descriptor_offset;
     enum vkd3d_shader_visibility shader_visibility;
-    unsigned int flags; /* vkd3d_shader_binding_flags */
 
     struct vkd3d_shader_descriptor_binding binding;
 };
@@ -231,12 +229,6 @@ struct vkd3d_shader_push_constant_buffer
     unsigned int size;   /* in bytes */
 };
 
-struct vkd3d_shader_descriptor_table_buffer
-{
-    unsigned int offset; /* in bytes */
-    unsigned int count;  /* number of tables */
-};
-
 struct vkd3d_shader_root_parameter_mapping
 {
     unsigned int root_parameter;
@@ -249,9 +241,6 @@ struct vkd3d_shader_root_parameter_mapping
 enum vkd3d_shader_interface_flag
 {
     VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER    = 0x00000001u,
-    VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER      = 0x00000002u,
-    VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER                  = 0x00000004u,
-    VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER                 = 0x00000008u,
     VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER                = 0x00000010u,
     /* In this model, use descriptor_size_cbv_srv_uav as array stride for raw VA buffer. */
     VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER      = 0x00000020u,
@@ -261,6 +250,7 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME = 0x00000200u,
     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC          = 0x00000400u,
     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC_COMPUTE  = 0x00000800u,
+    VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV                  = 0x00001000u,
 };
 
 struct vkd3d_shader_stage_io_entry
@@ -291,15 +281,18 @@ struct vkd3d_shader_interface_info
     unsigned int min_ssbo_alignment;
     unsigned int patch_location_offset;
 
-    struct vkd3d_shader_descriptor_table_buffer descriptor_tables;
     const struct vkd3d_shader_resource_binding *bindings;
     unsigned int binding_count;
 
     const struct vkd3d_shader_push_constant_buffer *push_constant_buffers;
     unsigned int push_constant_buffer_count;
 
+    unsigned int descriptor_table_offset_words;
+    unsigned int num_root_descriptors;
+    unsigned int num_root_constants;
+
     /* Ignored unless VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER is set */
-    const struct vkd3d_shader_descriptor_binding *push_constant_ubo_binding;
+    struct vkd3d_shader_descriptor_binding push_constant_ubo_binding;
     /* Ignored unless VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER or TYPED_OFFSET_BUFFER is set */
     const struct vkd3d_shader_descriptor_binding *offset_buffer_binding;
 
@@ -319,6 +312,7 @@ struct vkd3d_shader_interface_info
 
     /* Used for either VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER or local root signatures. */
     uint32_t descriptor_size_cbv_srv_uav;
+    uint32_t descriptor_raw_va_offset;
     uint32_t descriptor_size_sampler;
 
     /* Purely for debug. Only non-NULL when running with EXTENDED_DEBUG_UTILS. */
@@ -360,12 +354,12 @@ struct vkd3d_shader_root_parameter
 
 struct vkd3d_shader_interface_local_info
 {
+    const struct vkd3d_shader_resource_binding *bindings;
+    unsigned int binding_count;
     const struct vkd3d_shader_root_parameter *local_root_parameters;
     unsigned int local_root_parameter_count;
     const struct vkd3d_shader_push_constant_buffer *shader_record_constant_buffers;
     unsigned int shader_record_buffer_count;
-    const struct vkd3d_shader_resource_binding *bindings;
-    unsigned int binding_count;
 };
 
 struct vkd3d_shader_transform_feedback_element
@@ -1036,6 +1030,7 @@ struct vkd3d_shader_node_input_push_signature
     VkDeviceAddress local_root_signature_bda;
     uint32_t node_payload_output_offset;
     uint32_t node_remaining_recursion_levels;
+    VkDeviceAddress root_parameter_bda;
 };
 
 struct vkd3d_shader_node_input_data
@@ -1191,6 +1186,39 @@ vkd3d_shader_hash_t vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
 bool vkd3d_shader_hash_range_parse_line(char *line,
         vkd3d_shader_hash_t *lo, vkd3d_shader_hash_t *hi,
         char **trail);
+
+/* In EXT_descriptor_heap, sets and bindings are non-physical concepts.
+ * Agree on a convention so that we can link SPIR-V to PSO creation. */
+enum
+{
+    VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET = 100,
+    VKD3D_SHADER_STATIC_SAMPLERS_VIRTUAL_DESCRIPTOR_SET = 101,
+    VKD3D_SHADER_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET = 102,
+    VKD3D_SHADER_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET = 103,
+    VKD3D_SHADER_STATIC_LOCAL_SAMPLERS_VIRTUAL_DESCRIPTOR_SET = 104,
+    VKD3D_SHADER_LOCAL_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET = 105,
+    VKD3D_SHADER_LOCAL_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET = 106,
+    VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE = 200,
+
+    VKD3D_SHADER_UAV_COUNTER_SET_OFFSET = 1000,
+
+    VKD3D_SHADER_UAV_COUNTER_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE =
+            VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET + VKD3D_SHADER_UAV_COUNTER_SET_OFFSET,
+    VKD3D_SHADER_UAV_COUNTER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE =
+            VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE + VKD3D_SHADER_UAV_COUNTER_SET_OFFSET,
+
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING = 0,
+    VKD3D_SHADER_UAV_COUNTER_GLOBAL_HEAP_BINDING,
+
+    /* These are either plain SSBOs or magic UBOs. */
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS,
+    VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING = VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS,
+    VKD3D_SHADER_GLOBAL_HEAP_SIZE_BINDING,
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS_COUNT = 4
+};
+
+#define VKD3D_FORCE_RAW_UAV_COUNTER 0
+#define VKD3D_FORCE_HEAP_ROBUSTNESS 0
 
 #ifdef __cplusplus
 }

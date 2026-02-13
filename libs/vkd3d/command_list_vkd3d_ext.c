@@ -88,6 +88,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShaderE
     if (!handle || !block_x || !block_y || !block_z || !params || !param_size)
         return E_INVALIDARG;
 
+    d3d12_command_list_update_descriptor_heaps(command_list);
+
     launchInfo.function = handle->vkCuFunction;
     launchInfo.gridDimX = block_x;
     launchInfo.gridDimY = block_y;

@@ -88,7 +88,8 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
 
     heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(output_buffers));
 
-    if (is_mesa_intel_device(context.device))
+    if (is_mesa_intel_device(context.device) ||
+        (is_nvidia_device(context.device) && is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap")))
     {
         /* There appears to be driver issues.
          * SSBO not aligned to the advertised 4 bytes seems to break down for unknown reasons.
@@ -955,6 +956,7 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     ID3D12Resource *input;
     unsigned int i, j;
     bool is_amd_win;
+    bool is_nv_heap;
 
 #include "shaders/robustness/headers/undefined_structured_raw_read_typed.h"
 
@@ -1044,6 +1046,8 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     /* AMD behavior: RAW emits a descriptor without stride. Typed always reads same value at offset = 0.
      * Structured: Passed down as stride to typed. */
     is_amd_win = is_amd_windows_device(context.device);
+    is_nv_heap = is_nvidia_device(context.device) &&
+            is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap");
 
     /* Validate structured. */
     for (i = 0; i < 8; i++)
@@ -1078,6 +1082,11 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
                     expected.z = expected.x;
                     expected.w = expected.x;
                 }
+            }
+            else if (is_nv_heap)
+            {
+                /* Magic driver behavior. SSBO is expressed as a R32_UINT texel buffer when read as one. */
+                expected.x = j < in_bounds_dwords ? (j + stride_dwords) : 0;
             }
             else
             {
@@ -1232,6 +1241,7 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
     ID3D12Resource *input;
     unsigned int i, j;
     bool is_amd_win;
+    bool is_nv_heap;
     bool is_nv_win;
 
 #include "shaders/robustness/headers/undefined_typed_read_structured_raw.h"
@@ -1327,8 +1337,9 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
     /* AMD behavior: Typed buffer has stride + element count. Structured buffer works as expected.
      * RAW access works as expected, except that robustness is completely disabled. */
     is_amd_win = is_amd_windows_device(context.device);
-
     is_nv_win = is_nvidia_windows_device(context.device);
+    is_nv_heap = is_nvidia_device(context.device) &&
+            is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap");
 
     /* Validate the buffer read. */
     for (i = 0; i < 16; i++)
@@ -1344,8 +1355,43 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
         {
             struct uvec4 expected = {0};
             const struct uvec4 *value;
+            bool is_bug = false;
 
-            if (is_nv_win && i < 8)
+            if (is_nv_heap && i >= 8)
+            {
+                /* Structured buffer path. */
+                unsigned int ssbo_size_words = 12;
+                unsigned int ssbo_offset_words = vecsize * 4;
+                unsigned int accessed_word = j * vecsize;
+
+                /* SSBO size is treated as num elements * 4,
+                 * so we always get 12 dwords here. */
+                if (accessed_word < ssbo_size_words)
+                {
+                    expected.x = ssbo_offset_words + j * vecsize;
+                    expected.y = expected.x + 1;
+                    expected.z = expected.y + 1;
+                    expected.w = expected.z + 1;
+                    /* Driver does not seem to like RGBA8 aliasing with SSBO, but it works on native,
+                     * so that's odd. */
+                    is_bug = i == 8;
+                }
+            }
+            else if (is_nv_heap)
+            {
+                /* For raw buffer, number of elements is treated as number of dwords. */
+                if (j < 12 / vecsize)
+                {
+                    expected.x = vecsize * (4 + j);
+                    expected.y = expected.x + 1;
+                    expected.z = expected.y + 1;
+                    expected.w = expected.z + 1;
+                    /* Driver does not seem to like RGBA8 aliasing with SSBO, but it works on native,
+                     * so that's odd. */
+                    is_bug = i == 0;
+                }
+            }
+            else if (is_nv_win && i < 8)
             {
                 /* For raw buffer, number of elements is treated as number of dwords. */
                 if (j < 12 / vecsize)
@@ -1373,6 +1419,7 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
                 expected.w = expected.z;
 
             value = get_readback_uvec4(&rb, j, 0);
+            bug_if(is_bug)
             ok(compare_uvec4(value, &expected),
                     "output %u, index %u, expected (%u, %u, %u, %u), got (%u, %u, %u, %u)\n", i, j,
                     expected.x, expected.y, expected.z, expected.w,
