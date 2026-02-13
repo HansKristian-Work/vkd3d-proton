@@ -1001,7 +1001,8 @@ static HRESULT d3d12core_D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
     {
         if (IsEqualGUID(iid, &IID_IVKD3DCoreInterface))
         {
-            if (debug) {
+            if (debug)
+            {
                 *debug = (void*)&d3d12core_interface_instance;
                 return S_OK;
             }
@@ -1013,7 +1014,8 @@ static HRESULT d3d12core_D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
     {
         if (IsEqualGUID(iid, &IID_IVKD3DDebugControlInterface))
         {
-            if (debug) {
+            if (debug)
+            {
                 *debug = (void*)&vkd3d_debug_control_instance;
                 return S_OK;
             }
