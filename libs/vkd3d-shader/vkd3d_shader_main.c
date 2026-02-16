@@ -385,7 +385,7 @@ size_t vkd3d_shader_quirk_entry_count;
 static const struct vkd3d_shader_quirk_mapping
 {
     const char *name;
-    enum vkd3d_shader_quirk quirk;
+    vkd3d_shader_quirks_t quirk;
 } vkd3d_shader_quirk_mappings[] = {
     ENTRY(FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW),
     ENTRY(FORCE_TGSM_BARRIERS),
