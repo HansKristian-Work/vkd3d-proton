@@ -375,7 +375,7 @@ struct vkd3d_shader_quirk_entry
 {
     vkd3d_shader_hash_t lo;
     vkd3d_shader_hash_t hi;
-    uint32_t flags;
+    vkd3d_shader_quirks_t quirks;
 };
 
 static struct vkd3d_shader_quirk_entry *vkd3d_shader_quirk_entries;
@@ -448,7 +448,7 @@ static void vkd3d_shader_init_quirk_table(void)
         {
             if (strcmp(trail, vkd3d_shader_quirk_mappings[i].name) == 0)
             {
-                entry.flags = vkd3d_shader_quirk_mappings[i].quirk;
+                entry.quirks = vkd3d_shader_quirk_mappings[i].quirk;
                 INFO("Parsed shader quirk entry: [%016"PRIx64", %016"PRIx64"] -> %s\n",
                         entry.lo, entry.hi, trail);
                 break;
@@ -472,10 +472,10 @@ static void vkd3d_shader_init_quirk_table(void)
 
 static pthread_once_t vkd3d_shader_quirk_once = PTHREAD_ONCE_INIT;
 
-uint32_t vkd3d_shader_compile_arguments_select_quirks(
+vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
         const struct vkd3d_shader_compile_arguments *compile_args, vkd3d_shader_hash_t shader_hash)
 {
-    uint32_t quirks = 0;
+    vkd3d_shader_quirks_t quirks = 0;
     unsigned int i;
 
     pthread_once(&vkd3d_shader_quirk_once, vkd3d_shader_init_quirk_table);
@@ -484,9 +484,9 @@ uint32_t vkd3d_shader_compile_arguments_select_quirks(
     {
         if (vkd3d_shader_quirk_entries[i].lo <= shader_hash && vkd3d_shader_quirk_entries[i].hi >= shader_hash)
         {
-            quirks |= vkd3d_shader_quirk_entries[i].flags;
-            INFO("Adding shader quirks #%x for hash %016"PRIx64".\n",
-                    vkd3d_shader_quirk_entries[i].flags, shader_hash);
+            quirks |= vkd3d_shader_quirk_entries[i].quirks;
+            INFO("Adding shader quirks #%"PRIx64" for hash %016"PRIx64".\n",
+                    vkd3d_shader_quirk_entries[i].quirks, shader_hash);
         }
     }
 
@@ -515,7 +515,7 @@ uint64_t vkd3d_shader_get_revision(void)
         {
             quirk_hash = hash_fnv1_iterate_u64(quirk_hash, vkd3d_shader_quirk_entries[i].lo);
             quirk_hash = hash_fnv1_iterate_u64(quirk_hash, vkd3d_shader_quirk_entries[i].hi);
-            quirk_hash = hash_fnv1_iterate_u32(quirk_hash, vkd3d_shader_quirk_entries[i].flags);
+            quirk_hash = hash_fnv1_iterate_u64(quirk_hash, vkd3d_shader_quirk_entries[i].quirks);
         }
     }
 
