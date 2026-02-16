@@ -18787,6 +18787,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRate(d3d12_command_
                 VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
     }
 
+    VKD3D_BREADCRUMB_TAG("RSSetShadingRate [width, height, combiner0, combiner1]");
+    VKD3D_BREADCRUMB_AUX32(fragment_size.width);
+    VKD3D_BREADCRUMB_AUX32(fragment_size.height);
+    VKD3D_BREADCRUMB_AUX32(combiner_ops[0]);
+    VKD3D_BREADCRUMB_AUX32(combiner_ops[1]);
+
     if (memcmp(&fragment_size, &dyn_state->fragment_shading_rate.fragment_size, sizeof(fragment_size)) != 0 ||
             memcmp(combiner_ops, dyn_state->fragment_shading_rate.combiner_ops, sizeof(combiner_ops)) != 0)
     {
@@ -18819,8 +18825,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
     d3d12_command_list_invalidate_rendering_info(list);
     d3d12_command_list_end_current_render_pass(list, false);
 
+    VKD3D_BREADCRUMB_TAG("RSSetShadingRateImage [cookie]");
+    VKD3D_BREADCRUMB_AUX64(vrs_image ? vrs_image->res.cookie.index : 0);
+
     if (vrs_image)
+    {
         d3d12_command_list_track_resource_usage(list, vrs_image, true);
+        VKD3D_BREADCRUMB_RESOURCE(vrs_image);
+    }
 
     list->vrs_image = vrs_image;
 }
