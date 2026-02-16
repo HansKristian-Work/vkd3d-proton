@@ -573,7 +573,7 @@ static bool dxil_match_shader_stage(dxil_spv_shader_stage blob_stage, VkShaderSt
 
 static const struct vkd3d_quirk_to_dxil_mapping
 {
-    enum vkd3d_shader_quirk vkd3d_quirk;
+    vkd3d_shader_quirks_t vkd3d_quirk;
     dxil_spv_shader_quirk dxil_quirk;
 } vkd3d_quirk_mapping[] = {
     { VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY,
