@@ -16185,6 +16185,39 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     VKD3D_BREADCRUMB_AUX64(count_buffer_offset);
     VKD3D_BREADCRUMB_AUX64(count_impl ? count_impl->res.va + count_buffer_offset : 0);
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    {
+        struct vkd3d_breadcrumb_execute_indirect_callback *data;
+        struct vkd3d_breadcrumb_command cmd;
+
+        data = vkd3d_breadcrumb_trace_allocate_side_data(&list->device->breadcrumb_tracer, list, sizeof(*data));
+        if (data)
+        {
+            data->indirect = arg_impl;
+            data->indirect_offset = arg_buffer_offset;
+            data->stride = signature_desc->ByteStride;
+            data->counter = count_impl;
+            data->counter_offset = count_buffer_offset;
+            data->max_counter = max_command_count;
+
+            if (arg_impl)
+                d3d12_command_list_register_used_resource(list, arg_impl);
+            if (count_impl)
+                d3d12_command_list_register_used_resource(list, count_impl);
+
+            cmd.type = VKD3D_BREADCRUMB_COMMAND_CALLBACK;
+            cmd.callback.func = vkd3d_breadcrumb_tracer_report_indirect_buffer;
+            cmd.callback.userdata = data;
+            vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+        }
+        else
+        {
+            ERR("Failed to allocate side data.\n");
+        }
+    }
+#endif
+
     if (sig_impl->requires_state_template)
     {
         if (sig_impl->requires_state_template_dgc)
