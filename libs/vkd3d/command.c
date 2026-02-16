@@ -16176,12 +16176,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
     unrolled_stride = signature_desc->ByteStride;
 
-    VKD3D_BREADCRUMB_TAG("ExecuteIndirect [MaxCommandCount, ArgBuffer cookie, ArgBuffer offset, Count cookie, Count offset]");
+    VKD3D_BREADCRUMB_TAG("ExecuteIndirect [MaxCommandCount, ArgBuffer cookie, ArgBuffer offset, ArgVA, Count cookie, Count offset, CountVA]");
     VKD3D_BREADCRUMB_AUX32(max_command_count);
     VKD3D_BREADCRUMB_COOKIE(arg_impl->res.cookie.index);
     VKD3D_BREADCRUMB_AUX64(arg_buffer_offset);
+    VKD3D_BREADCRUMB_AUX64(arg_impl->res.va + arg_buffer_offset);
     VKD3D_BREADCRUMB_COOKIE(count_impl ? count_impl->res.cookie.index : 0);
     VKD3D_BREADCRUMB_AUX64(count_buffer_offset);
+    VKD3D_BREADCRUMB_AUX64(count_impl ? count_impl->res.va + count_buffer_offset : 0);
 
     if (sig_impl->requires_state_template)
     {
