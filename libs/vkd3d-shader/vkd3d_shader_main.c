@@ -437,6 +437,7 @@ static void vkd3d_shader_init_quirk_table(void)
 
     while (fgets(env, sizeof(env), file))
     {
+        entry.quirks = 0;
         if (!vkd3d_shader_hash_range_parse_line(env, &entry.lo, &entry.hi, &trail))
             continue;
 
@@ -458,6 +459,7 @@ static void vkd3d_shader_init_quirk_table(void)
         {
             INFO("Parsed shader quirk entry: [%016"PRIx64", %016"PRIx64"], but no quirk for %s was found.\n",
                     entry.lo, entry.hi, trail);
+            continue;
         }
 
         vkd3d_array_reserve((void **)&vkd3d_shader_quirk_entries, &size,
