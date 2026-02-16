@@ -538,23 +538,31 @@ enum vkd3d_shader_quirk
 
     /* Replaces dodgy normalize(0) patterns. */
     VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN = (1 << 30),
+
+    /* Bit 31 vacant. */
+
+    VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE = (1ull << 32),
 };
+
+/* This is not ISO C, but relevant compilers support it. */
+STATIC_ASSERT(sizeof(enum vkd3d_shader_quirk) == sizeof(uint64_t));
+typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
 {
     vkd3d_shader_hash_t shader_hash;
-    uint32_t quirks;
+    vkd3d_shader_quirks_t quirks;
 };
 
 struct vkd3d_shader_quirk_info
 {
     const struct vkd3d_shader_quirk_hash *hashes;
     unsigned int num_hashes;
-    uint32_t default_quirks;
+    vkd3d_shader_quirks_t default_quirks;
 
     /* Quirks which are ORed in with the other masks (including default_quirks).
      * Used mostly for additional overrides from VKD3D_CONFIG. */
-    uint32_t global_quirks;
+    vkd3d_shader_quirks_t global_quirks;
 };
 
 struct vkd3d_shader_compile_arguments
@@ -1170,7 +1178,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
         const struct vkd3d_shader_compile_arguments *compiler_args);
 
-uint32_t vkd3d_shader_compile_arguments_select_quirks(
+vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
         const struct vkd3d_shader_compile_arguments *args, vkd3d_shader_hash_t hash);
 
 uint64_t vkd3d_shader_get_revision(void);
