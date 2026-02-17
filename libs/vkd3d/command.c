@@ -8782,10 +8782,35 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_scratch_allocation scratch;
+    const VkPhysicalDeviceLimits *limits;
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
 
     d3d12_command_list_check_render_pass_validation(list, "Dispatch called within a render pass.\n", true);
+
+    limits = &list->device->device_info.properties2.properties.limits;
+    /* NVIDIA nops the dispatch on native if this happens, so apps would never ship like that. */
+    if (y > limits->maxComputeWorkGroupCount[1] || z > limits->maxComputeWorkGroupCount[2])
+    {
+        WARN("Dispatch (%u x %u x %u) is exceeding device limits. Skipping for safety.\n", x, y, z);
+        return;
+    }
+
+    /* For X dimension, the spec says 0xffff, but native drivers allow beyond that limit anyway. */
+    if (x > limits->maxComputeWorkGroupCount[0])
+    {
+        /* If driver advertises 0xffff, it's likely just old and derps in the min-spec (was the case for RADV at least).
+         * It's a bit risky to nop out reasonable 1D dispatches that probably works in practice. */
+        if (limits->maxComputeWorkGroupCount[0] == 0xffff)
+        {
+            WARN("DispatchX is exceeding device limit of 0xffff, but native drivers are known to make it work. YOLO it to be safe.\n");
+        }
+        else
+        {
+            WARN("Dispatch (%u x %u x %u) is exceeding device limits. Skipping for safety.\n", x, y, z);
+            return;
+        }
+    }
 
     if (list->predication.fallback_enabled)
     {
