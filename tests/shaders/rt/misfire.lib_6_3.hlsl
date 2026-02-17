@@ -37,7 +37,7 @@ void GenShader()
                 ray, payload);
 
 	uint o;
-	InterlockedAdd(Buf0[0], 1000, o);
-	InterlockedAdd(Buf1[0], 2000, o);
+	InterlockedAdd(Buf0[0], 1001, o);
+	InterlockedAdd(Buf1[0], 2001, o);
 }
 
