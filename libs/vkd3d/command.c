@@ -18638,10 +18638,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const VkPhysicalDeviceRayTracingPipelinePropertiesKHR *props;
     VkStridedDeviceAddressRegionKHR callable_table;
     VkStridedDeviceAddressRegionKHR raygen_table;
     VkStridedDeviceAddressRegionKHR miss_table;
     VkStridedDeviceAddressRegionKHR hit_table;
+    uint64_t width_times_height;
 
     TRACE("iface %p, desc %p\n", iface, desc);
 
@@ -18650,6 +18652,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
         WARN("Ray tracing is not supported. Calling this is invalid.\n");
+        return;
+    }
+
+    width_times_height = (uint64_t)desc->Width * (uint64_t)desc->Height;
+
+    props = &list->device->device_info.ray_tracing_pipeline_properties;
+    if (width_times_height > props->maxRayDispatchInvocationCount ||
+        width_times_height * desc->Depth > props->maxRayDispatchInvocationCount)
+    {
+        WARN("TraceRays exceeds API limit (%u x %u x %u). Skipping to avoid GPU hang.\n",
+            desc->Width, desc->Height, desc->Depth);
         return;
     }
 
