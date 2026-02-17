@@ -3590,6 +3590,104 @@ void test_execute_indirect(void)
     destroy_test_context(&context);
 }
 
+void test_dispatch_huge_groups(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12CommandSignature *command_signature;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *uav;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/command/headers/dispatch_zero_thread_groups.h"
+
+    static const D3D12_DISPATCH_ARGUMENTS argument_data[] =
+    {
+        /* Both AMD and NV let these go through. */
+        {0xffff, 1, 1},
+        {0x10000, 1, 1},
+        {0x10001, 1, 1},
+        {0x01000000, 1, 1},
+        /* NV does not allow these to go through */
+        {1, 0x10000, 1},
+        {1, 0x10001, 1},
+        {1, 1, 0x10000},
+        {1, 1, 0x10001},
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    command_signature = create_command_signature(context.device, D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH);
+
+    uav = create_default_buffer(context.device, 16 * ARRAY_SIZE(argument_data),
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].Constants.ShaderRegister = 0;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.Num32BitValues = 1;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, dispatch_zero_thread_groups_dxbc);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+
+    for (i = 0; i < ARRAY_SIZE(argument_data); ++i)
+    {
+        const D3D12_DISPATCH_ARGUMENTS *arg = &argument_data[i];
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list,
+            0, ID3D12Resource_GetGPUVirtualAddress(uav) + 16 * i);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(command_list, 1, 50 + i, 0);
+        ID3D12GraphicsCommandList_Dispatch(command_list,
+            arg->ThreadGroupCountX, arg->ThreadGroupCountY, arg->ThreadGroupCountZ);
+    }
+
+    transition_sub_resource_state(command_list, uav, 0,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(uav, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+
+    for (i = 0; i < ARRAY_SIZE(argument_data); ++i)
+    {
+        unsigned int ret, expected = 0;
+        ret = get_readback_uint(&rb, 4 * i, 0, 0);
+
+        /* The X dimension is not checked on native drivers.
+         * AMD native seems to accept these out of bounds dispatches, but not NV. */
+        if (is_amd_windows_device(context.device) ||
+            (argument_data[i].ThreadGroupCountY <= D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION &&
+                argument_data[i].ThreadGroupCountZ <= D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION))
+        {
+            expected = 50 + i;
+        }
+
+        ok(ret == expected, "Value %u: expected %u, got %u.\n", i, expected, ret);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(uav);
+    ID3D12CommandSignature_Release(command_signature);
+    destroy_test_context(&context);
+}
+
 void test_dispatch_zero_thread_groups(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
