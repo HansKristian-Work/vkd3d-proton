@@ -203,6 +203,8 @@ HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGN
         ID3DBlob **blob, ID3DBlob **error_blob);
 HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
+HRESULT vkd3d_create_versioned_root_signature_deserializer_for_subobject(const void *data, SIZE_T data_size,
+        LPCWSTR subobject_name, REFIID iid, void **deserializer);
 
 #ifdef __cplusplus
 }

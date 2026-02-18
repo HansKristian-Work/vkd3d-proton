@@ -1221,9 +1221,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_CreateVersionedRootS
         ID3D12DeviceConfiguration1 *iface, const void *pLibraryBlob, SIZE_T Size,
         LPCWSTR RootSignatureSubobjectName, REFIID iid, void **ppvDeserializer)
 {
-    FIXME("iface %p, pLibraryBlob %p, Size %zu, RootSignatureSubobjectName %s, iid %s, ppvDeserializer %p stub!\n",
+    TRACE("iface %p, pLibraryBlob %p, Size %zu, RootSignatureSubobjectName %s, iid %s, ppvDeserializer %p\n",
         iface, pLibraryBlob, Size, debugstr_w(RootSignatureSubobjectName), debugstr_guid(iid), ppvDeserializer);
-    return E_NOTIMPL;
+    return vkd3d_create_versioned_root_signature_deserializer_for_subobject(
+        pLibraryBlob, Size, RootSignatureSubobjectName, iid, ppvDeserializer);
 }
 
 static CONST_VTBL ID3D12DeviceConfiguration1Vtbl d3d12_device_configuration_vtbl =

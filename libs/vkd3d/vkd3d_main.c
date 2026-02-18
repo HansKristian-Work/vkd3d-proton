@@ -334,17 +334,28 @@ static CONST_VTBL struct ID3D12VersionedRootSignatureDeserializerVtbl d3d12_vers
 };
 
 static HRESULT d3d12_versioned_root_signature_deserializer_init(struct d3d12_versioned_root_signature_deserializer *deserializer,
-        const struct vkd3d_shader_code *dxbc)
+        const struct vkd3d_shader_code *dxbc, bool raw_payload)
 {
     int ret;
 
     deserializer->ID3D12VersionedRootSignatureDeserializer_iface.lpVtbl = &d3d12_versioned_root_signature_deserializer_vtbl;
     deserializer->refcount = 1;
 
-    if ((ret = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc.vkd3d, NULL)) < 0)
+    if (raw_payload)
     {
-        WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
-        return hresult_from_vkd3d_result(ret);
+        if ((ret = vkd3d_shader_parse_root_signature_raw(dxbc->code, dxbc->size, &deserializer->desc.vkd3d, NULL)) < 0)
+        {
+            WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+            return hresult_from_vkd3d_result(ret);
+        }
+    }
+    else
+    {
+        if ((ret = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc.vkd3d, NULL)) < 0)
+        {
+            WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+            return hresult_from_vkd3d_result(ret);
+        }
     }
 
     memset(&deserializer->other_desc, 0, sizeof(deserializer->other_desc));
@@ -365,11 +376,75 @@ HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZ
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_versioned_root_signature_deserializer_init(object, &dxbc)))
+    if (FAILED(hr = d3d12_versioned_root_signature_deserializer_init(object, &dxbc, false)))
     {
         vkd3d_free(object);
         return hr;
     }
+
+    return return_interface(&object->ID3D12VersionedRootSignatureDeserializer_iface,
+            &IID_ID3D12VersionedRootSignatureDeserializer, iid, deserializer);
+}
+
+HRESULT vkd3d_create_versioned_root_signature_deserializer_for_subobject(const void *data, SIZE_T data_size,
+        LPCWSTR subobject_name, REFIID iid, void **deserializer)
+{
+    struct d3d12_versioned_root_signature_deserializer *object = NULL;
+    struct vkd3d_shader_library_entry_point *entry_points = NULL;
+    struct vkd3d_shader_library_subobject *subobjects = NULL;
+    D3D12_DXIL_LIBRARY_DESC dxil_lib;
+    size_t entry_point_count = 0;
+    size_t entry_point_size = 0;
+    size_t subobjects_count = 0;
+    size_t subobjects_size = 0;
+    HRESULT hr = S_OK;
+    size_t i;
+
+    memset(&dxil_lib, 0, sizeof(dxil_lib));
+    dxil_lib.DXILLibrary.pShaderBytecode = data;
+    dxil_lib.DXILLibrary.BytecodeLength = data_size;
+
+    if (vkd3d_shader_dxil_append_library_entry_points_and_subobjects(&dxil_lib, 0,
+            &entry_points, &entry_point_size, &entry_point_count,
+            &subobjects, &subobjects_size, &subobjects_count) < 0)
+    {
+        return E_INVALIDARG;
+    }
+
+    for (i = 0; i < subobjects_count; i++)
+    {
+        if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
+            subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE)
+        {
+            if (vkd3d_export_strequal(subobject_name, subobjects[i].name))
+            {
+                struct vkd3d_shader_code dxbc = {subobjects[i].data.payload.data, subobjects[i].data.payload.size};
+
+                if (!(object = vkd3d_malloc(sizeof(*object))))
+                {
+                    hr = E_OUTOFMEMORY;
+                    break;
+                }
+
+                if (FAILED(hr = d3d12_versioned_root_signature_deserializer_init(object, &dxbc, true)))
+                {
+                    vkd3d_free(object);
+                    object = NULL;
+                }
+
+                break;
+            }
+        }
+    }
+
+    if (i == subobjects_count)
+        hr = E_INVALIDARG;
+
+    vkd3d_shader_dxil_free_library_entry_points(entry_points, entry_point_count);
+    vkd3d_shader_dxil_free_library_subobjects(subobjects, subobjects_count);
+
+    if (!object)
+        return hr;
 
     return return_interface(&object->ID3D12VersionedRootSignatureDeserializer_iface,
             &IID_ID3D12VersionedRootSignatureDeserializer, iid, deserializer);
