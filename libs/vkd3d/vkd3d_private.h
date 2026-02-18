@@ -5391,6 +5391,7 @@ struct d3d12_device
     d3d12_dxvk_interop_device_iface ID3D12DXVKInteropDevice_iface;
     d3d_low_latency_device_iface ID3DLowLatencyDevice_iface;
     IAmdExtAntiLagApi IAmdExtAntiLagApi_iface;
+    ID3D12DeviceConfiguration1 ID3D12DeviceConfiguration1_iface;
     LONG refcount;
 
     VkDevice vk_device;
