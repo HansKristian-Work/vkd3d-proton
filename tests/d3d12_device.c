@@ -2092,3 +2092,476 @@ void test_destruction_notifier_interfaces(void)
 
     ID3D12Device_Release(device);
 }
+
+void test_sdk_configuration_creation(void)
+{
+    ID3D12SDKConfiguration *config, *config2;
+    if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, (void **)&config)))
+    {
+        skip("Failed to get SDK configuration interface.\n");
+        return;
+    }
+
+    if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, (void **)&config2)))
+    {
+        skip("Failed to get SDK configuration interface.\n");
+        return;
+    }
+
+    /* D3D12GetInterface creates new pointers every time, which is rather surprising for a "GetInterface". */
+    ok(config != config2, "Expected different pointers.\n");
+
+    ok(ID3D12SDKConfiguration_Release(config) == 0, "Invalid refcount.\n");
+    ok(ID3D12SDKConfiguration_Release(config2) == 0, "Invalid refcount.\n");
+}
+
+void test_device_factory_creation(void)
+{
+    /* The docs hints that this should work, but only in developer mode. It works anyway. */
+    ID3D12DeviceFactory *factory, *factory2;
+    if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12DeviceFactory, &IID_ID3D12DeviceFactory, (void **)&factory)))
+    {
+        skip("Failed to get device factory interface.\n");
+        return;
+    }
+
+    if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12DeviceFactory, &IID_ID3D12DeviceFactory, (void **)&factory2)))
+    {
+        skip("Failed to get device factory interface.\n");
+        return;
+    }
+
+    /* D3D12GetInterface creates new pointers every time, which is rather surprising for a "GetInterface". */
+    ok(factory != factory2, "Expected different pointers.\n");
+
+    ok(ID3D12DeviceFactory_Release(factory) == 0, "Invalid refcount.\n");
+    ok(ID3D12DeviceFactory_Release(factory2) == 0, "Invalid refcount.\n");
+}
+
+#define SDK_VERSION 616
+
+void test_sdk_configuration_set_sdk_path(void)
+{
+    ID3D12SDKConfiguration *config;
+    HRESULT hr;
+
+    if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration, (void **)&config)))
+    {
+        skip("Failed to get SDK configuration interface.\n");
+        return;
+    }
+
+    /* Docs say that this is only allowed in developer mode, but that's not true.
+     * It seems to just return S_OK always, even for bogus values, so *shrug* */
+    hr = ID3D12SDKConfiguration_SetSDKVersion(config, 1234213432, "OMGIDONTCARE");
+    ok(hr == S_OK, "Unexpected hr #%x.\n", hr);
+
+    ok(ID3D12SDKConfiguration_Release(config) == 0, "Unexpected refcount.\n");
+}
+
+void test_sdk_configuration1(void)
+{
+    ID3D12SDKConfiguration1 *config;
+    ID3D12DeviceFactory *factory;
+    HRESULT hr;
+
+    if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration1, (void **)&config)))
+    {
+        skip("Failed to get SDK configuration interface.\n");
+        return;
+    }
+
+#ifdef _WIN32
+    {
+        MEMORY_BASIC_INFORMATION info;
+        VirtualQuery(config->lpVtbl, &info, sizeof(info));
+#if 0
+        /* This will fail because we query for VKD3DDebugControl interface earlier, which forces d3d12core.dll to be loaded,
+         * but commenting that out, it passes this test. */
+        ok(GetModuleHandleA("d3d12core.dll") == NULL, "Expected d3d12core.dll to not be loaded yet.\n");
+#endif
+        ok(GetModuleHandleA("d3d12.dll") == (HMODULE)info.AllocationBase, "Expected ID3D12SDKConfiguration to come from d3d12.dll.\n");
+    }
+#endif
+
+    /* No way to actually test this beyond it not crashing. */
+    ID3D12SDKConfiguration1_FreeUnusedSDKs(config);
+
+    /* This actually loads d3d12core.dll */
+    hr = ID3D12SDKConfiguration1_CreateDeviceFactory(config, SDK_VERSION, "D3D12",
+        &IID_ID3D12DeviceFactory, (void **)&factory);
+    ok(SUCCEEDED(hr), "Failed to create device factory.\n");
+    if (FAILED(hr))
+    {
+        ID3D12SDKConfiguration1_Release(config);
+        return;
+    }
+
+#ifdef _WIN32
+    {
+        MEMORY_BASIC_INFORMATION info;
+        VirtualQuery(factory->lpVtbl, &info, sizeof(info));
+        ok(GetModuleHandleA("d3d12core.dll") != NULL, "Expected d3d12core.dll to be loaded now.\n");
+        ok(GetModuleHandleA("d3d12core.dll") == (HMODULE)info.AllocationBase, "Expected ID3D12DeviceFactory to come from d3d12core.dll.\n");
+    }
+#endif
+
+    ok(ID3D12DeviceFactory_Release(factory) == 0, "Unexpected refcount.\n");
+    ok(ID3D12SDKConfiguration1_Release(config) == 0, "Unexpected refcount.\n");
+}
+
+void test_device_factory(void)
+{
+    D3D12_DEVICE_FACTORY_FLAGS flags;
+    ID3D12SDKConfiguration1 *config;
+    ID3D12DeviceFactory *factory;
+    ID3D12Device *device1;
+    ID3D12Device *device2;
+    HRESULT hr;
+
+    if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration1, (void **)&config)))
+    {
+        skip("Failed to get SDK configuration interface.\n");
+        return;
+    }
+
+    hr = ID3D12SDKConfiguration1_CreateDeviceFactory(config, SDK_VERSION, "D3D12",
+        &IID_ID3D12DeviceFactory, (void **)&factory);
+    ok(SUCCEEDED(hr), "Failed to create device factory.\n");
+    if (FAILED(hr))
+    {
+        ID3D12SDKConfiguration1_Release(config);
+        return;
+    }
+
+    flags = ID3D12DeviceFactory_GetFlags(factory);
+    ok(flags == D3D12_DEVICE_FACTORY_FLAG_NONE, "Unexpected flags #%x.\n", flags);
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_DISALLOW_STORING_NEW_DEVICE_AS_SINGLETON);
+    flags = ID3D12DeviceFactory_GetFlags(factory);
+    ok(flags == D3D12_DEVICE_FACTORY_FLAG_DISALLOW_STORING_NEW_DEVICE_AS_SINGLETON, "Unexpected flags #%x.\n", flags);
+
+    ID3D12DeviceFactory_ApplyToGlobalState(factory);
+
+    ok(ID3D12DeviceFactory_Release(factory) == 0, "Unexpected refcount.\n");
+
+    /* Flags does not affect global D3D12CreateDevice or global state. */
+    device1 = create_device();
+    device2 = create_device();
+    ok(device1 && device2 && device1 == device2, "Unexpected device pointers %p, %p\n", device1, device2);
+    if (device1)
+        ID3D12Device_Release(device1);
+    if (device2)
+        ID3D12Device_Release(device2);
+
+    hr = ID3D12SDKConfiguration1_CreateDeviceFactory(config, SDK_VERSION, "D3D12",
+        &IID_ID3D12DeviceFactory, (void **)&factory);
+    ok(SUCCEEDED(hr), "Failed to create device factory.\n");
+    if (FAILED(hr))
+    {
+        ID3D12SDKConfiguration1_Release(config);
+        return;
+    }
+
+    flags = ID3D12DeviceFactory_GetFlags(factory);
+    ok(flags == D3D12_DEVICE_FACTORY_FLAG_NONE, "Unexpected flags #%x.\n", flags);
+    /* This doesn't actually seem to work. Flags is not updated. */
+    hr = ID3D12DeviceFactory_InitializeFromGlobalState(factory);
+    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", hr);
+    flags = ID3D12DeviceFactory_GetFlags(factory);
+    ok(flags == D3D12_DEVICE_FACTORY_FLAG_NONE, "Unexpected flags #%x.\n", flags);
+
+    {
+        ID3D12Debug *debug;
+        hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
+            &CLSID_D3D12Debug, &IID_ID3D12Debug, (void **)&debug);
+        todo ok(SUCCEEDED(hr), "Failed to get debug interface, hr #%x\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            ID3D12Debug_Release(debug);
+            hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
+                &CLSID_D3D12Debug, &IID_ID3D12Debug, NULL);
+            ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+        }
+    }
+
+    {
+        ID3D12Tools *tools;
+        hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
+            &CLSID_D3D12Tools, &IID_ID3D12Tools, (void **)&tools);
+        todo ok(SUCCEEDED(hr), "Failed to get tools interface, hr #%x\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            ID3D12Tools_Release(tools);
+            hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
+                &CLSID_D3D12Tools, &IID_ID3D12Tools, NULL);
+            ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+        }
+    }
+
+    {
+        ID3D12DeviceRemovedExtendedDataSettings *dred;
+        hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
+            &CLSID_D3D12DeviceRemovedExtendedData, &IID_ID3D12DeviceRemovedExtendedDataSettings, (void **)&dred);
+        /* We implement this in a stubbed form. */
+        ok(SUCCEEDED(hr), "Failed to get dred interface, hr #%x\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            ID3D12DeviceRemovedExtendedDataSettings_Release(dred);
+            /* S_FALSE is returned even if ExtendedData is not supported, as we expect from return_interface(). */
+            hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
+                &CLSID_D3D12DeviceRemovedExtendedData, &IID_ID3D12DeviceRemovedExtendedData, NULL);
+            ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+        }
+    }
+
+    ok(ID3D12DeviceFactory_Release(factory) == 0, "Unexpected refcount.\n");
+    ok(ID3D12SDKConfiguration1_Release(config) == 0, "Unexpected refcount.\n");
+}
+
+static void check_create_devices(ID3D12DeviceFactory *factory, ID3D12Device *singleton_reference)
+{
+    UINT refcount1 = 0, refcount2 = 0;
+    ID3D12Device *singleton1;
+    ID3D12Device *singleton2;
+    ID3D12Device *device1;
+    ID3D12Device *device2;
+    HRESULT hr;
+
+    hr = ID3D12DeviceFactory_CreateDevice(factory, NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device1);
+    ok(SUCCEEDED(hr), "Failed to create device (hr #%x).\n", hr);
+    if (FAILED(hr))
+        device1 = NULL;
+    hr = ID3D12DeviceFactory_CreateDevice(factory, NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device2);
+    ok(SUCCEEDED(hr), "Failed to create device (hr #%x).\n", hr);
+    if (FAILED(hr))
+        device2 = NULL;
+
+    if (singleton_reference)
+    {
+        ok(device1 != device2, "Devices were not independent.\n");
+        ok(device1 != singleton_reference, "Devices were not independent.\n");
+        ok(device2 != singleton_reference, "Devices were not independent.\n");
+    }
+    else
+    {
+        ok(device1 != device2, "Devices were not independent.\n");
+
+        singleton1 = create_device();
+        singleton2 = create_device();
+        ok(singleton1 && singleton2 && singleton1 == singleton2, "Expected singletons.\n");
+        ok(singleton1 != device1, "Singleton should never match the device factory.\n");
+        ok(singleton1 != device2, "Singleton should never match the device factory.\n");
+        if (singleton1)
+            ID3D12Device_Release(singleton1);
+        if (singleton2)
+            ID3D12Device_Release(singleton2);
+    }
+
+    if (device1)
+        refcount1 = ID3D12Device_Release(device1);
+    if (device2)
+        refcount2 = ID3D12Device_Release(device2);
+
+    ok(refcount1 == 0, "Unexpected refcount.\n");
+    ok(refcount2 == 0, "Unexpected refcount.\n");
+}
+
+void test_device_factory_create_device(void)
+{
+    ID3D12SDKConfiguration1 *config;
+    ID3D12DeviceFactory *factory;
+    ID3D12Device *device = NULL;
+    HRESULT hr;
+
+    if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration1, (void **)&config)))
+    {
+        skip("Failed to get SDK configuration interface.\n");
+        return;
+    }
+
+    hr = ID3D12SDKConfiguration1_CreateDeviceFactory(config, SDK_VERSION, "D3D12",
+        &IID_ID3D12DeviceFactory, (void **)&factory);
+    ok(SUCCEEDED(hr), "Failed to create device factory.\n");
+    if (FAILED(hr))
+    {
+        ID3D12SDKConfiguration1_Release(config);
+        return;
+    }
+
+    /* Base behavior. Create factory devices, then create singletons. No matter the flag, we always create independent devices.
+     * The basic gist is that drivers may fallback to singletons if independent devices are unsupported,
+     * but CreateDevice should always be independent devices. */
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_NONE);
+    check_create_devices(factory, NULL);
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_EXISTING_DEVICE);
+    check_create_devices(factory, NULL);
+    /* We have no good way to distinguish incompatible vs compatible at the moment. */
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_INCOMPATIBLE_EXISTING_DEVICE);
+    check_create_devices(factory, NULL);
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_DISALLOW_STORING_NEW_DEVICE_AS_SINGLETON);
+    check_create_devices(factory, NULL);
+
+    /* Create singleton first, then factory devices. */
+    device = create_device();
+    if (device)
+    {
+        ID3D12Device_AddRef(device);
+        ok(ID3D12Device_Release(device) == 1, "Unexpected refcount.\n");
+    }
+    ok(device, "Failed to create device.\n");
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_NONE);
+    check_create_devices(factory, device);
+    /* Even with an existing singleton, we don't get the singleton back. */
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_EXISTING_DEVICE);
+    check_create_devices(factory, device);
+    /* We have no good way to distinguish incompatible vs compatible at the moment. */
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_INCOMPATIBLE_EXISTING_DEVICE);
+    check_create_devices(factory, device);
+    ID3D12DeviceFactory_SetFlags(factory, D3D12_DEVICE_FACTORY_FLAG_DISALLOW_STORING_NEW_DEVICE_AS_SINGLETON);
+    check_create_devices(factory, device);
+    if (device)
+        ok(ID3D12Device_Release(device) == 0, "Unexpected refcount.\n");
+
+    ID3D12DeviceFactory_Release(factory);
+    ID3D12SDKConfiguration1_Release(config);
+}
+
+static void test_root_signature_serialization(ID3D12DeviceConfiguration1 *config)
+{
+    const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *parsed_desc;
+    ID3D12VersionedRootSignatureDeserializer *deserializer;
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC desc;
+    D3D12_ROOT_PARAMETER1 param;
+    ID3D10Blob *blob;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_2;
+    desc.Desc_1_2.NumParameters = 1;
+    desc.Desc_1_2.pParameters = &param;
+
+    param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    param.Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    param.Descriptor.RegisterSpace = 1;
+    param.Descriptor.ShaderRegister = 2;
+
+    hr = ID3D12DeviceConfiguration1_SerializeVersionedRootSignature(config, &desc, &blob, NULL);
+    ok(SUCCEEDED(hr), "Failed to serialize versioned root signature, hr #%x.\n", hr);
+    if (FAILED(hr))
+        return;
+
+    hr = ID3D12DeviceConfiguration1_CreateVersionedRootSignatureDeserializer(config, ID3D10Blob_GetBufferPointer(blob),
+        ID3D10Blob_GetBufferSize(blob), &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&deserializer);
+    ID3D10Blob_Release(blob);
+    if (FAILED(hr))
+        return;
+
+    /* Just sanity check that the command went through. Don't bother being completely exhaustive. */
+    parsed_desc = ID3D12VersionedRootSignatureDeserializer_GetUnconvertedRootSignatureDesc(deserializer);
+    ok(parsed_desc, "Expected non-null.\n");
+    if (parsed_desc)
+    {
+        ok(parsed_desc->Version == D3D_ROOT_SIGNATURE_VERSION_1_2, "Bad root signature version.\n");
+        ok(parsed_desc->Desc_1_2.NumParameters == 1, "Unexpected num parameters.\n");
+        if (parsed_desc->Desc_1_2.pParameters)
+            ok(parsed_desc->Desc_1_2.pParameters[0].ParameterType == D3D12_ROOT_PARAMETER_TYPE_CBV, "Unexpected type.\n");
+    }
+    ID3D12VersionedRootSignatureDeserializer_Release(deserializer);
+}
+
+static void test_root_signature_subobject_serialization(ID3D12DeviceConfiguration1 *config)
+{
+    ID3D12VersionedRootSignatureDeserializer *deserializer;
+    const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *parsed_desc;
+    HRESULT hr;
+
+#include "shaders/rt/headers/embedded_root_signature_subobject_rt.h"
+
+    hr = ID3D12DeviceConfiguration1_CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary(config,
+        embedded_root_signature_subobject_rt_code_dxil, sizeof(embedded_root_signature_subobject_rt_code_dxil),
+        u"grs", &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&deserializer);
+    ok(SUCCEEDED(hr), "Failed to create from subobject in library.\n");
+    if (FAILED(hr))
+        return;
+
+    parsed_desc = ID3D12VersionedRootSignatureDeserializer_GetUnconvertedRootSignatureDesc(deserializer);
+    ok(parsed_desc, "Expected non-null.\n");
+
+    if (parsed_desc)
+    {
+        ok(parsed_desc->Version == D3D_ROOT_SIGNATURE_VERSION_1_1, "Bad root signature version.\n");
+        ok(parsed_desc->Desc_1_1.NumParameters == 1, "Unexpected num parameters.\n");
+        ok(parsed_desc->Desc_1_1.NumStaticSamplers == 0, "Unexpected num samplers.\n");
+        if (parsed_desc->Desc_1_1.pParameters)
+        {
+            ok(parsed_desc->Desc_1_1.pParameters[0].ParameterType == D3D12_ROOT_PARAMETER_TYPE_UAV, "Unexpected type.\n");
+            ok(parsed_desc->Desc_1_1.pParameters[0].Descriptor.RegisterSpace == 0, "Unexpected space.\n");
+            ok(parsed_desc->Desc_1_1.pParameters[0].Descriptor.ShaderRegister == 0, "Unexpected register.\n");
+        }
+    }
+
+    ID3D12VersionedRootSignatureDeserializer_Release(deserializer);
+}
+
+void test_device_configuration(void)
+{
+    D3D12_DEVICE_CONFIGURATION_DESC config_desc;
+    ID3D12DeviceConfiguration1 *device_config1;
+    ID3D12DeviceConfiguration1 *device_config2;
+    unsigned int i;
+    HRESULT hr;
+
+    for (i = 0; i < 2; i++)
+    {
+        IUnknown *iface;
+
+        if (i == 0)
+        {
+            vkd3d_test_set_context("ID3D12Device");
+            iface = (IUnknown *)create_device();
+        }
+        else
+        {
+            ID3D12SDKConfiguration1 *config;
+            vkd3d_test_set_context("ID3D12DeviceFactory");
+
+            if (FAILED(pfn_D3D12GetInterface(&CLSID_D3D12SDKConfiguration, &IID_ID3D12SDKConfiguration1, (void **)&config)))
+            {
+                skip("Failed to get SDK configuration interface.\n");
+                continue;
+            }
+
+            hr = ID3D12SDKConfiguration1_CreateDeviceFactory(config, SDK_VERSION, "D3D12",
+                &IID_IUnknown, (void **)&iface);
+            ok(SUCCEEDED(hr), "Failed to create device factory.\n");
+            ID3D12SDKConfiguration1_Release(config);
+            if (FAILED(hr))
+                continue;
+        }
+
+        ok(iface, "Failed to create device.\n");
+
+        hr = IUnknown_QueryInterface(iface, &IID_ID3D12DeviceConfiguration1, (void **)&device_config1);
+        ok(SUCCEEDED(hr), "Failed to query ID3D12DeviceConfiguration1.\n");
+        hr = IUnknown_QueryInterface(iface, &IID_ID3D12DeviceConfiguration1, (void **)&device_config2);
+        ok(SUCCEEDED(hr), "Failed to query ID3D12DeviceConfiguration1.\n");
+        ok(IUnknown_Release(iface) == 2, "Unexpected refcount.\n");
+        if (FAILED(hr))
+            continue;
+
+        test_root_signature_serialization(device_config1);
+        test_root_signature_subobject_serialization(device_config1);
+
+        ok(device_config1 == device_config2, "Unexpected device config pointers.\n");
+        config_desc = ID3D12DeviceConfiguration1_GetDesc(device_config1);
+        ok(config_desc.Flags == D3D12_DEVICE_FLAG_NONE ||
+            config_desc.Flags == D3D12_DEVICE_FLAG_DEBUG_LAYER_ENABLED, "Unexpected flags.\n");
+        ok(config_desc.NumEnabledExperimentalFeatures == 0, "Unexpected enabled experimental features.\n");
+        ok(config_desc.SDKVersion >= SDK_VERSION, "Unexpected SDK version.\n");
+        ok(config_desc.GpuBasedValidationFlags == 0, "Unexpected GPU based validation flags.\n");
+        ok(ID3D12DeviceConfiguration1_Release(device_config1) == 1, "Unexpected refcount.\n");
+        ok(ID3D12DeviceConfiguration1_Release(device_config2) == 0, "Unexpected refcount.\n");
+    }
+    vkd3d_test_set_context(NULL);
+}
