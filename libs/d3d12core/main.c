@@ -999,27 +999,25 @@ static HRESULT d3d12core_D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
 
     if (IsEqualGUID(rcslid, &CLSID_VKD3DCore))
     {
+        if (!debug)
+            return S_FALSE;
+
         if (IsEqualGUID(iid, &IID_IVKD3DCoreInterface))
         {
-            if (debug)
-            {
-                *debug = (void*)&d3d12core_interface_instance;
-                return S_OK;
-            }
-            return S_FALSE;
+            *debug = (void*)&d3d12core_interface_instance;
+            return S_OK;
         }
     }
 
     if (IsEqualGUID(rcslid, &CLSID_VKD3DDebugControl))
     {
+        if (!debug)
+            return S_FALSE;
+
         if (IsEqualGUID(iid, &IID_IVKD3DDebugControlInterface))
         {
-            if (debug)
-            {
-                *debug = (void*)&vkd3d_debug_control_instance;
-                return S_OK;
-            }
-            return S_FALSE;
+            *debug = (void*)&vkd3d_debug_control_instance;
+            return S_OK;
         }
     }
 
