@@ -4243,6 +4243,17 @@ ULONG d3d12_device_release_common(struct d3d12_device *device)
     ULONG cur_refcount, cas_refcount;
     bool is_locked = false;
 
+    if (device->independent_device)
+    {
+        cur_refcount = InterlockedDecrement(&device->refcount);
+        if (cur_refcount == 0)
+        {
+            d3d12_device_destroy(device);
+            vkd3d_free_aligned(device);
+        }
+        return cur_refcount;
+    }
+
     cur_refcount = 0;
     cas_refcount = vkd3d_atomic_uint32_load_explicit(&device->refcount, vkd3d_memory_order_relaxed);
 
@@ -10374,17 +10385,53 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device)
 {
+    bool reject_existing_device = false;
+    bool forced_singletons = false;
     struct d3d12_device *object;
+    char env[64];
     HRESULT hr;
 
-    pthread_mutex_lock(&d3d12_device_map_mutex);
-    if ((object = d3d12_find_device_singleton(create_info->adapter_luid)))
+    if (create_info->independent)
     {
-        TRACE("Returned existing singleton device %p.\n", object);
+        /* RenderDoc does not support multiple VkDevices active.
+         * The independent devices APIs exposes this scenario. */
+        forced_singletons = vkd3d_get_env_var("ENABLE_VULKAN_RENDERDOC_CAPTURE", env, sizeof(env)) &&
+                strcmp(env, "1") == 0;
 
-        d3d12_device_add_ref(*device = object);
+        if (forced_singletons &&
+            (create_info->device_factory_flags &
+                (D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_EXISTING_DEVICE |
+                 D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_INCOMPATIBLE_EXISTING_DEVICE)) == 0)
+        {
+            reject_existing_device = true;
+        }
+    }
+
+    pthread_mutex_lock(&d3d12_device_map_mutex);
+
+    if (!create_info->independent || forced_singletons)
+    {
+        if ((object = d3d12_find_device_singleton(create_info->adapter_luid)))
+        {
+            TRACE("Returned existing singleton device %p.\n", object);
+
+            if (reject_existing_device)
+            {
+                pthread_mutex_unlock(&d3d12_device_map_mutex);
+                return DXGI_ERROR_ALREADY_EXISTS;
+            }
+
+            d3d12_device_add_ref(*device = object);
+            pthread_mutex_unlock(&d3d12_device_map_mutex);
+            return S_OK;
+        }
+    }
+
+    if (forced_singletons &&
+        (create_info->device_factory_flags & D3D12_DEVICE_FACTORY_FLAG_DISALLOW_STORING_NEW_DEVICE_AS_SINGLETON))
+    {
         pthread_mutex_unlock(&d3d12_device_map_mutex);
-        return S_OK;
+        return DXGI_ERROR_UNSUPPORTED;
     }
 
     if (!(object = vkd3d_malloc_aligned(sizeof(*object), 64)))
@@ -10413,7 +10460,10 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
 
     TRACE("Created device %p (dummy d3d12_device_AddRef for debug grep purposes).\n", object);
 
-    d3d12_add_device_singleton(object, create_info->adapter_luid);
+    if (create_info->independent && !forced_singletons)
+        object->independent_device = true;
+    else
+        d3d12_add_device_singleton(object, create_info->adapter_luid);
 
     pthread_mutex_unlock(&d3d12_device_map_mutex);
 

@@ -5493,6 +5493,8 @@ struct d3d12_device
         HMODULE amdxc64;
     } vendor_hacks;
 #endif
+
+    bool independent_device;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
