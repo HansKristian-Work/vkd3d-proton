@@ -738,7 +738,7 @@ HRESULT STDMETHODCALLTYPE d3d12core_GetDebugInterface(d3d12core_interface *core,
     if (debug)
         *debug = NULL;
 
-    if (!memcmp(iid, &IID_ID3D12DeviceRemovedExtendedDataSettings, sizeof(*iid)))
+    if (IsEqualGUID(iid, &IID_ID3D12DeviceRemovedExtendedDataSettings))
     {
         hr = d3d12_dred_settings_create(&dred_settings);
         *debug = dred_settings;
