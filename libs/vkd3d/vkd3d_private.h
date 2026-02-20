@@ -207,6 +207,7 @@ struct vkd3d_vulkan_info
     bool NV_cooperative_matrix2;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
+    bool VALVE_shader_mixed_float_dot_product;
     /* MESA extensions */
     bool MESA_image_alignment_control;
 
@@ -5030,6 +5031,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
     VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unified_image_layouts_features;
+    VkPhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE shader_mixed_float_dot_product_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

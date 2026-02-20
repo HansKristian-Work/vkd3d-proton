@@ -150,6 +150,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_COOPERATIVE_MATRIX_2, NV_cooperative_matrix2),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
+    VK_EXTENSION(VALVE_SHADER_MIXED_FLOAT_DOT_PRODUCT, VALVE_shader_mixed_float_dot_product),
     /* MESA extensions */
     VK_EXTENSION(MESA_IMAGE_ALIGNMENT_CONTROL, MESA_image_alignment_control),
 };
@@ -2272,6 +2273,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->unified_image_layouts_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->unified_image_layouts_features);
+    }
+
+    if (vulkan_info->VALVE_shader_mixed_float_dot_product)
+    {
+        info->shader_mixed_float_dot_product_features.sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MIXED_FLOAT_DOT_PRODUCT_FEATURES_VALVE;
+        vk_prepend_struct(&info->features2, &info->shader_mixed_float_dot_product_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
@@ -9834,6 +9842,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_EXTENDED_NON_SEMANTIC;
+    }
+
+    if (device->device_info.shader_mixed_float_dot_product_features.shaderMixedFloatDotProductFloat16AccFloat32)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_MIXED_FLOAT_DOT_PRODUCT;
     }
 }
 

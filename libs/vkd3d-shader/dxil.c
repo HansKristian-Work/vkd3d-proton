@@ -1096,6 +1096,17 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                             shader_interface_info->root_signature_blob_size);
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIXED_FLOAT_DOT_PRODUCT)
+            {
+                static const dxil_spv_option_mixed_float_dot_product mixed = {
+                    { DXIL_SPV_OPTION_MIXED_FLOAT_DOT_PRODUCT }, DXIL_SPV_TRUE };
+
+                if (dxil_spv_converter_add_option(converter, &mixed.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support MIXED_FLOAT_DOT_PRODUCT.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
         }
 
         if (compiler_args->driver_version)
