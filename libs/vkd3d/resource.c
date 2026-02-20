@@ -7032,8 +7032,7 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
             object->cpu_va.ptr += device->bindless_state.heap_redzone_size;
 
-        if (device->vk_info.NVX_image_view_handle &&
-            (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+        if (device->vk_info.NVX_image_view_handle)
         {
             vkd3d_va_map_insert_descriptor_heap(&device->memory_allocator.va_map, object->cpu_va.ptr,
                 descriptor_size * desc->NumDescriptors, desc->Type);
@@ -7087,7 +7086,6 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     struct d3d12_device *device = descriptor_heap->device;
 
     if (device->vk_info.NVX_image_view_handle &&
-        (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) &&
         (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
             descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER))
     {
