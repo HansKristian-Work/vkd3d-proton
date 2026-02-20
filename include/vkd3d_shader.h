@@ -422,133 +422,137 @@ enum vkd3d_shader_target_extension
     VKD3D_SHADER_TARGET_EXTENSION_WMMA_FP8,
     VKD3D_SHADER_TARGET_EXTENSION_NV_COOPMAT2_CONVERSIONS,
     VKD3D_SHADER_TARGET_EXTENSION_EXTENDED_NON_SEMANTIC,
+    VKD3D_SHADER_TARGET_EXTENSION_MIXED_FLOAT_DOT_PRODUCT,
     VKD3D_SHADER_TARGET_EXTENSION_COUNT,
 };
 
-enum vkd3d_shader_quirk
-{
-    /* If sample or sample_b is used in control flow, force LOD 0.0 (which game should expect anyway).
-     * Works around specific, questionable shaders which rely on this to give sensible results,
-     * since LOD can become garbage on certain implementations, and even on native drivers
-     * the result is implementation defined.
-     * Outside of making this edge case well-defined in Vulkan or hacking driver compilers,
-     * this is the pragmatic solution.
-     * Hoisting gradients is not possible in all cases,
-     * and would not be worth it until it's a widespread problem. */
-    VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW = (1 << 0),
+/* If sample or sample_b is used in control flow, force LOD 0.0 (which game should expect anyway).
+ * Works around specific, questionable shaders which rely on this to give sensible results,
+ * since LOD can become garbage on certain implementations, and even on native drivers
+ * the result is implementation defined.
+ * Outside of making this edge case well-defined in Vulkan or hacking driver compilers,
+ * this is the pragmatic solution.
+ * Hoisting gradients is not possible in all cases,
+ * and would not be worth it until it's a widespread problem. */
+#define VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW (1ull << 0)
 
-    /* After every write to group shared memory, force a memory barrier.
-     * This works around buggy games which forget to use barrier(). */
-    VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS = (1 << 1),
+/* After every write to group shared memory, force a memory barrier.
+ * This works around buggy games which forget to use barrier(). */
+#define VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS (1ull << 1)
 
-    /* For Position builtins in Output storage class, emit Invariant decoration.
-     * Normally, games have to emit Precise math for position, but if they forget ... */
-    VKD3D_SHADER_QUIRK_INVARIANT_POSITION = (1 << 2),
+/* For Position builtins in Output storage class, emit Invariant decoration.
+ * Normally, games have to emit Precise math for position, but if they forget ... */
+#define VKD3D_SHADER_QUIRK_INVARIANT_POSITION (1ull << 2)
 
-    /* Forces NoContract on every expression that can take it. */
-    VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH = (1 << 3),
+/* Forces NoContract on every expression that can take it. */
+#define VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH (1ull << 3)
 
-    /* Clamp tessellation factors to a "reasonable" value.
-     * Different flags for different values is a little jank,
-     * but also avoids having to pass down side-channel float values.
-     * Also makes it easier to do app profiles with existing quirk structures. */
-    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_32 = (1 << 4),
-    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16 = (1 << 5),
-    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12 = (1 << 6),
-    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8 = (1 << 7),
-    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 = (1 << 8),
+/* Clamp tessellation factors to a "reasonable" value.
+ * Different flags for different values is a little jank,
+ * but also avoids having to pass down side-channel float values.
+ * Also makes it easier to do app profiles with existing quirk structures. */
+#define VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_32  (1ull << 4)
+#define VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16 (1ull << 5)
+#define VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12 (1ull << 6)
+#define VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8 (1ull << 7)
+#define VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 (1ull << 8)
 
-    /* Force lane count query to return 1.
-     * Can be used to disable buggy subgroup logic that checks for subgroup sizes. */
-    VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 = (1 << 9),
+/* Force lane count query to return 1.
+ * Can be used to disable buggy subgroup logic that checks for subgroup sizes. */
+#define VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 (1ull << 9)
 
-    /* Enforce a subgroup size of 32 or less. Can be used to work around
-     * issues in shaders that are buggy with large subgroups. */
-    VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32 = (1 << 10),
+/* Enforce a subgroup size of 32 or less. Can be used to work around
+ * issues in shaders that are buggy with large subgroups. */
+#define VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32 (1ull << 10)
 
-    /* For shaders which are bugged when you opt-in to 16-bit. */
-    VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT = (1 << 11),
+/* For shaders which are bugged when you opt-in to 16-bit. */
+#define VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT (1ull << 11)
 
-    /* Driver workaround hackery. Try to rewrite weird Grads to plain Bias. */
-    VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS = (1 << 12),
+/* Driver workaround hackery. Try to rewrite weird Grads to plain Bias. */
+#define VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS (1ull << 12)
 
-    /* Driver workarounds. Force loops to not be unrolled with SPIR-V control masks. */
-    VKD3D_SHADER_QUIRK_FORCE_LOOP = (1 << 13),
+/* Driver workarounds. Force loops to not be unrolled with SPIR-V control masks. */
+#define VKD3D_SHADER_QUIRK_FORCE_LOOP (1ull << 13)
 
-    /* Requests META_FLAG_FORCE_COMPUTE_BARRIER_{AFTER,BEFORE}_DISPATCH to be set in shader meta. */
-    VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER = (1 << 14),
-    VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER = (1 << 15),
+/* Requests META_FLAG_FORCE_COMPUTE_BARRIER_{AFTER,BEFORE}_DISPATCH to be set in shader meta. */
+#define VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER (1ull << 14)
+#define VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER (1ull << 15)
 
-    /* Range check every descriptor heap access with dynamic index and robustness check it. */
-    VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS = (1 << 16),
+/* Range check every descriptor heap access with dynamic index and robustness check it. */
+#define VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS (1ull << 16)
 
-    /* Requests META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH to be set in shader meta. */
-    VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER = (1 << 17),
-    /* Requests META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH to be set in shader meta. */
-    VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER = (1 << 18),
+/* Requests META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH to be set in shader meta. */
+#define VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER (1ull << 17)
+/* Requests META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH to be set in shader meta. */
+#define VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER (1ull << 18)
 
-    /* VK_PIPELINE_CREATE_DISABLE_OPTIMIZATIONS. For driver workarounds where optimizations break stuff. */
-    VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS = (1 << 19),
+/* VK_PIPELINE_CREATE_DISABLE_OPTIMIZATIONS. For driver workarounds where optimizations break stuff. */
+#define VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS (1ull << 19)
 
-    /* Forces NoContract on every expression that can take it (only applies to VS).
-     * Useful as a global quirk when games are shipping broken code. */
-    VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS = (1 << 20),
+/* Forces NoContract on every expression that can take it (only applies to VS).
+ * Useful as a global quirk when games are shipping broken code. */
+#define VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS (1ull << 20)
 
-    /* Works around cases where app is relying on coherency between threads in a workgroup,
-     * but forgets to use Device memory barriers properly. */
-    VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY = (1 << 21),
+/* Works around cases where app is relying on coherency between threads in a workgroup,
+ * but forgets to use Device memory barriers properly. */
+#define VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY (1ull << 21)
 
-    /* Extremely specific workaround for cubemap importance sampling pass.
-     * The lowest res mips may contain garbage. */
-    VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS = (1 << 22),
+/* Extremely specific workaround for cubemap importance sampling pass.
+ * The lowest res mips may contain garbage. */
+#define VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS (1ull << 22)
 
-    /* When an alloca array forwards loads to a CBV, a game might attempt to access the private array OOB.
-     * This can lead to page faults. Clamps the input index to the private array size
-     * as the simplest possible workaround. */
-    VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING = (1 << 23),
+/* When an alloca array forwards loads to a CBV, a game might attempt to access the private array OOB.
+ * This can lead to page faults. Clamps the input index to the private array size
+ * as the simplest possible workaround. */
+#define VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING (1ull << 23)
 
-    /* Do more aggressive analysis of when nonuniform may be missing from shaders.
-     * Not done by default since it's overly conservative. */
-    VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM = (1 << 24),
+/* Do more aggressive analysis of when nonuniform may be missing from shaders.
+ * Not done by default since it's overly conservative. */
+#define VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM (1ull << 24)
 
-    /* Move derivative instructions to the beginning of the function
-     * when they are used inside the main function,
-     * aren't dynamically indexed and use a PS input or
-     * CBV value. */
-    VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES = (1 << 25),
+/* Move derivative instructions to the beginning of the function
+ * when they are used inside the main function,
+ * aren't dynamically indexed and use a PS input or
+ * CBV value. */
+#define VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES (1ull << 25)
 
-    /* Replaces some undef inputs to phi with 0. */
-    VKD3D_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS = (1 << 26),
+/* Replaces some undef inputs to phi with 0. */
+#define VKD3D_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS (1ull << 26)
 
-    /* Enforce a subgroup size of 32 or more. Can be used to work around
-     * issues in shaders that are buggy with small subgroups (Intel). */
-    VKD3D_SHADER_QUIRK_FORCE_MIN_WAVE32 = (1 << 27),
+/* Enforce a subgroup size of 32 or more. Can be used to work around
+ * issues in shaders that are buggy with small subgroups (Intel). */
+#define VKD3D_SHADER_QUIRK_FORCE_MIN_WAVE32 (1ull << 27)
 
-    /* Big hammer that converts all barrier()s to UAV barriers, leading to force coherent UAVs in most cases.
-     * FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY is a more subtle variant of this. */
-    VKD3D_SHADER_QUIRK_PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER = (1 << 28),
+/* Big hammer that converts all barrier()s to UAV barriers, leading to force coherent UAVs in most cases.
+ * FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY is a more subtle variant of this. */
+#define VKD3D_SHADER_QUIRK_PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER (1ull << 28)
 
-    VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS = (1 << 29),
+#define VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS (1ull << 29)
 
-    /* Replaces dodgy normalize(0) patterns. */
-    VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN = (1 << 30),
-};
+/* Replaces dodgy normalize(0) patterns. */
+#define VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN (1ull << 30)
+
+/* Bit 31 vacant. */
+
+#define VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE (1ull << 32)
+
+typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
 {
     vkd3d_shader_hash_t shader_hash;
-    uint32_t quirks;
+    vkd3d_shader_quirks_t quirks;
 };
 
 struct vkd3d_shader_quirk_info
 {
     const struct vkd3d_shader_quirk_hash *hashes;
     unsigned int num_hashes;
-    uint32_t default_quirks;
+    vkd3d_shader_quirks_t default_quirks;
 
     /* Quirks which are ORed in with the other masks (including default_quirks).
      * Used mostly for additional overrides from VKD3D_CONFIG. */
-    uint32_t global_quirks;
+    vkd3d_shader_quirks_t global_quirks;
 };
 
 struct vkd3d_shader_compile_arguments
@@ -1165,7 +1169,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
         const struct vkd3d_shader_compile_arguments *compiler_args);
 
-uint32_t vkd3d_shader_compile_arguments_select_quirks(
+vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
         const struct vkd3d_shader_compile_arguments *args, vkd3d_shader_hash_t hash);
 
 uint64_t vkd3d_shader_get_revision(void);

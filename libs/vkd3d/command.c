@@ -8496,10 +8496,35 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_scratch_allocation scratch;
+    const VkPhysicalDeviceLimits *limits;
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
 
     d3d12_command_list_check_render_pass_validation(list, "Dispatch called within a render pass.\n", true);
+
+    limits = &list->device->device_info.properties2.properties.limits;
+    /* NVIDIA nops the dispatch on native if this happens, so apps would never ship like that. */
+    if (y > limits->maxComputeWorkGroupCount[1] || z > limits->maxComputeWorkGroupCount[2])
+    {
+        WARN("Dispatch (%u x %u x %u) is exceeding device limits. Skipping for safety.\n", x, y, z);
+        return;
+    }
+
+    /* For X dimension, the spec says 0xffff, but native drivers allow beyond that limit anyway. */
+    if (x > limits->maxComputeWorkGroupCount[0])
+    {
+        /* If driver advertises 0xffff, it's likely just old and derps in the min-spec (was the case for RADV at least).
+         * It's a bit risky to nop out reasonable 1D dispatches that probably works in practice. */
+        if (limits->maxComputeWorkGroupCount[0] == 0xffff)
+        {
+            WARN("DispatchX is exceeding device limit of 0xffff, but native drivers are known to make it work. YOLO it to be safe.\n");
+        }
+        else
+        {
+            WARN("Dispatch (%u x %u x %u) is exceeding device limits. Skipping for safety.\n", x, y, z);
+            return;
+        }
+    }
 
     if (list->predication.fallback_enabled)
     {
@@ -18296,10 +18321,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const VkPhysicalDeviceRayTracingPipelinePropertiesKHR *props;
     VkStridedDeviceAddressRegionKHR callable_table;
     VkStridedDeviceAddressRegionKHR raygen_table;
     VkStridedDeviceAddressRegionKHR miss_table;
     VkStridedDeviceAddressRegionKHR hit_table;
+    uint64_t width_times_height;
 
     TRACE("iface %p, desc %p\n", iface, desc);
 
@@ -18308,6 +18335,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
         WARN("Ray tracing is not supported. Calling this is invalid.\n");
+        return;
+    }
+
+    width_times_height = (uint64_t)desc->Width * (uint64_t)desc->Height;
+
+    props = &list->device->device_info.ray_tracing_pipeline_properties;
+    if (width_times_height > props->maxRayDispatchInvocationCount ||
+        width_times_height * desc->Depth > props->maxRayDispatchInvocationCount)
+    {
+        WARN("TraceRays exceeds API limit (%u x %u x %u). Skipping to avoid GPU hang.\n",
+            desc->Width, desc->Height, desc->Depth);
         return;
     }
 
@@ -18407,6 +18445,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRate(d3d12_command_
                 VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
     }
 
+    VKD3D_BREADCRUMB_TAG("RSSetShadingRate [width, height, combiner0, combiner1]");
+    VKD3D_BREADCRUMB_AUX32(fragment_size.width);
+    VKD3D_BREADCRUMB_AUX32(fragment_size.height);
+    VKD3D_BREADCRUMB_AUX32(combiner_ops[0]);
+    VKD3D_BREADCRUMB_AUX32(combiner_ops[1]);
+
     if (memcmp(&fragment_size, &dyn_state->fragment_shading_rate.fragment_size, sizeof(fragment_size)) != 0 ||
             memcmp(combiner_ops, dyn_state->fragment_shading_rate.combiner_ops, sizeof(combiner_ops)) != 0)
     {
@@ -18439,8 +18483,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
     d3d12_command_list_invalidate_rendering_info(list);
     d3d12_command_list_end_current_render_pass(list, false);
 
+    VKD3D_BREADCRUMB_TAG("RSSetShadingRateImage [cookie]");
+    VKD3D_BREADCRUMB_AUX64(vrs_image ? vrs_image->res.cookie.index : 0);
+
     if (vrs_image)
+    {
         d3d12_command_list_track_resource_usage(list, vrs_image, true);
+        VKD3D_BREADCRUMB_RESOURCE(vrs_image);
+    }
 
     list->vrs_image = vrs_image;
 }

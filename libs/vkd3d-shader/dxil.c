@@ -654,7 +654,7 @@ static bool dxil_match_shader_stage(dxil_spv_shader_stage blob_stage, VkShaderSt
 
 static const struct vkd3d_quirk_to_dxil_mapping
 {
-    uint32_t vkd3d_quirk;
+    vkd3d_shader_quirks_t vkd3d_quirk;
     dxil_spv_shader_quirk dxil_quirk;
 } vkd3d_quirk_mapping[] = {
     { VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY,
@@ -665,11 +665,12 @@ static const struct vkd3d_quirk_to_dxil_mapping
     { VKD3D_SHADER_QUIRK_PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER, DXIL_SPV_SHADER_QUIRK_PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER },
     { VKD3D_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS, DXIL_SPV_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS },
     { VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN, DXIL_SPV_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN },
+    { VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE, DXIL_SPV_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE },
 };
 
 static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         const struct vkd3d_shader_interface_info *shader_interface_info,
-        uint32_t quirks)
+        vkd3d_shader_quirks_t quirks)
 {
     unsigned int i;
 
@@ -749,7 +750,7 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
 static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args,
-        uint32_t quirks, vkd3d_shader_hash_t hash, const char *export, bool bda)
+        vkd3d_shader_quirks_t quirks, vkd3d_shader_hash_t hash, const char *export, bool bda)
 {
     dxil_spv_option_compute_shader_derivatives compute_shader_derivatives = {{ DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES }};
     dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
@@ -1151,6 +1152,17 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                             shader_interface_info->root_signature_blob_size);
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIXED_FLOAT_DOT_PRODUCT)
+            {
+                static const dxil_spv_option_mixed_float_dot_product mixed = {
+                    { DXIL_SPV_OPTION_MIXED_FLOAT_DOT_PRODUCT }, DXIL_SPV_TRUE };
+
+                if (dxil_spv_converter_add_option(converter, &mixed.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support MIXED_FLOAT_DOT_PRODUCT.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
         }
 
         if (compiler_args->driver_version)
@@ -1311,10 +1323,10 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
+    vkd3d_shader_quirks_t quirks;
     dxil_spv_shader_stage stage;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
-    uint32_t quirks;
     void *code;
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
@@ -1522,10 +1534,10 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
+    vkd3d_shader_quirks_t quirks;
     unsigned int i, j; //, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
-    uint32_t quirks;
     void *code;
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);

@@ -148,6 +148,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_COOPERATIVE_MATRIX_2, NV_cooperative_matrix2),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
+    VK_EXTENSION(VALVE_SHADER_MIXED_FLOAT_DOT_PRODUCT, VALVE_shader_mixed_float_dot_product),
     /* MESA extensions */
     VK_EXTENSION(MESA_IMAGE_ALIGNMENT_CONTROL, MESA_image_alignment_control),
 };
@@ -736,6 +737,12 @@ static const struct vkd3d_shader_quirk_info re_quirks = {
     re_hashes, ARRAY_SIZE(re_hashes), 0,
 };
 
+/* Works around a weird GPU hang on RDNA4. See mesa issue https://gitlab.freedesktop.org/mesa/mesa/-/issues/14812.
+ * The game doesn't seem to actually write useful subsampling here anyway. */
+static const struct vkd3d_shader_quirk_info re2_quirks = {
+    re_hashes, ARRAY_SIZE(re_hashes), VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE,
+};
+
 /* There are lots of shaders which cause random flicker due to bad 16-bit behavior.
  * These shaders really need 32-bit it seems to render properly, so just do that. */
 static const struct vkd3d_shader_quirk_info re4_quirks = {
@@ -919,7 +926,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Rise of the Ronin (1340990) */
     { VKD3D_STRING_COMPARE_EXACT, "Ronin.exe", &team_ninja_quirks },
     /* Resident Evil 2 (883710) */
-    { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re2_quirks },
     /* Resident Evil 7 (418370) */
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe", &re_quirks },
     /* Resident Evil 4 (2050650) */
@@ -2247,6 +2254,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->unified_image_layouts_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->unified_image_layouts_features);
+    }
+
+    if (vulkan_info->VALVE_shader_mixed_float_dot_product)
+    {
+        info->shader_mixed_float_dot_product_features.sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MIXED_FLOAT_DOT_PRODUCT_FEATURES_VALVE;
+        vk_prepend_struct(&info->features2, &info->shader_mixed_float_dot_product_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
@@ -4595,6 +4609,10 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
 
     for (i = 0; i < device->memory_properties.memoryTypeCount; ++i)
     {
+		/* Ignore these types. We never use them and they won't be HOST_VISIBLE. */
+		if (device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)
+			continue;
+
         if (!(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
             return false;
         if (coherent && !(device->memory_properties.memoryTypes[i].propertyFlags
@@ -6792,16 +6810,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device
             flags, &pipeline_library)))
         return hr;
 
-    if (lib)
-    {
-        return return_interface(&pipeline_library->ID3D12PipelineLibrary_iface,
-                &IID_ID3D12PipelineLibrary, iid, lib);
-    }
-    else
-    {
-        ID3D12PipelineLibrary1_Release(&pipeline_library->ID3D12PipelineLibrary_iface);
-        return S_FALSE;
-    }
+    return return_interface(&pipeline_library->ID3D12PipelineLibrary_iface,
+            &IID_ID3D12PipelineLibrary, iid, lib);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetEventOnMultipleFenceCompletion(d3d12_device_iface *iface,
@@ -9311,6 +9321,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_EXTENDED_NON_SEMANTIC;
+    }
+
+    if (device->device_info.shader_mixed_float_dot_product_features.shaderMixedFloatDotProductFloat16AccFloat32)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_MIXED_FLOAT_DOT_PRODUCT;
     }
 }
 

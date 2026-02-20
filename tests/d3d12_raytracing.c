@@ -3975,8 +3975,8 @@ void test_raytracing_mismatch_global_rs_link(void)
         uint32_t v0, v1;
         v0 = get_readback_uint(&rb, 0, 0, 0);
         v1 = get_readback_uint(&rb, 1, 0, 0);
-        ok(v0 == 1000 + 200 || v0 == 1000, "Expected v0 == 1200 or 1000, got %u\n", v0);
-        ok(v1 == 2000 + 100 || v1 == 2000, "Expected v1 == 2100 or 2000, got %u\n", v1);
+        ok(v0 == 1001 + 200 || v0 == 1001, "Expected v0 == 1201 or 1001, got %u\n", v0);
+        ok(v1 == 2001 + 100 || v1 == 2001, "Expected v1 == 2101 or 2001, got %u\n", v1);
     }
 
     ID3D12Resource_Release(sbt_buffer);
@@ -4086,8 +4086,8 @@ void test_raytracing_null_rtas(void)
     transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.context.queue, context.context.list);
 
-    ok(get_readback_uint(&rb, 0, 0, 0) == 1100, "Expected 1100, got %u\n", get_readback_uint(&rb, 0, 0, 0));
-    ok(get_readback_uint(&rb, 1, 0, 0) == 2200, "Expected 2200, got %u\n", get_readback_uint(&rb, 1, 0, 0));
+    ok(get_readback_uint(&rb, 0, 0, 0) == 1101, "Expected 1101, got %u\n", get_readback_uint(&rb, 0, 0, 0));
+    ok(get_readback_uint(&rb, 1, 0, 0) == 2201, "Expected 2201, got %u\n", get_readback_uint(&rb, 1, 0, 0));
 
     release_resource_readback(&rb);
     ID3D12Resource_Release(sbt);
@@ -4694,7 +4694,7 @@ void test_raytracing_opacity_micro_map(void)
     destroy_raytracing_test_context(&context);
 }
 
-void test_raytracing_acceleration_structure_validation()
+void test_raytracing_acceleration_structure_validation(void)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12;
     D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5;
@@ -4798,4 +4798,166 @@ void test_raytracing_acceleration_structure_validation()
         ID3D12Device10_Release(device10);
 
     ID3D12Device_Release(device);
+}
+
+void test_raytracing_huge_dispatch(void)
+{
+    uint8_t sbt_data[D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 2];
+    struct raytracing_test_context context;
+    D3D12_SHADER_RESOURCE_VIEW_DESC desc;
+    ID3D12StateObjectProperties *props;
+    D3D12_DESCRIPTOR_RANGE rs_range[1];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    struct rt_pso_factory factory;
+    D3D12_DISPATCH_RAYS_DESC rays;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    const void *raygen_handle;
+    ID3D12StateObject *rtpso;
+    const void *miss_handle;
+    ID3D12Resource *output;
+    ID3D12Device *device;
+    ID3D12Resource *sbt;
+    unsigned int i;
+
+    static const struct
+    {
+        uint32_t width;
+        uint32_t height;
+        uint32_t depth;
+    } tests[] = {
+        { 0xffff0000, 0xffff0000, 0xffff0000 },
+        { 0xffff0000, 0xffff0000, 1 },
+        { 0xffff0000, 1, 0xffff0000 },
+        { 1, 0xffff0000, 0xffff0000 },
+        { 1 << 30, 1, 1 },
+        { (1 << 30) + 1, 1, 1 },
+        { 1 << 15, 1 << 15, 1 },
+        { (1 << 15) + 1, 1 << 15, 1 },
+        { 0x3fffffff, 2, 1 },
+        { 0x7fffffff, 1, 1 },
+        { 0x80000000, 1, 1 },
+        { 0xffffffff, 1, 1 },
+    };
+
+    uint32_t expected_alt[ARRAY_SIZE(tests) * 2] = { 0 };
+    uint32_t expected[ARRAY_SIZE(tests) * 2] = { 0 };
+
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
+        return;
+
+    device = context.context.device;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(rs_range, 0, sizeof(rs_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].Descriptor.RegisterSpace = 0;
+    rs_params[0].Descriptor.ShaderRegister = 0;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].Descriptor.RegisterSpace = 0;
+    rs_params[1].Descriptor.ShaderRegister = 1;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_range);
+    rs_params[2].DescriptorTable.pDescriptorRanges = rs_range;
+    rs_range[0].NumDescriptors = 1;
+    rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+
+    create_root_signature(context.context.device, &rs_desc, &context.context.root_signature);
+
+    rt_pso_factory_init(&factory);
+    rt_pso_factory_add_dxil_library(&factory, get_misfire_lib(), 0, NULL);
+    rt_pso_factory_add_pipeline_config(&factory, 1);
+    rt_pso_factory_add_shader_config(&factory, 8, 8);
+    rt_pso_factory_add_global_root_signature(&factory, context.context.root_signature);
+    rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+    rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+
+    ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props);
+    miss_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"MissShader");
+    ok(!!miss_handle, "Failed to query miss handle.\n");
+    raygen_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"GenShader");
+    ok(!!raygen_handle, "Failed to query raygen handle.\n");
+    ID3D12StateObjectProperties_Release(props);
+
+    output = create_default_buffer(device, sizeof(expected), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 0, raygen_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 1, miss_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+    sbt = create_upload_buffer(device, sizeof(sbt_data), sbt_data);
+
+    heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+    desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    desc.Format = DXGI_FORMAT_UNKNOWN;
+    desc.RaytracingAccelerationStructure.Location = 0;
+    ID3D12Device_CreateShaderResourceView(device, NULL, &desc, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.context.list, 1, &heap);
+    ID3D12GraphicsCommandList4_SetPipelineState1(context.list4, rtpso);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.context.list, context.context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.context.list, 2, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    memset(&rays, 0, sizeof(rays));
+
+    rays.RayGenerationShaderRecord.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 0 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+    rays.RayGenerationShaderRecord.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+    rays.MissShaderTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 1 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+    rays.MissShaderTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        uint64_t width_times_height;
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(output) + (2 * i + 0) * sizeof(uint32_t));
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(output) + (2 * i + 1) * sizeof(uint32_t));
+
+        /* AMD driver is not robust against this scenario. */
+        if (tests[i].depth >= 0x80000000 && is_amd_windows_device(context.context.device))
+            continue;
+
+        width_times_height = (uint64_t)tests[i].width * tests[i].height;
+
+        /* Comically large values may be skipped. */
+        rays.Width = tests[i].width;
+        rays.Height = tests[i].height;
+        rays.Depth = tests[i].depth;
+        ID3D12GraphicsCommandList4_DispatchRays(context.list4, &rays);
+
+        expected_alt[2 * i + 0] = rays.Width * rays.Height * rays.Depth * 1101;
+        expected_alt[2 * i + 1] = rays.Width * rays.Height * rays.Depth * 2201;
+
+        if (width_times_height <= D3D12_RAYTRACING_MAX_RAY_GENERATION_SHADER_THREADS &&
+            width_times_height * tests[i].depth <= D3D12_RAYTRACING_MAX_RAY_GENERATION_SHADER_THREADS)
+        {
+            expected[2 * i + 0] = expected_alt[2 * i + 0];
+            expected[2 * i + 1] = expected_alt[2 * i + 1];
+        }
+    }
+
+    transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.context.queue, context.context.list);
+
+    for (i = 0; i < ARRAY_SIZE(expected); i++)
+    {
+        ok(get_readback_uint(&rb, i, 0, 0) == expected[i] || get_readback_uint(&rb, i, 0, 0) == expected_alt[i],
+            "Value %u: expected %u (or %u), got %u\n", i, expected[i], expected_alt[i], get_readback_uint(&rb, i, 0, 0));
+
+        if (i % 2 == 0 && expected[i] != expected_alt[i] && get_readback_uint(&rb, i, 0, 0) == expected_alt[i])
+            skip("Driver behavior allows out of spec for %u x %u x %u\n", tests[i / 2].width, tests[i / 2].height, tests[i / 2].depth);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(sbt);
+    ID3D12Resource_Release(output);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12StateObject_Release(rtpso);
+    destroy_raytracing_test_context(&context);
 }
