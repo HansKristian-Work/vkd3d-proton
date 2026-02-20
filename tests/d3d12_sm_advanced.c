@@ -1434,7 +1434,11 @@ void test_shader_sm64_packed(void)
          * and FADD is supposed to happen in > FP16, not FP16 as the docs might suggest. */
         { &cs_packed_dot2add_dxil, { FP16_EXP2(0), FP16_EXP2(15), 0x3f800000 }, 0x47000100 }, /* 32769 = 1 + 2^15 * 1 + 0 * 0 */
         { &cs_packed_dot2add_dxil, { FP16_EXP2(0), FP16_EXP2(16), 0x3f800000 }, 0x7f800000 }, /* inf = 1 + inf * 1 + 0 * 0 */
+#if 0
+        /* We don't observe inf on rdna4. Behavior there is more like acc += float(a.x) * float(b.x) ...
+         * SM 6.4 spec is vague about inf behavior for intermediate results. */
         { &cs_packed_dot2add_dxil, { FP16_EXP2(1), FP16_EXP2(15), 0x3f800000 }, 0x7f800000 }, /* inf = 1 + fp16 inf + 0 * 0 */
+#endif
         { &cs_packed_dot2add_dxil, { FP16_EXP2(0) * 0x10001u, FP16_EXP2(15) * 0x10001u, 0x3f800000 }, 0x47800080 }, /* 2^16 + 1 = 1 + 2^15 + 2^15. This will inf if dot product is completed in FP16. */
         /* Verify addition order. The dot part must be completed before accumulating. If this is not done, both accumulations will round to original value. */
         { &cs_packed_dot2add_dxil, { FP16_EXP2(0) * 0x10001u, 0x3c00 * 0x10001u, 0x4b800000 }, 0x4b800001 },
