@@ -217,4 +217,121 @@ const struct d3d12_state_object_association *d3d12_state_object_find_association
     return association;
 }
 
+struct vkd3d_fused_root_signature_mappings *d3d12_state_object_fuse_root_signature_mappings(
+        struct d3d12_root_signature *global, struct d3d12_root_signature *local)
+{
+    /* Need a fused mapping table. */
+    uint32_t num_mappings = global->mapping_info.mappingCount + local->mapping_info.mappingCount;
+    struct vkd3d_fused_root_signature_mappings *fused;
 
+    fused = vkd3d_calloc(1, offsetof(struct vkd3d_fused_root_signature_mappings, mappings) +
+            num_mappings * sizeof(VkDescriptorSetAndBindingMappingEXT));
+    fused->mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+    fused->mapping_info.mappingCount = num_mappings;
+    fused->mapping_info.pMappings = fused->mappings;
+
+    memcpy(fused->mappings,
+            global->mapping_info.pMappings,
+            global->mapping_info.mappingCount * sizeof(*fused->mappings));
+
+    memcpy(fused->mappings + global->mapping_info.mappingCount,
+            local->mapping_info.pMappings,
+            local->mapping_info.mappingCount * sizeof(*fused->mappings));
+
+    return fused;
+}
+
+struct vkd3d_fused_root_signature_mappings *d3d12_state_object_build_workgraph_root_signature_mappings(
+        struct d3d12_root_signature *global, struct d3d12_root_signature *local)
+{
+    struct vkd3d_fused_root_signature_mappings *fused;
+    uint32_t num_mappings = 0;
+    uint32_t i;
+
+    if (global)
+        num_mappings += global->mapping_info.mappingCount;
+    if (local)
+        num_mappings += local->mapping_info.mappingCount;
+
+    fused = vkd3d_calloc(1, offsetof(struct vkd3d_fused_root_signature_mappings, mappings) +
+            num_mappings * sizeof(VkDescriptorSetAndBindingMappingEXT));
+    fused->mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+    fused->mapping_info.mappingCount = num_mappings;
+    fused->mapping_info.pMappings = fused->mappings;
+
+    if (global)
+    {
+        memcpy(fused->mappings,
+                global->mapping_info.pMappings,
+                global->mapping_info.mappingCount * sizeof(*fused->mappings));
+    }
+
+    if (local)
+    {
+        memcpy(fused->mappings + (global ? global->mapping_info.mappingCount : 0),
+                local->mapping_info.pMappings,
+                local->mapping_info.mappingCount * sizeof(*fused->mappings));
+    }
+
+    /* Reroute to INDIRECT tokens instead. Gotta love how flexible this is :3 */
+    for (i = 0; i < num_mappings; i++)
+    {
+        VkDescriptorSetAndBindingMappingEXT tmp = fused->mappings[i];
+        switch (tmp.source)
+        {
+            case VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_DATA_EXT:
+                fused->mappings[i].source = VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_ADDRESS_EXT;
+                fused->mappings[i].sourceData.pushAddressOffset =
+                        offsetof(struct vkd3d_shader_node_input_push_signature, root_parameter_bda);
+                break;
+
+            case VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_ADDRESS_EXT:
+                fused->mappings[i].source = VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT;
+                fused->mappings[i].sourceData.indirectAddress.pushOffset =
+                        offsetof(struct vkd3d_shader_node_input_push_signature, root_parameter_bda);
+                fused->mappings[i].sourceData.indirectAddress.addressOffset = tmp.sourceData.pushAddressOffset;
+                break;
+
+            case VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_PUSH_INDEX_EXT:
+                fused->mappings[i].source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;
+                memset(&fused->mappings[i].sourceData.indirectIndex, 0, sizeof(fused->mappings[i].sourceData.indirectIndex));
+                fused->mappings[i].sourceData.indirectIndex.pushOffset =
+                        offsetof(struct vkd3d_shader_node_input_push_signature, root_parameter_bda);
+                fused->mappings[i].sourceData.indirectIndex.heapOffset = tmp.sourceData.pushIndex.heapOffset;
+                fused->mappings[i].sourceData.indirectIndex.heapIndexStride = tmp.sourceData.pushIndex.heapIndexStride;
+                fused->mappings[i].sourceData.indirectIndex.heapArrayStride = tmp.sourceData.pushIndex.heapArrayStride;
+                fused->mappings[i].sourceData.indirectIndex.addressOffset = tmp.sourceData.pushIndex.pushOffset;
+                break;
+
+            case VK_DESCRIPTOR_MAPPING_SOURCE_SHADER_RECORD_DATA_EXT:
+                fused->mappings[i].source = VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_ADDRESS_EXT;
+                fused->mappings[i].sourceData.pushAddressOffset =
+                        offsetof(struct vkd3d_shader_node_input_push_signature, local_root_signature_bda);
+                if (tmp.sourceData.shaderRecordDataOffset != 0)
+                    FIXME("WorkGraph with SHADER_RECORD_DATA_EXT needs explicit local root signature lowering.\n");
+                break;
+
+            case VK_DESCRIPTOR_MAPPING_SOURCE_SHADER_RECORD_ADDRESS_EXT:
+                fused->mappings[i].source = VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT;
+                fused->mappings[i].sourceData.indirectAddress.pushOffset =
+                        offsetof(struct vkd3d_shader_node_input_push_signature, local_root_signature_bda);
+                fused->mappings[i].sourceData.indirectAddress.addressOffset = tmp.sourceData.pushAddressOffset;
+                break;
+
+            case VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_SHADER_RECORD_INDEX_EXT:
+                fused->mappings[i].source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;
+                fused->mappings[i].sourceData.indirectIndex.pushOffset =
+                        offsetof(struct vkd3d_shader_node_input_push_signature, local_root_signature_bda);
+                fused->mappings[i].sourceData.indirectIndex.heapOffset = tmp.sourceData.shaderRecordIndex.heapOffset;
+                fused->mappings[i].sourceData.indirectIndex.heapIndexStride = tmp.sourceData.shaderRecordIndex.heapIndexStride;
+                fused->mappings[i].sourceData.indirectIndex.heapArrayStride = tmp.sourceData.shaderRecordIndex.heapArrayStride;
+                fused->mappings[i].sourceData.indirectIndex.addressOffset = tmp.sourceData.shaderRecordIndex.shaderRecordOffset;
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    return fused;
+}

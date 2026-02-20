@@ -73,7 +73,9 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(d3d12_d
             ret_val = device->vk_info.NVX_binary_import;
             break;
         case D3D12_VK_NVX_IMAGE_VIEW_HANDLE:
-            ret_val = device->vk_info.NVX_image_view_handle;
+            /* For descriptor heap interactions. */
+            ret_val = device->vk_info.NVX_image_view_handle &&
+                    device->vk_procs.vkGetDeviceCombinedImageSamplerIndexNVX;
             break;
         case D3D12_VK_NV_LOW_LATENCY_2:
             ret_val = device->vk_info.NV_low_latency2;
@@ -180,63 +182,83 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_DestroyCubinComputeShade
     return S_OK;
 }
 
+uint32_t d3d12_device_find_shader_visible_descriptor_heap_offset(
+    struct d3d12_device *device, vkd3d_cpu_descriptor_va_t va, D3D12_DESCRIPTOR_HEAP_TYPE type)
+{
+    size_t offset = vkd3d_va_map_query_descriptor_heap_offset(&device->memory_allocator.va_map, va, type);
+    if (offset == SIZE_MAX)
+        return UINT32_MAX;
+
+    if (type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    {
+        offset += device->bindless_state.heap_redzone_size;
+        offset /= device->device_info.descriptor_heap_properties.imageDescriptorSize;
+    }
+    else
+    {
+        offset /= device->device_info.descriptor_heap_properties.samplerDescriptorSize;
+    }
+
+    return offset;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaTextureObject(d3d12_device_vkd3d_ext_iface *iface, D3D12_CPU_DESCRIPTOR_HANDLE srv_handle,
        D3D12_CPU_DESCRIPTOR_HANDLE sampler_handle, UINT32 *cuda_texture_handle)
 {
-    VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
     const struct vkd3d_vk_device_procs *vk_procs;
-    struct d3d12_desc_split sampler_desc;
-    struct d3d12_desc_split srv_desc;
     struct d3d12_device *device;
+    uint32_t sampler_index;
+    uint32_t image_index;
 
     TRACE("iface %p, srv_handle %zu, sampler_handle %zu, cuda_texture_handle %p.\n",
             iface, (size_t)srv_handle.ptr, (size_t)sampler_handle.ptr, cuda_texture_handle);
 
     if (!cuda_texture_handle)
-       return E_INVALIDARG;
-
-    device = d3d12_device_from_ID3D12DeviceExt(iface);
-    srv_desc = d3d12_desc_decode_va(srv_handle.ptr);
-    sampler_desc = d3d12_desc_decode_va(sampler_handle.ptr);
-
-    /* If image flag is not set, descriptor cannot be used as a CudaTexture */
-    if (!(srv_desc.view->info.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
         return E_INVALIDARG;
 
-    imageViewHandleInfo.imageView = srv_desc.view->info.image.view->vk_image_view;
-    imageViewHandleInfo.sampler = sampler_desc.view->info.image.view->vk_sampler;
-    imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    /* Need to translate CPU_DESCRIPTOR_HANDLE to heap offsets.
+     * We only know this information for shader visible heaps. */
 
+    device = d3d12_device_from_ID3D12DeviceExt(iface);
     vk_procs = &device->vk_procs;
-    *cuda_texture_handle = VK_CALL(vkGetImageViewHandleNVX(device->vk_device, &imageViewHandleInfo));
+
+    image_index = d3d12_device_find_shader_visible_descriptor_heap_offset(device, srv_handle.ptr,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    sampler_index = d3d12_device_find_shader_visible_descriptor_heap_offset(device, sampler_handle.ptr,
+            D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
+    if (image_index == UINT32_MAX || sampler_index == UINT32_MAX)
+    {
+        FIXME("Could not find heap index. CPU handles must point to SHADER_VISIBLE heaps to have any meaning.\n");
+        return E_INVALIDARG;
+    }
+
+    *cuda_texture_handle = VK_CALL(vkGetDeviceCombinedImageSamplerIndexNVX(device->vk_device, image_index, sampler_index));
     return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(d3d12_device_vkd3d_ext_iface *iface, D3D12_CPU_DESCRIPTOR_HANDLE uav_handle, 
         UINT32 *cuda_surface_handle)
 {
-    VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct d3d12_desc_split uav_desc;
-    struct d3d12_device *device;
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    uint32_t image_index;
 
     TRACE("iface %p, uav_handle %zu, cuda_surface_handle %p.\n", iface, (size_t)uav_handle.ptr, cuda_surface_handle);
+
     if (!cuda_surface_handle)
-       return E_INVALIDARG;
-
-    device = d3d12_device_from_ID3D12DeviceExt(iface);
-    uav_desc = d3d12_desc_decode_va(uav_handle.ptr);
-
-    /* If image flag is not set, descriptor cannot be used as a CudaSurface */
-    if (!(uav_desc.view->info.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
         return E_INVALIDARG;
 
-    imageViewHandleInfo.imageView = uav_desc.view->info.image.view->vk_image_view;
-    imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    image_index = d3d12_device_find_shader_visible_descriptor_heap_offset(device, uav_handle.ptr,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    vk_procs = &device->vk_procs;
-    *cuda_surface_handle = VK_CALL(vkGetImageViewHandleNVX(device->vk_device, &imageViewHandleInfo));
-    return S_OK; 
+    if (image_index == UINT32_MAX)
+    {
+        FIXME("Could not find heap index. CPU handles must point to SHADER_VISIBLE heaps to have any meaning.\n");
+        return E_INVALIDARG;
+    }
+
+    *cuda_surface_handle = image_index;
+    return S_OK;
 }
 
 extern VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info;
@@ -244,10 +266,10 @@ extern VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info;
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CaptureUAVInfo(d3d12_device_vkd3d_ext_iface *iface, D3D12_UAV_INFO *uav_info)
 {
     if (!uav_info)
-       return E_INVALIDARG;
+        return E_INVALIDARG;
 
     TRACE("iface %p, uav_info %p.\n", iface, uav_info);
-    
+
     /* CaptureUAVInfo() supposed to capture the information from the next CreateUnorderedAccess() on the same thread. 
        We use d3d12_uav_info pointer to update the information in CreateUnorderedAccess() */
     d3d12_uav_info = uav_info;
@@ -312,15 +334,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShader
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaMergedTextureSamplerObject(d3d12_device_vkd3d_ext_iface *iface,
        D3D12_GET_CUDA_MERGED_TEXTURE_SAMPLER_OBJECT_PARAMS *params)
 {
-    VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct d3d12_desc_split sampler_desc, texture_desc;
+    uint32_t image_index = 0, sampler_index = 0;
 
-    TRACE("iface %p, tex_desc %zu, smp_desc %zu.\n",
-            iface, (size_t)params->texDesc, (size_t)params->smpDesc);
-
-    if (!device->vk_info.supports_cubin_64bit || !vk_procs->vkGetImageViewHandle64NVX)
+    if (!device->vk_info.supports_cubin_64bit)
         return E_NOTIMPL;
     
     if (params->pNext)
@@ -329,40 +347,39 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaMergedTextureSamp
         params->pNext = NULL;
     }
 
-    texture_desc = d3d12_desc_decode_va(params->texDesc);
-
-    if (!(texture_desc.view->info.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
-        return E_INVALIDARG;
-
-    imageViewHandleInfo.imageView = texture_desc.view->info.image.view->vk_image_view;
+    if (params->texDesc)
+    {
+        image_index = d3d12_device_find_shader_visible_descriptor_heap_offset(device, params->texDesc,
+                D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
 
     if (params->smpDesc)
     {
-        sampler_desc = d3d12_desc_decode_va(params->smpDesc);
-        imageViewHandleInfo.sampler = sampler_desc.view->info.image.view->vk_sampler;
-        imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    }
-    else
-    {
-        imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        sampler_index = d3d12_device_find_shader_visible_descriptor_heap_offset(device, params->smpDesc,
+                D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
     }
 
-    params->textureHandle = VK_CALL(vkGetImageViewHandle64NVX(device->vk_device, &imageViewHandleInfo));
+    if (image_index == UINT32_MAX || sampler_index == UINT32_MAX)
+    {
+        FIXME("Could not find heap index. CPU handles must point to SHADER_VISIBLE heaps to have any meaning.\n");
+        return E_INVALIDARG;
+    }
+
+    params->textureHandle = VK_CALL(vkGetDeviceCombinedImageSamplerIndexNVX(device->vk_device, image_index, sampler_index));
     return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaIndependentDescriptorObject(d3d12_device_vkd3d_ext_iface *iface,
        D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_PARAMS *params)
 {
-    VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct d3d12_desc_split desc;
+    uint32_t image_index = 0;
 
     TRACE("iface %p, desc %zu, type %d.\n",
             iface, (size_t)params->desc, params->type);
 
-    if (!device->vk_info.supports_cubin_64bit || !vk_procs->vkGetImageViewHandle64NVX)
+    if (!device->vk_info.supports_cubin_64bit)
         return E_NOTIMPL;
     
     if (params->pNext)
@@ -371,20 +388,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaIndependentDescri
         params->pNext = NULL;
     }
 
-    desc = d3d12_desc_decode_va(params->desc);
-
-    if (!(desc.view->info.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
-        return E_INVALIDARG;
-
-    imageViewHandleInfo.imageView = desc.view->info.image.view->vk_image_view;
-
     switch (params->type)
     {
         case D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_SURFACE:
-            imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            break;
         case D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_TEXTURE:
-            imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             break;
         case D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_SAMPLER:
             FIXME("SAMPLER object type not supported.\n");
@@ -394,7 +401,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaIndependentDescri
             return E_INVALIDARG;
     }
 
-    params->handle = VK_CALL(vkGetImageViewHandle64NVX(device->vk_device, &imageViewHandleInfo));
+    image_index = d3d12_device_find_shader_visible_descriptor_heap_offset(device, params->desc,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    if (image_index == UINT32_MAX)
+    {
+        FIXME("Could not find heap index. CPU handles must point to SHADER_VISIBLE heaps to have any meaning.\n");
+        return E_INVALIDARG;
+    }
+
+    params->handle = VK_CALL(vkGetDeviceCombinedImageSamplerIndexNVX(device->vk_device, image_index, 0));
     return S_OK;
 }
 
