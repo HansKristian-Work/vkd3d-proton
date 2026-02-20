@@ -441,6 +441,7 @@ decl_test(test_coverage_export_atoc_dxbc);
 decl_test(test_coverage_export_atoc_dxil);
 decl_test(test_renderpass_validation);
 decl_test(test_renderpass_rendering);
+decl_test(test_renderpass_resolve_suspend_resume);
 decl_test(test_sampler_rounding);
 decl_test(test_scissor_clamping);
 decl_test(test_mismatching_rtv_dsv_size);

@@ -2831,6 +2831,16 @@ struct vkd3d_rendering_info
     VkRenderingFragmentShadingRateAttachmentInfoKHR vrs;
     uint32_t state_flags;
     uint32_t rtv_mask;
+
+    /* Only relevant for suspend-resume style passes with load-store op compatibility.
+     * If we complete a render pass, use load-store-op mismatch workaround to decide on discard/resolve late. */
+    uint32_t pending_discardable_mask;
+    VkResolveModeFlagBits pending_resolves[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkResolveModeFlagBits pending_resolve_depth;
+    VkResolveModeFlagBits pending_resolve_stencil;
+
+    /* If true, we have pending work in loadOp/resolveOp which must happen. */
+    bool has_pending_render_pass_load_store_work;
 };
 
 /* ID3D12CommandListExt */
@@ -3044,7 +3054,9 @@ struct d3d12_command_list_render_pass_suspend_resume_compat
      * so do it like this for completeness' sake. */
     VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
     VkImageLayout layouts[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
-    VkAttachmentLoadOp load_ops[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 3];
+    VkAttachmentLoadOp load_ops[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    VkImageView resolve_views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    /* Render pass resolves always use GENERAL. */
     uint32_t color_attachment_count;
     uint32_t view_mask;
 };
@@ -5749,6 +5761,18 @@ bool d3d12_device_supports_workgraphs(const struct d3d12_device *device);
 static inline bool d3d12_device_supports_unified_layouts(const struct d3d12_device *device)
 {
     return device->device_info.unified_image_layouts_features.unifiedImageLayouts == VK_TRUE;
+}
+
+static inline bool d3d12_device_prefers_render_pass_resolves(const struct d3d12_device *device)
+{
+    /* Only bother with this if unified layouts are supported since we don't
+     * want to deal with odd layout transitions if we can help it, and the primary
+     * driver we care about here supports unifiedImageLayouts.
+     * Relaxed load-store ops is critical since we don't want to deal with
+     * mismatching resolve modes on the fly. */
+    return device->device_info.unified_image_layouts_features.unifiedImageLayouts == VK_TRUE &&
+            device->workarounds.tiler_suspend_resume &&
+            device->workarounds.tiler_suspend_resume_relax_load_store_op;
 }
 
 static inline void d3d12_device_register_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
