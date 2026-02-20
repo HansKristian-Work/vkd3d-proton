@@ -48,6 +48,8 @@
 # include "private/vulkan_private_extensions.h"
 #endif  /* VKD3D_NO_VULKAN_H */
 
+#include <stdbool.h>
+
 #define VKD3D_MIN_API_VERSION VK_API_VERSION_1_3
 #define VKD3D_MAX_API_VERSION VK_API_VERSION_1_3
 
@@ -150,6 +152,9 @@ struct vkd3d_device_create_info
 
     IUnknown *parent;
     LUID adapter_luid;
+
+    D3D12_DEVICE_FACTORY_FLAGS device_factory_flags;
+    bool independent;
 };
 
 struct vkd3d_image_resource_create_info
@@ -198,6 +203,8 @@ HRESULT vkd3d_serialize_versioned_root_signature(const D3D12_VERSIONED_ROOT_SIGN
         ID3DBlob **blob, ID3DBlob **error_blob);
 HRESULT vkd3d_create_versioned_root_signature_deserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer);
+HRESULT vkd3d_create_versioned_root_signature_deserializer_for_subobject(const void *data, SIZE_T data_size,
+        LPCWSTR subobject_name, REFIID iid, void **deserializer);
 
 #ifdef __cplusplus
 }

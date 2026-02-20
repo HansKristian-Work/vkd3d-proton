@@ -19,6 +19,16 @@
 
 /* Can be included multiple times. */
 
+/* These tests check for loading of d3d12core.dll,
+ * so they need to be run at the very beginning. */
+decl_test(test_sdk_configuration_creation);
+decl_test(test_sdk_configuration_set_sdk_path);
+decl_test(test_sdk_configuration1);
+decl_test(test_device_factory);
+decl_test(test_device_factory_creation);
+decl_test(test_device_factory_create_device);
+decl_test(test_device_configuration);
+
 decl_test(test_create_device);
 decl_test(test_node_count);
 decl_test(test_check_feature_support);

@@ -599,8 +599,10 @@ static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12core_CreateDevice(d3d12core_interface *core,
-        IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
+static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
+        IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
+        ID3D12DeviceFactory *factory,
+        REFIID iid, void **device)
 {
     struct vkd3d_device_create_info device_create_info;
     struct vkd3d_instance *instance;
@@ -654,6 +656,9 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDevice(d3d12core_interface *cor
     device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
     device_create_info.optional_device_extensions = optional_device_extensions;
     device_create_info.optional_device_extension_count = ARRAY_SIZE(optional_device_extensions);
+    device_create_info.independent = factory != NULL;
+    if (factory)
+        device_create_info.device_factory_flags = ID3D12DeviceFactory_GetFlags(factory);
 
 #ifdef _WIN32
     device_create_info.vk_physical_device = d3d12_find_physical_device(instance, vulkan_vkGetInstanceProcAddr, &adapter_desc);
@@ -690,6 +695,12 @@ out_release_adapter:
     IDXGIAdapter_Release(dxgi_adapter);
 #endif
     return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12core_CreateDevice(d3d12core_interface *core,
+        IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
+{
+    return d3d12core_CreateDeviceFromFactory(adapter, minimum_feature_level, NULL, iid, device);
 }
 
 HRESULT STDMETHODCALLTYPE d3d12core_CreateRootSignatureDeserializer(d3d12core_interface *core,
@@ -735,10 +746,12 @@ HRESULT STDMETHODCALLTYPE d3d12core_GetDebugInterface(d3d12core_interface *core,
 
     TRACE("iid %s, debug %p.\n", debugstr_guid(iid), debug);
 
+    /* FIXME: Unsure what to do about S_FALSE returns here since there is no clsid. */
+
     if (debug)
         *debug = NULL;
 
-    if (!memcmp(iid, &IID_ID3D12DeviceRemovedExtendedDataSettings, sizeof(*iid)))
+    if (IsEqualGUID(iid, &IID_ID3D12DeviceRemovedExtendedDataSettings))
     {
         hr = d3d12_dred_settings_create(&dred_settings);
         *debug = dred_settings;
@@ -993,33 +1006,296 @@ static const d3d12core_interface d3d12core_interface_instance =
     .lpVtbl = &d3d12core_interface_vtbl,
 };
 
+struct d3d12_device_factory
+{
+    ID3D12DeviceFactory ID3D12DeviceFactory_iface;
+    ID3D12DeviceConfiguration1 ID3D12DeviceConfiguration1_iface;
+    LONG refcount;
+    D3D12_DEVICE_FACTORY_FLAGS flags;
+};
+
+static struct d3d12_device_factory *impl_from_ID3D12DeviceFactory(ID3D12DeviceFactory *iface)
+{
+    if (!iface)
+        return NULL;
+    return CONTAINING_RECORD(iface, struct d3d12_device_factory, ID3D12DeviceFactory_iface);
+}
+
+static struct d3d12_device_factory *impl_from_ID3D12DeviceConfiguration1(ID3D12DeviceConfiguration1 *iface)
+{
+    if (!iface)
+        return NULL;
+    return CONTAINING_RECORD(iface, struct d3d12_device_factory, ID3D12DeviceConfiguration1_iface);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_device_factory_AddRef(ID3D12DeviceFactory *iface)
+{
+    struct d3d12_device_factory *factory = impl_from_ID3D12DeviceFactory(iface);
+    TRACE("iface %p\n", iface);
+    return InterlockedIncrement(&factory->refcount);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_device_factory_Release(ID3D12DeviceFactory *iface)
+{
+    struct d3d12_device_factory *factory = impl_from_ID3D12DeviceFactory(iface);
+    ULONG refcount;
+    TRACE("iface %p\n", iface);
+    refcount = InterlockedDecrement(&factory->refcount);
+    if (refcount == 0)
+        vkd3d_free(factory);
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_factory_QueryInterface(ID3D12DeviceFactory *iface,
+        REFIID iid, void **object)
+{
+    TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(iid), object);
+
+    if (!object)
+        return E_POINTER;
+
+    if (IsEqualGUID(iid, &IID_IUnknown) ||
+        IsEqualGUID(iid, &IID_ID3D12DeviceFactory))
+    {
+        d3d12_device_factory_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3D12DeviceConfiguration) ||
+        IsEqualGUID(iid, &IID_ID3D12DeviceConfiguration1))
+    {
+        struct d3d12_device_factory *factory = impl_from_ID3D12DeviceFactory(iface);
+        d3d12_device_factory_AddRef(iface);
+        *object = &factory->ID3D12DeviceConfiguration1_iface;
+        return S_OK;
+    }
+
+    return E_NOINTERFACE;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_factory_InitializeFromGlobalState(ID3D12DeviceFactory *iface)
+{
+    FIXME("iface %p stub!\n", iface);
+    /* This is rather murky since flags don't apply, only things like debug options and stuff
+     * which we don't support anyway. */
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_factory_ApplyToGlobalState(ID3D12DeviceFactory *iface)
+{
+    FIXME("iface %p stub!\n", iface);
+    /* This is rather murky since flags don't apply, only things like debug options and stuff
+     * which we don't support anyway. */
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_factory_SetFlags(ID3D12DeviceFactory *iface, D3D12_DEVICE_FACTORY_FLAGS flags)
+{
+    struct d3d12_device_factory *factory = impl_from_ID3D12DeviceFactory(iface);
+    TRACE("iface %p, flags #%x\n", iface, flags);
+    factory->flags = flags;
+    return S_OK;
+}
+
+static D3D12_DEVICE_FACTORY_FLAGS STDMETHODCALLTYPE d3d12_device_factory_GetFlags(ID3D12DeviceFactory *iface)
+{
+    struct d3d12_device_factory *factory = impl_from_ID3D12DeviceFactory(iface);
+    TRACE("iface %p\n", iface);
+    return factory->flags;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_factory_GetConfigurationInterface(ID3D12DeviceFactory *iface,
+        REFCLSID clsid, REFIID iid, void **ppv)
+{
+    HRESULT hr;
+    TRACE("iface %p, clsid %s, iid %s, ppv %p!\n", iface, debugstr_guid(clsid), debugstr_guid(iid), ppv);
+
+    /* GetConfigurationInterface says only these classes are exposed by this particular interface.
+     * It's supposed to be equivalent to D3D12GetInterface more or less. */
+    if (IsEqualGUID(clsid, &CLSID_D3D12Debug) ||
+        IsEqualGUID(clsid, &CLSID_D3D12DeviceRemovedExtendedData) ||
+        IsEqualGUID(clsid, &CLSID_D3D12Tools))
+    {
+        /* GetDebugInterface and S_FALSE behavior is murky since there is no clsid we can key off of.
+         * Anything we expose via GetInterface would work without hackery.
+         * DRED is a stubbed out special case for now. */
+        if (!ppv && IsEqualGUID(clsid, &CLSID_D3D12DeviceRemovedExtendedData))
+            return S_FALSE;
+
+        /* If one of the global interfaces understand the interface, go with that. */
+        if (SUCCEEDED(hr = d3d12core_GetInterface(NULL, clsid, iid, ppv)))
+            return hr;
+        if (SUCCEEDED(hr = d3d12core_GetDebugInterface(NULL, iid, ppv)))
+            return hr;
+    }
+
+    return E_NOINTERFACE;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_factory_EnableExperimentalFeatures(ID3D12DeviceFactory *iface,
+        UINT NumFeatures, const IID *pIIDs, void *pConfigurationStructs, UINT *pConfigurationStructSizes)
+{
+    TRACE("iface %p\n", iface);
+    return d3d12core_EnableExperimentalFeatures(NULL, NumFeatures, pIIDs, pConfigurationStructs, pConfigurationStructSizes);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_factory_CreateDevice(ID3D12DeviceFactory *iface,
+        IUnknown *adapter, D3D_FEATURE_LEVEL FeatureLevel, REFIID iid, void **ppvDevice)
+{
+    TRACE("iface %p, adapter %p, FeatureLevel %u, iid %s, ppvDevice %p\n", iface,
+        adapter, FeatureLevel, debugstr_guid(iid), ppvDevice);
+    return d3d12core_CreateDeviceFromFactory(adapter, FeatureLevel, iface, iid, ppvDevice);
+}
+
+static CONST_VTBL ID3D12DeviceFactoryVtbl d3d12_device_factory_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_device_factory_QueryInterface,
+    d3d12_device_factory_AddRef,
+    d3d12_device_factory_Release,
+    /* ID3D12DeviceFactory methods */
+    d3d12_device_factory_InitializeFromGlobalState,
+    d3d12_device_factory_ApplyToGlobalState,
+    d3d12_device_factory_SetFlags,
+    d3d12_device_factory_GetFlags,
+    d3d12_device_factory_GetConfigurationInterface,
+    d3d12_device_factory_EnableExperimentalFeatures,
+    d3d12_device_factory_CreateDevice,
+};
+
+static ULONG STDMETHODCALLTYPE d3d12_device_configuration_AddRef(ID3D12DeviceConfiguration1 *iface)
+{
+    struct d3d12_device_factory *factory = impl_from_ID3D12DeviceConfiguration1(iface);
+    return d3d12_device_factory_AddRef(&factory->ID3D12DeviceFactory_iface);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_device_configuration_Release(ID3D12DeviceConfiguration1 *iface)
+{
+    struct d3d12_device_factory *factory = impl_from_ID3D12DeviceConfiguration1(iface);
+    return d3d12_device_factory_Release(&factory->ID3D12DeviceFactory_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_QueryInterface(ID3D12DeviceConfiguration1 *iface,
+        REFIID iid, void **object)
+{
+    struct d3d12_device_factory *factory = impl_from_ID3D12DeviceConfiguration1(iface);
+    return d3d12_device_factory_QueryInterface(&factory->ID3D12DeviceFactory_iface, iid, object);
+}
+
+static D3D12_DEVICE_CONFIGURATION_DESC * STDMETHODCALLTYPE d3d12_device_configuration_GetDesc(
+        ID3D12DeviceConfiguration1 *iface, D3D12_DEVICE_CONFIGURATION_DESC *desc)
+{
+    TRACE("iface %p\n", iface);
+    memset(desc, 0, sizeof(*desc));
+    desc->SDKVersion = D3D12_SDK_VERSION;
+    return desc;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_GetEnabledExperimentalFeatures(
+        ID3D12DeviceConfiguration1 *iface, GUID *pGuids, UINT NumGuids)
+{
+    FIXME("iface %p, pGuids %p, NumGuids %u stub!\n", iface, pGuids, NumGuids);
+    /* The spec doesn't say how this is supposed to work. We don't support experimental features anyway. */
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_SerializeVersionedRootSignature(
+        ID3D12DeviceConfiguration1 *iface, const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *pDesc,
+        ID3DBlob **ppResult, ID3DBlob **ppError)
+{
+    TRACE("iface %p, pDesc %p, ppResult %p, ppError %p\n", iface, pDesc, ppResult, ppError);
+    return vkd3d_serialize_versioned_root_signature(pDesc, ppResult, ppError);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_CreateVersionedRootSignatureDeserializer(
+        ID3D12DeviceConfiguration1 *iface, const void *pBlob, SIZE_T Size,
+        REFIID iid, void **ppvDeserializer)
+{
+    TRACE("iface %p, pBlob %p, Size %zu, iid %s, ppvDeserializer %p\n",
+        iface, pBlob, Size, debugstr_guid(iid), ppvDeserializer);
+    return vkd3d_create_versioned_root_signature_deserializer(pBlob, Size, iid, ppvDeserializer);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary(
+        ID3D12DeviceConfiguration1 *iface, const void *pLibraryBlob, SIZE_T Size,
+        LPCWSTR RootSignatureSubobjectName, REFIID iid, void **ppvDeserializer)
+{
+    TRACE("iface %p, pLibraryBlob %p, Size %zu, RootSignatureSubobjectName %s, iid %s, ppvDeserializer %p\n",
+        iface, pLibraryBlob, Size, debugstr_w(RootSignatureSubobjectName), debugstr_guid(iid), ppvDeserializer);
+    return vkd3d_create_versioned_root_signature_deserializer_for_subobject(
+        pLibraryBlob, Size, RootSignatureSubobjectName, iid, ppvDeserializer);
+}
+
+static CONST_VTBL ID3D12DeviceConfiguration1Vtbl d3d12_device_configuration_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_device_configuration_QueryInterface,
+    d3d12_device_configuration_AddRef,
+    d3d12_device_configuration_Release,
+    /* ID3D12DeviceConfiguration methods */
+    d3d12_device_configuration_GetDesc,
+    d3d12_device_configuration_GetEnabledExperimentalFeatures,
+    d3d12_device_configuration_SerializeVersionedRootSignature,
+    d3d12_device_configuration_CreateVersionedRootSignatureDeserializer,
+    /* ID3D12DeviceConfiguration1 methods */
+    d3d12_device_configuration_CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary,
+};
+
+static ID3D12DeviceFactory *create_device_factory(void)
+{
+    struct d3d12_device_factory *factory = vkd3d_calloc(1, sizeof(*factory));
+    if (!factory)
+        return NULL;
+
+    factory->refcount = 1;
+    factory->ID3D12DeviceFactory_iface.lpVtbl = &d3d12_device_factory_vtbl;
+    factory->ID3D12DeviceConfiguration1_iface.lpVtbl = &d3d12_device_configuration_vtbl;
+    return &factory->ID3D12DeviceFactory_iface;
+}
+
 static HRESULT d3d12core_D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **debug)
 {
     TRACE("rcslid %s iid %s, debug %p.\n", debugstr_guid(rcslid), debugstr_guid(iid), debug);
 
+    if (IsEqualGUID(rcslid, &CLSID_D3D12DeviceFactory))
+    {
+        ID3D12DeviceFactory *factory;
+        HRESULT hr;
+
+        if (!debug)
+            return S_FALSE;
+
+        factory = create_device_factory();
+        if (!factory)
+            return E_OUTOFMEMORY;
+
+        hr = ID3D12DeviceFactory_QueryInterface(factory, iid, debug);
+        ID3D12DeviceFactory_Release(factory);
+        return hr;
+    }
+
     if (IsEqualGUID(rcslid, &CLSID_VKD3DCore))
     {
+        if (!debug)
+            return S_FALSE;
+
         if (IsEqualGUID(iid, &IID_IVKD3DCoreInterface))
         {
-            if (debug)
-            {
-                *debug = (void*)&d3d12core_interface_instance;
-                return S_OK;
-            }
-            return S_FALSE;
+            *debug = (void*)&d3d12core_interface_instance;
+            return S_OK;
         }
     }
 
     if (IsEqualGUID(rcslid, &CLSID_VKD3DDebugControl))
     {
+        if (!debug)
+            return S_FALSE;
+
         if (IsEqualGUID(iid, &IID_IVKD3DDebugControlInterface))
         {
-            if (debug)
-            {
-                *debug = (void*)&vkd3d_debug_control_instance;
-                return S_OK;
-            }
-            return S_FALSE;
+            *debug = (void*)&vkd3d_debug_control_instance;
+            return S_OK;
         }
     }
 
@@ -1033,4 +1309,4 @@ HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
 
 /* Just expose the latest stable AgilitySDK version.
  * This is actually exported as a UINT and not a function it seems. */
-DLLEXPORT const UINT D3D12SDKVersion = 618;
+DLLEXPORT const UINT D3D12SDKVersion = D3D12_SDK_VERSION;
