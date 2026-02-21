@@ -3679,6 +3679,10 @@ enum vkd3d_patch_command_token
     VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_X = 18,
     VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_Y = 19,
     VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_Z = 20,
+    VKD3D_PATCH_COMMAND_TOKEN_COPY_DISPATCH_X = 21,
+    VKD3D_PATCH_COMMAND_TOKEN_COPY_DISPATCH_Y = 22,
+    VKD3D_PATCH_COMMAND_TOKEN_COPY_DISPATCH_Z = 23,
+    VKD3D_PATCH_COMMAND_TOKEN_GENERIC_INDIRECT_ARG = -1,
     VKD3D_PATCH_COMMAND_INT_MAX = 0x7fffffff
 };
 
@@ -3714,6 +3718,7 @@ struct d3d12_command_signature
     } state_template;
     bool requires_state_template_dgc;
     bool requires_state_template;
+    struct vkd3d_execute_indirect_info debug_ring_pipeline;
     enum vkd3d_pipeline_type pipeline_type;
 
     struct d3d12_device *device;
@@ -3760,6 +3765,7 @@ struct vkd3d_shader_debug_ring
     VkDeviceAddress atomic_device_address;
     size_t ring_size;
     size_t control_block_size;
+    uint32_t implicit_instance_count;
 
     pthread_t ring_thread;
     pthread_mutex_t ring_lock;
@@ -4665,6 +4671,8 @@ struct vkd3d_multi_dispatch_indirect_state_args
     VkDeviceAddress root_parameter_template_va;
     uint32_t stride_words;
     uint32_t dispatch_offset_words;
+    uint32_t debug_tag;
+    uint32_t implicit_instance;
 };
 
 struct vkd3d_multi_dispatch_indirect_ops
@@ -4690,15 +4698,26 @@ struct vkd3d_execute_indirect_args
     uint32_t implicit_instance;
 };
 
+struct vkd3d_execute_indirect_debug_ring_args
+{
+    VkDeviceAddress api_buffer_va;
+    VkDeviceAddress indirect_count_va;
+    uint32_t api_buffer_word_stride;
+    uint32_t debug_tag;
+    uint32_t implicit_instance;
+};
+
 struct vkd3d_execute_indirect_pipeline
 {
     VkPipeline vk_pipeline;
     uint32_t workgroup_size_x;
+    bool pure_debug;
 };
 
 struct vkd3d_execute_indirect_ops
 {
-    VkPipelineLayout vk_pipeline_layout;
+    VkPipelineLayout vk_pipeline_layout_patch;
+    VkPipelineLayout vk_pipeline_layout_debug_ring;
     struct vkd3d_execute_indirect_pipeline *pipelines;
     size_t pipelines_count;
     size_t pipelines_size;
@@ -4889,6 +4908,8 @@ static inline uint32_t vkd3d_meta_get_multi_dispatch_indirect_workgroup_size(voi
 }
 
 HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
+        uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info);
+HRESULT vkd3d_meta_get_execute_indirect_debug_ring_pipeline(struct vkd3d_meta_ops *meta_ops,
         uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info);
 
 void vkd3d_meta_get_sampler_feedback_resolve_pipeline(struct vkd3d_meta_ops *meta_ops,

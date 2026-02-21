@@ -1181,6 +1181,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"preallocate_srv_mip_clamps", VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS},
     {"force_initial_transition", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION},
     {"breadcrumbs_trace", VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE},
+    {"breadcrumbs_trace_indirect", VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT},
     {"requires_compute_indirect_templates", VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES},
     {"skip_driver_workarounds", VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS},
     {"enable_experimental_features", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES},
@@ -10141,14 +10142,14 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = d3d12_device_create_sparse_init_timeline(device)))
         goto out_cleanup_sampler_state;
 
-    if (FAILED(hr = vkd3d_meta_ops_init(&device->meta_ops, device)))
+    if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
         goto out_cleanup_sparse_timeline;
 
-    if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
-        goto out_cleanup_meta_ops;
+    if (FAILED(hr = vkd3d_meta_ops_init(&device->meta_ops, device)))
+        goto out_cleanup_debug_ring;
 
     if (FAILED(hr = vkd3d_queue_timeline_trace_init(&device->queue_timeline_trace, device)))
-        goto out_cleanup_debug_ring;
+        goto out_cleanup_meta_ops;
 
     if (FAILED(hr = vkd3d_address_binding_tracker_init(&device->address_binding_tracker, device)))
         goto out_cleanup_queue_timeline_trace;
@@ -10223,10 +10224,10 @@ out_cleanup_address_binding_tracker:
     vkd3d_address_binding_tracker_cleanup(&device->address_binding_tracker, device);
 out_cleanup_queue_timeline_trace:
     vkd3d_queue_timeline_trace_cleanup(&device->queue_timeline_trace);
-out_cleanup_debug_ring:
-    vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_meta_ops:
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
+out_cleanup_debug_ring:
+    vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_sparse_timeline:
     vk_procs = &device->vk_procs;
     VK_CALL(vkDestroySemaphore(device->vk_device, device->sparse_init_timeline, NULL));
