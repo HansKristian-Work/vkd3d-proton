@@ -738,6 +738,11 @@ static const struct vkd3d_shader_quirk_info re2_quirks = {
     re_hashes, ARRAY_SIZE(re_hashes), VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE,
 };
 
+/* Works around the same weird GPU hang as above (RE2) but for RE8. */
+static const struct vkd3d_shader_quirk_info re8_quirks = {
+    re_hashes, ARRAY_SIZE(re_hashes), VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE,
+};
+
 /* There are lots of shaders which cause random flicker due to bad 16-bit behavior.
  * These shaders really need 32-bit it seems to render properly, so just do that. */
 static const struct vkd3d_shader_quirk_info re4_quirks = {
@@ -922,6 +927,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Ronin.exe", &team_ninja_quirks },
     /* Resident Evil 2 (883710) */
     { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re2_quirks },
+    /* Resident Evil Village (1196590) */
+    { VKD3D_STRING_COMPARE_EXACT, "re8.exe", &re8_quirks },
     /* Resident Evil 7 (418370) */
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe", &re_quirks },
     /* Resident Evil 4 (2050650) */
