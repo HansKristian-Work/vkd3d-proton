@@ -466,14 +466,14 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
     return S_OK;
 }
 
-static bool d3d12_root_signature_may_require_global_heap_binding(void)
+static bool d3d12_root_signature_may_require_global_heap_binding(struct d3d12_device *device)
 {
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     /* Expect-assume path always wants to see global heap binding for size query purposes. */
     return true;
 #else
     /* Robustness purposes, we may access the global heap out of band of the root signature. */
-    return d3d12_descriptor_heap_require_padding_descriptors();
+    return d3d12_descriptor_heap_require_padding_descriptors(device);
 #endif
 }
 
@@ -489,7 +489,7 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
     local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
     /* Need to emit bindings for the magic internal table binding. */
-    if (d3d12_root_signature_may_require_global_heap_binding() ||
+    if (d3d12_root_signature_may_require_global_heap_binding(device) ||
             (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED))
     {
         d3d12_root_signature_info_count_srv_uav_table(info, device);
@@ -861,7 +861,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
     local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
-    if (d3d12_root_signature_may_require_global_heap_binding() ||
+    if (d3d12_root_signature_may_require_global_heap_binding(root_signature->device) ||
             (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED))
         d3d12_root_signature_init_cbv_srv_uav_heap_bindings(root_signature, context);
     if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED)
@@ -2682,7 +2682,7 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
     compile_arguments->max_subgroup_size = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
     compile_arguments->promote_wave_size_heuristics =
             d3d12_device_supports_required_subgroup_size_for_stage(device, stage);
-    compile_arguments->quirks = &vkd3d_shader_quirk_info;
+    compile_arguments->quirks = &device->workarounds.quirks;
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
     {

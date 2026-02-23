@@ -1919,7 +1919,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     compile_args.min_subgroup_size = object->device->device_info.vulkan_1_3_properties.minSubgroupSize;
     compile_args.max_subgroup_size = object->device->device_info.vulkan_1_3_properties.maxSubgroupSize;
     /* Don't care about wave size promotion in RT. */
-    compile_args.quirks = &vkd3d_shader_quirk_info;
+    compile_args.quirks = &object->device->workarounds.quirks;
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
     {

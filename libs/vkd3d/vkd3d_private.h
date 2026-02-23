@@ -246,7 +246,6 @@ struct vkd3d_instance
 };
 
 extern uint64_t vkd3d_config_flags;
-extern struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
 
 struct vkd3d_queue_timeline_trace_cookie
 {
@@ -1610,7 +1609,7 @@ struct d3d12_descriptor_heap
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap);
 void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap);
-bool d3d12_descriptor_heap_require_padding_descriptors(void);
+bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *device);
 
 static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
 {
@@ -5483,6 +5482,7 @@ struct d3d12_device
 
     struct
     {
+        struct vkd3d_shader_quirk_info quirks;
         bool amdgpu_broken_clearvram;
         bool amdgpu_broken_null_tile_mapping;
         bool tiler_renderpass_barriers;

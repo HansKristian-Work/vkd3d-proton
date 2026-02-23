@@ -530,7 +530,7 @@ enum vkd3d_application_feature_override
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
 uint64_t vkd3d_config_flags;
-struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
+struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info_template;
 
 struct vkd3d_instance_application_meta
 {
@@ -732,17 +732,6 @@ static const struct vkd3d_shader_quirk_info re_quirks = {
     re_hashes, ARRAY_SIZE(re_hashes), 0,
 };
 
-/* Works around a weird GPU hang on RDNA4. See mesa issue https://gitlab.freedesktop.org/mesa/mesa/-/issues/14812.
- * The game doesn't seem to actually write useful subsampling here anyway. */
-static const struct vkd3d_shader_quirk_info re2_quirks = {
-    re_hashes, ARRAY_SIZE(re_hashes), VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE,
-};
-
-/* Works around the same weird GPU hang as above (RE2) but for RE8. */
-static const struct vkd3d_shader_quirk_info re8_quirks = {
-    re_hashes, ARRAY_SIZE(re_hashes), VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE,
-};
-
 /* There are lots of shaders which cause random flicker due to bad 16-bit behavior.
  * These shaders really need 32-bit it seems to render properly, so just do that. */
 static const struct vkd3d_shader_quirk_info re4_quirks = {
@@ -926,9 +915,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Rise of the Ronin (1340990) */
     { VKD3D_STRING_COMPARE_EXACT, "Ronin.exe", &team_ninja_quirks },
     /* Resident Evil 2 (883710) */
-    { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re2_quirks },
-    /* Resident Evil Village (1196590) */
-    { VKD3D_STRING_COMPARE_EXACT, "re8.exe", &re8_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re_quirks },
     /* Resident Evil 7 (418370) */
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe", &re_quirks },
     /* Resident Evil 4 (2050650) */
@@ -1018,7 +1005,7 @@ static void vkd3d_instance_apply_application_workarounds(void)
     {
         if (vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name))
         {
-            vkd3d_shader_quirk_info = *application_shader_quirks[i].info;
+            vkd3d_shader_quirk_info_template = *application_shader_quirks[i].info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
             break;
         }
@@ -1112,7 +1099,7 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
     {
         eq_test = overrides[i].negative ? 0 : overrides[i].config;
         if ((vkd3d_config_flags & overrides[i].config) == eq_test)
-            vkd3d_shader_quirk_info.global_quirks |= overrides[i].quirk;
+            vkd3d_shader_quirk_info_template.global_quirks |= overrides[i].quirk;
     }
 
     if (vkd3d_get_env_var("VKD3D_LIMIT_TESS_FACTORS", env, sizeof(env)))
@@ -1130,7 +1117,7 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
         };
 
         /* Override what any app profile did. */
-        vkd3d_shader_quirk_info.global_quirks &= ~(VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 |
+        vkd3d_shader_quirk_info_template.global_quirks &= ~(VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 |
                 VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8 |
                 VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12 |
                 VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16 |
@@ -1144,7 +1131,7 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
             if (level <= mapping[i].level)
             {
                 INFO("Limiting tessellation factors to %ux.\n", mapping[i].level);
-                vkd3d_shader_quirk_info.global_quirks |= mapping[i].quirk;
+                vkd3d_shader_quirk_info_template.global_quirks |= mapping[i].quirk;
                 break;
             }
         }
@@ -3531,6 +3518,9 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
 {
     uint32_t major, minor, patch;
 
+    /* Have a local copy of this since we may need to apply per-device workarounds in shader compiler. */
+    device->workarounds.quirks = vkd3d_shader_quirk_info_template;
+
     /* IMRs should not have this workaround enabled or else perf will drop.
      * Technically, this isn't really a workaround as much as a speed hack on IMR. */
     switch (device->device_info.vulkan_1_2_properties.driverID)
@@ -3617,6 +3607,19 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
          * It's unknown which kernel version introduced it and when it will be fixed.
          * Only seems to affect very specific content which does not really rely on the NULL page behavior anyway. */
         device->workarounds.amdgpu_broken_null_tile_mapping = true;
+
+        /* Works around a weird GPU hang on RDNA4.
+         * See mesa issue https://gitlab.freedesktop.org/mesa/mesa/-/issues/14812.
+         * Observed in both RE2 and RE8, so this is likely a uarch specific issue.
+         * The game doesn't seem to actually write useful subsampling here anyway.
+         * Use large 1D texture support as a sentinel for RDNA4.
+         * RDNA3 reports 16k. */
+        if (device->device_info.properties2.properties.limits.maxImageDimension1D >= 32768 &&
+            !vkd3d_debug_control_is_test_suite())
+        {
+            INFO("Nooping SV_ShadingRate on RDNA4 due to unknown HW quirk causing hangs.\n");
+            device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE;
+        }
     }
 }
 
@@ -9969,6 +9972,7 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
     /* This key needs to hold all state which could potentially affect shader compilation.
      * We may generate different SPIR-V based on the bindless state flags.
      * The bindless states are affected by various flags. */
+    const struct vkd3d_shader_quirk_info *quirk_info = &device->workarounds.quirks;
     unsigned int i;
     char env[64];
     uint64_t key;
@@ -10001,15 +10005,15 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
         key = hash_fnv1_iterate_u32(key, device->bindless_state.descriptor_buffer_sampler_size);
     }
 
-    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.global_quirks);
-    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.default_quirks);
-    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.num_hashes);
+    key = hash_fnv1_iterate_u32(key, quirk_info->global_quirks);
+    key = hash_fnv1_iterate_u32(key, quirk_info->default_quirks);
+    key = hash_fnv1_iterate_u32(key, quirk_info->num_hashes);
     /* If apps attempt to use the same shader cache with different executables, we might end up with different
      * quirk tables due to app workarounds, so hash that too. */
-    for (i = 0; i < vkd3d_shader_quirk_info.num_hashes; i++)
+    for (i = 0; i < quirk_info->num_hashes; i++)
     {
-        key = hash_fnv1_iterate_u64(key, vkd3d_shader_quirk_info.hashes[i].shader_hash);
-        key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.hashes[i].quirks);
+        key = hash_fnv1_iterate_u64(key, quirk_info->hashes[i].shader_hash);
+        key = hash_fnv1_iterate_u32(key, quirk_info->hashes[i].quirks);
     }
 
     for (i = 0; i < device->vk_info.shader_extension_count; i++)

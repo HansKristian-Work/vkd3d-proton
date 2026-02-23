@@ -8087,7 +8087,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
 
     descriptor_count = descriptor_heap->desc.NumDescriptors;
     if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
-            d3d12_descriptor_heap_require_padding_descriptors())
+            d3d12_descriptor_heap_require_padding_descriptors(device))
     {
         descriptor_count += VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
     }
@@ -9117,7 +9117,7 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     vkd3d_descriptor_debug_unregister_heap(descriptor_heap->cookie);
 }
 
-bool d3d12_descriptor_heap_require_padding_descriptors(void)
+bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *device)
 {
     uint32_t quirks;
     unsigned int i;
@@ -9127,9 +9127,9 @@ bool d3d12_descriptor_heap_require_padding_descriptors(void)
 
     /* If we use descriptor heap robustness, reserve a dummy descriptor we can use
      * as fake NULL descriptor. */
-    quirks = vkd3d_shader_quirk_info.default_quirks | vkd3d_shader_quirk_info.global_quirks;
-    for (i = 0; i < vkd3d_shader_quirk_info.num_hashes; i++)
-        quirks |= vkd3d_shader_quirk_info.hashes[i].quirks;
+    quirks = device->workarounds.quirks.default_quirks | device->workarounds.quirks.global_quirks;
+    for (i = 0; i < device->workarounds.quirks.num_hashes; i++)
+        quirks |= device->workarounds.quirks.hashes[i].quirks;
     return !!(quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS);
 }
 
