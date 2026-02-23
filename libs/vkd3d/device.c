@@ -10494,6 +10494,8 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         forced_singletons = vkd3d_get_env_var("ENABLE_VULKAN_RENDERDOC_CAPTURE", env, sizeof(env)) &&
                 strcmp(env, "1") == 0;
 
+        INFO("Forcing singleton device due to RenderDoc being enabled.\n");
+
         if (forced_singletons &&
             (create_info->device_factory_flags &
                 (D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_EXISTING_DEVICE |
@@ -10514,6 +10516,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
             if (reject_existing_device)
             {
                 pthread_mutex_unlock(&d3d12_device_map_mutex);
+                INFO("Attempting to create a new independent device, but we're blocked by RenderDoc.\n");
                 return DXGI_ERROR_ALREADY_EXISTS;
             }
 
@@ -10527,6 +10530,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         (create_info->device_factory_flags & D3D12_DEVICE_FACTORY_FLAG_DISALLOW_STORING_NEW_DEVICE_AS_SINGLETON))
     {
         pthread_mutex_unlock(&d3d12_device_map_mutex);
+        INFO("Attempting to create a new independent device, but we must store as singleton due to RenderDoc.\n");
         return DXGI_ERROR_UNSUPPORTED;
     }
 

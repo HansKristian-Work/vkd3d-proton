@@ -1065,6 +1065,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_factory_QueryInterface(ID3D12Devic
     if (IsEqualGUID(iid, &IID_ID3D12DeviceConfiguration) ||
         IsEqualGUID(iid, &IID_ID3D12DeviceConfiguration1))
     {
+        /* DeviceConfiguration shares the refcount with the base interface. */
         struct d3d12_device_factory *factory = impl_from_ID3D12DeviceFactory(iface);
         d3d12_device_factory_AddRef(iface);
         *object = &factory->ID3D12DeviceConfiguration1_iface;
