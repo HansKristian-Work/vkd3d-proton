@@ -490,6 +490,10 @@ vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
         }
     }
 
+#if VKD3D_FORCE_HEAP_ROBUSTNESS
+    quirks |= VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS;
+#endif
+
     if (compile_args && compile_args->quirks)
     {
         for (i = 0; i < compile_args->quirks->num_hashes; i++)

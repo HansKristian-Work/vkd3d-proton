@@ -510,7 +510,7 @@ void test_update_root_descriptors(void)
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    pipeline_state = create_compute_pipeline_state(device, root_signature, update_root_descriptors_dxbc);
+    pipeline_state = create_compute_pipeline_state(device, root_signature, update_root_descriptors_dxil);
 
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
@@ -4896,7 +4896,8 @@ void test_undefined_descriptor_heap_mismatch_types(void)
     reset_command_list(context.list, context.allocator);
 
     radv_32b_layout = is_radv_device(context.device) &&
-            is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_buffer") &&
+            (is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_buffer") ||
+             is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap")) &&
             ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) == 32;
 
     for (j = 0; j < TYPE_COUNT; j++)
@@ -6143,6 +6144,13 @@ void test_custom_border_color_limits(void)
         ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2,
                 ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heaps[i]));
         ID3D12GraphicsCommandList_Dispatch(context.list, 2048 / 64, 1, 1);
+
+#if 0
+        /* Temporary hack to make the test pass on first beta driver. */
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+#endif
     }
 
     transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -6164,7 +6172,7 @@ void test_custom_border_color_limits(void)
 
         /* NV will fail around 4k unique samplers. */
         if (is_nvidia_device(context.device))
-            is_todo = flat_index >= 4000;
+            is_todo = !is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap") && flat_index >= 4000;
         else if (is_amd_vulkan_device(context.device) ||
                 is_adreno_device(context.device) ||
                 is_mesa_intel_device(context.device))
