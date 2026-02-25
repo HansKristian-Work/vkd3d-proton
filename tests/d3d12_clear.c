@@ -21,6 +21,7 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
+#include <float.h>
 
 void test_clear_depth_stencil_view(void)
 {
@@ -409,6 +410,169 @@ void test_clear_render_target_view(void)
     ID3D12Resource_Release(resource);
     ID3D12DescriptorHeap_Release(rtv_heap);
     destroy_test_context(&context);
+}
+
+void test_clear_view_extreme_values(bool uav)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = {0};
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = {0};
+    ID3D12DescriptorHeap *gpu_desc_heap = NULL;
+    ID3D12DescriptorHeap *cpu_desc_heap = NULL;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    unsigned int i;
+
+    /* NaN turns into NaN on clears. Skip testing it since there are multiple possible NaNs.
+     * NVIDIA Windows is extremely broken. */
+    const struct
+    {
+        float color[4];
+        DXGI_FORMAT format;
+        uint32_t result;
+        bool is_bug_nv_windows;
+    }
+    tests[] =
+    {
+        {{FLT_MAX, -FLT_MAX}, DXGI_FORMAT_R16G16_FLOAT, 0xfbff7bff},
+        {{INFINITY, -INFINITY}, DXGI_FORMAT_R16G16_FLOAT, 0xfc007c00},
+        {{FLT_MAX, -FLT_MAX, FLT_MAX}, DXGI_FORMAT_R9G9B9E5_SHAREDEXP, (31u << 27) | 0x1ff | (0x1ff << 18)},
+        {{INFINITY, -INFINITY}, DXGI_FORMAT_R9G9B9E5_SHAREDEXP, 0xf80001ff},
+        {{FLT_MAX, -FLT_MAX, FLT_MAX}, DXGI_FORMAT_R11G11B10_FLOAT, 0xf7c007bf},
+        {{INFINITY, -INFINITY, INFINITY /*NAN*/}, DXGI_FORMAT_R11G11B10_FLOAT, 0xf80007c0},
+
+#define NUM_UAV_TESTS 6 /* ClearUAVFloat doesn't work on UINT views. */
+
+        /* R32_UINT */
+        {{16.0f * 1024.0f * 1024.0f + 2.0f}, DXGI_FORMAT_R32_UINT, 0x01000002},
+        {{(float)(1ull << 32)}, DXGI_FORMAT_R32_UINT, 0xffffffff, true},
+        {{FLT_MAX}, DXGI_FORMAT_R32_UINT, 0xffffffff, true},
+        {{INFINITY}, DXGI_FORMAT_R32_UINT, 0xffffffff},
+        {{NAN}, DXGI_FORMAT_R32_UINT, 0},
+
+        /* R16_UINT */
+        {{16.0f * 1024.0f * 1024.0f + 2.0f}, DXGI_FORMAT_R16G16_UINT, 0xffff},
+        {{(float)(1ull << 32), -1000000.0f}, DXGI_FORMAT_R16G16_UINT, 0xffff, true},
+        {{FLT_MAX, -FLT_MAX}, DXGI_FORMAT_R16G16_UINT, 0xffff, true},
+        {{INFINITY, -INFINITY}, DXGI_FORMAT_R16G16_UINT, 0xffff},
+        {{NAN}, DXGI_FORMAT_R16G16_UINT, 0},
+
+        /* R8_UINT */
+        {{16.0f * 1024.0f * 1024.0f + 2.0f}, DXGI_FORMAT_R8G8B8A8_UINT, 0xff},
+        {{(float)(1ull << 32), -1000000.0f}, DXGI_FORMAT_R8G8B8A8_UINT, 0xff, true},
+        {{FLT_MAX, -FLT_MAX, INFINITY, -INFINITY}, DXGI_FORMAT_R8G8B8A8_UINT, 0xff00ff, true},
+        {{NAN}, DXGI_FORMAT_R8G8B8A8_UINT, 0},
+
+        /* R32_SINT */
+        {{-16.0f * 1024.0f * 1024.0f + -2.0f}, DXGI_FORMAT_R32_SINT, 0xfefffffe},
+        {{FLT_MAX}, DXGI_FORMAT_R32_SINT, INT32_MAX, true},
+        {{-FLT_MAX}, DXGI_FORMAT_R32_SINT, INT32_MIN},
+        {{INFINITY}, DXGI_FORMAT_R32_SINT, INT32_MAX},
+        {{-INFINITY}, DXGI_FORMAT_R32_SINT, INT32_MIN},
+        {{NAN}, DXGI_FORMAT_R32_SINT, 0},
+
+        /* R16_SINT */
+        {{-16.0f * 1024.0f * 1024.0f + -2.0f}, DXGI_FORMAT_R16G16_SINT, 0x8000},
+        {{FLT_MAX, -FLT_MAX}, DXGI_FORMAT_R16G16_SINT, 0x80007fff, true},
+        {{INFINITY, -INFINITY}, DXGI_FORMAT_R16G16_SINT, 0x80007fff},
+        {{NAN}, DXGI_FORMAT_R16G16_SINT, 0},
+
+        /* R8_SINT */
+        {{-16.0f * 1024.0f * 1024.0f + -2.0f}, DXGI_FORMAT_R8G8B8A8_SINT, 0x80},
+        {{FLT_MAX, -FLT_MAX, INFINITY, -INFINITY}, DXGI_FORMAT_R8G8B8A8_SINT, 0x807f807f, true},
+        {{NAN}, DXGI_FORMAT_R8G8B8A8_SINT, 0},
+
+        /* NaN on UNORM formats */
+        {{NAN, NAN, NAN, NAN}, DXGI_FORMAT_R8G8B8A8_UNORM, 0},
+        {{NAN, NAN, NAN, NAN}, DXGI_FORMAT_R16G16_UNORM, 0},
+        {{NAN, NAN, NAN, NAN}, DXGI_FORMAT_R8G8B8A8_SNORM, 0},
+        {{NAN, NAN, NAN, NAN}, DXGI_FORMAT_R16G16_SNORM, 0},
+
+#if 0
+        {{NAN}, DXGI_FORMAT_R16G16_FLOAT, 0x7fff},
+#endif
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    if (uav)
+    {
+        gpu_desc_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+        gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(gpu_desc_heap);
+        cpu_desc_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+        cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_desc_heap);
+    }
+    else
+    {
+        cpu_desc_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+        cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_desc_heap);
+    }
+
+    for (i = 0; i < (uav ? NUM_UAV_TESTS : ARRAY_SIZE(tests)); ++i)
+    {
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support = { tests[i].format };
+        vkd3d_test_set_context("Test %u", i);
+
+        if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_SUPPORT,
+            &format_support, sizeof(format_support))))
+            continue;
+
+        if ((uav && (format_support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE) == 0) ||
+            (!uav && (format_support.Support1 & D3D12_FORMAT_SUPPORT1_RENDER_TARGET) == 0))
+        {
+            skip("Format #%x is unsupported, skipping.\n", tests[i].format);
+            continue;
+        }
+
+        resource = create_default_texture2d(device, 64, 64, 1, 1, tests[i].format,
+            uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            uav ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS : D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        if (uav)
+        {
+            ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, NULL,
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_desc_heap));
+            ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, NULL,
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_desc_heap));
+            ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list, gpu_handle, cpu_handle, resource, tests[i].color, 0, NULL);
+        }
+        else
+        {
+            ID3D12Device_CreateRenderTargetView(device, resource, NULL, cpu_handle);
+            ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, cpu_handle, tests[i].color, 0, NULL);
+        }
+        transition_resource_state(command_list, resource,
+                uav ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS : D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        bug_if(tests[i].is_bug_nv_windows && is_nvidia_windows_device(context.device))
+            check_sub_resource_uint(resource, 0, queue, command_list, tests[i].result, 0);
+        ID3D12Resource_Release(resource);
+        reset_command_list(command_list, context.allocator);
+    }
+
+    vkd3d_test_set_context(NULL);
+    if (uav)
+        ID3D12DescriptorHeap_Release(gpu_desc_heap);
+    ID3D12DescriptorHeap_Release(cpu_desc_heap);
+    destroy_test_context(&context);
+}
+
+void test_clear_render_target_view_extreme_values(void)
+{
+    test_clear_view_extreme_values(false);
+}
+
+void test_clear_uav_extreme_values(void)
+{
+    test_clear_view_extreme_values(true);
 }
 
 void test_clear_unordered_access_view_buffer(void)

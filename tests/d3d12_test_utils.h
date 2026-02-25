@@ -418,6 +418,8 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R16G16_FLOAT:
         case DXGI_FORMAT_R16G16_UNORM:
         case DXGI_FORMAT_R16G16_UINT:
+        case DXGI_FORMAT_R16G16_SNORM:
+        case DXGI_FORMAT_R16G16_SINT:
         case DXGI_FORMAT_R11G11B10_FLOAT:
         case DXGI_FORMAT_R10G10B10A2_UINT:
         case DXGI_FORMAT_R10G10B10A2_UNORM:

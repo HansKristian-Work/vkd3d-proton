@@ -71,6 +71,8 @@ decl_test(test_fence_signal_order_deadlock_stress_shared);
 decl_test(test_fence_signal_availability_shared);
 decl_test(test_clear_depth_stencil_view);
 decl_test(test_clear_render_target_view);
+decl_test(test_clear_render_target_view_extreme_values);
+decl_test(test_clear_uav_extreme_values);
 decl_test(test_clear_unordered_access_view_buffer);
 decl_test(test_clear_unordered_access_view_image);
 decl_test(test_set_render_targets);
