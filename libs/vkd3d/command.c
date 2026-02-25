@@ -13800,12 +13800,40 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
             clear_aspects, &clear_value, rect_count, rects);
 }
 
+static uint32_t clamp_float_to_uint32(float value, uint32_t max_value)
+{
+    /* NaN-aware */
+    if (!(value >= 0.0f))
+        value = 0.0f;
+
+    /* Handle values greater than UINT32_MAX. */
+    if (value >= (float)max_value)
+        return max_value;
+
+    return (uint32_t)value;
+}
+
+static int32_t clamp_float_to_sint32(float value, int32_t min_value, int32_t max_value)
+{
+    if (isnan(value))
+        value = 0.0f;
+
+    /* Handle values greater than UINT32_MAX. */
+    if (value >= (float)max_value)
+        return max_value;
+    else if (value <= (float)min_value)
+        return min_value;
+    else
+        return (int32_t)value;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_command_list_iface *iface,
         D3D12_CPU_DESCRIPTOR_HANDLE rtv, const FLOAT color[4], UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct d3d12_rtv_desc *rtv_desc = d3d12_rtv_desc_from_cpu_handle(rtv);
     VkClearValue clear_value;
+    int i;
 
     TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
@@ -13816,17 +13844,66 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
 
     if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_UINT)
     {
-        clear_value.color.uint32[0] = max(0, color[0]);
-        clear_value.color.uint32[1] = max(0, color[1]);
-        clear_value.color.uint32[2] = max(0, color[2]);
-        clear_value.color.uint32[3] = max(0, color[3]);
+        /* Too ad-hoc to add this to generic format struct. */
+        uint32_t max_value;
+        switch (rtv_desc->format->vk_format)
+        {
+            case VK_FORMAT_R8_UINT:
+            case VK_FORMAT_R8G8_UINT:
+            case VK_FORMAT_R8G8B8_UINT:
+            case VK_FORMAT_R8G8B8A8_UINT:
+                max_value = UINT8_MAX;
+                break;
+
+            case VK_FORMAT_R16_UINT:
+            case VK_FORMAT_R16G16_UINT:
+            case VK_FORMAT_R16G16B16_UINT:
+            case VK_FORMAT_R16G16B16A16_UINT:
+                max_value = UINT16_MAX;
+                break;
+
+            default:
+                max_value = UINT32_MAX;
+                break;
+        }
+
+        /* Ensure that we handle overflow and NaN correctly. */
+        for (i = 0; i < 4; i++)
+            clear_value.color.uint32[i] = clamp_float_to_uint32(color[i], max_value);
     }
     else if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_SINT)
     {
-        clear_value.color.int32[0] = color[0];
-        clear_value.color.int32[1] = color[1];
-        clear_value.color.int32[2] = color[2];
-        clear_value.color.int32[3] = color[3];
+        /* Too ad-hoc to add this to generic format struct. */
+        int32_t max_value;
+        int32_t min_value;
+
+        switch (rtv_desc->format->vk_format)
+        {
+            case VK_FORMAT_R8_SINT:
+            case VK_FORMAT_R8G8_SINT:
+            case VK_FORMAT_R8G8B8_SINT:
+            case VK_FORMAT_R8G8B8A8_SINT:
+                max_value = INT8_MAX;
+                min_value = INT8_MIN;
+                break;
+
+            case VK_FORMAT_R16_SINT:
+            case VK_FORMAT_R16G16_SINT:
+            case VK_FORMAT_R16G16B16_SINT:
+            case VK_FORMAT_R16G16B16A16_SINT:
+                max_value = INT16_MAX;
+                min_value = INT16_MIN;
+                break;
+
+            default:
+                max_value = INT32_MAX;
+                min_value = INT32_MIN;
+                break;
+        }
+
+        /* Ensure that we handle overflow and NaN correctly. */
+        for (i = 0; i < 4; i++)
+            clear_value.color.int32[i] = clamp_float_to_sint32(color[i], min_value, max_value);
     }
     else
     {
