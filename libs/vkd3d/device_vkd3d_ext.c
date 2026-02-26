@@ -694,7 +694,32 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_UnlockVulkanQueue(d3d
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12DXVKInteropDevice2Vtbl d3d12_dxvk_interop_device_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanHeapInfo(d3d12_dxvk_interop_device_iface *iface,
+    ID3D12Heap *heap, UINT64 *vk_memory, UINT64 *heap_offset, UINT32 *vk_memory_type)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
+    struct d3d12_heap *heap_impl;
+
+    TRACE("iface %p, heap %p, vk_memory %p, heap_offset %p, vk_memory_type %p.\n",
+        iface, heap, vk_memory, heap_offset, vk_memory_type);
+
+    if (!heap || !vk_memory || !heap_offset || !vk_memory_type)
+        return E_INVALIDARG;
+
+    heap_impl = impl_from_ID3D12Heap(heap);
+    if (heap_impl->device != device)
+        return E_INVALIDARG;
+
+    if (heap_impl->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
+        return E_FAIL;
+
+    *vk_memory = (UINT64)heap_impl->allocation.device_allocation.vk_memory;
+    *heap_offset = (UINT64)heap_impl->allocation.offset;
+    *vk_memory_type = heap_impl->allocation.device_allocation.vk_memory_type;
+    return S_OK;
+}
+
+CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_dxvk_interop_device_QueryInterface,
@@ -723,6 +748,9 @@ CONST_VTBL struct ID3D12DXVKInteropDevice2Vtbl d3d12_dxvk_interop_device_vtbl =
     /* ID3D12DXVKInteropDevice2 methods */
     d3d12_dxvk_interop_device_LockVulkanQueue,
     d3d12_dxvk_interop_device_UnlockVulkanQueue,
+
+    /* ID3D12DXVKInteropDevice3 methods */
+    d3d12_dxvk_interop_device_GetVulkanHeapInfo,
 };
 
 static inline struct d3d12_device *d3d12_device_from_ID3DLowLatencyDevice(d3d_low_latency_device_iface *iface)
