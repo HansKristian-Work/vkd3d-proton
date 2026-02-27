@@ -7102,6 +7102,15 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     if (list->state->graphics.multiview.dynamic_mask && list->dynamic_state.view_mask == 0)
         return false;
 
+    if (list->dynamic_state.vk_primitive_topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
+        (list->state->graphics.stage_flags & (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)) ==
+        VK_SHADER_STAGE_VERTEX_BIT)
+    {
+        /* Topology should be ignored for mesh shaders. */
+        WARN("Attempting to draw with PATCH list on a non-tessellated PSO, skipping.\n");
+        return false;
+    }
+
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
     if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
             &list->dynamic_state, list->dsv.format, &new_active_flags)))
