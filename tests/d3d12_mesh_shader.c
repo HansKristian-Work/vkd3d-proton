@@ -394,6 +394,8 @@ void test_mesh_shader_rendering(void)
     ID3D12GraphicsCommandList6_SetPipelineState(command_list6, pipeline_state);
     ID3D12GraphicsCommandList6_RSSetViewports(command_list6, 1, &context.viewport);
     ID3D12GraphicsCommandList6_RSSetScissorRects(command_list6, 1, &context.scissor_rect);
+    /* This should be ignored. */
+    ID3D12GraphicsCommandList6_IASetPrimitiveTopology(command_list6, D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST);
     ID3D12GraphicsCommandList6_DispatchMesh(command_list6, 1, 1, 1);
     transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(context.render_target, 0, context.queue, context.list, 0xff00ff00, 0);
