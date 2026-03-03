@@ -598,8 +598,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* Red Dead Redemption (2668510). Inconsistent performance with ReBAR at cutscenes of the game. */
     { VKD3D_STRING_COMPARE_EXACT, "RDR.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
-    /* Horizon Forbidden West (2420110). Work around RADV 23.3.1 that ships on stableOS at time of making WAR. */
-    { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS, 0 },
     /* Starfield (1716740) */
     { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe",
             VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
@@ -903,6 +901,15 @@ static const struct vkd3d_shader_quirk_info rottr_quirks = {
     rottr_hashes, ARRAY_SIZE(rottr_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash hfw_hashes[] = {
+    /* Classic case of a clear CS that is followed up by overwriting it without proper barrier. */
+    { 0x548a3de5dc3828ef, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
+};
+
+static const struct vkd3d_shader_quirk_info hfw_quirks = {
+    hfw_hashes, ARRAY_SIZE(hfw_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -973,6 +980,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", &control_quirks },
 	/* Rise of the Tomb Raider */
     { VKD3D_STRING_COMPARE_EXACT, "ROTTR.exe", &rottr_quirks },
+    /* Horizon Forbidden West (2420110). */
+    { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", &hfw_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
