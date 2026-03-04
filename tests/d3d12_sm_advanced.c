@@ -4823,7 +4823,7 @@ void test_sm67_helper_lane_only_wave_ops(void)
 
 /* Crude implementation of FLOAT8E4M3FN: https://asawicki.info/articles/fp8_tables.php. Just here to assist in writing tests. */
 
-static uint8_t float_to_fp8(float v)
+static uint8_t float_to_fp8(float v, bool saturate)
 {
     union
     {
@@ -4832,7 +4832,17 @@ static uint8_t float_to_fp8(float v)
     } u;
     int i, s, e, m;
 
-    /* There is no inf. Clamp to range. Ignore NaN. */
+    /* Out of range is NAN unless saturated. */
+    if (!saturate)
+    {
+        /* Matches RDNA4 HW behavior. Probably the point where we start rounding to 0x7f instead of 0x7e. */
+        if (v >= 465.0f)
+            return 0x7f;
+        else if (v <= -465.0f)
+            return 0xff;
+    }
+
+    /* There is no inf. Clamp to range. */
     if (v < -448.0f)
         v = -448.0f;
     else if (v > 448.0f)
@@ -4886,6 +4896,69 @@ static uint8_t float_to_fp8(float v)
     }
 }
 
+static uint8_t float_to_bf8(float v, bool saturate)
+{
+    union
+    {
+        float f32;
+        int32_t s32;
+    } u;
+    int i, s, e, m;
+
+    /* Matches RDNA4 HW behavior. Probably the point where we start rounding to 0x7f instead of 0x7e. */
+    if (v >= 61440.0f)
+        return saturate ? 0x7b : 0x7c;
+    else if (v <= -61440.0f)
+        return saturate ? 0xfb : 0xfc;
+
+    u.f32 = v;
+    i = u.s32;
+    s = (i >> 24) & 0x80;
+    e = ((i >> 23) & 0x000000ff) - (127 - 15);
+    m = i & 0x007fffff;
+
+    if (e <= 0)
+    {
+        int round_up;
+        int shamt;
+
+        if (e < -2)
+            return (uint8_t)s;
+
+        shamt = 1 - e;
+
+        round_up = m & ((1 << shamt) - 1);
+        m = (m | 0x800000) >> shamt;
+        round_up |= m & 0x2fffff;
+
+        if ((m & 0x100000) && round_up)
+            m += 0x200000;
+
+        m >>= 21;
+
+        return (uint8_t)(s | m);
+    }
+    else
+    {
+        int round_up;
+
+        round_up = m & 0x2fffff;
+
+        if ((m & 0x100000) && round_up)
+        {
+            m += 0x200000;
+
+            if (m & 0x800000)
+            {
+                m = 0;
+                e += 1;
+            }
+        }
+
+        return (uint16_t)(s | (e << 2) | (m >> 21));
+    }
+}
+
 static float fp8_to_float(uint8_t u8_value)
 {
     int s, e, m, fp16;
@@ -4898,9 +4971,16 @@ static float fp8_to_float(uint8_t u8_value)
     return half_to_float(fp16) * 256.0f;
 }
 
+static float bf8_to_float(uint8_t u8_value)
+{
+    uint16_t fp16 = u8_value;
+    fp16 <<= 8;
+    return half_to_float(fp16);
+}
+
 static float quant_fp8(float value)
 {
-    return fp8_to_float(float_to_fp8(value));
+    return fp8_to_float(float_to_fp8(value, true));
 }
 
 static float quant_fp16(float value)
@@ -5076,8 +5156,8 @@ void test_wmma_matmul(void)
             else if (type == TYPE_FP32) { memcpy(input_data + offset + sizeof(float) * (i * (elem_stride) + j), &(value), sizeof(float)); } \
             else if (type == TYPE_FP16 && !transpose) { uint16_t hv = float_to_half(value); memcpy(input_data + offset + sizeof(uint16_t) * (j * (elem_stride) + i), &hv, sizeof(uint16_t)); } \
             else if (type == TYPE_FP16) { uint16_t hv = float_to_half(value); memcpy(input_data + offset + sizeof(uint16_t) * (i * (elem_stride) + j), &(hv), sizeof(uint16_t)); } \
-            else if (type == TYPE_FP8 && !transpose) { uint8_t hv = float_to_fp8(value); memcpy(input_data + offset + sizeof(uint8_t) * (j * (elem_stride) + i), &hv, sizeof(uint8_t)); } \
-            else { uint8_t hv = float_to_fp8(value); memcpy(input_data + offset + sizeof(uint8_t) * (i * (elem_stride) + j), &(hv), sizeof(uint8_t)); }
+            else if (type == TYPE_FP8 && !transpose) { uint8_t hv = float_to_fp8(value, true); memcpy(input_data + offset + sizeof(uint8_t) * (j * (elem_stride) + i), &hv, sizeof(uint8_t)); } \
+            else { uint8_t hv = float_to_fp8(value, true); memcpy(input_data + offset + sizeof(uint8_t) * (i * (elem_stride) + j), &(hv), sizeof(uint8_t)); }
 
                 WRITE_MATRIX_VALUE(tests[test_index].a.offset, tests[test_index].a.element_stride, A[j][i], tests[test_index].a.type, tests[test_index].a.transpose);
                 WRITE_MATRIX_VALUE(tests[test_index].b.offset, tests[test_index].b.element_stride, B[j][i], tests[test_index].b.type, tests[test_index].b.transpose);
@@ -5259,7 +5339,7 @@ void test_wmma_multi_matmul(void)
 
             /* Ensure we're not just testing inf clamped values. */
             ok(fabsf(res) <= 448.0f, "res %f is out of range.\n", res);
-            yz_reference[j][i] = float_to_fp8(res);
+            yz_reference[j][i] = float_to_fp8(res, true);
 
             /* If we don't support FP8 natively, we can just quant to FP16 instead of FP8. */
             yz_reference_fp16_quant[j][i] = quant_fp16(res);
@@ -5285,8 +5365,8 @@ void test_wmma_multi_matmul(void)
 
             /* Ensure we're not just testing inf clamped values. */
             ok(fabsf(res) <= 448.0f, "res %f is out of range.\n", res);
-            xyz_reference[j][i] = float_to_fp8(res);
-            xyz_reference_fp16_quant[j][i] = float_to_fp8(quant_fp16(res_fp16_quant));
+            xyz_reference[j][i] = float_to_fp8(res, true);
+            xyz_reference_fp16_quant[j][i] = float_to_fp8(quant_fp16(res_fp16_quant), true);
         }
     }
 
@@ -5453,8 +5533,8 @@ void test_wmma_fp32_fp8_conversions(void)
         uint8_t expected_pos, expected_neg;
         value_pos = get_readback_uint(&rb, 2 * i, 0, 0);
         value_neg = get_readback_uint(&rb, 2 * i + 1, 0, 0);
-        expected_pos = float_to_fp8(half_to_float(i));
-        expected_neg = float_to_fp8(-half_to_float(i));
+        expected_pos = float_to_fp8(half_to_float(i), true);
+        expected_neg = float_to_fp8(-half_to_float(i), true);
 
         ok(value_pos == expected_pos, "+FP32 -> FP8 [0x%x (%f / 512.0)]: Expected 0x%x, got 0x%x\n", i, half_to_float(i) * 512.0f, expected_pos, value_pos);
         ok(value_neg == expected_neg, "-FP32 -> FP8 [0x%x (%f / 512.0)]: Expected 0x%x, got 0x%x\n", i | 0x8000, -half_to_float(i) * 512.0f, expected_neg, value_neg);
@@ -6374,6 +6454,156 @@ void test_wmma_element_wise(void)
             value = get_readback_float(&rb, 256 * (j * 5 + 4) + i, 0);
             ok(value == expected_times || value == 0.0f, "%s TIMES Value %u: Expected %f, got %f\n", tag, i, expected_times, value);
         }
+    }
+
+    reset_command_list(context.list, context.allocator);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    release_resource_readback(&rb);
+
+    destroy_test_context(&context);
+}
+
+void test_ags_float8_conversion(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    uint32_t input_data[512 * 4];
+    struct resource_readback rb;
+    struct test_context context;
+    float input_floats[512];
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_ags_float8_conversion.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!is_vkd3d_proton_device(context.device) && !is_amd_windows_device(context.device))
+    {
+        skip("WMMA tests can only work on AMD due to AGS.\n");
+        /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].Descriptor.RegisterSpace = 0x7fff0ade;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_wmma_pso(context.device, context.root_signature, cs_ags_float8_conversion_dxil);
+    todo ok(context.pipeline_state, "Failed to create PSO.\n");
+    if (!context.pipeline_state)
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    output = create_default_buffer(context.device, 2 * sizeof(input_data), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    /* Test BF8 denorm rounding. */
+    for (i = 0; i < 8; i++)
+        input_floats[i] = half_to_float(i << 7);
+
+    for (i = 8; i < 512; i++)
+    {
+        float scaled = i;
+        scaled /= 8.0f;
+        input_floats[i] = scaled * scaled * scaled;
+    }
+
+    /* Test inf/nan behavior. */
+    input_floats[507] = INFINITY;
+    input_floats[508] = 465.0f;
+    input_floats[509] = 465.1f;
+    input_floats[510] = 61439.0f;
+    input_floats[511] = 61440.0f;
+
+    for (i = 0; i < 512; i++)
+    {
+        float fp32_pos_value = input_floats[i];
+        float fp32_neg_value = -fp32_pos_value;
+        input_data[4 * i + 0] = i;
+        input_data[4 * i + 1] = i;
+        memcpy(&input_data[4 * i + 2], &fp32_pos_value, sizeof(float));
+        memcpy(&input_data[4 * i + 3], &fp32_neg_value, sizeof(float));
+    }
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 512; i++)
+    {
+        uint32_t fp32_to_fp8_sat_value, fp32_to_bf8_sat_value;
+        float fp8_to_fp32_sat_value, bf8_to_fp32_sat_value;
+        uint32_t fp32_to_fp8_value, fp32_to_bf8_value;
+        float fp8_to_fp32_value, bf8_to_fp32_value;
+        float pos_fp32 = input_floats[i];
+        float neg_fp32 = -pos_fp32;
+
+        fp8_to_fp32_value = get_readback_float(&rb, 8 * i + 0, 0);
+        bf8_to_fp32_value = get_readback_float(&rb, 8 * i + 1, 0);
+        fp32_to_fp8_value = get_readback_uint(&rb, 8 * i + 2, 0, 0);
+        fp32_to_bf8_value = get_readback_uint(&rb, 8 * i + 3, 0, 0);
+
+        fp8_to_fp32_sat_value = get_readback_float(&rb, 8 * i + 4, 0);
+        bf8_to_fp32_sat_value = get_readback_float(&rb, 8 * i + 5, 0);
+        fp32_to_fp8_sat_value = get_readback_uint(&rb, 8 * i + 6, 0, 0);
+        fp32_to_bf8_sat_value = get_readback_uint(&rb, 8 * i + 7, 0, 0);
+
+        if ((i & 0x7f) == 0x7f)
+        {
+            ok(isnan(fp8_to_fp32_value), "value %u: expected nan, got %f\n", fp8_to_fp32_value);
+            ok(isnan(fp8_to_fp32_sat_value), "value %u: expected nan, got %f\n", fp8_to_fp32_sat_value);
+        }
+        else
+        {
+            ok(fp8_to_fp32_value == fp8_to_float(i & 0xff), "value %u: expected %f, got %f\n",
+                i, fp8_to_float(i & 0xff), fp8_to_fp32_value);
+            ok(fp8_to_fp32_sat_value == fp8_to_float(i & 0xff), "value %u: expected %f, got %f\n",
+                i, fp8_to_float(i & 0xff), fp8_to_fp32_sat_value);
+        }
+
+        if ((i & 0x7f) > 0x7c)
+        {
+            ok(isnan(bf8_to_fp32_value), "value %u: expected nan, got %f\n", bf8_to_fp32_value);
+            ok(isnan(bf8_to_fp32_sat_value), "value %u: expected nan, got %f\n", bf8_to_fp32_sat_value);
+        }
+        else
+        {
+            ok(bf8_to_fp32_value == bf8_to_float(i & 0xff), "value %u: expected %f, got %f\n",
+                i, bf8_to_float(i & 0xff), bf8_to_fp32_value);
+            ok(bf8_to_fp32_sat_value == bf8_to_float(i & 0xff), "value %u: expected %f, got %f\n",
+                i, bf8_to_float(i & 0xff), bf8_to_fp32_sat_value);
+        }
+
+        ok(fp32_to_fp8_value == float_to_fp8(pos_fp32, false), "value %u (%f): expected #%x, got #%x\n",
+                i, pos_fp32, float_to_fp8(pos_fp32, false), fp32_to_fp8_value);
+        ok(fp32_to_fp8_sat_value == float_to_fp8(pos_fp32, true), "value %u (%f): expected #%x, got #%x\n",
+                i, pos_fp32, float_to_fp8(pos_fp32, true), fp32_to_fp8_sat_value);
+
+        ok(fp32_to_bf8_value == float_to_bf8(neg_fp32, false), "value %u (%f): expected #%x, got #%x\n",
+                i, neg_fp32, float_to_bf8(neg_fp32, false), fp32_to_bf8_value);
+        ok(fp32_to_bf8_sat_value == float_to_bf8(neg_fp32, true), "value %u (%f): expected #%x, got #%x\n",
+                i, neg_fp32, float_to_bf8(neg_fp32, true), fp32_to_bf8_sat_value);
     }
 
     reset_command_list(context.list, context.allocator);

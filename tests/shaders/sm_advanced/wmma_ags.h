@@ -149,6 +149,19 @@ static const uint WaveMatrixModifier_MatrixTileMask      = 0x1;
 static const uint WaveMatrixModifier_IndexMemTypeShift   = 14;
 static const uint WaveMatrixModifier_IndexMemTypeMask    = 0x3;
 
+enum Float8CvtOp
+{
+	Float8CvtOp_FP8_2_F32 = 0x0,
+	Float8CvtOp_BF8_2_F32 = 0x1,
+	Float8CvtOp_F32_2_FP8 = 0x2,
+	Float8CvtOp_F32_2_BF8 = 0x3,
+};
+
+static const int Float8Conversion_CvtOpShift = 0;
+static const int Float8Conversion_CvtOpMask  = 0xff;
+static const int Float8Conversion_SatShift   = 8;
+static const int Float8Conversion_SatMask    = 0x1;
+
 // For wave32 and FP32, we need up to 8 values to store a 16x16 matrix.
 struct WMMA_Matrix
 {
@@ -180,6 +193,48 @@ uint MatrixIO(uint channel, uint reg, uint type)
 	return (channel << WaveMatrixInOut_ChannelShift) |
 		(reg << WaveMatrixInOut_SecondRegFlagShift) |
 		(type << WaveMatrixInOut_MatRegTypeFlagShift);
+}
+
+uint Float32ToFloat8(float v)
+{
+	return AGSMagic(Code(Float8Conversion, 0, Float8CvtOp_F32_2_FP8), asuint(v), 0);
+}
+
+uint Float32ToFloat8Sat(float v)
+{
+	return AGSMagic(Code(Float8Conversion, 0, Float8CvtOp_F32_2_FP8 | (1u << Float8Conversion_SatShift)), asuint(v), 0);
+}
+
+uint Float32ToBFloat8(float v)
+{
+	return AGSMagic(Code(Float8Conversion, 0, Float8CvtOp_F32_2_BF8), asuint(v), 0);
+}
+
+uint Float32ToBFloat8Sat(float v)
+{
+	return AGSMagic(Code(Float8Conversion, 0, Float8CvtOp_F32_2_BF8 | (1u << Float8Conversion_SatShift)), asuint(v), 0);
+}
+
+float Float8ToFloat32(uint v)
+{
+	return asfloat(AGSMagic(Code(Float8Conversion, 0, Float8CvtOp_FP8_2_F32), v, 0));
+}
+
+// Makes no sense, but for testing purposes.
+float Float8ToFloat32Sat(uint v)
+{
+	return asfloat(AGSMagic(Code(Float8Conversion, 0, Float8CvtOp_FP8_2_F32 | (1u << Float8Conversion_SatShift)), v, 0));
+}
+
+float BFloat8ToFloat32(uint v)
+{
+	return asfloat(AGSMagic(Code(Float8Conversion, 0, Float8CvtOp_BF8_2_F32), v, 0));
+}
+
+// Makes no sense, but for testing purposes.
+float BFloat8ToFloat32Sat(uint v)
+{
+	return asfloat(AGSMagic(Code(Float8Conversion, 0, Float8CvtOp_BF8_2_F32 | (1u << Float8Conversion_SatShift)), v, 0));
 }
 
 WMMA_Matrix WMMA_MatMulAcc(WaveMatrixOpcode op, WMMA_Matrix A, WMMA_Matrix B, WMMA_Matrix C)
