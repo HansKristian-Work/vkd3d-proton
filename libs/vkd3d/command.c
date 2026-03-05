@@ -9317,7 +9317,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch,
         struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
         struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
-        const VkImageCopy2 *region, bool writes_full_subresource, bool overlapping_subresource)
+        const VkImageCopy2 *region, bool overlapping_subresource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
@@ -9898,7 +9898,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
         d3d12_command_list_copy_image(list, batch, dst_resource, info->dst_format,
-            src_resource, info->src_format, &info->copy.image, info->writes_full_subresource,
+            src_resource, info->src_format, &info->copy.image,
             info->overlapping_subresource);
     }
 }
@@ -10156,7 +10156,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
                 d3d12_command_list_barrier_batch_end(list, &barriers);
                 d3d12_command_list_barrier_batch_init(&barriers);
                 d3d12_command_list_copy_image(list, &barriers, dst_resource, dst_resource->format,
-                        src_resource, src_resource->format, &vk_image_copy, writes_full_subresource, false);
+                        src_resource, src_resource->format, &vk_image_copy, false);
 
                 if (barriers.image_barrier_count || barriers.vk_memory_barrier.srcStageMask ||
                         barriers.vk_memory_barrier.dstStageMask)
@@ -17673,7 +17673,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
         d3d12_command_list_barrier_batch_init(&barriers);
         d3d12_command_list_copy_image(list, &barriers,
             dst_resource, dst_resource->format, src_resource,
-            src_resource->format, &image_copy, writes_full_subresource,
+            src_resource->format, &image_copy,
             overlapping_subresource);
 
         if (barriers.image_barrier_count == 0 &&
