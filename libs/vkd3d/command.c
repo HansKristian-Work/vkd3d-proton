@@ -9299,7 +9299,11 @@ static void d3d12_command_list_copy_image_transition_images(struct d3d12_command
         if (writes_full_subresource)
             old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
         else if (vk_availability_stages == VK_PIPELINE_STAGE_2_RESOLVE_BIT)
-            old_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        {
+            /* Overlapped resource needs RESOLVE_SOURCE, not RESOLVE_DEST (!!?) */
+            old_layout = d3d12_resource_pick_layout(dst_resource,
+                overlapping_subresource ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        }
         else
             old_layout = dst_resource->common_layout;
 
@@ -9549,7 +9553,10 @@ cleanup:
     {
         VkImageLayout new_layout;
         if (outside_vk_stages == VK_PIPELINE_STAGE_2_RESOLVE_BIT)
-            new_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        {
+            new_layout = d3d12_resource_pick_layout(dst_resource,
+                overlapping_subresource ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        }
         else
             new_layout = dst_resource->common_layout;
 
