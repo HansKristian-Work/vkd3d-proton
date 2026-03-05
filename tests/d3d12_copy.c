@@ -3113,13 +3113,14 @@ void test_resolve_batch(void)
         heap_desc.SizeInBytes += align(allocation_info.SizeInBytes, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
     }
 
-    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
     ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&texture_heap);
     heap_desc.SizeInBytes = 0;
 
     for (i = 0; i < ARRAY_SIZE(placed_tex); i++)
     {
         res_desc = ID3D12Resource_GetDesc(committed_tex[i]);
+        res_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
         allocation_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &res_desc);
         ID3D12Device_CreatePlacedResource(context.device, texture_heap, heap_desc.SizeInBytes,
                 &res_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void **)&placed_tex[i]);
