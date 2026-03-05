@@ -5969,31 +5969,15 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 break;
 
             case D3D12_RESOURCE_STATE_RESOLVE_DEST:
-                if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
-                {
-                    /* ENCODE is always done with compute. It performs its own memory barriers. */
-                    *stages |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-                }
-                else
-                {
-                    /* Needs COPY stage for D3D12_RESOLVE_MODE_DECOMPRESS,
-                     * but that's esoteric as hell and we can deal with that on-demand. */
-                    *stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT;
-                    *access |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                }
+                /* Needs COPY stage for D3D12_RESOLVE_MODE_DECOMPRESS,
+                 * but that's esoteric as hell and we can deal with that on-demand. */
+                *stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+                *access |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
                 break;
 
             case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
-                if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
-                {
-                    /* We can decode in either fragment or compute paths. It performs its own memory barriers. */
-                    *stages |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-                }
-                else
-                {
-                    *stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT;
-                    *access |= VK_ACCESS_2_TRANSFER_READ_BIT;
-                }
+                *stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+                *access |= VK_ACCESS_2_TRANSFER_READ_BIT;
                 break;
 
             case D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE:
@@ -16898,6 +16882,7 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
     struct vkd3d_buffer_view_desc src_buffer_view_desc;
     unsigned int transcoded_width, transcoded_height;
     VkWriteDescriptorSet vk_descriptor_writes[2];
+    VkImageMemoryBarrier2 vk_image_barrier;
     VkDescriptorImageInfo vk_image_info[2];
     VkMemoryBarrier2 vk_memory_barrier;
     unsigned int num_mip_iterations;
@@ -16958,10 +16943,11 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
     /* We're doing RMW, so have to ensure ordering. Also, need to ensure ordering
      * for back-to-back RESOLVE_DEST operations. */
 
+    /* Transitive barrier for RESOLVE_DEST to COMPUTE so we can write there. */
     memset(&vk_memory_barrier, 0, sizeof(vk_memory_barrier));
     vk_memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    vk_memory_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+    vk_memory_barrier.srcAccessMask = 0;
     vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
 
@@ -17020,8 +17006,14 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
                 vkd3d_meta_get_sampler_feedback_workgroup_size().height);
         extent.depth = vkd3d_compute_workgroup_count(extent.depth,
                 vkd3d_meta_get_sampler_feedback_workgroup_size().depth);
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
         VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, extent.width, extent.height, extent.depth));
 
+        vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_memory_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_memory_barrier.dstAccessMask = 0;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
     else
@@ -17078,6 +17070,27 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
                 args.dst_mip = subresource.mipLevel;
             }
         }
+
+        memset(&vk_image_barrier, 0, sizeof(vk_image_barrier));
+        vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        vk_image_barrier.image = src->res.vk_image;
+        vk_image_barrier.oldLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vk_image_barrier.newLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_image_barrier.srcAccessMask = 0;
+        vk_image_barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        vk_image_barrier.subresourceRange.baseArrayLayer = src_image_view_desc.layer_idx;
+        vk_image_barrier.subresourceRange.baseMipLevel = src_image_view_desc.miplevel_idx;
+        vk_image_barrier.subresourceRange.levelCount = src_image_view_desc.miplevel_count;
+        vk_image_barrier.subresourceRange.layerCount = src_image_view_desc.layer_count;
+
+        dep_info.imageMemoryBarrierCount = 1;
+        dep_info.pImageMemoryBarriers = &vk_image_barrier;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         if (!vkd3d_create_texture_view(list->device, &src_image_view_desc, &src_view))
             goto cleanup;
@@ -17152,12 +17165,32 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
             extent.depth = dst_view_desc.layer_count;
             VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, extent.width, extent.height, extent.depth));
 
+            /* Resolve WAW hazards between stages. */
+            dep_info.imageMemoryBarrierCount = 0;
+            vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_memory_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+            vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
             VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
             args.src_mip++;
             args.dst_mip++;
             src_image_view_desc.miplevel_idx++;
         }
+
+        vk_image_barrier.oldLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vk_image_barrier.newLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_image_barrier.srcAccessMask = 0;
+        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barrier.dstAccessMask = 0;
+        dep_info.imageMemoryBarrierCount = 1;
+
+        vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_memory_barrier.srcAccessMask = 0;
+        vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_memory_barrier.dstAccessMask = 0;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 
     d3d12_command_allocator_add_view(list->allocator, src_view);
@@ -17190,7 +17223,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     unsigned int transcoded_width, transcoded_height;
     VkWriteDescriptorSet vk_descriptor_writes[2];
     VkRenderingAttachmentInfo attachment_info;
-    VkImageMemoryBarrier2 vk_image_barrier;
+    VkImageMemoryBarrier2 vk_image_barrier[2];
     VkDescriptorImageInfo vk_image_info;
     VkMemoryBarrier2 vk_memory_barrier;
     unsigned int num_mip_iterations;
@@ -17265,8 +17298,25 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     vk_descriptor_writes[0].pImageInfo = &vk_image_info;
     vk_descriptor_writes[0].descriptorCount = 1;
 
+    memset(vk_image_barrier, 0, sizeof(vk_image_barrier));
+
+    vk_image_barrier[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    vk_image_barrier[0].image = src->res.vk_image;
+    vk_image_barrier[0].oldLayout = vk_image_info.imageLayout;
+    vk_image_barrier[0].newLayout = vk_image_info.imageLayout;
+    vk_image_barrier[0].srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+    vk_image_barrier[0].srcAccessMask = 0;
+    vk_image_barrier[0].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    vk_image_barrier[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_image_barrier[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_image_barrier[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
     if (dst->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
+        vk_image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_image_barrier[0].subresourceRange.layerCount = src_view_desc.layer_count;
+        vk_image_barrier[0].subresourceRange.levelCount = src_view_desc.miplevel_count;
+
         vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
                 VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER, &pipeline_info);
 
@@ -17314,6 +17364,8 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_memory_barrier;
+        dep_info.imageMemoryBarrierCount = 1;
+        dep_info.pImageMemoryBarriers = vk_image_barrier;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -17335,6 +17387,11 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         vk_memory_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
         vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
         vk_memory_barrier.dstAccessMask = VK_ACCESS_2_NONE;
+
+        vk_image_barrier[0].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_image_barrier[0].srcAccessMask = 0;
+        vk_image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barrier[0].dstAccessMask = 0;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         d3d12_command_allocator_add_view(list->allocator, src_view);
@@ -17342,6 +17399,8 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     }
     else
     {
+        vk_image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+
         vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
                 src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ?
                         VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE :
@@ -17357,18 +17416,17 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         dst_image_view_desc.miplevel_count = 1;
         dst_image_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 
-        memset(&vk_image_barrier, 0, sizeof(vk_image_barrier));
-        vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        vk_image_barrier.image = dst->res.vk_image;
-        vk_image_barrier.oldLayout = dst->common_layout;
-        vk_image_barrier.newLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
-        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        vk_image_barrier.srcAccessMask = 0;
-        vk_image_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        vk_image_barrier[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        vk_image_barrier[1].image = dst->res.vk_image;
+        vk_image_barrier[1].oldLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vk_image_barrier[1].newLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        vk_image_barrier[1].srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barrier[1].dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        vk_image_barrier[1].srcAccessMask = 0;
+        vk_image_barrier[1].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        vk_image_barrier[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barrier[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barrier[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
         if (dst_subresource_index == UINT32_MAX)
         {
@@ -17378,8 +17436,8 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             else
                 num_mip_iterations = src->desc.MipLevels;
 
-            vk_image_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-            vk_image_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+            vk_image_barrier[1].subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+            vk_image_barrier[1].subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
             args.mip_level = 0;
         }
         else
@@ -17411,16 +17469,21 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
                 args.mip_level = subresource.mipLevel;
             }
 
-            vk_image_barrier.subresourceRange.baseArrayLayer = dst_image_view_desc.layer_idx;
-            vk_image_barrier.subresourceRange.baseMipLevel = dst_image_view_desc.miplevel_idx;
-            vk_image_barrier.subresourceRange.layerCount = 1;
-            vk_image_barrier.subresourceRange.levelCount = 1;
+            vk_image_barrier[1].subresourceRange.baseArrayLayer = dst_image_view_desc.layer_idx;
+            vk_image_barrier[1].subresourceRange.baseMipLevel = dst_image_view_desc.miplevel_idx;
+            vk_image_barrier[1].subresourceRange.layerCount = 1;
+            vk_image_barrier[1].subresourceRange.levelCount = 1;
         }
+
+        vk_image_barrier[0].subresourceRange.baseArrayLayer = src_view_desc.layer_idx;
+        vk_image_barrier[0].subresourceRange.baseMipLevel = src_view_desc.miplevel_idx;
+        vk_image_barrier[0].subresourceRange.layerCount = src_view_desc.layer_count;
+        vk_image_barrier[0].subresourceRange.levelCount = src_view_desc.miplevel_count;
 
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep_info.imageMemoryBarrierCount = 1;
-        dep_info.pImageMemoryBarriers = &vk_image_barrier;
+        dep_info.imageMemoryBarrierCount = 2;
+        dep_info.pImageMemoryBarriers = vk_image_barrier;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         if (src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
@@ -17446,7 +17509,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
         memset(&attachment_info, 0, sizeof(attachment_info));
         attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        attachment_info.imageLayout = vk_image_barrier.newLayout;
+        attachment_info.imageLayout = vk_image_barrier[1].newLayout;
         attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -17529,12 +17592,17 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             d3d12_command_allocator_add_view(list->allocator, dst_view);
         }
 
-        vk_image_barrier.oldLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        vk_image_barrier.newLayout = dst->common_layout;
-        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        vk_image_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
-        vk_image_barrier.dstAccessMask = 0;
+        vk_image_barrier[0].srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        vk_image_barrier[0].srcAccessMask = 0;
+        vk_image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barrier[0].dstAccessMask = 0;
+
+        vk_image_barrier[1].oldLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        vk_image_barrier[1].newLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vk_image_barrier[1].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        vk_image_barrier[1].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        vk_image_barrier[1].dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barrier[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 
@@ -19333,10 +19401,7 @@ static VkPipelineStageFlags2 vk_stage_flags_from_d3d12_barrier(struct d3d12_comm
         stages |= VK_PIPELINE_STAGE_2_COPY_BIT;
 
     if (sync & D3D12_BARRIER_SYNC_RESOLVE)
-    {
-        stages |= VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    }
+        stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT;
 
     if (sync & D3D12_BARRIER_SYNC_EXECUTE_INDIRECT) /* PREDICATION is alias for EXECUTE_INDIRECT */
     {
@@ -19413,9 +19478,9 @@ static VkAccessFlags2 vk_access_flags_from_d3d12_barrier(struct d3d12_command_li
     if (access & D3D12_BARRIER_ACCESS_COPY_SOURCE)
         vk_access |= VK_ACCESS_2_TRANSFER_READ_BIT;
     if (access & D3D12_BARRIER_ACCESS_RESOLVE_DEST)
-        vk_access |= VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_access |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
     if (access & D3D12_BARRIER_ACCESS_RESOLVE_SOURCE)
-        vk_access |= VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT;
+        vk_access |= VK_ACCESS_2_TRANSFER_READ_BIT;
     if (access & D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ)
         vk_access |= VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
     if (access & D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE)
