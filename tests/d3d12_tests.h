@@ -550,3 +550,4 @@ decl_test(test_copy_queue_buffer);
 decl_test(test_copy_queue_buffer_image);
 decl_test(test_copy_queue_render_target);
 decl_test(test_copy_queue_depth_stencil);
+decl_test(test_copy_queue_render_target_msaa);
