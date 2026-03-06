@@ -3968,14 +3968,16 @@ void test_copy_queue_render_target_msaa(void)
     test_copy_queue_render_target_inner(true);
 }
 
-void test_copy_queue_depth_stencil(void)
+static void test_copy_queue_depth_stencil_inner(bool msaa)
 {
+    ID3D12Resource *tex, *upload_buf, *copy_tex;
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
     D3D12_TEXTURE_COPY_LOCATION dst, src;
+    D3D12_HEAP_PROPERTIES heap_props;
     struct test_context_copy context;
     struct resource_readback rb;
     ID3D12DescriptorHeap *dsv;
-    ID3D12Resource *tex, *buf;
+    D3D12_RESOURCE_DESC desc;
     ID3D12Fence *fence;
     unsigned int x, y;
     D3D12_RECT rect;
@@ -3985,16 +3987,36 @@ void test_copy_queue_depth_stencil(void)
     if (!init_copy_test_context(&context))
         return;
 
+    memset(&desc, 0, sizeof(desc));
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = 1024;
+    desc.Height = 1024;
+    desc.DepthOrArraySize = 1;
+    desc.Format = DXGI_FORMAT_D32_FLOAT;
+    desc.SampleDesc.Count = msaa ? 4 : 1;
+    desc.MipLevels = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
     hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&fence);
     ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
 
-    buf = create_default_buffer(context.context.device, 64 * 64 * sizeof(float),
+    upload_buf = create_default_buffer(context.context.device, 64 * 64 * sizeof(float),
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
 
+    hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void **)&tex);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&copy_tex);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
     dsv = create_cpu_descriptor_heap(context.context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
-    tex = create_default_texture2d(context.context.device, 1024, 1024, 1, 1, DXGI_FORMAT_D32_FLOAT,
-            D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv);
     ID3D12Device_CreateDepthStencilView(context.context.device, tex, NULL, dsv_handle);
 
@@ -4003,6 +4025,8 @@ void test_copy_queue_depth_stencil(void)
     ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 1, &rect);
     set_rect(&rect, 40, 40, 50, 50);
     ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.25f, 0, 1, &rect);
+    set_rect(&rect, 1000, 1000, 1024, 1024);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.75f, 0, 1, &rect);
 
     /* Required to consume image on copy queue. */
     transition_resource_state(context.context.list, tex,
@@ -4019,44 +4043,70 @@ void test_copy_queue_depth_stencil(void)
     dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     dst.pResource = tex;
 
-    src.pResource = buf;
-    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    src.PlacedFootprint.Footprint.Width = 64;
-    src.PlacedFootprint.Footprint.Height = 64;
-    src.PlacedFootprint.Footprint.Depth = 1;
-    src.PlacedFootprint.Footprint.RowPitch = 256;
-    src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+    if (msaa)
+    {
+        src.pResource = copy_tex;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    }
+    else
+    {
+        src.pResource = upload_buf;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        src.PlacedFootprint.Footprint.Width = 64;
+        src.PlacedFootprint.Footprint.Height = 64;
+        src.PlacedFootprint.Footprint.Depth = 1;
+        src.PlacedFootprint.Footprint.RowPitch = 256;
+        src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+    }
 
     ID3D12GraphicsCommandList_Reset(context.copy_list, context.copy_allocator, NULL);
-    get_texture_readback_with_command_list(tex, 0, &rb, context.copy_queue, context.copy_list);
+    ID3D12GraphicsCommandList_CopyResource(context.copy_list, copy_tex, tex);
+    transition_resource_state(context.copy_list, copy_tex, D3D12_RESOURCE_STATE_COPY_DEST,
+        type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    for (y = 0; y < 1024; y++)
+    if (!msaa)
     {
-        for (x = 0; x < 1024; x++)
+        get_texture_readback_with_command_list(tex, 0, &rb, context.copy_queue, context.copy_list);
+
+        for (y = 0; y < 1024; y++)
         {
-            float value = get_readback_float(&rb, x, y);
-            float expected;
+            for (x = 0; x < 1024; x++)
+            {
+                float value = get_readback_float(&rb, x, y);
+                float expected;
 
-            if (x >= 10 && x < 20 && y >= 10 && y < 20)
-                expected = 0.5f;
-            else if (x >= 40 && x < 50 && y >= 40 && y < 50)
-                expected = 0.25f;
-            else
-                expected = 1.0f;
+                if (x >= 10 && x < 20 && y >= 10 && y < 20)
+                    expected = 0.5f;
+                else if (x >= 40 && x < 50 && y >= 40 && y < 50)
+                    expected = 0.25f;
+                else if (x >= 1000 && y >= 1000)
+                    expected = 0.75f;
+                else
+                    expected = 1.0f;
 
-            ok(value == expected, "Coord %u, %u: expected #%x, got #%x.\n", x, y, expected, value);
-            if (value != expected)
-                goto out;
+                ok(value == expected, "Coord %u, %u: expected %f, got %f.\n", x, y, expected, value);
+                if (value != expected)
+                    goto out;
+            }
         }
-    }
 out:
-    release_resource_readback(&rb);
+        release_resource_readback(&rb);
+
+        reset_command_list(context.copy_list, context.copy_allocator);
+    }
 
     /* Write to depth image in COPY queue.
      * https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-copytextureregion
      * says that depth-stencil and MSAA only works on full subresources, but let's see what happens anyway. */
-    reset_command_list(context.copy_list, context.copy_allocator);
-    set_box(&box, 0, 0, 0, 4, 4, 1);
+    if (msaa)
+    {
+        set_box(&box, 1000, 1000, 0, 1004, 1004, 1);
+        transition_resource_state(context.copy_list, tex, D3D12_RESOURCE_STATE_COPY_SOURCE,
+            type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    else
+        set_box(&box, 0, 0, 0, 4, 4, 1);
+
     ID3D12GraphicsCommandList_CopyTextureRegion(context.copy_list, &dst, 1, 1, 0, &src, &box);
     ID3D12GraphicsCommandList_Close(context.copy_list);
     exec_command_list(context.copy_queue, context.copy_list);
@@ -4064,10 +4114,12 @@ out:
     ID3D12CommandQueue_Wait(context.context.queue, fence, 2);
 
     ID3D12GraphicsCommandList_Reset(context.context.list, context.context.allocator, NULL);
-    transition_resource_state(context.context.list, tex, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    transition_resource_state(context.context.list, tex,
+        type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     set_rect(&rect, 5, 5, 7, 7);
     ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.125f, 0, 1, &rect);
-    transition_resource_state(context.context.list, tex, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.context.list, tex, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        msaa ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE : D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_texture_readback_with_command_list(tex, 0, &rb, context.context.queue, context.context.list);
 
     for (y = 0; y < 1024; y++)
@@ -4078,17 +4130,19 @@ out:
             float expected;
 
             if (x >= 1 && x < 5 && y >= 1 && y < 5)
-                expected = 0.0f;
+                expected = msaa ? 0.75f : 0.0f;
             else if (x >= 5 && x < 7 && y >= 5 && y < 7)
                 expected = 0.125f;
             else if (x >= 10 && x < 20 && y >= 10 && y < 20)
                 expected = 0.5f;
             else if (x >= 40 && x < 50 && y >= 40 && y < 50)
                 expected = 0.25f;
+            else if (x >= 1000 && y >= 1000)
+                expected = 0.75f;
             else
                 expected = 1.0f;
 
-            ok(value == expected, "Coord %u, %u: expected #%x, got #%x.\n", x, y, expected, value);
+            ok(value == expected, "Coord %u, %u: expected %f, got %f.\n", x, y, expected, value);
             if (value != expected)
                 goto out2;
         }
@@ -4099,6 +4153,17 @@ out2:
     ID3D12DescriptorHeap_Release(dsv);
     ID3D12Fence_Release(fence);
     ID3D12Resource_Release(tex);
-    ID3D12Resource_Release(buf);
+    ID3D12Resource_Release(copy_tex);
+    ID3D12Resource_Release(upload_buf);
     destroy_copy_test_context(&context);
+}
+
+void test_copy_queue_depth_stencil(void)
+{
+    test_copy_queue_depth_stencil_inner(false);
+}
+
+void test_copy_queue_depth_stencil_msaa(void)
+{
+    test_copy_queue_depth_stencil_inner(true);
 }
