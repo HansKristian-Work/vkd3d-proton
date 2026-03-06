@@ -548,3 +548,4 @@ decl_test(test_primitive_id_read_tess_geom);
 decl_test(test_buffer_rtv_dsv_usage);
 decl_test(test_copy_queue_buffer);
 decl_test(test_copy_queue_buffer_image);
+decl_test(test_copy_queue_render_target);

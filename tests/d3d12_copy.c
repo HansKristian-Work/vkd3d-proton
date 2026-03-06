@@ -3762,3 +3762,139 @@ void test_copy_queue_buffer_image(void)
     ID3D12Resource_Release(c);
     destroy_copy_test_context(&context);
 }
+
+void test_copy_queue_render_target(void)
+{
+    const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    const FLOAT green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    const FLOAT blue[] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    D3D12_TEXTURE_COPY_LOCATION dst, src;
+    struct test_context_copy context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *rtv;
+    ID3D12Resource *tex, *buf;
+    ID3D12Fence *fence;
+    unsigned int x, y;
+    D3D12_RECT rect;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    if (!init_copy_test_context(&context))
+        return;
+
+    hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    buf = create_default_buffer(context.context.device, 64 * 64 * sizeof(uint32_t),
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    rtv = create_cpu_descriptor_heap(context.context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    tex = create_default_texture2d(context.context.device, 1024, 1024, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv);
+    ID3D12Device_CreateRenderTargetView(context.context.device, tex, NULL, rtv_handle);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, white, 0, NULL);
+    set_rect(&rect, 10, 10, 20, 20);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, blue, 1, &rect);
+    set_rect(&rect, 40, 40, 50, 50);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, green, 1, &rect);
+
+    /* Required to consume image on copy queue. */
+    transition_resource_state(context.context.list, tex,
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_Close(context.context.list);
+    exec_command_list(context.context.queue, context.context.list);
+    ID3D12CommandQueue_Signal(context.context.queue, fence, 1);
+    ID3D12CommandQueue_Wait(context.copy_queue, fence, 1);
+
+    memset(&dst, 0, sizeof(dst));
+    memset(&src, 0, sizeof(src));
+
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.pResource = tex;
+
+    src.pResource = buf;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src.PlacedFootprint.Footprint.Width = 64;
+    src.PlacedFootprint.Footprint.Height = 64;
+    src.PlacedFootprint.Footprint.Depth = 1;
+    src.PlacedFootprint.Footprint.RowPitch = 256;
+    src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    ID3D12GraphicsCommandList_Reset(context.copy_list, context.copy_allocator, NULL);
+    get_texture_readback_with_command_list(tex, 0, &rb, context.copy_queue, context.copy_list);
+
+    for (y = 0; y < 1024; y++)
+    {
+        for (x = 0; x < 1024; x++)
+        {
+            uint32_t value = get_readback_uint(&rb, x, y, 0);
+            uint32_t expected;
+
+            if (x >= 10 && x < 20 && y >= 10 && y < 20)
+                expected = 0xffff0000;
+            else if (x >= 40 && x < 50 && y >= 40 && y < 50)
+                expected = 0xff00ff00;
+            else
+                expected = UINT32_MAX;
+
+            ok(value == expected, "Coord %u, %u: expected #%x, got #%x.\n", x, y, expected, value);
+            if (value != expected)
+                goto out;
+        }
+    }
+out:
+    release_resource_readback(&rb);
+
+    /* Write to render target image in COPY queue. */
+    reset_command_list(context.copy_list, context.copy_allocator);
+    set_box(&box, 0, 0, 0, 4, 4, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(context.copy_list, &dst, 1, 1, 0, &src, &box);
+    ID3D12GraphicsCommandList_Close(context.copy_list);
+    exec_command_list(context.copy_queue, context.copy_list);
+    ID3D12CommandQueue_Signal(context.copy_queue, fence, 2);
+    ID3D12CommandQueue_Wait(context.context.queue, fence, 2);
+
+    ID3D12GraphicsCommandList_Reset(context.context.list, context.context.allocator, NULL);
+    transition_resource_state(context.context.list, tex, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    set_rect(&rect, 5, 5, 7, 7);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, blue, 1, &rect);
+    transition_resource_state(context.context.list, tex, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(tex, 0, &rb, context.context.queue, context.context.list);
+
+    for (y = 0; y < 1024; y++)
+    {
+        for (x = 0; x < 1024; x++)
+        {
+            uint32_t value = get_readback_uint(&rb, x, y, 0);
+            uint32_t expected;
+
+            if (x >= 1 && x < 5 && y >= 1 && y < 5)
+                expected = 0;
+            else if (x >= 5 && x < 7 && y >= 5 && y < 7)
+                expected = 0xffff0000;
+            else if (x >= 10 && x < 20 && y >= 10 && y < 20)
+                expected = 0xffff0000;
+            else if (x >= 40 && x < 50 && y >= 40 && y < 50)
+                expected = 0xff00ff00;
+            else
+                expected = UINT32_MAX;
+
+            ok(value == expected, "Coord %u, %u: expected #%x, got #%x.\n", x, y, expected, value);
+            if (value != expected)
+                goto out2;
+        }
+    }
+out2:
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(rtv);
+    ID3D12Fence_Release(fence);
+    ID3D12Resource_Release(tex);
+    ID3D12Resource_Release(buf);
+    destroy_copy_test_context(&context);
+}
