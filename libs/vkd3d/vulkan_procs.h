@@ -57,6 +57,7 @@ VK_INSTANCE_PFN(vkGetPhysicalDeviceExternalSemaphoreProperties)
 /* VK_EXT_debug_utils */
 VK_INSTANCE_EXT_PFN(vkCreateDebugUtilsMessengerEXT)
 VK_INSTANCE_EXT_PFN(vkDestroyDebugUtilsMessengerEXT)
+VK_INSTANCE_EXT_PFN(vkSubmitDebugUtilsMessageEXT)
 VK_DEVICE_EXT_PFN(vkQueueInsertDebugUtilsLabelEXT)
 
 /* Device functions (obtained by vkGetDeviceProcAddr). */

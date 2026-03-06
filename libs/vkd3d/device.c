@@ -455,6 +455,8 @@ bool vkd3d_debug_control_mute_message_id(const char *vuid);
 bool vkd3d_debug_control_is_test_suite(void);
 bool vkd3d_debug_control_explode_on_vvl_error(void);
 
+static uint32_t vkd3d_vvl_debug_sentinel_error_count;
+
 static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
         VkDebugUtilsMessageTypeFlagsEXT message_types,
@@ -466,8 +468,17 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
     if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
     {
         if (callback_data->pMessageIdName)
+        {
+            /* Sentinel to check if validation is loaded properly. */
+            if (strcmp(callback_data->pMessageIdName, "VUID-VkDebugUtilsMessengerCallbackDataEXT-pNext-pNext") == 0)
+            {
+                vkd3d_atomic_uint32_increment(&vkd3d_vvl_debug_sentinel_error_count, vkd3d_memory_order_relaxed);
+                return VK_TRUE;
+            }
+
             if (vkd3d_debug_control_mute_message_id(callback_data->pMessageIdName))
                 return VK_FALSE;
+        }
 
         ERR("%s: %s\n", callback_data->pMessageIdName, callback_data->pMessage);
 
@@ -486,6 +497,8 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
     }
     else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
         WARN("%s\n", callback_data->pMessage);
+    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+        INFO("%s\n", callback_data->pMessage);
 
     (void)userdata;
     (void)message_types;
@@ -495,15 +508,19 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
 static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+    VkDebugUtilsMessengerCallbackDataEXT callback_data;
     VkDebugUtilsMessengerCreateInfoEXT callback_info;
     VkInstance vk_instance = instance->vk_instance;
     VkDebugUtilsMessengerEXT callback;
+    uint32_t old_count, new_count;
+    VkBaseInStructure dummy_pnext;
     VkResult vr;
 
     callback_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     callback_info.pNext = NULL;
     callback_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
-                                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
     callback_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
     callback_info.pfnUserCallback = vkd3d_debug_messenger_callback;
     callback_info.pUserData = NULL;
@@ -512,6 +529,35 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
     {
         WARN("Failed to create debug report callback, vr %d.\n", vr);
         return;
+    }
+
+    memset(&dummy_pnext, 0, sizeof(dummy_pnext));
+    dummy_pnext.sType = VK_STRUCTURE_TYPE_MAX_ENUM;
+
+    memset(&callback_data, 0, sizeof(callback_data));
+    callback_data.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CALLBACK_DATA_EXT;
+    callback_data.flags = 0;
+    callback_data.pMessage = "Self-inserted message to check if we're getting messages. "
+            "This should be skipped if VVL is working as intended.";
+    callback_data.pNext = &dummy_pnext; /* Pass in benign pnext that we expect VVL to catch if it's working. */
+
+    INFO("Attempting to send invalid call to VVL to verify that it's active ...\n");
+
+    old_count = vkd3d_atomic_uint32_load_explicit(&vkd3d_vvl_debug_sentinel_error_count, vkd3d_memory_order_relaxed);
+    VK_CALL(vkSubmitDebugUtilsMessageEXT(vk_instance, VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT,
+            VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT, &callback_data));
+    new_count = vkd3d_atomic_uint32_load_explicit(&vkd3d_vvl_debug_sentinel_error_count, vkd3d_memory_order_relaxed);
+
+    if (old_count != new_count)
+    {
+        INFO("Validation layers seem to be loaded correctly.\n");
+    }
+    else
+    {
+        ERR("Validation layers do not seem to be loaded correctly.\n"
+            "When vkd3d-proton is run through Wine/Proton, help from environment variables is required.\n"
+            "Use VKD3D_CONFIG=vk_debug VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation instead!\n"
+            "If this still does not work, VK_LOADER_DEBUG=layer can be used to debug why it's not loaded.\n");
     }
 
     instance->vk_debug_callback = callback;
@@ -1363,11 +1409,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
             }
         }
 
-        if (instance_info.enabledLayerCount == 0)
-        {
-            ERR("Failed to enumerate instance layers, will not use VK_LAYER_KHRONOS_validation directly.\n"
-                "Use VKD3D_CONFIG=vk_debug VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation instead!\n");
-        }
         vkd3d_free(layers);
     }
 
