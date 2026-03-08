@@ -674,6 +674,11 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe",
             VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0,
             VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
+    /* REANIMAL (2129530). Game can destroy PSOs while they are in-flight on loading screen.
+     * Smells very similar to FFVII Rebirth.
+     * It also has bugs with FSR3 being destroyed while in flight (but that case is automatically covered already). */
+    { VKD3D_STRING_COMPARE_EXACT, "REANIMAL.exe",
+            VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     /* There aren't many games that use mesh shaders outside of UE5 Nanite fallbacks.
      * UE5 is broken w.r.t. feature checks, so we have to do opt-in instead :( */
     { VKD3D_STRING_COMPARE_EXACT, "AlanWake2.exe", 0, 0, VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
