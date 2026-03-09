@@ -3466,11 +3466,13 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     HRESULT hr;
 
     device->unique_queue_mask = 0;
-    device->concurrent_queue_family_count = 0;
+    device->concurrent_queue_family_buffer_count = 0;
+    device->concurrent_queue_family_image_count = 0;
     memset(device->queue_families, 0, sizeof(device->queue_families));
     for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
     {
-        device->concurrent_queue_family_indices[i] = VK_QUEUE_FAMILY_IGNORED;
+        device->concurrent_queue_family_indices_buffer[i] = VK_QUEUE_FAMILY_IGNORED;
+        device->concurrent_queue_family_indices_image[i] = VK_QUEUE_FAMILY_IGNORED;
     }
 
     for (i = 0, k = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
@@ -3538,9 +3540,13 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
             bool pure_transfer =
                 (info->vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT)) == VK_QUEUE_TRANSFER_BIT;
 
+            /* Fallback for when maint9 is not supported. We want to support concurrent transfer for buffers
+             * in this case. */
+            device->concurrent_queue_family_indices_buffer[device->concurrent_queue_family_buffer_count++] = info->vk_family_index;
+
             /* Pure transfer queues tend to nuke compression. Only allow it for GPUs that are known to work well here. */
             if (!pure_transfer || device->concurrent_transfer_queue)
-                device->concurrent_queue_family_indices[device->concurrent_queue_family_count++] = info->vk_family_index;
+                device->concurrent_queue_family_indices_image[device->concurrent_queue_family_image_count++] = info->vk_family_index;
         }
 
         if (info->queue_count && i != VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE)
