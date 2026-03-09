@@ -3034,7 +3034,17 @@ struct d3d12_command_list_iteration
     VkCommandBuffer vk_command_buffer;
     VkCommandBuffer vk_post_indirect_barrier_commands;
     uint32_t estimated_cost;
+    bool fallback; /* Only applies to vk_command_buffer. */
     struct d3d12_command_list_iteration_indirect_meta indirect_meta;
+};
+
+enum
+{
+    /* We don't use VkCommandBufferSubmitInfo::deviceMask,
+     * so allow us to send some extra metadata per command buffer
+     * without having to add more allocations. */
+    VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_DEFAULT = 0,
+    VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE = 1u << 0,
 };
 
 #define VKD3D_MAX_COMMAND_LIST_SEQUENCES 2

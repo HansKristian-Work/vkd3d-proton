@@ -21147,6 +21147,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             buffer = &buffers[cmd_submit_count++];
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_command_buffer;
+            /* Pilfer this for purposes of signalling aux data. No need to allocate more stuff just to signal this. */
+            buffer->deviceMask = cmd_list->cmd.iterations[iter].fallback ? VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE : 0;
         }
 
         need_suspend_fixup = cmd_list->cmd.suspend_resume.suspend.vk_fixup_cmd_buffer && (i + 1 == command_list_count ||
@@ -22417,14 +22419,17 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     VkSemaphoreSubmitInfo signal_semaphore_infos[2];
     VkSemaphoreSubmitInfo *binary_semaphore_info;
     bool stagger_submissions, is_first, is_last;
+    VkSemaphoreSubmitInfo wait_semaphore_info;
     uint32_t cmd_index, cmd_count, total_cost;
     struct vkd3d_fence_wait_info fence_info;
     VkSubmitInfo2 submit_desc[2], *submit;
+    bool need_fallback_wait_semaphore;
     VKD3D_UNUSED bool debug_capture;
     uint64_t consumed_present_id;
     uint32_t num_submits;
     VkQueue vk_queue;
     unsigned int i;
+    bool fallback;
     VkResult vr;
     HRESULT hr;
 
@@ -22488,10 +22493,16 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     }
 
     cmd_index = 0;
+    need_fallback_wait_semaphore = false;
+
+    /* The first command buffer will not be a fallback. There would be problems if it could be
+     * since we want to submit initial transition commands as well. */
+    assert(exec->cmd_count == 0 || exec->cmd[0].deviceMask == VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_DEFAULT);
 
     while (cmd_index < exec->cmd_count)
     {
         is_first = cmd_index == 0;
+        fallback = false;
 
         memset(signal_semaphore_infos, 0, sizeof(signal_semaphore_infos));
         signal_semaphore_infos[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -22499,14 +22510,23 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         signal_semaphore_infos[0].value = ++vkd3d_queue->submission_timeline_count;
         signal_semaphore_infos[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-        if (stagger_submissions)
+        if (exec->cmd[cmd_index].deviceMask & VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE)
+        {
+            /* We will never get more than one fallback queue in a row due to the way we emit commands.
+             * Could be improved, but this path really should *never* be hit except in extreme circumstances. */
+            cmd_count = 1;
+            fallback = true;
+            need_fallback_wait_semaphore = true;
+        }
+        else if (stagger_submissions)
         {
             /* Group up command buffers in such a way that any submission at least reaches the
              * minimum cost threshold in order to reduce delays from CPU<->GPU round-trips. */
             total_cost = exec->cmd_cost[cmd_index];
             cmd_count = 1;
 
-            while (cmd_index + cmd_count < exec->cmd_count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD)
+            while (cmd_index + cmd_count < exec->cmd_count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD &&
+                exec->cmd[cmd_index + cmd_count].deviceMask == VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_DEFAULT)
             {
                 total_cost += exec->cmd_cost[cmd_index + cmd_count];
                 cmd_count++;
@@ -22523,9 +22543,13 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         }
         else
         {
-            /* Submit everything at once */
-            cmd_count = exec->cmd_count;
+            /* Submit everything at once, until we hit a fallback queue submission. Pick that up next iteration. */
+            for (cmd_count = 0; cmd_index + cmd_count < exec->cmd_count; cmd_count++)
+                if (exec->cmd[cmd_index + cmd_count].deviceMask & VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE)
+                    break;
         }
+
+        assert(cmd_count != 0);
 
         submit = &submit_desc[num_submits++];
         submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
@@ -22534,10 +22558,23 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         submit->signalSemaphoreInfoCount = 1;
         submit->pSignalSemaphoreInfos = signal_semaphore_infos;
 
+        /* Clear out any shenanigans we added due to fallback submit. */
+        for (i = 0; i < cmd_count; i++)
+            exec->cmd[cmd_index + i].deviceMask = 0;
+
         if (transition_cmd->commandBuffer && is_first)
         {
             submit->waitSemaphoreInfoCount = 1;
             submit->pWaitSemaphoreInfos = transition_semaphore;
+        }
+        else if (need_fallback_wait_semaphore)
+        {
+            wait_semaphore_info = signal_semaphore_infos[0];
+            /* This is never the first submit to a queue. */
+            assert(wait_semaphore_info.value != 0);
+            wait_semaphore_info.value--;
+            submit->waitSemaphoreInfoCount = 1;
+            submit->pWaitSemaphoreInfos = &wait_semaphore_info;
         }
 
         cmd_index += cmd_count;
@@ -22588,7 +22625,22 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
             binary_semaphore_info->stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         }
 
-        if (exec->split_submission)
+        /* If we don't use serializing semaphore, we have to ensure that the last command buffer
+         * in a submit is not a fallback submit. */
+        assert(!is_last || command_queue->serializing_semaphore || !fallback);
+
+        if (fallback)
+        {
+            VkQueue vk_fallback_queue;
+            vr = VK_ERROR_DEVICE_LOST;
+            if ((vk_fallback_queue = vkd3d_queue_acquire(command_queue->device->memory_transfers.vkd3d_queue)))
+            {
+                vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_fallback_queue, num_submits, submit_desc);
+                vkd3d_queue_release(command_queue->device->memory_transfers.vkd3d_queue);
+                WARN("Performing a fallback copy queue submit. Bad perf :(\n");
+            }
+        }
+        else if (exec->split_submission)
             vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue, num_submits, submit_desc);
         else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
             ERR("Failed to submit queue(s), vr %d.\n", vr);
@@ -22602,6 +22654,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
             break;
 
         command_queue->serializing_semaphore_signaled = command_queue->serializing_semaphore && is_last;
+        need_fallback_wait_semaphore = fallback;
 
         memset(submit_desc, 0, sizeof(submit_desc));
         num_submits = 0;
