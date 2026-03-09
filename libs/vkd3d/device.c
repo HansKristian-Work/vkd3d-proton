@@ -81,6 +81,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_MAINTENANCE_6, KHR_maintenance6),
     VK_EXTENSION(KHR_MAINTENANCE_7, KHR_maintenance7),
     VK_EXTENSION(KHR_MAINTENANCE_8, KHR_maintenance8),
+    VK_EXTENSION(KHR_MAINTENANCE_9, KHR_maintenance9),
+    VK_EXTENSION(KHR_MAINTENANCE_10, KHR_maintenance10),
     VK_EXTENSION(KHR_SHADER_MAXIMAL_RECONVERGENCE, KHR_shader_maximal_reconvergence),
     VK_EXTENSION(KHR_SHADER_QUAD_CONTROL, KHR_shader_quad_control),
     VK_EXTENSION(KHR_COMPUTE_SHADER_DERIVATIVES, KHR_compute_shader_derivatives),
@@ -1815,6 +1817,124 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
     }
 }
 
+static void vkd3d_physical_device_info_init_maint9(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
+{
+    /* The ownership mask is maximum uint32_t, so it's unreasonable to check for more queue families. */
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkQueueFamilyOwnershipTransferPropertiesKHR ownership_props[32];
+    uint32_t cross_queue_supported = UINT32_MAX;
+    VkQueueFamilyProperties2 props[32];
+    unsigned int i;
+    uint32_t count;
+
+    static const VkQueueFlags relevant_families =
+        VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+
+    memset(props, 0, sizeof(props));
+    memset(ownership_props, 0, sizeof(ownership_props));
+
+    for (i = 0; i < ARRAY_SIZE(props); i++)
+    {
+        props[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+        ownership_props[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_OWNERSHIP_TRANSFER_PROPERTIES_KHR;
+        props[i].pNext = &ownership_props[i];
+    }
+
+    count = ARRAY_SIZE(props);
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties2(device->vk_physical_device, &count, props));
+
+    /* If all queue families can elide QFOT with eachother, we can drop CONCURRENT for any non-RTV/DSV images. */
+    for (i = 0; i < count; i++)
+        if (props[i].queueFamilyProperties.queueFlags & relevant_families)
+            cross_queue_supported &= ownership_props[i].optimalImageTransferToQueueFamilies;
+
+    for (i = 0; i < count; i++)
+    {
+        if (props[i].queueFamilyProperties.queueFlags & relevant_families)
+        {
+            if (!(cross_queue_supported & (1u << i)))
+            {
+                INFO("Implementation does not support eliding QFOT for non-compressed optimal images.\n");
+                return;
+            }
+        }
+    }
+
+    INFO("Implementation supports eliding QFOT for non-compressed optimal images.\n");
+    info->non_compressed_implicit_concurrent_supported = true;
+}
+
+static void vkd3d_physical_device_info_init_maint10(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkFormatProperties2 props2;
+    VkFormatProperties3 props3;
+    unsigned int i;
+
+    static const struct
+    {
+        VkFormat format;
+        VkImageAspectFlags aspect;
+    } formats[] = {
+        { VK_FORMAT_D16_UNORM, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { VK_FORMAT_D24_UNORM_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT },
+        { VK_FORMAT_X8_D24_UNORM_PACK32, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT },
+    };
+
+    memset(&props3, 0, sizeof(props3));
+    memset(&props2, 0, sizeof(props2));
+    props2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+    props2.pNext = &props3;
+    props3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+
+    device->device_info.depth_aspect_copy_on_compute = true;
+    device->device_info.stencil_aspect_copy_on_compute = true;
+    device->device_info.depth_aspect_copy_on_transfer = true;
+    device->device_info.stencil_aspect_copy_on_transfer = true;
+
+    for (i = 0; i < ARRAY_SIZE(formats); i++)
+    {
+        VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, formats[i].format, &props2));
+        if (!(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT))
+            continue;
+
+        if ((formats[i].aspect & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+            !(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR))
+        {
+            device->device_info.depth_aspect_copy_on_compute = false;
+        }
+
+        if ((formats[i].aspect & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+            !(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR))
+        {
+            device->device_info.depth_aspect_copy_on_transfer = false;
+        }
+
+        if ((formats[i].aspect & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+            !(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR))
+        {
+            device->device_info.stencil_aspect_copy_on_compute = false;
+        }
+
+        if ((formats[i].aspect & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+            !(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR))
+        {
+            device->device_info.stencil_aspect_copy_on_transfer = false;
+        }
+    }
+
+    if (device->device_info.depth_aspect_copy_on_compute)
+        INFO("Implementation can copy depth aspect on compute queue.\n");
+    if (device->device_info.depth_aspect_copy_on_transfer)
+        INFO("Implementation can copy depth aspect on transfer queue.\n");
+    if (device->device_info.stencil_aspect_copy_on_compute)
+        INFO("Implementation can copy stencil aspect on compute queue.\n");
+    if (device->device_info.stencil_aspect_copy_on_transfer)
+        INFO("Implementation can copy stencil aspect on transfer queue.\n");
+}
+
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
@@ -2116,6 +2236,23 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->maintenance_8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_8_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->maintenance_8_features);
+    }
+
+    if (vulkan_info->KHR_maintenance9)
+    {
+        info->maintenance_9_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_9_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->maintenance_9_features);
+        vkd3d_physical_device_info_init_maint9(info, device);
+    }
+
+    if (vulkan_info->KHR_maintenance10)
+    {
+        info->maintenance_10_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_10_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->maintenance_10_features);
+
+        info->maintenance_10_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_10_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, &info->maintenance_10_properties);
+        vkd3d_physical_device_info_init_maint10(info, device);
     }
 
     if (vulkan_info->KHR_shader_maximal_reconvergence)
