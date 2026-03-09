@@ -126,7 +126,8 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
         buffer_info.usage = vk_usage_flags;
     }
 
-    if (device->concurrent_queue_family_count > 1)
+    /* In maintenance9, buffers are implicitly transferred between queues. */
+    if (!device->device_info.maintenance_9_features.maintenance9 && device->concurrent_queue_family_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
         buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_count;
@@ -268,7 +269,8 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if (device->concurrent_queue_family_count > 1)
+    /* In maintenance9, buffers are implicitly transferred between queues. */
+    if (device->device_info.maintenance_9_features.maintenance9 && device->concurrent_queue_family_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
         buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_count;
@@ -674,6 +676,19 @@ static VkImageUsageFlags vkd3d_filter_supported_image_usage(VkImageUsageFlags us
     return usage;
 }
 
+static bool vk_image_usage_support_implicit_concurrent(VkImageUsageFlags usage)
+{
+    /* From spec: These image usages do not participate. Pretty much, anything that's compressed.
+     * Mild hackery: ignore FRAGMENT_SHADING_RATE_ATTACHMENT since we
+     * add that based on heuristics, and it's extremely unlikely to cause issues in practice. */
+    return (usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT /* |
+        VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR*/)) == 0;
+}
+
 static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource,
@@ -935,10 +950,20 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             image_info->flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
     }
 
-    use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1)) ||
-            (heap_properties && is_cpu_accessible_heap(heap_properties));
+    if ((device->device_info.maintenance_9_features.maintenance9 && image_info->tiling == VK_IMAGE_TILING_LINEAR) ||
+        (device->device_info.non_compressed_implicit_concurrent_supported &&
+            vk_image_usage_support_implicit_concurrent(image_info->usage)))
+    {
+        /* For "normal" images, we can rely on maint9 to just implicitly transfer ownership to any queue. */
+        use_concurrent = false;
+    }
+    else
+    {
+        use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1)) ||
+                (heap_properties && is_cpu_accessible_heap(heap_properties));
+    }
 
-    if (use_concurrent)
+    if (use_concurrent && device->concurrent_queue_family_count > 1)
     {
         /* For multi-queue, we have to use CONCURRENT since D3D does
          * not give us enough information to do ownership transfers. */
