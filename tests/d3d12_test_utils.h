@@ -544,6 +544,23 @@ static inline unsigned int format_to_footprint_format(DXGI_FORMAT format, unsign
     }
 }
 
+static inline bool format_is_depth_stencil(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:
+        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+        case DXGI_FORMAT_R24G8_TYPELESS:
+        case DXGI_FORMAT_R32G8X24_TYPELESS:
+        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+        case DXGI_FORMAT_D32_FLOAT:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 static inline unsigned int format_block_width(DXGI_FORMAT format)
 {
     switch (format)
@@ -654,6 +671,7 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
 
     if (resource_desc.SampleDesc.Count > 1)
     {
+        ID3D12GraphicsCommandList1 *list1;
         memset(&heap_properties, 0, sizeof(heap_properties));
         heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
@@ -666,8 +684,19 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
                 &IID_ID3D12Resource, (void **)&src_resource);
         assert_that(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
 
-        ID3D12GraphicsCommandList_ResolveSubresource(command_list,
-                src_resource, 0, texture, sub_resource, resource_desc.Format);
+        if (format_is_depth_stencil(resource_desc.Format) &&
+            SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(command_list, &IID_ID3D12GraphicsCommandList1, (void **)&list1)))
+        {
+            ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1,
+                    src_resource, 0, 0, 0, texture, sub_resource, NULL, resource_desc.Format, D3D12_RESOLVE_MODE_MIN);
+            ID3D12GraphicsCommandList1_Release(list1);
+        }
+        else
+        {
+            ID3D12GraphicsCommandList_ResolveSubresource(command_list,
+                    src_resource, 0, texture, sub_resource, resource_desc.Format);
+        }
+
         transition_resource_state(command_list, src_resource,
                 D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
