@@ -610,6 +610,24 @@ static bool vkd3d_format_allows_shader_copies(DXGI_FORMAT dxgi_format)
     return false;
 }
 
+static bool vkd3d_format_allows_sampler_feedback_resolve(DXGI_FORMAT dxgi_format)
+{
+    unsigned int i;
+
+    static const DXGI_FORMAT feedback_resolve_formats[] = {
+        DXGI_FORMAT_R8_TYPELESS,
+        DXGI_FORMAT_R8_UINT,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(feedback_resolve_formats); i++)
+    {
+        if (dxgi_format == feedback_resolve_formats[i])
+            return true;
+    }
+
+    return false;
+}
+
 static bool vkd3d_format_needs_extended_usage(const struct vkd3d_format *format, VkImageUsageFlags usage)
 {
     VkFormatFeatureFlags2 required_flags, supported_flags;
@@ -686,6 +704,22 @@ static bool vk_image_usage_support_implicit_concurrent(VkImageUsageFlags usage)
             VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
             VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT |
             VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)) == 0;
+}
+
+static bool d3d12_device_supports_universal_color_ds_copy(struct d3d12_device *device)
+{
+    if (!device->device_info.maintenance_8_features.maintenance8)
+        return false;
+
+    if (!(device->queue_families[VKD3D_QUEUE_FAMILY_COMPUTE]->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT) &&
+        (!device->device_info.depth_aspect_copy_on_compute || !device->device_info.stencil_aspect_copy_on_compute))
+        return false;
+
+    /* Do not bother checking transfer queue support here.
+     * If we cannot support a particular Depth/Stencil combination,
+     * we have to use COMPUTE fallback queue, and if COMPUTE queue can always support
+     * weird copies, we don't need to add special usage flags. */
+    return true;
 }
 
 static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
@@ -921,7 +955,9 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         image_info->usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
     /* Additional usage flags for shader-based copies */
-    if (vkd3d_format_allows_shader_copies(format->dxgi_format))
+    if (vkd3d_format_allows_sampler_feedback_resolve(format->dxgi_format) ||
+        (!d3d12_device_supports_universal_color_ds_copy(device) &&
+            vkd3d_format_allows_shader_copies(format->dxgi_format)))
     {
         image_info->usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
