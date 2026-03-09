@@ -128,11 +128,11 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
 
     /* Buffers have implicit SIMULTANEOUS_USAGE rules, which imply some level of CONCURRENT access.
      * We'll need to use CONCURRENT here to be fully spec compliant. */
-    if (device->concurrent_queue_family_count > 1)
+    if (device->concurrent_queue_family_buffer_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_count;
-        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices;
+        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_buffer_count;
+        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices_buffer;
     }
     else
     {
@@ -270,11 +270,11 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if (device->concurrent_queue_family_count > 1)
+    if (device->concurrent_queue_family_buffer_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_count;
-        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices;
+        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_buffer_count;
+        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices_buffer;
     }
     else
     {
@@ -1004,16 +1004,32 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             use_concurrent = false;
     }
 
-    if (use_concurrent && device->concurrent_queue_family_count > 1)
+    if (use_concurrent && device->concurrent_queue_family_image_count > 1)
     {
         /* For multi-queue, we have to use CONCURRENT since D3D does
          * not give us enough information to do ownership transfers. */
         image_info->sharingMode = VK_SHARING_MODE_CONCURRENT;
-        image_info->queueFamilyIndexCount = device->concurrent_queue_family_count;
-        image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices;
 
-        if (resource && device->concurrent_transfer_queue)
-            resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
+        /* Emulate maintenance9 rules here. Force full concurrent for non-compressed type resources.
+         * Pretend we're buffers.
+         * If we added typically compressed usage types due to fallbacks, force full CONCURRENT. */
+        if (!(desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) ||
+            (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) ||
+            (!device->device_info.maintenance_9_features.maintenance9 &&
+                vk_image_usage_support_implicit_concurrent(image_info->usage)))
+        {
+            image_info->queueFamilyIndexCount = device->concurrent_queue_family_buffer_count;
+            image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices_buffer;
+            if (resource)
+                resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
+        }
+        else
+        {
+            image_info->queueFamilyIndexCount = device->concurrent_queue_family_image_count;
+            image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices_image;
+            if (resource && device->concurrent_transfer_queue)
+                resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
+        }
     }
     else
     {
