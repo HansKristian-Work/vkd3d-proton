@@ -970,12 +970,18 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         image_info->sharingMode = VK_SHARING_MODE_CONCURRENT;
         image_info->queueFamilyIndexCount = device->concurrent_queue_family_count;
         image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices;
+
+        if (resource && device->concurrent_transfer_queue)
+            resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
     }
     else
     {
         image_info->sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         image_info->queueFamilyIndexCount = 0;
         image_info->pQueueFamilyIndices = NULL;
+
+        if (resource)
+            resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
     }
 
     if ((image_info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
@@ -4035,6 +4041,10 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
                 object->priority.residency_count = 0;
         }
     }
+
+    /* Buffers are always copy queue compatible. */
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        object->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
 
     d3d12_device_add_ref(device);
 
