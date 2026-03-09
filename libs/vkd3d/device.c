@@ -3534,7 +3534,14 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         device->queue_families[i] = info;
 
         if (i != VKD3D_QUEUE_FAMILY_SPARSE_BINDING)
-            device->concurrent_queue_family_indices[device->concurrent_queue_family_count++] = info->vk_family_index;
+        {
+            bool pure_transfer =
+                (info->vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT)) == VK_QUEUE_TRANSFER_BIT;
+
+            /* Pure transfer queues tend to nuke compression. Only allow it for GPUs that are known to work well here. */
+            if (!pure_transfer || device->concurrent_transfer_queue)
+                device->concurrent_queue_family_indices[device->concurrent_queue_family_count++] = info->vk_family_index;
+        }
 
         if (info->queue_count && i != VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE)
             device->unique_queue_mask |= 1u << i;
@@ -3576,6 +3583,19 @@ static uint32_t vkd3d_find_queue(unsigned int count, const VkQueueFamilyProperti
     }
 
     return VK_QUEUE_FAMILY_IGNORED;
+}
+
+static bool vkd3d_driver_has_fast_concurrent_transfer_queue(VkDriverId driver_id)
+{
+    switch (driver_id)
+    {
+        case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
+        case VK_DRIVER_ID_MESA_NVK:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
@@ -3897,6 +3917,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         return E_OUTOFMEMORY;
     }
 
+    device->concurrent_transfer_queue = vkd3d_driver_has_fast_concurrent_transfer_queue(device->device_info.vulkan_1_2_properties.driverID);
+
     if (FAILED(hr = vkd3d_select_queues(device, physical_device, &device_queue_info)))
     {
         vkd3d_free(user_extension_supported);
@@ -3914,6 +3936,15 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]);
     TRACE("Using queue family %u for optical flow.\n",
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_OPTICAL_FLOW]);
+
+    if (device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER] ==
+        device_queue_info.family_index[VKD3D_QUEUE_FAMILY_COMPUTE] ||
+        device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER] ==
+        device_queue_info.family_index[VKD3D_QUEUE_FAMILY_GRAPHICS])
+    {
+        /* If we emulate TRANSFER queue, we're implicitly concurrent. */
+        device->concurrent_transfer_queue = true;
+    }
 
     /* Create device */
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

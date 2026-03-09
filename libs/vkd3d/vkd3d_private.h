@@ -5438,6 +5438,7 @@ struct d3d12_device
     struct vkd3d_queue_family_info *queue_families[VKD3D_QUEUE_FAMILY_COUNT];
     uint32_t concurrent_queue_family_indices[VKD3D_QUEUE_FAMILY_COUNT];
     uint32_t concurrent_queue_family_count;
+    bool concurrent_transfer_queue;
     uint32_t unique_queue_mask;
 
     struct vkd3d_instance *vkd3d_instance;
