@@ -9162,9 +9162,18 @@ static bool d3d12_command_list_check_ds_color_copy_compatibility(struct d3d12_co
     const struct vkd3d_format *ds_format = dst_format->vk_aspect_mask & ds_bits ? dst_format : src_format;
     const struct vkd3d_format *color_format = ds_format == dst_format ? src_format : dst_format;
 
-    /* TODO: maintenance8 only allows GRAPHICS queue DS<->COLOR, but future extensions may allow on other queues */
-    if (list->type != D3D12_COMMAND_LIST_TYPE_DIRECT || !list->device->device_info.maintenance_8_features.maintenance8)
+    if (!list->device->device_info.maintenance_8_features.maintenance8)
         return false;
+
+    /* If we need to fallback in COPY queue, we're always going to use a COMPUTE queue.
+     * It's not important here what the transfer queue supports. */
+    if (!(list->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
+    {
+        if (color_format->byte_count > 1 && !list->device->device_info.depth_aspect_copy_on_compute)
+            return false;
+        if (color_format->byte_count == 1 && !list->device->device_info.stencil_aspect_copy_on_compute)
+            return false;
+    }
 
     /* ensure formats detected as expected */
     if ((ds_format->vk_aspect_mask & ds_bits) == 0 ||
