@@ -9649,6 +9649,14 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
     dst_resource = impl_from_ID3D12Resource(dst->pResource);
     src_resource = impl_from_ID3D12Resource(src->pResource);
 
+    if (list->type == D3D12_COMMAND_LIST_TYPE_COPY)
+    {
+        if (!(dst_resource->flags & VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE))
+            FIXME("dst is not COPY queue compatible.\n");
+        if (!(src_resource->flags & VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE))
+            FIXME("src is not COPY queue compatible.\n");
+    }
+
     out->copy.buffer_image.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2;
     out->copy.buffer_image.pNext = NULL;
 
@@ -10131,6 +10139,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     dst_resource = impl_from_ID3D12Resource(dst);
     src_resource = impl_from_ID3D12Resource(src);
 
+    if (list->type == D3D12_COMMAND_LIST_TYPE_COPY)
+    {
+        if (!(dst_resource->flags & VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE))
+            FIXME("dst is not COPY queue compatible.\n");
+        if (!(src_resource->flags & VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE))
+            FIXME("src is not COPY queue compatible.\n");
+    }
+
     d3d12_command_list_track_resource_usage(list, dst_resource, !d3d12_resource_may_alias_other_resources(dst_resource));
     d3d12_command_list_track_resource_usage(list, src_resource, true);
 
@@ -10482,6 +10498,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
     tiled_res = impl_from_ID3D12Resource(tiled_resource);
     linear_res = impl_from_ID3D12Resource(buffer);
+
+    if (list->type == D3D12_COMMAND_LIST_TYPE_COPY)
+    {
+        if (!(tiled_res->flags & VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE))
+            FIXME("dst is not COPY queue compatible.\n");
+        if (!(linear_res->flags & VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE))
+            FIXME("src is not COPY queue compatible.\n");
+    }
 
     d3d12_command_list_track_resource_usage(list, tiled_res, true);
 
@@ -12580,6 +12604,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     d3d12_command_list_mark_as_invalid(list, "A resource pointer is NULL.");
                     continue;
                 }
+
+                if (list->type == D3D12_COMMAND_LIST_TYPE_COPY)
+                    if (!(preserve_resource->flags & VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE))
+                        FIXME("resource is not COPY queue compatible.\n");
 
                 if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
                 {
@@ -20300,6 +20328,10 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
                     1.0f, 1.0f, 0.0f, 1.0f, "  NumPlanes %u", barrier->Subresources.NumPlanes);
         }
     }
+
+    if (list->type == D3D12_COMMAND_LIST_TYPE_COPY)
+        if (!(resource->flags & VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE))
+            FIXME("resource is not COPY queue compatible.\n");
 
     /* Split barrier. Defer this until SyncBefore = SPLIT. See notes in sync flag translation. */
     if (barrier->SyncAfter == D3D12_BARRIER_SYNC_SPLIT)
