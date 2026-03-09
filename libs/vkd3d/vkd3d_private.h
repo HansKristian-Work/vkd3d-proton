@@ -2601,6 +2601,17 @@ enum vkd3d_scratch_pool_kind
     VKD3D_SCRATCH_POOL_KIND_COUNT
 };
 
+struct d3d12_command_allocator_command_pool
+{
+    VkQueueFlags vk_queue_flags;
+    uint32_t vk_family_index;
+    VkCommandPool vk_command_pool;
+
+    VkCommandBuffer *command_buffers;
+    size_t command_buffers_size;
+    size_t command_buffer_count;
+};
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {
@@ -2609,10 +2620,6 @@ struct d3d12_command_allocator
     LONG internal_refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
-    VkQueueFlags vk_queue_flags;
-    uint32_t vk_family_index;
-
-    VkCommandPool vk_command_pool;
 
     struct vkd3d_view **views;
     size_t views_size;
@@ -2626,10 +2633,8 @@ struct d3d12_command_allocator
     size_t pipelines_size;
     size_t pipelines_count;
 
-    VkCommandBuffer *command_buffers;
-    size_t command_buffers_size;
-    size_t command_buffer_count;
-
+    struct d3d12_command_allocator_command_pool primary_pool;
+    struct d3d12_command_allocator_command_pool fallback_pool;
     struct d3d12_command_allocator_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
 
     struct vkd3d_query_pool *query_pools;
