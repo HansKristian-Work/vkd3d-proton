@@ -3548,6 +3548,7 @@ void test_copy_subresource_depth_stencil_batch(void)
     destroy_test_context(&context);
 }
 
+/* Suitable for copy tests on any queue type (DIRECT, COMPUTE or COPY). */
 struct test_context_copy
 {
     struct test_context context;
@@ -3556,7 +3557,7 @@ struct test_context_copy
     ID3D12CommandQueue *copy_queue;
 };
 
-static bool init_copy_test_context(struct test_context_copy *context)
+static bool init_copy_test_context(struct test_context_copy *context, D3D12_COMMAND_LIST_TYPE type)
 {
     D3D12_COMMAND_QUEUE_DESC copy_queue_desc;
     struct test_context_desc context_desc;
@@ -3569,17 +3570,17 @@ static bool init_copy_test_context(struct test_context_copy *context)
     if (!init_test_context(&context->context, &context_desc))
         return false;
 
-    hr = ID3D12Device_CreateCommandAllocator(context->context.device, D3D12_COMMAND_LIST_TYPE_COPY,
+    hr = ID3D12Device_CreateCommandAllocator(context->context.device, type,
         &IID_ID3D12CommandAllocator, (void **)&context->copy_allocator);
     ok(SUCCEEDED(hr), "Failed to create command allocator, hr #%x\n", hr);
 
     memset(&copy_queue_desc, 0, sizeof(copy_queue_desc));
-    copy_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
+    copy_queue_desc.Type = type;
     hr = ID3D12Device_CreateCommandQueue(context->context.device, &copy_queue_desc,
         &IID_ID3D12CommandQueue, (void **)&context->copy_queue);
     ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
 
-    ID3D12Device_CreateCommandList(context->context.device, 0, D3D12_COMMAND_LIST_TYPE_COPY,
+    ID3D12Device_CreateCommandList(context->context.device, 0, type,
         context->copy_allocator, NULL,
         &IID_ID3D12GraphicsCommandList, (void **)&context->copy_list);
     ID3D12GraphicsCommandList_Close(context->copy_list);
@@ -3595,7 +3596,7 @@ static void destroy_copy_test_context(struct test_context_copy *context)
     destroy_test_context(&context->context);
 }
 
-void test_copy_queue_buffer(void)
+static void test_queue_buffer(D3D12_COMMAND_LIST_TYPE type)
 {
     struct test_context_copy context;
     ID3D12Resource *a, *b, *c, *d;
@@ -3606,7 +3607,7 @@ void test_copy_queue_buffer(void)
     uint32_t *ptr;
     HRESULT hr;
 
-    if (!init_copy_test_context(&context))
+    if (!init_copy_test_context(&context, type))
         return;
 
     hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
@@ -3661,7 +3662,22 @@ void test_copy_queue_buffer(void)
     destroy_copy_test_context(&context);
 }
 
-void test_copy_queue_buffer_image(void)
+void test_copy_queue_buffer(void)
+{
+    test_queue_buffer(D3D12_COMMAND_LIST_TYPE_COPY);
+}
+
+void test_compute_queue_buffer(void)
+{
+    test_queue_buffer(D3D12_COMMAND_LIST_TYPE_COMPUTE);
+}
+
+void test_graphics_queue_buffer(void)
+{
+    test_queue_buffer(D3D12_COMMAND_LIST_TYPE_DIRECT);
+}
+
+static void test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE type)
 {
     D3D12_TEXTURE_COPY_LOCATION dst, src;
     struct test_context_copy context;
@@ -3674,7 +3690,7 @@ void test_copy_queue_buffer_image(void)
     uint32_t *ptr;
     HRESULT hr;
 
-    if (!init_copy_test_context(&context))
+    if (!init_copy_test_context(&context, type))
         return;
 
     ID3D12GraphicsCommandList_Close(context.context.list);
@@ -3762,7 +3778,22 @@ void test_copy_queue_buffer_image(void)
     destroy_copy_test_context(&context);
 }
 
-static void test_copy_queue_render_target_inner(bool msaa)
+void test_copy_queue_buffer_image(void)
+{
+    test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE_COPY);
+}
+
+void test_compute_queue_buffer_image(void)
+{
+    test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE_COMPUTE);
+}
+
+void test_graphics_queue_buffer_image(void)
+{
+    test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE_DIRECT);
+}
+
+static void test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE type, bool msaa)
 {
     const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
     const FLOAT green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
@@ -3782,7 +3813,7 @@ static void test_copy_queue_render_target_inner(bool msaa)
     D3D12_BOX box;
     HRESULT hr;
 
-    if (!init_copy_test_context(&context))
+    if (!init_copy_test_context(&context, type))
         return;
 
     hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
@@ -3959,15 +3990,35 @@ out2:
 
 void test_copy_queue_render_target(void)
 {
-    test_copy_queue_render_target_inner(false);
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_COPY, false);
 }
 
 void test_copy_queue_render_target_msaa(void)
 {
-    test_copy_queue_render_target_inner(true);
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_COPY, true);
 }
 
-static void test_copy_queue_depth_stencil_inner(bool msaa)
+void test_compute_queue_render_target(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_COMPUTE, false);
+}
+
+void test_compute_queue_render_target_msaa(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_COMPUTE, true);
+}
+
+void test_graphics_queue_render_target(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, false);
+}
+
+void test_graphics_queue_render_target_msaa(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, true);
+}
+
+static void test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE type, bool msaa)
 {
     ID3D12Resource *tex, *upload_buf, *copy_tex;
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
@@ -3983,7 +4034,7 @@ static void test_copy_queue_depth_stencil_inner(bool msaa)
     D3D12_BOX box;
     HRESULT hr;
 
-    if (!init_copy_test_context(&context))
+    if (!init_copy_test_context(&context, type))
         return;
 
     memset(&desc, 0, sizeof(desc));
@@ -4159,10 +4210,31 @@ out2:
 
 void test_copy_queue_depth_stencil(void)
 {
-    test_copy_queue_depth_stencil_inner(false);
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_COPY, false);
 }
 
 void test_copy_queue_depth_stencil_msaa(void)
 {
-    test_copy_queue_depth_stencil_inner(true);
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_COPY, true);
+}
+
+void test_compute_queue_depth_stencil(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_COMPUTE, false);
+}
+
+void test_compute_queue_depth_stencil_msaa(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_COMPUTE, true);
+}
+
+/* Baseline for comparison */
+void test_graphics_queue_depth_stencil(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, false);
+}
+
+void test_graphics_queue_depth_stencil_msaa(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, true);
 }
