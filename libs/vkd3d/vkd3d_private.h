@@ -142,6 +142,8 @@ struct vkd3d_vulkan_info
     bool KHR_maintenance6;
     bool KHR_maintenance7;
     bool KHR_maintenance8;
+    bool KHR_maintenance9;
+    bool KHR_maintenance10;
     bool KHR_shader_maximal_reconvergence;
     bool KHR_shader_quad_control;
     bool KHR_compute_shader_derivatives;
@@ -5023,6 +5025,9 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMaintenance6FeaturesKHR maintenance_6_features;
     VkPhysicalDeviceMaintenance7FeaturesKHR maintenance_7_features;
     VkPhysicalDeviceMaintenance8FeaturesKHR maintenance_8_features;
+    VkPhysicalDeviceMaintenance9FeaturesKHR maintenance_9_features;
+    VkPhysicalDeviceMaintenance10FeaturesKHR maintenance_10_features;
+    VkPhysicalDeviceMaintenance10PropertiesKHR maintenance_10_properties;
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
     VkPhysicalDeviceFaultFeaturesEXT fault_features;
@@ -5050,6 +5055,18 @@ struct vkd3d_physical_device_info
     uint32_t time_domains;  /* vkd3d_time_domain_flag */
 
     bool additional_shading_rates_supported; /* d3d12 additional fragment shading rates cap */
+
+    /* maint9 */
+    bool non_compressed_implicit_concurrent_supported;
+
+    /* maint10. NV 595 does not support stencil copy on transfer for D32S8 oddly enough,
+     * so need to split these out.
+     * The compute properties are more or less ignored for now, since we don't intend
+     * to do compute -> graphics fallbacks. */
+    bool depth_aspect_copy_on_compute;
+    bool depth_aspect_copy_on_transfer;
+    bool stencil_aspect_copy_on_compute;
+    bool stencil_aspect_copy_on_transfer;
 };
 
 struct d3d12_caps

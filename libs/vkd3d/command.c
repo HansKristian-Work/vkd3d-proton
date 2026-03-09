@@ -12010,6 +12010,11 @@ static void vk_image_memory_barrier_subresources_from_d3d12_texture_barrier(
         vk_range->levelCount = VK_REMAINING_MIP_LEVELS;
         vk_range->layerCount = VK_REMAINING_ARRAY_LAYERS;
     }
+
+    /* maint9 quirk. If enabled, and the 3D image is 2D_ARRAY compatible,
+     * layerCount is in terms of slices, so the compatible thing to do is REMAINING_ARRAY_LAYERS. */
+    if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        vk_range->layerCount = VK_REMAINING_ARRAY_LAYERS;
 }
 
 static void vk_image_memory_barrier_for_transition(
@@ -12063,6 +12068,11 @@ static void vk_image_memory_barrier_for_transition(
             image_barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
             image_barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
         }
+
+        /* maint9 quirk. If enabled, and the 3D image is 2D_ARRAY compatible,
+         * layerCount is in terms of slices, so the compatible thing to do is REMAINING_ARRAY_LAYERS. */
+        if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+            image_barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
     }
     else
     {
