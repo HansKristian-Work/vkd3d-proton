@@ -126,6 +126,8 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
         buffer_info.usage = vk_usage_flags;
     }
 
+    /* Buffers have implicit SIMULTANEOUS_USAGE rules, which imply some level of CONCURRENT access.
+     * We'll need to use CONCURRENT here to be fully spec compliant. */
     if (device->concurrent_queue_family_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
@@ -674,6 +676,18 @@ static VkImageUsageFlags vkd3d_filter_supported_image_usage(VkImageUsageFlags us
     return usage;
 }
 
+static bool vk_image_usage_support_implicit_concurrent(VkImageUsageFlags usage)
+{
+    /* From spec: These image usages do not participate. Pretty much, anything that's compressed.
+     * Fragment shading rate is a bit goofy here, though, but what can you do. */
+    return (usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT |
+            VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)) == 0;
+}
+
 static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource,
@@ -938,7 +952,23 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1)) ||
             (heap_properties && is_cpu_accessible_heap(heap_properties));
 
-    if (use_concurrent)
+    /* Simultaneous access implies CONCURRENT since it can concurrently have one writer and many readers.
+     * maint9 guarantee is technically automatic EXCLUSIVE. */
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS))
+    {
+        bool linear_guarantee = device->device_info.maintenance_9_features.maintenance9 &&
+                image_info->tiling == VK_IMAGE_TILING_LINEAR;
+        bool optimal_guarantee = device->device_info.non_compressed_implicit_concurrent_supported &&
+                vk_image_usage_support_implicit_concurrent(image_info->usage);
+
+        bool supports_implicit_transfer = linear_guarantee || optimal_guarantee;
+
+        /* Nothing complicated is going on, just rely on maint9. */
+        if (supports_implicit_transfer)
+            use_concurrent = false;
+    }
+
+    if (use_concurrent && device->concurrent_queue_family_count > 1)
     {
         /* For multi-queue, we have to use CONCURRENT since D3D does
          * not give us enough information to do ownership transfers. */
