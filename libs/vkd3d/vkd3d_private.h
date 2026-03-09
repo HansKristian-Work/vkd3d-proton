@@ -3392,9 +3392,6 @@ struct vkd3d_queue
     /* Access to VkQueue must be externally synchronized. */
     pthread_mutex_t mutex;
 
-    /* If not NULL, lock a shared mutex as well. */
-    pthread_mutex_t *global_mutex;
-
     VkQueue vk_queue;
 
     VkCommandPool barrier_pool;
