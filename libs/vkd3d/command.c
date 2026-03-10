@@ -12257,6 +12257,173 @@ static const char *vkd3d_resource_state_to_str(D3D12_RESOURCE_STATES resource_st
     return "???";
 }
 
+static const char *vkd3d_barrier_layout_to_str(D3D12_BARRIER_LAYOUT layout)
+{
+    switch (layout)
+    {
+#define s(state) case D3D12_BARRIER_LAYOUT_##state : return #state
+        s(COMMON);
+        s(GENERIC_READ);
+        s(RENDER_TARGET);
+        s(UNORDERED_ACCESS);
+        s(DEPTH_STENCIL_WRITE);
+        s(DEPTH_STENCIL_READ);
+        s(SHADER_RESOURCE);
+        s(COPY_SOURCE);
+        s(COPY_DEST);
+        s(RESOLVE_SOURCE);
+        s(RESOLVE_DEST);
+        s(SHADING_RATE_SOURCE);
+        s(VIDEO_DECODE_READ);
+        s(VIDEO_DECODE_WRITE);
+        s(VIDEO_PROCESS_READ);
+        s(VIDEO_PROCESS_WRITE);
+        s(VIDEO_ENCODE_READ);
+        s(VIDEO_ENCODE_WRITE);
+        s(DIRECT_QUEUE_COMMON);
+        s(DIRECT_QUEUE_GENERIC_READ);
+        s(DIRECT_QUEUE_UNORDERED_ACCESS);
+        s(DIRECT_QUEUE_SHADER_RESOURCE);
+        s(DIRECT_QUEUE_COPY_SOURCE);
+        s(DIRECT_QUEUE_COPY_DEST);
+        s(COMPUTE_QUEUE_COMMON);
+        s(COMPUTE_QUEUE_GENERIC_READ);
+        s(COMPUTE_QUEUE_UNORDERED_ACCESS);
+        s(COMPUTE_QUEUE_SHADER_RESOURCE);
+        s(COMPUTE_QUEUE_COPY_SOURCE);
+        s(COMPUTE_QUEUE_COPY_DEST);
+        s(VIDEO_QUEUE_COMMON);
+        default: break;
+#undef s
+    }
+
+    return "???";
+}
+
+static const char *vkd3d_barrier_sync_to_str(D3D12_BARRIER_SYNC sync)
+{
+    char *buffer;
+
+    if (sync & D3D12_BARRIER_SYNC_ALL)
+        return "ALL";
+    if (sync == D3D12_BARRIER_SYNC_NONE)
+        return "NONE";
+
+    buffer = vkd3d_dbg_get_buffer();
+    *buffer = '\0';
+
+    while (sync)
+    {
+        uint32_t state = sync & -sync;
+        const char *str;
+
+        switch (state)
+        {
+#define s(state) case D3D12_BARRIER_SYNC_##state: str = #state; break
+            s(DRAW);
+            s(INDEX_INPUT);
+            s(VERTEX_SHADING);
+            s(PIXEL_SHADING);
+            s(DEPTH_STENCIL);
+            s(RENDER_TARGET);
+            s(COMPUTE_SHADING);
+            s(RAYTRACING);
+            s(COPY);
+            s(RESOLVE);
+            s(EXECUTE_INDIRECT);
+            s(ALL_SHADING);
+            s(NON_PIXEL_SHADING);
+            s(EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO);
+            s(CLEAR_UNORDERED_ACCESS_VIEW);
+            s(VIDEO_DECODE);
+            s(VIDEO_PROCESS);
+            s(VIDEO_ENCODE);
+            s(BUILD_RAYTRACING_ACCELERATION_STRUCTURE);
+            s(COPY_RAYTRACING_ACCELERATION_STRUCTURE);
+            s(SPLIT);
+            default: str = "???";
+#undef s
+        }
+
+        if (*buffer != '\0')
+        {
+            strncat(buffer, " | ", VKD3D_DEBUG_BUFFER_SIZE);
+            strncat(buffer, str, VKD3D_DEBUG_BUFFER_SIZE);
+        }
+        else
+        {
+            strcpy(buffer, str);
+        }
+
+        sync &= ~state;
+    }
+
+    return buffer;
+}
+
+static const char *vkd3d_barrier_access_to_str(D3D12_BARRIER_ACCESS access)
+{
+    char *buffer;
+
+    if (access == D3D12_BARRIER_ACCESS_COMMON)
+        return "COMMON";
+    if (access == D3D12_BARRIER_ACCESS_NO_ACCESS)
+        return "NO_ACCESS";
+
+    buffer = vkd3d_dbg_get_buffer();
+    *buffer = '\0';
+
+    while (access)
+    {
+        uint32_t state = access & -access;
+        const char *str;
+
+        switch (state)
+        {
+#define s(state) case D3D12_BARRIER_ACCESS_##state: str = #state; break
+            s(VERTEX_BUFFER);
+            s(CONSTANT_BUFFER);
+            s(INDEX_BUFFER);
+            s(RENDER_TARGET);
+            s(UNORDERED_ACCESS);
+            s(DEPTH_STENCIL_WRITE);
+            s(DEPTH_STENCIL_READ);
+            s(SHADER_RESOURCE);
+            s(STREAM_OUTPUT);
+            s(INDIRECT_ARGUMENT);
+            s(COPY_DEST);
+            s(COPY_SOURCE);
+            s(RESOLVE_DEST);
+            s(RESOLVE_SOURCE);
+            s(RAYTRACING_ACCELERATION_STRUCTURE_READ);
+            s(RAYTRACING_ACCELERATION_STRUCTURE_WRITE);
+            s(SHADING_RATE_SOURCE);
+            s(VIDEO_DECODE_READ);
+            s(VIDEO_DECODE_WRITE);
+            s(VIDEO_PROCESS_READ);
+            s(VIDEO_PROCESS_WRITE);
+            s(VIDEO_ENCODE_READ);
+            s(VIDEO_ENCODE_WRITE);
+            default: str = "???";
+#undef s
+        }
+
+        if (*buffer != '\0')
+        {
+            strncat(buffer, " | ", VKD3D_DEBUG_BUFFER_SIZE);
+            strncat(buffer, str, VKD3D_DEBUG_BUFFER_SIZE);
+        }
+        else
+        {
+            strcpy(buffer, str);
+        }
+
+        access &= ~state;
+    }
+
+    return buffer;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_list_iface *iface,
         UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers)
 {
@@ -19361,6 +19528,16 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
         return;
     }
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    {
+        d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                1.0f, 1.0f, 0.0f, 1.0f, "Global barrier (%s / %s) -> (%s / %s)",
+                vkd3d_barrier_sync_to_str(barrier->SyncBefore),
+                vkd3d_barrier_access_to_str(barrier->AccessBefore),
+                vkd3d_barrier_sync_to_str(barrier->SyncAfter),
+                vkd3d_barrier_access_to_str(barrier->AccessAfter));
+    }
+
     VKD3D_BREADCRUMB_AUX32(barrier->SyncBefore);
     VKD3D_BREADCRUMB_AUX32(barrier->AccessBefore);
     VKD3D_BREADCRUMB_AUX32(barrier->SyncAfter);
@@ -19404,6 +19581,16 @@ static void d3d12_command_list_process_enhanced_barrier_buffer(struct d3d12_comm
     global.AccessBefore = barrier->AccessBefore;
     global.AccessAfter = barrier->AccessAfter;
     d3d12_command_list_process_enhanced_barrier_global(list, batch, &global);
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    {
+        d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                1.0f, 1.0f, 0.0f, 1.0f, "Buffer barrier (%s / %s) -> (%s / %s)",
+                vkd3d_barrier_sync_to_str(barrier->SyncBefore),
+                vkd3d_barrier_access_to_str(barrier->AccessBefore),
+                vkd3d_barrier_sync_to_str(barrier->SyncAfter),
+                vkd3d_barrier_access_to_str(barrier->AccessAfter));
+    }
 }
 
 static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_command_list *list,
@@ -19433,6 +19620,40 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
         return;
     }
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    {
+        d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                1.0f, 1.0f, 0.0f, 1.0f, "Texture barrier cookie %u: (layout %s -> %s) (%s / %s) -> (%s / %s)",
+                resource->res.cookie.index,
+                vkd3d_barrier_layout_to_str(barrier->LayoutBefore),
+                vkd3d_barrier_layout_to_str(barrier->LayoutAfter),
+                vkd3d_barrier_sync_to_str(barrier->SyncBefore),
+                vkd3d_barrier_access_to_str(barrier->AccessBefore),
+                vkd3d_barrier_sync_to_str(barrier->SyncAfter),
+                vkd3d_barrier_access_to_str(barrier->AccessAfter));
+
+        if (barrier->Subresources.NumMipLevels == 0)
+        {
+            d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                    1.0f, 1.0f, 0.0f, 1.0f, "  subresource %d", barrier->Subresources.IndexOrFirstMipLevel);
+        }
+        else
+        {
+            d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                    1.0f, 1.0f, 0.0f, 1.0f, "  FirstArraySlice %u", barrier->Subresources.FirstArraySlice);
+            d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                    1.0f, 1.0f, 0.0f, 1.0f, "  NumArraySlices %u", barrier->Subresources.NumArraySlices);
+            d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                    1.0f, 1.0f, 0.0f, 1.0f, "  FirstLevel %u", barrier->Subresources.IndexOrFirstMipLevel);
+            d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                    1.0f, 1.0f, 0.0f, 1.0f, "  NumLevels %u", barrier->Subresources.NumMipLevels);
+            d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                    1.0f, 1.0f, 0.0f, 1.0f, "  FirstPlane %u", barrier->Subresources.FirstPlane);
+            d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
+                    1.0f, 1.0f, 0.0f, 1.0f, "  NumPlanes %u", barrier->Subresources.NumPlanes);
+        }
+    }
+
     /* Split barrier. Defer this until SyncBefore = SPLIT. See notes in sync flag translation. */
     if (barrier->SyncAfter == D3D12_BARRIER_SYNC_SPLIT)
         return;
@@ -19441,6 +19662,7 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
     if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumPlanes == 0)
     {
         WARN("No-op texture barrier due to NumPlanes == 0.\n");
+        d3d12_command_list_debug_mark_label(list, " ... skip", 1.0f, 0.0f, 0.0f, 1.0f);
         return;
     }
 
