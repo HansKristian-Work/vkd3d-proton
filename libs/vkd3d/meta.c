@@ -1542,8 +1542,11 @@ static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
         struct vkd3d_multi_dispatch_indirect_ops *meta_multi_dispatch_indirect_ops,
         struct d3d12_device *device)
 {
+    struct vkd3d_shader_spec_info debug_ring_info;
     VkPushConstantRange push_constant_range;
+    const VkSpecializationInfo *spec;
     VkResult vr;
+    bool debug;
 
     memset(meta_multi_dispatch_indirect_ops, 0, sizeof(*meta_multi_dispatch_indirect_ops));
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -1560,6 +1563,20 @@ static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
             &push_constant_range, &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout)) < 0)
         goto fail;
 
+    debug = device->debug_ring.active &&
+            !!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT);
+
+    if (debug)
+    {
+        vkd3d_shader_debug_ring_init_spec_constant(device, &debug_ring_info,
+                0 /* Reserve this hash for internal debug streams. */);
+        spec = &debug_ring_info.spec_info;
+    }
+    else
+    {
+        spec = NULL;
+    }
+
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
             sizeof(cs_execute_indirect_multi_dispatch), cs_execute_indirect_multi_dispatch,
             meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout, NULL, true, NULL,
@@ -1567,8 +1584,9 @@ static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
         goto fail;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
-            sizeof(cs_execute_indirect_multi_dispatch_state), cs_execute_indirect_multi_dispatch_state,
-            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout, NULL, true, NULL,
+            debug ? sizeof(cs_execute_indirect_multi_dispatch_state_debug_ring) : sizeof(cs_execute_indirect_multi_dispatch_state),
+            debug ? cs_execute_indirect_multi_dispatch_state_debug_ring : cs_execute_indirect_multi_dispatch_state,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout, spec, true, NULL,
             &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_pipeline)) < 0)
         goto fail;
 
@@ -1729,7 +1747,16 @@ static HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1,
-            &push_constant_range, &meta_indirect_ops->vk_pipeline_layout)) < 0)
+            &push_constant_range, &meta_indirect_ops->vk_pipeline_layout_patch)) < 0)
+    {
+        pthread_mutex_destroy(&meta_indirect_ops->mutex);
+        return hresult_from_vk_result(vr);
+    }
+
+    push_constant_range.size = sizeof(struct vkd3d_execute_indirect_debug_ring_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1,
+            &push_constant_range, &meta_indirect_ops->vk_pipeline_layout_debug_ring)) < 0)
     {
         pthread_mutex_destroy(&meta_indirect_ops->mutex);
         return hresult_from_vk_result(vr);
@@ -1770,15 +1797,17 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
 
     for (i = 0; i < meta_indirect_ops->pipelines_count; i++)
     {
-        if (meta_indirect_ops->pipelines[i].workgroup_size_x == patch_command_count)
+        if (meta_indirect_ops->pipelines[i].workgroup_size_x == patch_command_count &&
+                !meta_indirect_ops->pipelines[i].pure_debug)
         {
-            info->vk_pipeline_layout = meta_indirect_ops->vk_pipeline_layout;
+            info->vk_pipeline_layout = meta_indirect_ops->vk_pipeline_layout_patch;
             info->vk_pipeline = meta_indirect_ops->pipelines[i].vk_pipeline;
             goto out;
         }
     }
 
-    debug = meta_ops->device->debug_ring.active;
+    debug = meta_ops->device->debug_ring.active &&
+            !!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT);
 
     /* If we have debug ring, we can dump indirect command buffer data to the ring as well.
      * Vital for debugging broken execute indirect data with templates. */
@@ -1818,11 +1847,12 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
             meta_indirect_ops->pipelines_count + 1, sizeof(*meta_indirect_ops->pipelines));
 
     meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].workgroup_size_x = patch_command_count;
+    meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].pure_debug = false;
 
     vr = vkd3d_meta_create_compute_pipeline(meta_ops->device,
             debug ? sizeof(cs_execute_indirect_patch_debug_ring) : sizeof(cs_execute_indirect_patch),
             debug ? cs_execute_indirect_patch_debug_ring : cs_execute_indirect_patch,
-            meta_indirect_ops->vk_pipeline_layout, &spec,
+            meta_indirect_ops->vk_pipeline_layout_patch, &spec,
             true, NULL, &meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline);
 
     if (vr)
@@ -1831,7 +1861,83 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
         goto out;
     }
 
-    info->vk_pipeline_layout = meta_indirect_ops->vk_pipeline_layout;
+    info->vk_pipeline_layout = meta_indirect_ops->vk_pipeline_layout_patch;
+    info->vk_pipeline = meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline;
+    meta_indirect_ops->pipelines_count++;
+
+out:
+    pthread_mutex_unlock(&meta_indirect_ops->mutex);
+    return hr;
+}
+
+HRESULT vkd3d_meta_get_execute_indirect_debug_ring_pipeline(struct vkd3d_meta_ops *meta_ops,
+        uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info)
+{
+    struct vkd3d_meta_execute_indirect_spec_constant_data execute_indirect_spec_constants;
+    struct vkd3d_execute_indirect_ops *meta_indirect_ops = &meta_ops->execute_indirect;
+    VkSpecializationMapEntry map_entry[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES + 1];
+    struct vkd3d_shader_spec_info debug_ring_info;
+
+    VkSpecializationInfo spec;
+    HRESULT hr = S_OK;
+    VkResult vr;
+    size_t i;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&meta_indirect_ops->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    for (i = 0; i < meta_indirect_ops->pipelines_count; i++)
+    {
+        if (meta_indirect_ops->pipelines[i].workgroup_size_x == patch_command_count &&
+                meta_indirect_ops->pipelines[i].pure_debug)
+        {
+            info->vk_pipeline_layout = meta_indirect_ops->vk_pipeline_layout_debug_ring;
+            info->vk_pipeline = meta_indirect_ops->pipelines[i].vk_pipeline;
+            goto out;
+        }
+    }
+
+    vkd3d_shader_debug_ring_init_spec_constant(meta_ops->device, &debug_ring_info,
+            0 /* Reserve this hash for internal debug streams. */);
+
+    memset(&execute_indirect_spec_constants, 0, sizeof(execute_indirect_spec_constants));
+    execute_indirect_spec_constants.constants = debug_ring_info.debug_ring_constants;
+    execute_indirect_spec_constants.workgroup_size_x = patch_command_count;
+
+    memcpy(map_entry, debug_ring_info.map_entries, sizeof(debug_ring_info.map_entries));
+    map_entry[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES].constantID = 4;
+    map_entry[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES].offset =
+            offsetof(struct vkd3d_meta_execute_indirect_spec_constant_data, workgroup_size_x);
+    map_entry[VKD3D_SHADER_SPEC_INFO_MAP_ENTRIES].size = sizeof(patch_command_count);
+
+    spec.pMapEntries = map_entry;
+    spec.pData = &execute_indirect_spec_constants;
+    spec.mapEntryCount = ARRAY_SIZE(map_entry);
+    spec.dataSize = sizeof(execute_indirect_spec_constants);
+
+    vkd3d_array_reserve((void**)&meta_indirect_ops->pipelines, &meta_indirect_ops->pipelines_size,
+            meta_indirect_ops->pipelines_count + 1, sizeof(*meta_indirect_ops->pipelines));
+
+    meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].workgroup_size_x = patch_command_count;
+    meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].pure_debug = true;
+
+    vr = vkd3d_meta_create_compute_pipeline(meta_ops->device,
+            sizeof(cs_execute_indirect_debug_ring),
+            cs_execute_indirect_debug_ring,
+            meta_indirect_ops->vk_pipeline_layout_debug_ring, &spec,
+            true, NULL, &meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline);
+
+    if (vr)
+    {
+        hr = hresult_from_vk_result(vr);
+        goto out;
+    }
+
+    info->vk_pipeline_layout = meta_indirect_ops->vk_pipeline_layout_debug_ring;
     info->vk_pipeline = meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline;
     meta_indirect_ops->pipelines_count++;
 
@@ -1848,7 +1954,8 @@ static void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops
 
     for (i = 0; i < meta_indirect_ops->pipelines_count; i++)
         VK_CALL(vkDestroyPipeline(device->vk_device, meta_indirect_ops->pipelines[i].vk_pipeline, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_indirect_ops->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_indirect_ops->vk_pipeline_layout_patch, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_indirect_ops->vk_pipeline_layout_debug_ring, NULL));
     pthread_mutex_destroy(&meta_indirect_ops->mutex);
     vkd3d_free(meta_indirect_ops->pipelines);
 }
