@@ -16372,6 +16372,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     /* Temporary workaround, since we cannot parse non-draw arguments yet. Point directly
      * to the first argument. Should avoid hard crashes for now. */
     arg_buffer_offset += sig_impl->argument_buffer_offset_for_command;
+    if (sig_impl->argument_buffer_offset_for_command)
+    {
+        d3d12_command_list_debug_mark_label(list, "DGC skip", 1.0f, 0.0f, 0.0f, 1.0f);
+        return;
+    }
 
     if (list->predication.fallback_enabled)
     {
@@ -24443,8 +24448,8 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
                 !device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands)
         {
             FIXME("Device generated commands is not supported by implementation.\n");
-            hr = E_NOTIMPL;
-            goto err;
+            object->requires_state_template = false;
+            goto out;
         }
         else if (pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
@@ -24453,16 +24458,16 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
                     !(device->bindless_state.flags & VKD3D_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO))
             {
                 FIXME("State template is required for compute, but VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES is not enabled.\n");
-                hr = E_NOTIMPL;
-                goto err;
+                object->requires_state_template = false;
+                goto out;
             }
         }
         else if (pipeline_type == VKD3D_PIPELINE_TYPE_RAY_TRACING)
         {
             /* Very similar idea as indirect compute would be. */
             FIXME("State template is required for indirect ray tracing, but it is unimplemented.\n");
-            hr = E_NOTIMPL;
-            goto err;
+            object->requires_state_template = false;
+            goto out;
         }
 
         if (device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands)
@@ -24489,6 +24494,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
          * for optimal reordering. */
         vkd3d_atomic_uint32_store_explicit(&device->device_has_dgc_templates, 1, vkd3d_memory_order_relaxed);
     }
+out:
 
     object->argument_buffer_offset_for_command = argument_buffer_offset;
     d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12CommandSignature_iface);
