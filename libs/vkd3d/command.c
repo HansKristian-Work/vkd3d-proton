@@ -19751,6 +19751,48 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
     d3d12_command_list_track_resource_usage(list, resource, !discarding_transition);
 }
 
+static bool d3d12_command_list_barrier_is_noop(struct d3d12_command_list *list,
+        UINT32 NumBarrierGroups, const D3D12_BARRIER_GROUP *pBarrierGroups)
+{
+    /* Observed pattern in the wild where barrier is attempting to sync against nothing. */
+    const D3D12_BUFFER_BARRIER *buffer_barriers;
+    const D3D12_GLOBAL_BARRIER *global_barriers;
+    unsigned int i, j, count;
+
+    for (i = 0; i < NumBarrierGroups; i++)
+    {
+        count = pBarrierGroups[i].NumBarriers;
+
+        switch (pBarrierGroups[i].Type)
+        {
+            case D3D12_BARRIER_TYPE_GLOBAL:
+                /* If SyncBefore is NONE, we cannot be synchronizing against anything in this ExecuteCommandLists,
+                 * making the barrier completely meaningless. */
+                global_barriers = pBarrierGroups[i].pGlobalBarriers;
+                for (j = 0; j < count; j++)
+                    if (global_barriers[j].SyncBefore != D3D12_BARRIER_SYNC_NONE)
+                        return false;
+                break;
+
+            case D3D12_BARRIER_TYPE_BUFFER:
+                buffer_barriers = pBarrierGroups[i].pBufferBarriers;
+                for (j = 0; j < count; j++)
+                    if (buffer_barriers[j].SyncBefore != D3D12_BARRIER_SYNC_NONE)
+                        return false;
+                break;
+
+            case D3D12_BARRIER_TYPE_TEXTURE:
+                /* Textures are a bit more complex with layouts. Never assume noop barriers here. */
+                return false;
+
+            default:
+                break;
+        }
+    }
+
+    return true;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const D3D12_BARRIER_GROUP *pBarrierGroups)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
@@ -19761,6 +19803,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_ifac
 
     TRACE("iface %p, NumBarrierGroups %u, D3D12_BARRIER_GROUP %p\n",
             iface, NumBarrierGroups, pBarrierGroups);
+
+    if (d3d12_command_list_barrier_is_noop(list, NumBarrierGroups, pBarrierGroups))
+    {
+        d3d12_command_list_debug_mark_label(list, "Noop Barrier", 1.0f, 0.0f, 0.0f, 1.0f);
+        TRACE("Skipping noop barrier group.\n");
+        return;
+    }
 
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
