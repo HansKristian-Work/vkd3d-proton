@@ -11878,7 +11878,7 @@ static void vk_image_memory_barrier_subresources_from_d3d12_texture_barrier(
         vk_range->layerCount = max(1u, range->NumArraySlices);
 
         vk_range->aspectMask = 0;
-        for (i = 0; i < range->NumPlanes; i++)
+        for (i = 0; i < max(1u, range->NumPlanes); i++)
             vk_range->aspectMask |= vk_image_aspect_flags_from_d3d12(resource->format, i + range->FirstPlane);
 
         /* This is invalid in D3D12 and trips validation layers.
@@ -19658,16 +19658,13 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
     if (barrier->SyncAfter == D3D12_BARRIER_SYNC_SPLIT)
         return;
 
-    /* This is a no-op, but zero array planes is not a noop for some bizarre reason. */
-    if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumPlanes == 0)
-    {
-        WARN("No-op texture barrier due to NumPlanes == 0.\n");
-        d3d12_command_list_debug_mark_label(list, " ... skip", 1.0f, 0.0f, 0.0f, 1.0f);
-        return;
-    }
-
     if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumArraySlices == 0)
         WARN("NumArraySlices == 0 promotes to 1 slice.\n");
+
+    /* Observed in the wild. Earlier testing suggested it was a no-op,
+     * but only way to interpret this based on game behavior is 1 plane. */
+    if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumPlanes == 0)
+        WARN("NumPlanes == 0 promotes to 1 plane.\n");
 
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_DEPTH_STENCIL))
         d3d12_command_list_flush_clears(list, resource, NULL);

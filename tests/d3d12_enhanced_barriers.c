@@ -1594,7 +1594,8 @@ void test_enhanced_barrier_subresource(void)
 
     /* Try different edge cases of the subresources struct. */
 
-    /* NumPlanes = 0 -> nothing happens */
+    /* NumPlanes = 0 -> nothing happens. However, there is content in the wild that uses it for some bizarre reason,
+     * so have to assume it actually does something ... */
     {
         for (i = 0; i < ARRAY_SIZE(barrier); i++)
         {
