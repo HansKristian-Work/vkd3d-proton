@@ -3611,7 +3611,7 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
 
     /* Vulkan transfer queue cannot represent some esoteric edge cases that D3D12 copy queue can. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_TRANSFER_QUEUE)
+    if (false && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_TRANSFER_QUEUE))
     {
         info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = vkd3d_find_queue(count, queue_properties,
                 VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, VK_QUEUE_TRANSFER_BIT);
