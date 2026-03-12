@@ -3527,6 +3527,7 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         info->vk_family_index = queue_info->family_index[i];
         info->vk_queue_flags = queue_info->vk_properties[i].queueFlags;
         info->timestamp_bits = queue_info->vk_properties[i].timestampValidBits;
+        info->transfer_granularity = queue_info->vk_properties[i].minImageTransferGranularity;
 
         device->queue_families[i] = info;
 

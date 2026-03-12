@@ -3078,6 +3078,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 
     allocator->primary_pool.vk_family_index = queue_family->vk_family_index;
     allocator->primary_pool.vk_queue_flags = queue_family->vk_queue_flags;
+    allocator->transfer_granularity = queue_family->transfer_granularity;
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
     {
@@ -3112,7 +3113,10 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     if (type == D3D12_COMMAND_LIST_TYPE_COPY &&
         (!device->concurrent_transfer_queue ||
          !device->device_info.depth_aspect_copy_on_transfer ||
-         !device->device_info.stencil_aspect_copy_on_transfer) &&
+         !device->device_info.stencil_aspect_copy_on_transfer ||
+         allocator->transfer_granularity.width != 1 || /* transfer granularity can be (0, 0, 0) which means full mip only. */
+         allocator->transfer_granularity.height != 1 ||
+         allocator->transfer_granularity.depth != 1) &&
         (allocator->primary_pool.vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT)) ==
         VK_QUEUE_TRANSFER_BIT)
     {
@@ -3129,6 +3133,8 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
             return hresult_from_vk_result(vr);
         }
     }
+
+    /* GRAPHICS/COMPUTE queue must support (1, 1, 1) granularity. */
 
     d3d_destruction_notifier_init(&allocator->destruction_notifier,
             (IUnknown*)&allocator->ID3D12CommandAllocator_iface);

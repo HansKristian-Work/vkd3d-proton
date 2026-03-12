@@ -2637,6 +2637,8 @@ struct d3d12_command_allocator
     struct d3d12_command_allocator_command_pool fallback_pool;
     struct d3d12_command_allocator_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
 
+    VkExtent3D transfer_granularity;
+
     struct vkd3d_query_pool *query_pools;
     size_t query_pools_size;
     size_t query_pool_count;
@@ -5123,6 +5125,7 @@ struct vkd3d_queue_family_info
     uint32_t vk_family_index;
     uint32_t timestamp_bits;
     VkQueueFlags vk_queue_flags;
+    VkExtent3D transfer_granularity;
 };
 
 #define VKD3D_CACHED_COMMAND_ALLOCATOR_COUNT 8
