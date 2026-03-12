@@ -1650,6 +1650,8 @@ static bool dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(
     VkPresentModeKHR present_modes[32];
     VkSurfaceCapabilities2KHR caps2;
     bool has_compatible = false;
+    bool has_compatible_tear_free = false;
+    bool prefer_tear_free = vkd3d_config_flags & VKD3D_CONFIG_FLAG_TEAR_FREE;
     uint32_t i;
 
     /* swapchain maintenance implies surface maintenance */
@@ -1686,22 +1688,24 @@ static bool dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(
 
     if (chain->queue->device->device_info.present_mode_fifo_latest_ready_features.presentModeFifoLatestReady)
     {
-        for (i = 0; !has_compatible && i < compat.presentModeCount; i++)
+        for (i = 0; (!has_compatible || (prefer_tear_free && !has_compatible_tear_free)) && i < compat.presentModeCount; i++)
         {
             if (compat.pPresentModes[i] == VK_PRESENT_MODE_FIFO_LATEST_READY_KHR)
             {
                 *vk_present_mode = VK_PRESENT_MODE_FIFO_LATEST_READY_KHR;
                 has_compatible = true;
+                has_compatible_tear_free = true;
             }
         }
     }
 
-    for (i = 0; !has_compatible && i < compat.presentModeCount; i++)
+    for (i = 0; (!has_compatible || (prefer_tear_free && !has_compatible_tear_free)) && i < compat.presentModeCount; i++)
     {
         if (compat.pPresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
         {
             *vk_present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
             has_compatible = true;
+            has_compatible_tear_free = true;
         }
     }
 

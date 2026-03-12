@@ -1259,6 +1259,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"damage_not_zeroed_allocations", VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS},
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
     {"prefer_thin_uav_tiling", VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING},
+    {"tear_free", VKD3D_CONFIG_FLAG_TEAR_FREE},
 };
 
 static void vkd3d_config_flags_init_once(void)
