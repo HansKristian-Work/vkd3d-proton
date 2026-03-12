@@ -75,6 +75,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_DISABLE_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_NO_DXR),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
+    VK_EXTENSION(KHR_PRESENT_MODE_FIFO_LATEST_READY, KHR_present_mode_fifo_latest_ready),
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
     VK_EXTENSION(KHR_PRESENT_WAIT, KHR_present_wait),
     VK_EXTENSION(KHR_MAINTENANCE_5, KHR_maintenance5),
@@ -2193,6 +2194,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->present_id_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->present_id_features);
+    }
+
+    if (vulkan_info->KHR_present_mode_fifo_latest_ready)
+    {
+        info->present_mode_fifo_latest_ready_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->present_mode_fifo_latest_ready_features);
     }
 
     if (vulkan_info->KHR_present_wait)

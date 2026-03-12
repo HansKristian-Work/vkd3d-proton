@@ -150,6 +150,7 @@ struct vkd3d_vulkan_info
     bool KHR_calibrated_timestamps;
     bool KHR_cooperative_matrix;
     bool KHR_unified_image_layouts;
+    bool KHR_present_mode_fifo_latest_ready;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -5067,6 +5068,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
     VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unified_image_layouts_features;
     VkPhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE shader_mixed_float_dot_product_features;
+    VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR present_mode_fifo_latest_ready_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
