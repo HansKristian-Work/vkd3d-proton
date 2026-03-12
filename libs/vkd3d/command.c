@@ -9753,6 +9753,125 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
         return false;
     }
 
+    /* Validate aspects. */
+    if (list->type == D3D12_COMMAND_LIST_TYPE_COPY &&
+        !(list->vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)))
+    {
+        VkExtent3D align = list->allocator->transfer_granularity;
+        const struct vkd3d_format *validate_format = NULL;
+        const D3D12_RESOURCE_DESC1 *validate_desc = NULL;
+        VkImageAspectFlags aspects = 0;
+
+        if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT ||
+            dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
+        {
+            /* Buffer <-> Image requires maint10. */
+            aspects = out->copy.buffer_image.imageSubresource.aspectMask;
+        }
+        else if (out->copy.image.srcSubresource.aspectMask != out->copy.image.dstSubresource.aspectMask)
+        {
+            /* DS <-> COLOR copies require maint10 features. */
+            aspects = out->copy.image.srcSubresource.aspectMask | out->copy.image.dstSubresource.aspectMask;
+        }
+
+        if (((aspects & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+                !list->device->device_info.depth_aspect_copy_on_transfer) ||
+            ((aspects & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+                !list->device->device_info.stencil_aspect_copy_on_transfer))
+        {
+            d3d12_command_list_copy_queue_fallback(list);
+            FIXME_ONCE("Falling back to compute queue in COPY.\n");
+        }
+
+        /* Validate transfer granularity. */
+        if (align.width != 1 || align.height != 1 || align.depth != 1)
+        {
+            VkOffset3D copy_offset;
+            VkExtent3D copy_extent;
+            VkExtent3D full_extent;
+
+            /* imageExtent for image <-> image is based on the src texture.
+             * If we validate granularity for source, we also validate for destination. */
+            if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+            {
+                validate_format = out->src_format;
+                validate_desc = &src_resource->desc;
+            }
+            else if (dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+            {
+                validate_format = out->dst_format;
+                validate_desc = &dst_resource->desc;
+            }
+
+            if (out->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
+            {
+                VkOffset3D dst_offset = out->copy.image.dstOffset;
+                VkExtent3D dst_align = align;
+                VkExtent3D dst_full_extent;
+                VkExtent3D dst_extent;
+
+                full_extent = d3d12_resource_desc_get_vk_subresource_extent(
+                        validate_desc, validate_format, &out->copy.image.srcSubresource);
+                copy_offset = out->copy.image.srcOffset;
+                copy_extent = out->copy.image.extent;
+
+                /* Need to validate destination as well.
+                 * Source validation is done in common code below. */
+                dst_full_extent = d3d12_resource_desc_get_vk_subresource_extent(
+                        &dst_resource->desc, out->dst_format, &out->copy.image.dstSubresource);
+
+                dst_extent = vkd3d_compute_texel_count_from_blocks(
+                    vkd3d_compute_block_count(copy_extent, out->src_format), out->dst_format);
+
+                dst_align.width *= out->dst_format->block_width;
+                dst_align.height *= out->dst_format->block_height;
+
+                /* Less-than check since the texel_count rounding dance may end up rounding
+                 * the extent beyond the subresource extents. This is fine. */
+                if ((dst_offset.x & (dst_align.width - 1)) ||
+                    (dst_offset.y & (dst_align.height - 1)) ||
+                    (dst_offset.z & (dst_align.depth - 1)) ||
+                    (dst_offset.x + dst_extent.width < dst_full_extent.width &&
+                        (dst_extent.width & (dst_align.width - 1))) ||
+                    (dst_offset.y + dst_extent.height < dst_full_extent.height &&
+                        (dst_extent.height & (dst_align.height - 1))) ||
+                    (dst_offset.z + dst_extent.depth < dst_full_extent.depth &&
+                        (dst_extent.depth & (dst_align.depth - 1))))
+                {
+                    d3d12_command_list_copy_queue_fallback(list);
+                    FIXME_ONCE("Falling back to compute queue in COPY.\n");
+                }
+            }
+            else
+            {
+                full_extent = d3d12_resource_desc_get_vk_subresource_extent(
+                        validate_desc, validate_format, &out->copy.buffer_image.imageSubresource);
+
+                copy_offset = out->copy.buffer_image.imageOffset;
+                copy_extent = out->copy.buffer_image.imageExtent;
+            }
+
+            /* Alignment is in terms of blocks. */
+            align.width *= validate_format->block_width;
+            align.height *= validate_format->block_height;
+
+            /* align of 0 will always fail check for non-full subresource. */
+            if ((copy_offset.x & (align.width - 1)) ||
+                (copy_offset.y & (align.height - 1)) ||
+                (copy_offset.z & (align.depth - 1)) ||
+                (copy_offset.x + copy_extent.width != full_extent.width &&
+                    (copy_extent.width & (align.width - 1))) ||
+                (copy_offset.y + copy_extent.height != full_extent.height &&
+                    (copy_extent.height & (align.height - 1))) ||
+                (copy_offset.z + copy_extent.depth != full_extent.depth &&
+                    (copy_extent.depth & (align.depth - 1))))
+            {
+                d3d12_command_list_copy_queue_fallback(list);
+                FIXME_ONCE("Falling back to compute queue in COPY.\n");
+            }
+        }
+    }
+
     /* If we don't have to do UNDEFINED -> GENERAL, we can avoid useless barriers by pretending
      * we're not doing full damage copies. */
     if (d3d12_device_supports_unified_layouts(list->device) && !d3d12_resource_may_alias_other_resources(dst_resource))
@@ -10140,6 +10259,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
             d3d12_command_list_copy_queue_fallback(list);
             FIXME_ONCE("Falling back to compute queue in COPY.\n");
         }
+
+        /* Can skip complicated checks here:
+         * - CopyResource only copies full subresources, so transfer granularity is irrelevant.
+         * - DS <-> COLOR is not allowed since they're not in the same format group.
+         * - Same aspect image copies are not subject to maint10 properties. */
     }
 
     d3d12_command_list_track_resource_usage(list, dst_resource, !d3d12_resource_may_alias_other_resources(dst_resource));
@@ -10538,6 +10662,37 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         vk_image_barrier.subresourceRange.aspectMask = tiled_res->format->vk_aspect_mask;
         vk_image_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
         vk_image_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+        if (list->type == D3D12_COMMAND_LIST_TYPE_COPY &&
+            !(list->vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)))
+        {
+            VkExtent3D align = list->allocator->transfer_granularity;
+
+            if (((tiled_res->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+                    !list->device->device_info.depth_aspect_copy_on_transfer) ||
+                ((tiled_res->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+                    !list->device->device_info.stencil_aspect_copy_on_transfer))
+            {
+                d3d12_command_list_copy_queue_fallback(list);
+                FIXME_ONCE("Falling back to compute queue in COPY.\n");
+            }
+            else if (align.width != 1 || align.height != 1 || align.depth != 1)
+            {
+                /* transfer granularity is defined in terms of blocks. */
+                align.width *= tiled_res->format->block_width;
+                align.height *= tiled_res->format->block_height;
+
+                if ((tile_shape->WidthInTexels & (align.width - 1)) ||
+                    (tiled_res->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
+                    (tile_shape->HeightInTexels & (align.height - 1))) ||
+                    (tiled_res->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
+                    (tile_shape->DepthInTexels & (align.depth - 1))))
+                {
+                    d3d12_command_list_copy_queue_fallback(list);
+                    FIXME_ONCE("Falling back to compute queue in COPY.\n");
+                }
+            }
+        }
 
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
