@@ -22045,6 +22045,10 @@ struct d3d12_command_queue_transition_pool
 {
     VkCommandBuffer cmd[VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS];
     VkCommandPool pool;
+
+    VkCommandBuffer fallback_cmd[VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS];
+    VkCommandPool fallback_pool;
+
     VkSemaphore timeline;
     uint64_t timeline_value;
 
@@ -22087,6 +22091,21 @@ static HRESULT d3d12_command_queue_transition_pool_init(struct d3d12_command_que
     if (FAILED(hr = vkd3d_create_timeline_semaphore(queue->device, 0, false, &pool->timeline)))
         return hr;
 
+    if ((queue->vkd3d_queue->vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT)) ==
+        VK_QUEUE_TRANSFER_BIT &&
+        !queue->device->concurrent_transfer_queue)
+    {
+        /* Pure transfer queues may need fallback submissions.
+         * If we always have concurrent transfer queue, it's always okay to do init on the TRANSFER queue if need be. */
+        pool_info.queueFamilyIndex = queue->device->memory_transfers.vkd3d_queue->vk_family_index;
+        if ((vr = VK_CALL(vkCreateCommandPool(queue->device->vk_device, &pool_info, NULL, &pool->fallback_pool))))
+            return hresult_from_vk_result(vr);
+
+        alloc_info.commandPool = pool->fallback_pool;
+        if ((vr = VK_CALL(vkAllocateCommandBuffers(queue->device->vk_device, &alloc_info, pool->fallback_cmd))))
+            return hresult_from_vk_result(vr);
+    }
+
     return S_OK;
 }
 
@@ -22113,6 +22132,7 @@ static void d3d12_command_queue_transition_pool_deinit(struct d3d12_command_queu
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     d3d12_command_queue_transition_pool_wait(pool, device, pool->timeline_value);
     VK_CALL(vkDestroyCommandPool(device->vk_device, pool->pool, NULL));
+    VK_CALL(vkDestroyCommandPool(device->vk_device, pool->fallback_pool, NULL));
     VK_CALL(vkDestroySemaphore(device->vk_device, pool->timeline, NULL));
     vkd3d_free(pool->barriers);
     vkd3d_free((void*)pool->query_heaps);
@@ -22180,7 +22200,7 @@ static void d3d12_command_queue_init_query_heap(struct d3d12_device *device, VkC
 
 static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue_transition_pool *pool,
         struct d3d12_device *device, const struct vkd3d_initial_transition *transitions, size_t count,
-        VkCommandBuffer *vk_cmd_buffer, uint64_t *timeline_value)
+        bool fallback, VkCommandBuffer *vk_cmd_buffer, uint64_t *timeline_value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_initial_transition *transition;
@@ -22188,6 +22208,7 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     unsigned int command_index;
     VkDependencyInfo dep_info;
     uint32_t need_transition;
+    VkCommandBuffer cmd;
     bool qa_checks;
     size_t i;
 
@@ -22238,6 +22259,7 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
 
     pool->timeline_value++;
     command_index = pool->timeline_value % VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS;
+    cmd = fallback ? pool->fallback_cmd[command_index] : pool->cmd[command_index];
 
     if (pool->timeline_value > VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS)
         d3d12_command_queue_transition_pool_wait(pool, device, pool->timeline_value - VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS);
@@ -22246,8 +22268,8 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     begin_info.pNext = NULL;
     begin_info.pInheritanceInfo = NULL;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VK_CALL(vkResetCommandBuffer(pool->cmd[command_index], 0));
-    VK_CALL(vkBeginCommandBuffer(pool->cmd[command_index], &begin_info));
+    VK_CALL(vkResetCommandBuffer(cmd, 0));
+    VK_CALL(vkBeginCommandBuffer(cmd, &begin_info));
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -22258,7 +22280,7 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     {
         /* Every ExecuteCommandLists is an implicit barrier, so flush the bloom filter automatically. */
         uint32_t value = vkd3d_descriptor_debug_clear_bloom_filter(
-                device->descriptor_qa_global_info, device, pool->cmd[command_index]);
+                device->descriptor_qa_global_info, device, cmd);
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
             INFO("QA: Updating sync-val iteration to %u (#%x) between submission.\n", value, value);
     }
@@ -22266,19 +22288,19 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     {
         /* Every ExecuteCommandLists is an implicit barrier, so flush the bloom filter automatically. */
         uint32_t value = vkd3d_descriptor_debug_update_va_timestamp(
-                device->descriptor_qa_global_info, device, pool->cmd[command_index]);
+                device->descriptor_qa_global_info, device, cmd);
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
             INFO("QA: Updating VA timestamp to %u (#%x) between submission.\n", value, value);
     }
 
     if (pool->barriers_count)
-        VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(cmd, &dep_info));
 
     for (i = 0; i < pool->query_heaps_count; i++)
-        d3d12_command_queue_init_query_heap(device, pool->cmd[command_index], pool->query_heaps[i]);
-    VK_CALL(vkEndCommandBuffer(pool->cmd[command_index]));
+        d3d12_command_queue_init_query_heap(device, cmd, pool->query_heaps[i]);
+    VK_CALL(vkEndCommandBuffer(cmd));
 
-    *vk_cmd_buffer = pool->cmd[command_index];
+    *vk_cmd_buffer = cmd;
     *timeline_value = pool->timeline_value;
 }
 
@@ -22408,13 +22430,14 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
 
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
         const struct d3d12_command_queue_submission_execute *exec,
-        const VkCommandBufferSubmitInfo *transition_cmd,
+        VkCommandBufferSubmitInfo *transition_cmd,
         const VkSemaphoreSubmitInfo *transition_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
     struct vkd3d_waiting_fence_submission_info *submission_info;
     VkLatencySubmissionPresentIdNV latency_submit_present_info;
+    VkSemaphoreSubmitInfo transition_wait_semaphore_info;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkSemaphoreSubmitInfo signal_semaphore_infos[2];
     VkSemaphoreSubmitInfo *binary_semaphore_info;
@@ -22426,6 +22449,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     bool need_fallback_wait_semaphore;
     VKD3D_UNUSED bool debug_capture;
     uint64_t consumed_present_id;
+    bool serialize_transition;
     uint32_t num_submits;
     VkQueue vk_queue;
     unsigned int i;
@@ -22473,6 +22497,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
     memset(submit_desc, 0, sizeof(submit_desc));
     num_submits = 0;
+    serialize_transition = false;
 
     if (transition_cmd->commandBuffer)
     {
@@ -22490,10 +22515,29 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         submit->pSignalSemaphoreInfos = transition_semaphore;
         submit->commandBufferInfoCount = 1;
         submit->pCommandBufferInfos = transition_cmd;
+
+        /* Need to serialize the initializer command buffer if it runs on the fallback queue. */
+        if (transition_cmd->deviceMask & VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE)
+        {
+            transition_cmd->deviceMask = VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_DEFAULT;
+            serialize_transition = true;
+
+            if (vkd3d_queue->submission_timeline_count)
+            {
+                memset(&transition_wait_semaphore_info, 0, sizeof(transition_wait_semaphore_info));
+                transition_wait_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                transition_wait_semaphore_info.semaphore = vkd3d_queue->submission_timeline;
+                transition_wait_semaphore_info.value = vkd3d_queue->submission_timeline_count;
+                transition_wait_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                submit->waitSemaphoreInfoCount = 1;
+                submit->pWaitSemaphoreInfos = &transition_wait_semaphore_info;
+            }
+        }
     }
 
-    cmd_index = 0;
     need_fallback_wait_semaphore = false;
+    cmd_index = 0;
+    is_first = true;
 
     /* The first command buffer will not be a fallback. There would be problems if it could be
      * since we want to submit initial transition commands as well. */
@@ -22501,8 +22545,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
     while (cmd_index < exec->cmd_count)
     {
-        is_first = cmd_index == 0;
-        fallback = false;
+        fallback = serialize_transition;
+        cmd_count = 0;
 
         memset(signal_semaphore_infos, 0, sizeof(signal_semaphore_infos));
         signal_semaphore_infos[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -22510,46 +22554,50 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         signal_semaphore_infos[0].value = ++vkd3d_queue->submission_timeline_count;
         signal_semaphore_infos[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-        if (exec->cmd[cmd_index].deviceMask & VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE)
+        /* If the init command buffer is on fallback queue, we need to run it in isolation. */
+        if (!serialize_transition)
         {
-            /* We will never get more than one fallback queue in a row due to the way we emit commands.
-             * Could be improved, but this path really should *never* be hit except in extreme circumstances. */
-            cmd_count = 1;
-            fallback = true;
-            need_fallback_wait_semaphore = true;
-        }
-        else if (stagger_submissions)
-        {
-            /* Group up command buffers in such a way that any submission at least reaches the
-             * minimum cost threshold in order to reduce delays from CPU<->GPU round-trips. */
-            total_cost = exec->cmd_cost[cmd_index];
-            cmd_count = 1;
-
-            while (cmd_index + cmd_count < exec->cmd_count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD &&
-                exec->cmd[cmd_index + cmd_count].deviceMask == VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_DEFAULT)
+            if (exec->cmd[cmd_index].deviceMask & VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE)
             {
-                total_cost += exec->cmd_cost[cmd_index + cmd_count];
-                cmd_count++;
+                /* We will never get more than one fallback queue in a row due to the way we emit commands.
+                 * Could be improved, but this path really should *never* be hit except in extreme circumstances. */
+                cmd_count = 1;
+                fallback = true;
+                need_fallback_wait_semaphore = true;
+            }
+            else if (stagger_submissions)
+            {
+                /* Group up command buffers in such a way that any submission at least reaches the
+                 * minimum cost threshold in order to reduce delays from CPU<->GPU round-trips. */
+                total_cost = exec->cmd_cost[cmd_index];
+                cmd_count = 1;
+
+                while (cmd_index + cmd_count < exec->cmd_count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD &&
+                    exec->cmd[cmd_index + cmd_count].deviceMask == VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_DEFAULT)
+                {
+                    total_cost += exec->cmd_cost[cmd_index + cmd_count];
+                    cmd_count++;
+                }
+
+                /* If all remaining command buffers in the set are low cost, add them as well. */
+                total_cost = 0;
+
+                for (i = cmd_index + cmd_count; i < exec->cmd_count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD; i++)
+                    total_cost += exec->cmd_cost[i];
+
+                if (total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD)
+                    cmd_count = exec->cmd_count - cmd_index;
+            }
+            else
+            {
+                /* Submit everything at once, until we hit a fallback queue submission. Pick that up next iteration. */
+                for (cmd_count = 0; cmd_index + cmd_count < exec->cmd_count; cmd_count++)
+                    if (exec->cmd[cmd_index + cmd_count].deviceMask & VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE)
+                        break;
             }
 
-            /* If all remaining command buffers in the set are low cost, add them as well. */
-            total_cost = 0;
-
-            for (i = cmd_index + cmd_count; i < exec->cmd_count && total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD; i++)
-                total_cost += exec->cmd_cost[i];
-
-            if (total_cost < VKD3D_COMMAND_COST_MERGE_THRESHOLD)
-                cmd_count = exec->cmd_count - cmd_index;
+            assert(cmd_count != 0);
         }
-        else
-        {
-            /* Submit everything at once, until we hit a fallback queue submission. Pick that up next iteration. */
-            for (cmd_count = 0; cmd_index + cmd_count < exec->cmd_count; cmd_count++)
-                if (exec->cmd[cmd_index + cmd_count].deviceMask & VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE)
-                    break;
-        }
-
-        assert(cmd_count != 0);
 
         submit = &submit_desc[num_submits++];
         submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
@@ -22653,6 +22701,9 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         if (vr != VK_SUCCESS)
             break;
 
+        /* If serializing binary semaphore is not used, the serializing command buffer is always executed on the expected
+         * queue at the end. If it is used, the last fallback queue submission signals the binary semaphore,
+         * so it will serialize with next queue submission that is on the proper queue. */
         command_queue->serializing_semaphore_signaled = command_queue->serializing_semaphore && is_last;
         need_fallback_wait_semaphore = fallback;
 
@@ -22677,6 +22728,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         /* Update timeline value *after* waiting for staggered submissions */
         command_queue->last_submission_timeline_value = signal_semaphore_infos[0].value;
+        is_first = false;
+        serialize_transition = false;
     }
 
     vkd3d_queue_timeline_trace_end_execute_overhead(&command_queue->device->queue_timeline_trace, exec->timeline_cookie);
@@ -23239,6 +23292,23 @@ void d3d12_command_queue_signal_inline(struct d3d12_command_queue *queue, d3d12_
         d3d12_command_queue_signal(queue, impl_from_ID3D12Fence1(fence), value);
 }
 
+static bool d3d12_command_queue_exec_submit_needs_fallback_queue(
+        struct d3d12_command_queue *queue,
+        struct d3d12_command_queue_submission_execute *execute)
+{
+    unsigned int i;
+
+    /* If true, we can always touch a resource on any queue. */
+    if (queue->device->concurrent_transfer_queue)
+        return false;
+
+    for (i = 0; i < execute->cmd_count; i++)
+        if (execute->cmd[i].deviceMask & VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE)
+            return true;
+
+    return false;
+}
+
 static void *d3d12_command_queue_submission_worker_main(void *userdata)
 {
     struct d3d12_command_queue_submission submission;
@@ -23321,9 +23391,13 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             transition_semaphore.semaphore = pool.timeline;
             transition_semaphore.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
+            if (d3d12_command_queue_exec_submit_needs_fallback_queue(queue, &submission.execute))
+                transition_cmd.deviceMask = VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE;
+
             d3d12_command_queue_transition_pool_build(&pool, queue->device,
                     submission.execute.transitions,
                     submission.execute.transition_count,
+                    transition_cmd.deviceMask != VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_DEFAULT,
                     &transition_cmd.commandBuffer,
                     &transition_semaphore.value);
 
