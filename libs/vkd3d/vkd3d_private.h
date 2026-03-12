@@ -2601,15 +2601,19 @@ enum vkd3d_scratch_pool_kind
     VKD3D_SCRATCH_POOL_KIND_COUNT
 };
 
+struct d3d12_command_allocator_command_pool_list
+{
+    VkCommandBuffer *command_buffers;
+    size_t command_buffers_size;
+    size_t command_buffer_count;
+};
+
 struct d3d12_command_allocator_command_pool
 {
     VkQueueFlags vk_queue_flags;
     uint32_t vk_family_index;
     VkCommandPool vk_command_pool;
-
-    VkCommandBuffer *command_buffers;
-    size_t command_buffers_size;
-    size_t command_buffer_count;
+    struct d3d12_command_allocator_command_pool_list recycled, pending;
 };
 
 /* ID3D12CommandAllocator */
