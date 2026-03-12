@@ -1684,6 +1684,18 @@ static bool dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(
         }
     }
 
+    if (chain->queue->device->device_info.present_mode_fifo_latest_ready_features.presentModeFifoLatestReady)
+    {
+        for (i = 0; !has_compatible && i < compat.presentModeCount; i++)
+        {
+            if (compat.pPresentModes[i] == VK_PRESENT_MODE_FIFO_LATEST_READY_KHR)
+            {
+                *vk_present_mode = VK_PRESENT_MODE_FIFO_LATEST_READY_KHR;
+                has_compatible = true;
+            }
+        }
+    }
+
     for (i = 0; !has_compatible && i < compat.presentModeCount; i++)
     {
         if (compat.pPresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
