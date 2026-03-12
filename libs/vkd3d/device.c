@@ -3561,6 +3561,16 @@ static uint32_t vkd3d_find_queue(unsigned int count, const VkQueueFamilyProperti
 
     for (i = 0; i < count; i++)
     {
+        /* (0, 0, 0) means full mip only transfers.
+         * We're at too high risk to require fallbacks, and it's not going to work
+         * with sparse usage patterns at all, so just ignore these implementations.
+         * No known drivers should be reporting this in 2026 ... */
+        if ((properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+            (properties[i].minImageTransferGranularity.width == 0 ||
+             properties[i].minImageTransferGranularity.height == 0 ||
+             properties[i].minImageTransferGranularity.depth == 0))
+            continue;
+
         if ((properties[i].queueFlags & mask) == flags)
             return i;
     }
