@@ -6698,4 +6698,52 @@ static inline void vkd3d_mapped_memory_range_align(const struct d3d12_device *de
     range->size = min(range->size, size - range->offset);
 }
 
+static inline bool vkd3d_parse_swapchain_present_mode(const char *string, VkPresentModeKHR *present_mode) {
+    struct present_mode_entry {
+        const char *name;
+        VkPresentModeKHR value;
+    };
+
+    static const struct present_mode_entry present_mode_table[] = {
+        { "IMMEDIATE", VK_PRESENT_MODE_IMMEDIATE_KHR },
+        { "MAILBOX", VK_PRESENT_MODE_MAILBOX_KHR },
+        { "FIFO", VK_PRESENT_MODE_FIFO_KHR },
+        { "FIFO_RELAXED", VK_PRESENT_MODE_FIFO_RELAXED_KHR },
+        { "SHARED_DEMAND_REFRESH", VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR },
+        { "SHARED_CONTINUOUS_REFRESH", VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR },
+        { "FIFO_LATEST_READY", VK_PRESENT_MODE_FIFO_LATEST_READY_KHR },
+    };
+    static const size_t present_mode_table_len = sizeof(present_mode_table) / sizeof(present_mode_table[0]);
+
+    static const char prefix[] = "VK_PRESENT_MODE_";
+    static const char suffix[] = "_KHR";
+
+    const char *cursor = string;
+    ssize_t skip = 0;
+    bool status = false;
+
+    if (!string || !present_mode)
+        return status;
+
+    if (0 <= (skip = ascii_hasprefix_strcasecmp(cursor, prefix))) {
+        cursor += skip;
+    }
+
+    for (size_t i = 0; i < present_mode_table_len; i++)
+    {
+        if (0 <= (skip = ascii_hasprefix_strcasecmp(cursor, present_mode_table[i].name)))
+        {
+            const char *candidate = cursor + skip;
+            if (0 <= (skip = ascii_hasprefix_strcasecmp(suffix, candidate)))
+            {
+                *present_mode = present_mode_table[i].value;
+                status = true;
+                break;
+            }
+        }
+    }
+
+    return status;
+}
+
 #endif  /* __VKD3D_PRIVATE_H */

@@ -250,6 +250,17 @@ static inline int ascii_strcasecmp(const char *a, const char *b)
     return c_a - c_b;
 }
 
+static inline ssize_t ascii_hasprefix_strcasecmp(const char *string, const char *prefix)
+{
+    int cmp = ascii_strcasecmp(prefix, string);
+    ssize_t len = strlen(prefix);
+
+    if (cmp == 0 || string[len] == -cmp)
+        return len;
+
+    return -1;
+}
+
 static inline bool is_power_of_two(unsigned int x)
 {
     return x && !(x & (x -1));
