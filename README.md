@@ -156,6 +156,7 @@ commas or semicolons.
       so it should not be a real issue even on lower VRAM cards.
     - `force_host_cached` - Forces all host visible allocations to be CACHED, which greatly accelerates captures.
     - `no_invariant_position` - Avoids workarounds for invariant position. The workaround is enabled by default.
+    - `tear_free` - Prefer tear-free present modes when Vsync is disabled. Selects FIFO Latest Ready or Mailbox before Immediate.
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by
    vkd3d-proton. Accepts the following values: none, err, info, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by
