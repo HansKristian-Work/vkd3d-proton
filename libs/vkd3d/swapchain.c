@@ -24,6 +24,46 @@
 #include "vkd3d_private.h"
 #include "vkd3d_timestamp_profiler.h"
 
+static inline bool vkd3d_swapchain_present_mode_parse(const char *string, VkPresentModeKHR *present_mode)
+{
+    struct present_mode_entry
+    {
+        const char *name;
+        VkPresentModeKHR value;
+    };
+
+    static const struct present_mode_entry present_mode_table[] =
+    {
+        {"IMMEDIATE", VK_PRESENT_MODE_IMMEDIATE_KHR},
+        {"MAILBOX", VK_PRESENT_MODE_MAILBOX_KHR},
+        {"FIFO", VK_PRESENT_MODE_FIFO_KHR},
+        {"FIFO_RELAXED", VK_PRESENT_MODE_FIFO_RELAXED_KHR},
+        {"FIFO_LATEST_READY", VK_PRESENT_MODE_FIFO_LATEST_READY_KHR},
+    };
+
+    for (size_t i = 0; i < ARRAY_SIZE(present_mode_table); i++)
+    {
+        if (strcmp(string, present_mode_table[i].name) == 0)
+        {
+            *present_mode = present_mode_table[i].value;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static inline bool present_mode_pacing_should_wait(VkPresentModeKHR present_mode)
+{
+    /* FIFO_LATEST_READY is intentionally excluded. Unlike FIFO and FIFO_RELAXED,
+     * it does not block on Vsync boundaries and present-wait would not provide
+     * meaningful backpressure. When VK_EXT_present_timing becomes available,
+     * VkPresentTimingInfoEXT.targetTime would be the appropriate pacing mechanism.
+     */
+    return present_mode == VK_PRESENT_MODE_FIFO_KHR ||
+           present_mode == VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+}
+
 static inline struct dxgi_vk_swap_chain_factory *impl_from_IDXGIVkSwapChainFactory(IDXGIVkSwapChainFactory *iface)
 {
     return CONTAINING_RECORD(iface, struct dxgi_vk_swap_chain_factory, IDXGIVkSwapChainFactory_iface);
@@ -182,8 +222,8 @@ struct dxgi_vk_swap_chain
         bool is_surface_lost;
 
         VkPresentModeKHR unlocked_present_mode;
+        VkPresentModeKHR selected_present_mode;
         bool compatible_unlocked_present_mode;
-        bool present_mode_forces_fifo;
 
         /* Info about the current low latency state of the swapchain */
         uint32_t low_latency_present_mode_count;
@@ -1807,11 +1847,12 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     VkDevice vk_device = chain->queue->device->vk_device;
     VkCommandPoolCreateInfo command_pool_create_info;
     VkSwapchainCreateInfoKHR swapchain_create_info;
+    bool has_present_mode_override = false;
     VkPresentModeKHR present_mode_group[2];
+    char present_mode_env[VKD3D_PATH_MAX];
     VkSurfaceCapabilitiesKHR surface_caps;
     VkSurfaceFormatKHR surface_format;
     VkImageViewCreateInfo view_info;
-    VkPresentModeKHR present_mode;
     uint32_t override_image_count;
     bool new_occlusion_state;
     char count_env[16];
@@ -1859,43 +1900,62 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     if (!dxgi_vk_swap_chain_select_format(chain, &surface_format))
         return;
 
-    chain->present.compatible_unlocked_present_mode =
-            dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(chain,
-                    &chain->present.unlocked_present_mode,
-                    &surface_caps.minImageCount);
-
     memset(&swapchain_create_info, 0, sizeof(swapchain_create_info));
     swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 
-    if (chain->present.compatible_unlocked_present_mode)
+    if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_PRESENT_MODE", present_mode_env, sizeof(present_mode_env)))
     {
-        /* Just start out in FIFO, we will change it at-will later. */
-        present_mode = VK_PRESENT_MODE_FIFO_KHR;
-
-        present_mode_group[0] = present_mode;
-        present_mode_group[1] = chain->present.unlocked_present_mode;
-        present_modes_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_EXT;
-        present_modes_info.pNext = NULL;
-        present_modes_info.pPresentModes = present_mode_group;
-        present_modes_info.presentModeCount = ARRAY_SIZE(present_mode_group);
-        vk_prepend_struct(&swapchain_create_info, &present_modes_info);
-        chain->present.present_mode_forces_fifo = false;
-    }
-    else
-    {
-        present_mode = chain->request.swap_interval > 0 ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
-
-        /* Prefer IMMEDIATE over MAILBOX. FIFO is guaranteed to be supported. */
-        if (present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR &&
-                !dxgi_vk_swap_chain_check_present_mode_support(chain, present_mode))
+        VkPresentModeKHR candidate_present_mode;
+        if (vkd3d_swapchain_present_mode_parse(present_mode_env, &candidate_present_mode))
         {
-            if (dxgi_vk_swap_chain_check_present_mode_support(chain, VK_PRESENT_MODE_MAILBOX_KHR))
-                present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+            if (dxgi_vk_swap_chain_check_present_mode_support(chain, candidate_present_mode))
+            {
+                chain->present.selected_present_mode = candidate_present_mode;
+                chain->present.compatible_unlocked_present_mode = false;
+                has_present_mode_override = true;
+                INFO("Overriding swapchain present mode to %s.\n", present_mode_env);
+            }
             else
-                present_mode = VK_PRESENT_MODE_FIFO_KHR;
+                WARN("Ignoring unsupported mode for VKD3D_SWAPCHAIN_PRESENT_MODE=%s.\n", present_mode_env);
         }
+        else
+            WARN("Ignoring unrecognized value for VKD3D_SWAPCHAIN_PRESENT_MODE=%s.\n", present_mode_env);
+    }
 
-        chain->present.present_mode_forces_fifo = present_mode == VK_PRESENT_MODE_FIFO_KHR;
+    if (!has_present_mode_override)
+    {
+        chain->present.compatible_unlocked_present_mode =
+                dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(chain,
+                        &chain->present.unlocked_present_mode,
+                        &surface_caps.minImageCount);
+
+        if (chain->present.compatible_unlocked_present_mode)
+        {
+            /* Just start out in FIFO, we will change it at-will later. */
+            chain->present.selected_present_mode = VK_PRESENT_MODE_FIFO_KHR;
+
+            present_mode_group[0] = chain->present.selected_present_mode;
+            present_mode_group[1] = chain->present.unlocked_present_mode;
+            present_modes_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_EXT;
+            present_modes_info.pNext = NULL;
+            present_modes_info.pPresentModes = present_mode_group;
+            present_modes_info.presentModeCount = ARRAY_SIZE(present_mode_group);
+            vk_prepend_struct(&swapchain_create_info, &present_modes_info);
+        }
+        else
+        {
+            chain->present.selected_present_mode = chain->request.swap_interval > 0 ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+
+            /* Prefer IMMEDIATE over MAILBOX. FIFO is guaranteed to be supported. */
+            if (chain->present.selected_present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR &&
+                    !dxgi_vk_swap_chain_check_present_mode_support(chain, chain->present.selected_present_mode))
+            {
+                if (dxgi_vk_swap_chain_check_present_mode_support(chain, VK_PRESENT_MODE_MAILBOX_KHR))
+                    chain->present.selected_present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+                else
+                    chain->present.selected_present_mode = VK_PRESENT_MODE_FIFO_KHR;
+            }
+        }
     }
 
     swapchain_create_info.surface = chain->vk_surface;
@@ -1906,7 +1966,7 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    swapchain_create_info.presentMode = present_mode;
+    swapchain_create_info.presentMode = chain->present.selected_present_mode;
     swapchain_create_info.clipped = VK_TRUE;
 
     /* We don't block directly on Present(), so there's no reason to use more than 3 images if even application requests more.
@@ -2423,12 +2483,11 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkSwapchainPresentFenceInfoEXT present_fence_info;
     VkSwapchainPresentModeInfoEXT present_mode_info;
-    VkPresentModeKHR present_mode;
     VkPresentInfoKHR present_info;
     uint64_t minimum_present_id;
     VkPresentIdKHR present_id;
     uint32_t swapchain_index;
-    bool swapchain_is_fifo;
+    bool pacing_should_wait;
     bool use_present_id;
     VkResult vk_result;
     VkQueue vk_queue;
@@ -2483,16 +2542,40 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     present_info.pWaitSemaphores = &chain->present.vk_release_semaphores[swapchain_index];
     present_info.pResults = &vk_result;
 
-    /* Even if application requests IMMEDIATE mode, the WSI implementation may not support it.
-     * In this case, we should still opt for using frame latency object to avoid catastrophic latency. */
-    swapchain_is_fifo = chain->request.swap_interval > 0 || chain->present.present_mode_forces_fifo;
+    if (chain->swapchain_maintenance1)
+    {
+        chain->present.swapchain_fence_index = (chain->present.swapchain_fence_index + 1) %
+                ARRAY_SIZE(chain->present.vk_swapchain_fences);
 
-    /* Only bother with present wait path for FIFO swapchains.
-     * Non-FIFO swapchains will pump their frame latency handles through the fallback path of blit command being done.
+        present_fence_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT;
+        present_fence_info.swapchainCount = 1;
+        present_fence_info.pFences = &chain->present.vk_swapchain_fences[chain->present.swapchain_fence_index];
+        present_fence_info.pNext = NULL;
+        vk_prepend_struct(&present_info, &present_fence_info);
+
+        dxgi_vk_swap_chain_ensure_unsignaled_swapchain_fence(chain, chain->present.swapchain_fence_index);
+        chain->present.vk_swapchain_fences_signalled[chain->present.swapchain_fence_index] = true;
+
+        if (chain->present.compatible_unlocked_present_mode)
+        {
+            present_mode_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODE_INFO_EXT;
+            present_mode_info.pNext = NULL;
+            present_mode_info.swapchainCount = 1;
+            present_mode_info.pPresentModes = &chain->present.selected_present_mode;
+            chain->present.selected_present_mode = chain->request.swap_interval > 0 ?
+                    VK_PRESENT_MODE_FIFO_KHR : chain->present.unlocked_present_mode;
+            vk_prepend_struct(&present_info, &present_mode_info);
+        }
+    }
+
+    pacing_should_wait = present_mode_pacing_should_wait(chain->present.selected_present_mode) ||
+        chain->present.low_latency_state.mode;
+
+    /* Only bother with present-wait path for capped swapchains like FIFO and FIFO Relaxed.
+     * Uncapped swapchains will pump their frame latency handles through the fallback path of blit command being done.
      * Especially on Xwayland, the present ID is updated when images actually hit on-screen due to MAILBOX behavior.
      * This would unnecessarily stall our progress. */
-    if (chain->wait_thread.supports_present_wait && !chain->present.present_id_valid &&
-        (swapchain_is_fifo || chain->present.low_latency_state.mode))
+    if (chain->wait_thread.supports_present_wait && !chain->present.present_id_valid && pacing_should_wait)
     {
         minimum_present_id = chain->present.present_id + 1;
         if (chain->present.low_latency_state.mode)
@@ -2528,32 +2611,6 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     }
     else
         use_present_id = false;
-
-    if (chain->swapchain_maintenance1)
-    {
-        chain->present.swapchain_fence_index = (chain->present.swapchain_fence_index + 1) %
-                ARRAY_SIZE(chain->present.vk_swapchain_fences);
-
-        present_fence_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT;
-        present_fence_info.swapchainCount = 1;
-        present_fence_info.pFences = &chain->present.vk_swapchain_fences[chain->present.swapchain_fence_index];
-        present_fence_info.pNext = NULL;
-        vk_prepend_struct(&present_info, &present_fence_info);
-
-        dxgi_vk_swap_chain_ensure_unsignaled_swapchain_fence(chain, chain->present.swapchain_fence_index);
-        chain->present.vk_swapchain_fences_signalled[chain->present.swapchain_fence_index] = true;
-
-        if (chain->present.compatible_unlocked_present_mode)
-        {
-            present_mode_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODE_INFO_EXT;
-            present_mode_info.pNext = NULL;
-            present_mode_info.swapchainCount = 1;
-            present_mode_info.pPresentModes = &present_mode;
-            present_mode = chain->request.swap_interval > 0 ?
-                    VK_PRESENT_MODE_FIFO_KHR : chain->present.unlocked_present_mode;
-            vk_prepend_struct(&present_info, &present_mode_info);
-        }
-    }
 
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
     VKD3D_REGION_BEGIN(queue_present);
