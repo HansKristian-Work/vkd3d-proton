@@ -7,7 +7,7 @@ struct VertexData
 [outputtopology("triangle")]
 [numthreads(3, 1, 1)]
 void main(in uint view_id : SV_VIEWID, in uint tid : SV_GROUPINDEX,
-    out indices uint3 idx[3], out vertices VertexData vtx[1])
+    out indices uint3 idx[1], out vertices VertexData vtx[3])
 {
     SetMeshOutputCounts(3, 1);
 

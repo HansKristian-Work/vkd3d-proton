@@ -359,7 +359,7 @@ void test_clear_render_target_view(void)
     }
 
     transition_resource_state(command_list, resource,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
     for (i = 0; i < ARRAY_SIZE(array_expected_colors); ++i)
     {
         check_sub_resource_uint(resource, i, queue, command_list, array_expected_colors[i], 2);
