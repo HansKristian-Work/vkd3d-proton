@@ -142,6 +142,8 @@ struct vkd3d_vulkan_info
     bool KHR_maintenance6;
     bool KHR_maintenance7;
     bool KHR_maintenance8;
+    bool KHR_maintenance9;
+    bool KHR_maintenance10;
     bool KHR_shader_maximal_reconvergence;
     bool KHR_shader_quad_control;
     bool KHR_compute_shader_derivatives;
@@ -1034,7 +1036,8 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
     VKD3D_RESOURCE_GENERAL_LAYOUT         = (1u << 7),
     VKD3D_RESOURCE_ZERO_INITIALIZED       = (1u << 8),
-    VKD3D_RESOURCE_RETAINED_GPU_REFERENCE = (1u << 9)
+    VKD3D_RESOURCE_RETAINED_GPU_REFERENCE = (1u << 9),
+    VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE  = (1u << 10),
 };
 
 #define VKD3D_INVALID_TILE_INDEX (~0u)
@@ -2598,6 +2601,21 @@ enum vkd3d_scratch_pool_kind
     VKD3D_SCRATCH_POOL_KIND_COUNT
 };
 
+struct d3d12_command_allocator_command_pool_list
+{
+    VkCommandBuffer *command_buffers;
+    size_t command_buffers_size;
+    size_t command_buffer_count;
+};
+
+struct d3d12_command_allocator_command_pool
+{
+    VkQueueFlags vk_queue_flags;
+    uint32_t vk_family_index;
+    VkCommandPool vk_command_pool;
+    struct d3d12_command_allocator_command_pool_list recycled, pending;
+};
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {
@@ -2606,10 +2624,6 @@ struct d3d12_command_allocator
     LONG internal_refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
-    VkQueueFlags vk_queue_flags;
-    uint32_t vk_family_index;
-
-    VkCommandPool vk_command_pool;
 
     struct vkd3d_view **views;
     size_t views_size;
@@ -2623,11 +2637,11 @@ struct d3d12_command_allocator
     size_t pipelines_size;
     size_t pipelines_count;
 
-    VkCommandBuffer *command_buffers;
-    size_t command_buffers_size;
-    size_t command_buffer_count;
-
+    struct d3d12_command_allocator_command_pool primary_pool;
+    struct d3d12_command_allocator_command_pool fallback_pool;
     struct d3d12_command_allocator_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
+
+    VkExtent3D transfer_granularity;
 
     struct vkd3d_query_pool *query_pools;
     size_t query_pools_size;
@@ -3026,7 +3040,17 @@ struct d3d12_command_list_iteration
     VkCommandBuffer vk_command_buffer;
     VkCommandBuffer vk_post_indirect_barrier_commands;
     uint32_t estimated_cost;
+    bool fallback; /* Only applies to vk_command_buffer. */
     struct d3d12_command_list_iteration_indirect_meta indirect_meta;
+};
+
+enum
+{
+    /* We don't use VkCommandBufferSubmitInfo::deviceMask,
+     * so allow us to send some extra metadata per command buffer
+     * without having to add more allocations. */
+    VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_DEFAULT = 0,
+    VKD3D_COMMAND_BUFFER_SUBMIT_INFO_DEVICE_MASK_FALLBACK_QUEUE = 1u << 0,
 };
 
 #define VKD3D_MAX_COMMAND_LIST_SEQUENCES 2
@@ -3389,9 +3413,6 @@ struct vkd3d_queue
 {
     /* Access to VkQueue must be externally synchronized. */
     pthread_mutex_t mutex;
-
-    /* If not NULL, lock a shared mutex as well. */
-    pthread_mutex_t *global_mutex;
 
     VkQueue vk_queue;
 
@@ -5011,6 +5032,9 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMaintenance6FeaturesKHR maintenance_6_features;
     VkPhysicalDeviceMaintenance7FeaturesKHR maintenance_7_features;
     VkPhysicalDeviceMaintenance8FeaturesKHR maintenance_8_features;
+    VkPhysicalDeviceMaintenance9FeaturesKHR maintenance_9_features;
+    VkPhysicalDeviceMaintenance10FeaturesKHR maintenance_10_features;
+    VkPhysicalDeviceMaintenance10PropertiesKHR maintenance_10_properties;
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
     VkPhysicalDeviceFaultFeaturesEXT fault_features;
@@ -5038,6 +5062,18 @@ struct vkd3d_physical_device_info
     uint32_t time_domains;  /* vkd3d_time_domain_flag */
 
     bool additional_shading_rates_supported; /* d3d12 additional fragment shading rates cap */
+
+    /* maint9 */
+    bool non_compressed_implicit_concurrent_supported;
+
+    /* maint10. NV 595 does not support stencil copy on transfer for D32S8 oddly enough,
+     * so need to split these out.
+     * The compute properties are more or less ignored for now, since we don't intend
+     * to do compute -> graphics fallbacks. */
+    bool depth_aspect_copy_on_compute;
+    bool depth_aspect_copy_on_transfer;
+    bool stencil_aspect_copy_on_compute;
+    bool stencil_aspect_copy_on_transfer;
 };
 
 struct d3d12_caps
@@ -5093,6 +5129,7 @@ struct vkd3d_queue_family_info
     uint32_t vk_family_index;
     uint32_t timestamp_bits;
     VkQueueFlags vk_queue_flags;
+    VkExtent3D transfer_granularity;
 };
 
 #define VKD3D_CACHED_COMMAND_ALLOCATOR_COUNT 8
@@ -5410,8 +5447,11 @@ struct d3d12_device
     struct vkd3d_physical_device_info device_info;
 
     struct vkd3d_queue_family_info *queue_families[VKD3D_QUEUE_FAMILY_COUNT];
-    uint32_t concurrent_queue_family_indices[VKD3D_QUEUE_FAMILY_COUNT];
-    uint32_t concurrent_queue_family_count;
+    uint32_t concurrent_queue_family_indices_buffer[VKD3D_QUEUE_FAMILY_COUNT];
+    uint32_t concurrent_queue_family_buffer_count;
+    uint32_t concurrent_queue_family_indices_image[VKD3D_QUEUE_FAMILY_COUNT];
+    uint32_t concurrent_queue_family_image_count;
+    bool concurrent_transfer_queue;
     uint32_t unique_queue_mask;
 
     struct vkd3d_instance *vkd3d_instance;

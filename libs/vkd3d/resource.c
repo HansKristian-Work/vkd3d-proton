@@ -126,11 +126,12 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
         buffer_info.usage = vk_usage_flags;
     }
 
-    if (device->concurrent_queue_family_count > 1)
+    /* In maintenance9, buffers are implicitly transferred between queues. */
+    if (!device->device_info.maintenance_9_features.maintenance9 && device->concurrent_queue_family_buffer_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_count;
-        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices;
+        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_buffer_count;
+        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices_buffer;
     }
     else
     {
@@ -268,11 +269,12 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if (device->concurrent_queue_family_count > 1)
+    /* In maintenance9, buffers are implicitly transferred between queues. */
+    if (device->device_info.maintenance_9_features.maintenance9 && device->concurrent_queue_family_buffer_count > 1)
     {
         buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_count;
-        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices;
+        buffer_info.queueFamilyIndexCount = device->concurrent_queue_family_buffer_count;
+        buffer_info.pQueueFamilyIndices = device->concurrent_queue_family_indices_buffer;
     }
     else
     {
@@ -608,6 +610,24 @@ static bool vkd3d_format_allows_shader_copies(DXGI_FORMAT dxgi_format)
     return false;
 }
 
+static bool vkd3d_format_allows_sampler_feedback_resolve(DXGI_FORMAT dxgi_format)
+{
+    unsigned int i;
+
+    static const DXGI_FORMAT feedback_resolve_formats[] = {
+        DXGI_FORMAT_R8_TYPELESS,
+        DXGI_FORMAT_R8_UINT,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(feedback_resolve_formats); i++)
+    {
+        if (dxgi_format == feedback_resolve_formats[i])
+            return true;
+    }
+
+    return false;
+}
+
 static bool vkd3d_format_needs_extended_usage(const struct vkd3d_format *format, VkImageUsageFlags usage)
 {
     VkFormatFeatureFlags2 required_flags, supported_flags;
@@ -672,6 +692,33 @@ static VkImageUsageFlags vkd3d_filter_supported_image_usage(VkImageUsageFlags us
         usage &= ~VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
     return usage;
+}
+
+static bool vk_image_usage_support_implicit_concurrent(VkImageUsageFlags usage)
+{
+    /* From spec: These image usages do not participate. Pretty much, anything that's compressed. */
+    return (usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT |
+            VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)) == 0;
+}
+
+static bool d3d12_device_supports_universal_color_ds_copy(struct d3d12_device *device)
+{
+    if (!device->device_info.maintenance_8_features.maintenance8)
+        return false;
+
+    if (!(device->queue_families[VKD3D_QUEUE_FAMILY_COMPUTE]->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT) &&
+        (!device->device_info.depth_aspect_copy_on_compute || !device->device_info.stencil_aspect_copy_on_compute))
+        return false;
+
+    /* Do not bother checking transfer queue support here.
+     * If we cannot support a particular Depth/Stencil combination,
+     * we have to use COMPUTE fallback queue, and if COMPUTE queue can always support
+     * weird copies, we don't need to add special usage flags. */
+    return true;
 }
 
 static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
@@ -907,7 +954,9 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         image_info->usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
     /* Additional usage flags for shader-based copies */
-    if (vkd3d_format_allows_shader_copies(format->dxgi_format))
+    if (vkd3d_format_allows_sampler_feedback_resolve(format->dxgi_format) ||
+        (!d3d12_device_supports_universal_color_ds_copy(device) &&
+            vkd3d_format_allows_shader_copies(format->dxgi_format)))
     {
         image_info->usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
@@ -935,22 +984,53 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             image_info->flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
     }
 
-    use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1)) ||
-            (heap_properties && is_cpu_accessible_heap(heap_properties));
+    if ((device->device_info.maintenance_9_features.maintenance9 && image_info->tiling == VK_IMAGE_TILING_LINEAR) ||
+        (device->device_info.non_compressed_implicit_concurrent_supported &&
+            vk_image_usage_support_implicit_concurrent(image_info->usage)))
+    {
+        /* For "normal" images, we can rely on maint9 to just implicitly transfer ownership to any queue. */
+        use_concurrent = false;
+    }
+    else
+    {
+        use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1)) ||
+                (heap_properties && is_cpu_accessible_heap(heap_properties));
+    }
 
-    if (use_concurrent)
+    if (use_concurrent && device->concurrent_queue_family_image_count > 1)
     {
         /* For multi-queue, we have to use CONCURRENT since D3D does
          * not give us enough information to do ownership transfers. */
         image_info->sharingMode = VK_SHARING_MODE_CONCURRENT;
-        image_info->queueFamilyIndexCount = device->concurrent_queue_family_count;
-        image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices;
+
+        /* Emulate maintenance9 rules here. Force full concurrent for non-compressed type resources.
+         * Pretend we're buffers.
+         * If we added typically compressed usage types due to fallbacks, force full CONCURRENT. */
+        if (!(desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) ||
+            (!device->device_info.maintenance_9_features.maintenance9 &&
+                vk_image_usage_support_implicit_concurrent(image_info->usage)))
+        {
+            image_info->queueFamilyIndexCount = device->concurrent_queue_family_buffer_count;
+            image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices_buffer;
+            if (resource)
+                resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
+        }
+        else
+        {
+            image_info->queueFamilyIndexCount = device->concurrent_queue_family_image_count;
+            image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices_image;
+            if (resource && device->concurrent_transfer_queue)
+                resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
+        }
     }
     else
     {
         image_info->sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         image_info->queueFamilyIndexCount = 0;
         image_info->pQueueFamilyIndices = NULL;
+
+        if (resource)
+            resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
     }
 
     if ((image_info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
@@ -4010,6 +4090,10 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
                 object->priority.residency_count = 0;
         }
     }
+
+    /* Buffers are always copy queue compatible. */
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        object->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
 
     d3d12_device_add_ref(device);
 
