@@ -9915,6 +9915,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
             compute_derivative_ext = VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_KHR;
 
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] = compute_derivative_ext;
+
+        if (device->device_info.compute_shader_derivatives_features_khr.computeDerivativeGroupQuads)
+        {
+            device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_QUAD;
+        }
     }
 
     if (device->d3d12_caps.options4.Native16BitShaderOpsSupported)
