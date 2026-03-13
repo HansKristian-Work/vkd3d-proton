@@ -1108,6 +1108,18 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_QUAD)
+            {
+                static const dxil_spv_option_compute_shader_derivatives_quad quad = {
+                    { DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES_QUAD }, DXIL_SPV_TRUE
+                };
+
+                if (dxil_spv_converter_add_option(converter, &quad.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support COMPUTE_SHADER_DERIVATIVES_QUAD.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
         }
 
         if (compiler_args->driver_version)
