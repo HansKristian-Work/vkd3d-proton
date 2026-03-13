@@ -1786,6 +1786,355 @@ void test_renderpass_rendering(void)
     destroy_test_context(&context);
 }
 
+void test_renderpass_resolve_suspend_resume(void)
+{
+    D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS resolves[8];
+    D3D12_RENDER_PASS_RENDER_TARGET_DESC rt_descs[2];
+    D3D12_RENDER_PASS_DEPTH_STENCIL_DESC dsv_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS18 options18;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList4 *list4;
+    ID3D12GraphicsCommandList4 *altlist;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *rtv;
+    ID3D12DescriptorHeap *dsv;
+    ID3D12Resource *rt_ms;
+    ID3D12Resource *ds_ms;
+    ID3D12Resource *rt;
+    ID3D12Resource *ds;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/render_target/headers/vs_no_attachments.h"
+#include "shaders/render_target/headers/ps_multisample_mask.h"
+
+    static const struct test
+    {
+        const char *tag;
+        struct
+        {
+            uint32_t start, end;
+        } iter[4];
+        bool clears[4];
+        bool draw;
+        bool intra_suspend_resume;
+        bool inter_suspend_resume;
+        bool intra_breaking_command;
+        bool inter_breaking_command;
+    } tests[] = {
+        { "Trivial clear", {{0}}, { true, true, true, true }, false, false, false, false, false },
+        { "Trivial draw", {{0, 4}}, { false, false, false, false }, true, false, false, false, false },
+        { "Draw partial clear depth", {{0, 4}}, { true, false, true, false }, true, false, false, false, false },
+        { "Draw partial clear stencil", {{0, 4}}, { false, true, false, true }, true, false, false, false, false },
+        { "Clear intra", {{0}}, { true, true, true, true }, false, true, false, false, false },
+        { "Clear inter", {{0}}, { true, true, true, true }, false, false, true, false, false },
+        { "Draw intra", {{0, 2}, {2, 4}}, { false, false, false, false }, true, true, false, false, false },
+        { "Draw inter", {{0, 2}, {0}, {2, 4}}, { false, false, false, false}, true, false, true, false, false },
+        { "Clear intra incremental", {{0}}, { true, true, true, true }, false, true, false, true, false },
+        { "Clear inter incremental", {{0}}, { true, true, true, true }, false, false, true, false, true },
+    };
+
+    vkd3d_set_behavior_flags(VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_SUSPEND_RESUME |
+            VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_TILER_SYNC);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&options18, 0, sizeof(options18));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS18,
+            &options18, sizeof(options18));
+
+    if (!options18.RenderPassesValid)
+    {
+        skip("Render passes not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList4, (void**)&list4);
+    if (FAILED(hr))
+    {
+        skip("ID3D12GraphicsCommandList4 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    ID3D12Device_CreateCommandList(context.device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            context.allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void **)&altlist);
+    ID3D12GraphicsCommandList4_Close(altlist);
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+    context.root_signature = create_32bit_constants_root_signature(context.device, 0, 4, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL,
+            vs_no_attachments_code_dxbc, sizeof(vs_no_attachments_code_dxbc),
+            ps_multisample_mask_code_dxbc, sizeof(ps_multisample_mask_code_dxbc));
+
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.StencilEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.StencilWriteMask = 0xff;
+    pso_desc.DepthStencilState.StencilReadMask = 0xff;
+    pso_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
+    pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
+    pso_desc.NumRenderTargets = 2;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.RTVFormats[1] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    pso_desc.SampleDesc.Count = 4;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Width = 20;
+    resource_desc.Height = 16;
+    resource_desc.DepthOrArraySize = 4;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource_desc.MipLevels = 1;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&rt_ms);
+    resource_desc.SampleDesc.Count = 1;
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&rt);
+
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    resource_desc.DepthOrArraySize = 2;
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void **)&ds_ms);
+    resource_desc.SampleDesc.Count = 1;
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void **)&ds);
+
+    rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2);
+    dsv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    for (i = 0; i < 2; i++)
+    {
+        D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
+        rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_desc.Texture2DMSArray.FirstArraySlice = 2 * i;
+        rtv_desc.Texture2DMSArray.ArraySize = 2;
+        ID3D12Device_CreateRenderTargetView(context.device, rt_ms, &rtv_desc,
+                get_cpu_rtv_handle(&context, rtv, i));
+    }
+
+    ID3D12Device_CreateDepthStencilView(context.device, ds_ms, NULL,
+            get_cpu_dsv_handle(&context, dsv, 0));
+
+    memset(rt_descs, 0, sizeof(rt_descs));
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    rt_descs[0].cpuDescriptor = get_cpu_rtv_handle(&context, rtv, 0);
+    rt_descs[0].BeginningAccess.Clear.ClearValue.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rt_descs[0].BeginningAccess.Clear.ClearValue.Color[0] = 1.0f;
+    rt_descs[1].BeginningAccess.Clear.ClearValue.Color[1] = 1.0f;
+    rt_descs[1].cpuDescriptor = get_cpu_rtv_handle(&context, rtv, 1);
+
+    for (i = 0; i < 2; i++)
+    {
+        rt_descs[i].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE;
+        rt_descs[i].EndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_AVERAGE;
+        rt_descs[i].EndingAccess.Resolve.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rt_descs[i].EndingAccess.Resolve.PreserveResolveSource = i != 0;
+        rt_descs[i].EndingAccess.Resolve.pSrcResource = rt_ms;
+        rt_descs[i].EndingAccess.Resolve.pDstResource = rt;
+        rt_descs[i].EndingAccess.Resolve.SubresourceCount = 2;
+        rt_descs[i].EndingAccess.Resolve.pSubresourceParameters = &resolves[2 * i];
+    }
+
+    for (i = 0; i < ARRAY_SIZE(resolves); i++)
+    {
+        resolves[i].DstX = 0;
+        resolves[i].DstY = 0;
+        set_rect(&resolves[i].SrcRect, 0, 0, resource_desc.Width, resource_desc.Height);
+        resolves[i].SrcSubresource = i & 3;
+        resolves[i].DstSubresource = i & 3;
+    }
+
+    dsv_desc.cpuDescriptor = get_cpu_dsv_handle(&context, dsv, 0);
+    dsv_desc.DepthBeginningAccess.Clear.ClearValue.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dsv_desc.DepthBeginningAccess.Clear.ClearValue.DepthStencil.Depth = 1.0f;
+    dsv_desc.DepthEndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE;
+    dsv_desc.DepthEndingAccess.Resolve.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dsv_desc.DepthEndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_MIN;
+    dsv_desc.DepthEndingAccess.Resolve.PreserveResolveSource = FALSE;
+    dsv_desc.DepthEndingAccess.Resolve.pSrcResource = ds_ms;
+    dsv_desc.DepthEndingAccess.Resolve.pDstResource = ds;
+    dsv_desc.DepthEndingAccess.Resolve.SubresourceCount = 2;
+    dsv_desc.DepthEndingAccess.Resolve.pSubresourceParameters = &resolves[4];
+    dsv_desc.StencilBeginningAccess = dsv_desc.DepthBeginningAccess;
+    dsv_desc.StencilEndingAccess = dsv_desc.DepthEndingAccess;
+    dsv_desc.StencilBeginningAccess.Clear.ClearValue.DepthStencil.Stencil = 0xe0;
+    dsv_desc.StencilEndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_MAX;
+    dsv_desc.StencilEndingAccess.Resolve.pSubresourceParameters = &resolves[6];
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        struct
+        {
+            uint32_t color0;
+            uint32_t color1;
+            uint32_t mask;
+            float depth;
+        } constants;
+
+        const struct test *test = &tests[i];
+        unsigned int draw_index, j;
+        D3D12_VIEWPORT vp;
+        D3D12_RECT sci;
+
+        vkd3d_test_set_context("%s", test->tag);
+        begin_debug_region(context.list, test->tag);
+
+        rt_descs[0].BeginningAccess.Type = test->clears[0] ?
+                D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR :
+                D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+        rt_descs[1].BeginningAccess.Type = test->clears[1] ?
+                D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR :
+                D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+        dsv_desc.DepthBeginningAccess.Type = test->clears[2] ?
+                D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR :
+                D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+        dsv_desc.StencilBeginningAccess.Type = test->clears[3] ?
+                D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR :
+                D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+
+        set_viewport(&vp, 0, 0, 20, 16, 0, 1);
+        set_rect(&sci, 0, 0, 20, 16);
+
+        /* Lambda would be nice. */
+#define emit_draw_if(list, cond, start_iter, end_iter) do { if (cond) { \
+    for (draw_index = start_iter; draw_index < end_iter; draw_index++) { \
+        constants.color0 = 0x80 + 0x2 * (draw_index & 1); \
+        constants.color1 = 0x8000 + 0x0200 * (draw_index & 1); \
+        constants.mask = 0x1 << draw_index; \
+        constants.depth = 0.5f + 0.125f * draw_index; \
+        ID3D12GraphicsCommandList4_IASetPrimitiveTopology(list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); \
+        ID3D12GraphicsCommandList4_RSSetViewports(list, 1, &vp); \
+        ID3D12GraphicsCommandList4_RSSetScissorRects(list, 1, &sci); \
+        ID3D12GraphicsCommandList4_SetGraphicsRootSignature(list, context.root_signature); \
+        ID3D12GraphicsCommandList4_SetPipelineState(list, context.pipeline_state); \
+        ID3D12GraphicsCommandList4_OMSetStencilRef(list, 0x20 + draw_index); \
+        ID3D12GraphicsCommandList4_SetGraphicsRoot32BitConstants(list, 0, 4, &constants, 0); \
+        ID3D12GraphicsCommandList4_DrawInstanced(list, 3, 2, 0, 0); \
+    }}} while(0)
+
+        ID3D12GraphicsCommandList4_BeginRenderPass(list4, 2, rt_descs, &dsv_desc,
+                test->intra_suspend_resume || test->inter_suspend_resume ?
+                D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS : D3D12_RENDER_PASS_FLAG_NONE);
+        emit_draw_if(list4, test->draw, test->iter[0].start, test->iter[0].end);
+        ID3D12GraphicsCommandList4_EndRenderPass(list4);
+
+        if (test->intra_suspend_resume)
+        {
+            if (test->intra_breaking_command)
+                uav_barrier(context.list, NULL);
+
+            ID3D12GraphicsCommandList4_BeginRenderPass(list4, 2, rt_descs, &dsv_desc,
+                    (test->inter_suspend_resume ? D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS : 0) |
+                    D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+            emit_draw_if(list4, test->draw, test->iter[1].start, test->iter[1].end);
+            ID3D12GraphicsCommandList4_EndRenderPass(list4);
+        }
+
+        if (test->inter_breaking_command)
+            uav_barrier(context.list, NULL);
+
+        if (test->inter_suspend_resume)
+        {
+            hr = ID3D12GraphicsCommandList4_Close(list4);
+            ok(SUCCEEDED(hr), "Failed to close command list, hr #%x.\n", hr);
+            ID3D12GraphicsCommandList4_Reset(altlist, context.allocator, NULL);
+
+            ID3D12GraphicsCommandList4_BeginRenderPass(altlist, 2, rt_descs, &dsv_desc,
+                    (test->intra_suspend_resume ?
+                    D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS : D3D12_RENDER_PASS_FLAG_NONE) |
+                    D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+            emit_draw_if(altlist, test->draw, test->iter[2].start, test->iter[2].end);
+            ID3D12GraphicsCommandList4_EndRenderPass(altlist);
+
+            if (test->intra_suspend_resume)
+            {
+                ID3D12GraphicsCommandList4_BeginRenderPass(altlist, 2, rt_descs, &dsv_desc,
+                        D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+                emit_draw_if(altlist, test->draw, test->iter[3].start, test->iter[3].end);
+                ID3D12GraphicsCommandList4_EndRenderPass(altlist);
+            }
+
+            hr = ID3D12GraphicsCommandList4_Close(altlist);
+            ok(SUCCEEDED(hr), "Failed to close command list, hr #%x.\n", hr);
+            {
+                ID3D12CommandList *lists[] = {(ID3D12CommandList *) list4, (ID3D12CommandList *) altlist};
+                ID3D12CommandQueue_ExecuteCommandLists(context.queue, 2, lists);
+            }
+            ID3D12GraphicsCommandList4_Reset(list4, context.allocator, NULL);
+        }
+
+        end_debug_region(context.list);
+        transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RESOLVE_DEST,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_RESOLVE_DEST,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        for (j = 0; j < 2; j++)
+        {
+            check_sub_resource_uint(rt, 0 + j, context.queue, context.list, test->draw ? 0x81 : 0xff, 0);
+            reset_command_list(context.list, context.allocator);
+
+            check_sub_resource_uint(rt, 2 + j, context.queue, context.list, test->draw ? 0x8100 : 0xff00, 0);
+            reset_command_list(context.list, context.allocator);
+
+            check_sub_resource_float(ds, 0 + j, context.queue, context.list, test->draw ? 0.5f : 1.0f, 0);
+            reset_command_list(context.list, context.allocator);
+
+            check_sub_resource_uint8(ds, 2 + j, context.queue, context.list, test->draw ? 0x23 : 0xe0, 0);
+            reset_command_list(context.list, context.allocator);
+        }
+    }
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+    ID3D12Resource_Release(rt_ms);
+    ID3D12Resource_Release(ds_ms);
+    ID3D12Resource_Release(rt);
+    ID3D12Resource_Release(ds);
+    ID3D12DescriptorHeap_Release(rtv);
+    ID3D12DescriptorHeap_Release(dsv);
+    ID3D12GraphicsCommandList4_Release(list4);
+    ID3D12GraphicsCommandList4_Release(altlist);
+    destroy_test_context(&context);
+
+    vkd3d_set_behavior_flags(0);
+}
+
 void test_scissor_clamping(void)
 {
     const float black[4] = { 1.0f / 255.0f, 1.0f / 255.0, 1.0f / 255.0f, 1.0f / 255.0f };
