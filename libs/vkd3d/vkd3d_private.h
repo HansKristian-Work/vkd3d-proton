@@ -3838,6 +3838,7 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_ROOT_DESC,
     VKD3D_BREADCRUMB_COMMAND_ROOT_CONST,
     VKD3D_BREADCRUMB_COMMAND_TAG,
+    VKD3D_BREADCRUMB_COMMAND_CALLBACK,
     VKD3D_BREADCRUMB_COMMAND_DISCARD,
     VKD3D_BREADCRUMB_COMMAND_CLEAR_INLINE,
     VKD3D_BREADCRUMB_COMMAND_CLEAR_PASS,
@@ -3892,6 +3893,18 @@ struct vkd3d_breadcrumb_counter
     uint32_t end_marker;
 };
 
+struct vkd3d_breadcrumb_execute_indirect_callback
+{
+    struct d3d12_resource *indirect;
+    VkDeviceSize indirect_offset;
+    uint32_t stride;
+    struct d3d12_resource *counter;
+    VkDeviceSize counter_offset;
+    uint32_t max_counter;
+};
+
+void vkd3d_breadcrumb_tracer_report_indirect_buffer(void *userdata);
+
 struct vkd3d_breadcrumb_command
 {
     enum vkd3d_breadcrumb_command_type type;
@@ -3908,6 +3921,12 @@ struct vkd3d_breadcrumb_command
         uint32_t count;
         /* Pointer must remain alive. */
         const char *tag;
+
+        struct
+        {
+            void *userdata;
+            void (*func)(void *);
+        } callback;
     };
 };
 
@@ -3920,6 +3939,10 @@ struct vkd3d_breadcrumb_command_list_trace_context
     uint32_t locked;
     uint32_t prev;
     uint32_t next;
+
+    void **allocs;
+    size_t allocs_count;
+    size_t allocs_size;
 };
 
 struct vkd3d_breadcrumb_tracer
@@ -3963,6 +3986,8 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
 void vkd3d_breadcrumb_tracer_begin_command_list(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_add_command(struct d3d12_command_list *list,
         const struct vkd3d_breadcrumb_command *command);
+void *vkd3d_breadcrumb_trace_allocate_side_data(
+    struct vkd3d_breadcrumb_tracer *tracer, struct d3d12_command_list *list, size_t size);
 void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_link_submission(struct d3d12_command_list *list,

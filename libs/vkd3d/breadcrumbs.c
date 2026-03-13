@@ -236,6 +236,44 @@ void vkd3d_breadcrumb_tracer_cleanup(struct vkd3d_breadcrumb_tracer *tracer, str
     pthread_mutex_destroy(&tracer->lock);
 }
 
+static void vkd3d_breadcrumb_trace_cleanup_allocs(struct vkd3d_breadcrumb_command_list_trace_context *context)
+{
+    size_t i;
+    for (i = 0; i < context->allocs_count; i++)
+        vkd3d_free(context->allocs[i]);
+    vkd3d_free(context->allocs);
+    context->allocs_count = 0;
+    context->allocs_size = 0;
+    context->allocs = NULL;
+}
+
+void vkd3d_breadcrumb_tracer_report_indirect_buffer(void *userdata)
+{
+    struct vkd3d_breadcrumb_execute_indirect_callback *cb = userdata;
+    uint32_t count = cb->max_counter;
+
+    if (cb->counter && cb->counter->mem.cpu_address)
+    {
+        memcpy(&count, void_ptr_offset(cb->counter->mem.cpu_address, cb->counter_offset), sizeof(count));
+        count = min(count, cb->max_counter);
+    }
+
+    if (cb->indirect && cb->indirect->mem.cpu_address)
+    {
+        // We're reading from ReBAR here. This will be rather slow, but whatever ...
+        const uint32_t *data = void_ptr_offset(cb->indirect->mem.cpu_address, cb->indirect_offset);
+        uint32_t word, draw;
+
+        for (draw = 0; draw < count; draw++)
+            for (word = 0; word < cb->stride / sizeof(uint32_t); word++, data++)
+                ERR("  Indirect command %u, word %u: (%u) / (#%08x).\n", draw, word, *data, *data);
+    }
+    else
+    {
+        ERR("    Missing mapped indirect buffer.\n");
+    }
+}
+
 unsigned int vkd3d_breadcrumb_tracer_allocate_command_list(struct vkd3d_breadcrumb_tracer *tracer,
         struct d3d12_command_list *list, struct d3d12_command_allocator *allocator)
 {
@@ -257,6 +295,8 @@ unsigned int vkd3d_breadcrumb_tracer_allocate_command_list(struct vkd3d_breadcru
         {
             tracer->trace_contexts[tracer->trace_context_index].locked = 1;
             index = tracer->trace_context_index;
+
+            vkd3d_breadcrumb_trace_cleanup_allocs(&tracer->trace_contexts[tracer->trace_context_index]);
             break;
         }
     }
@@ -308,13 +348,38 @@ void vkd3d_breadcrumb_tracer_release_command_lists(struct vkd3d_breadcrumb_trace
     {
         index = indices[i];
         if (index != UINT32_MAX)
+        {
             tracer->trace_contexts[index].locked = 0;
+            vkd3d_breadcrumb_trace_cleanup_allocs(&tracer->trace_contexts[index]);
+        }
         TRACE("Releasing breadcrumb context %u.\n", index);
     }
     pthread_mutex_unlock(&tracer->lock);
 }
 
 static pthread_mutex_t global_report_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void *vkd3d_breadcrumb_trace_allocate_side_data(
+    struct vkd3d_breadcrumb_tracer *tracer,
+    struct d3d12_command_list *list, size_t size)
+{
+    struct vkd3d_breadcrumb_command_list_trace_context *context;
+    void *ptr;
+
+    if (list->breadcrumb_context_index == UINT_MAX)
+        return NULL;
+
+    context = &tracer->trace_contexts[list->breadcrumb_context_index];
+    ptr = vkd3d_malloc(size);
+    if (!ptr)
+        return NULL;
+
+    vkd3d_array_reserve((void **)&context->allocs, &context->allocs_size,
+        context->allocs_count + 1, sizeof(*context->allocs));
+
+    context->allocs[context->allocs_count++] = ptr;
+    return ptr;
+}
 
 static void vkd3d_breadcrumb_tracer_report_command_list(
         const struct vkd3d_breadcrumb_command_list_trace_context *context,
@@ -373,6 +438,11 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
         else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_TAG)
         {
             ERR("     Tag: %s\n", cmd->tag);
+        }
+        else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_CALLBACK)
+        {
+            ERR(" Callback\n");
+            cmd->callback.func(cmd->callback.userdata);
         }
         else
         {
