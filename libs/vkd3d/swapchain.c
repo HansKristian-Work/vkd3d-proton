@@ -1812,6 +1812,8 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     VkSurfaceFormatKHR surface_format;
     VkImageViewCreateInfo view_info;
     VkPresentModeKHR present_mode;
+    bool has_present_mode_override = false;
+    char present_mode_env[VKD3D_PATH_MAX];
     uint32_t override_image_count;
     bool new_occlusion_state;
     char count_env[16];
@@ -1859,43 +1861,64 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     if (!dxgi_vk_swap_chain_select_format(chain, &surface_format))
         return;
 
-    chain->present.compatible_unlocked_present_mode =
-            dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(chain,
-                    &chain->present.unlocked_present_mode,
-                    &surface_caps.minImageCount);
-
     memset(&swapchain_create_info, 0, sizeof(swapchain_create_info));
     swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 
-    if (chain->present.compatible_unlocked_present_mode)
+    if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_PRESENT_MODE", present_mode_env, sizeof(present_mode_env)))
     {
-        /* Just start out in FIFO, we will change it at-will later. */
-        present_mode = VK_PRESENT_MODE_FIFO_KHR;
-
-        present_mode_group[0] = present_mode;
-        present_mode_group[1] = chain->present.unlocked_present_mode;
-        present_modes_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_EXT;
-        present_modes_info.pNext = NULL;
-        present_modes_info.pPresentModes = present_mode_group;
-        present_modes_info.presentModeCount = ARRAY_SIZE(present_mode_group);
-        vk_prepend_struct(&swapchain_create_info, &present_modes_info);
-        chain->present.present_mode_forces_fifo = false;
-    }
-    else
-    {
-        present_mode = chain->request.swap_interval > 0 ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
-
-        /* Prefer IMMEDIATE over MAILBOX. FIFO is guaranteed to be supported. */
-        if (present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR &&
-                !dxgi_vk_swap_chain_check_present_mode_support(chain, present_mode))
+        VkPresentModeKHR candidate_present_mode;
+        if (vkd3d_parse_swapchain_present_mode(present_mode_env, &candidate_present_mode))
         {
-            if (dxgi_vk_swap_chain_check_present_mode_support(chain, VK_PRESENT_MODE_MAILBOX_KHR))
-                present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+            if (dxgi_vk_swap_chain_check_present_mode_support(chain, candidate_present_mode))
+            {
+                present_mode = candidate_present_mode;
+                has_present_mode_override = true;
+                INFO("Overriding swapchain present mode to %s.\n", present_mode_env);
+            }
             else
-                present_mode = VK_PRESENT_MODE_FIFO_KHR;
+                WARN("Ignoring unsupported mode for VKD3D_SWAPCHAIN_PRESENT_MODE=%s.\n", present_mode_env);
         }
+        else
+            WARN("Ignoring unrecognized value for VKD3D_SWAPCHAIN_PRESENT_MODE=%s.\n", present_mode_env);
+    }
 
-        chain->present.present_mode_forces_fifo = present_mode == VK_PRESENT_MODE_FIFO_KHR;
+    if (!has_present_mode_override)
+    {
+        chain->present.compatible_unlocked_present_mode =
+                dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(chain,
+                        &chain->present.unlocked_present_mode,
+                        &surface_caps.minImageCount);
+
+        if (chain->present.compatible_unlocked_present_mode)
+        {
+            /* Just start out in FIFO, we will change it at-will later. */
+            present_mode = VK_PRESENT_MODE_FIFO_KHR;
+
+            present_mode_group[0] = present_mode;
+            present_mode_group[1] = chain->present.unlocked_present_mode;
+            present_modes_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_EXT;
+            present_modes_info.pNext = NULL;
+            present_modes_info.pPresentModes = present_mode_group;
+            present_modes_info.presentModeCount = ARRAY_SIZE(present_mode_group);
+            vk_prepend_struct(&swapchain_create_info, &present_modes_info);
+            chain->present.present_mode_forces_fifo = false;
+        }
+        else
+        {
+            present_mode = chain->request.swap_interval > 0 ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+
+            /* Prefer IMMEDIATE over MAILBOX. FIFO is guaranteed to be supported. */
+            if (present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR &&
+                    !dxgi_vk_swap_chain_check_present_mode_support(chain, present_mode))
+            {
+                if (dxgi_vk_swap_chain_check_present_mode_support(chain, VK_PRESENT_MODE_MAILBOX_KHR))
+                    present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+                else
+                    present_mode = VK_PRESENT_MODE_FIFO_KHR;
+            }
+
+            chain->present.present_mode_forces_fifo = present_mode == VK_PRESENT_MODE_FIFO_KHR;
+        }
     }
 
     swapchain_create_info.surface = chain->vk_surface;
