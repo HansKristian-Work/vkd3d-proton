@@ -184,6 +184,10 @@ commas or semicolons.
  - `VKD3D_TEST_BUG` - set to 0 to disable bug_if() conditions in tests.
  - `VKD3D_PROFILE_PATH` - If profiling is enabled in the build, a profiling block is
    emitted to `${VKD3D_PROFILE_PATH}.${pid}`.
+ - `VKD3D_SWAPCHAIN_PRESENT_MODE` - accepts a Vulkan present mode name. Forces the
+   use of the specified present mode if supported. Currently accepts
+   `immediate`, `mailbox`, `fifo`, `fifo_relaxed`, `shared_demand_refresh`,
+   `shared_continuous_refresh`, `fifo_latest_ready`.
 
 ### Frame rate limit
 The `VKD3D_FRAME_RATE` environment variable can be used to limit the frame rate. A value of `0` uncaps the frame rate, while any positive value will limit rendering to the given number of frames per second.
