@@ -539,7 +539,8 @@ enum vkd3d_shader_target_extension
 /* Replaces dodgy normalize(0) patterns. */
 #define VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN (1ull << 30)
 
-/* Bit 31 vacant. */
+/* Selects in 0 if broadcasted lane is not active. Emulates NV HW behavior. */
+#define VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST (1ull << 31)
 
 #define VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE (1ull << 32)
 
