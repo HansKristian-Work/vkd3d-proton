@@ -6460,8 +6460,8 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
         {
             memset(&barrier, 0, sizeof(barrier));
             barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV;
-            barrier.srcAccessMask = VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_NV;
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_EXT;
+            barrier.srcAccessMask = VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_EXT;
             /* vkCmdExecuteGeneratedCommands consumes in draw indirect stage. */
             barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
             barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
