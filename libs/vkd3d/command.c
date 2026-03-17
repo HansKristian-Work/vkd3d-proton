@@ -16271,7 +16271,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         struct d3d12_resource *count_buffer, UINT64 count_buffer_offset)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    static const unsigned int max_direct_commands_for_split = 64;
     struct vkd3d_scratch_allocation predication_allocation;
     struct vkd3d_scratch_allocation preprocess_allocation;
     struct vkd3d_scratch_allocation stream_allocation;
@@ -16356,47 +16355,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             }
 
             d3d12_command_list_emit_predicated_command(list, type, count_va, &args, &predication_allocation);
-            require_custom_predication = true;
-        }
-    }
-    else if (!count_buffer && max_command_count <= max_direct_commands_for_split &&
-            signature->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE &&
-            list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
-            (list->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
-    {
-        /* If we had indirect barriers earlier in the frame, now might be a good time to split. */
-        d3d12_command_list_consider_new_sequence(list);
-
-        if (list->cmd.vk_command_buffer != list->cmd.vk_post_indirect_barrier_commands)
-        {
-            /* For non-indirect execute indirect, there's a high risk of individual draws being empty,
-             * since the typical use case is atomic increment X workgroup count or instanceCount.
-             * Try to nop out the entire execution in one fell swoop.
-             * We can either use indirectCount = 0, or conditional rendering.
-             * indirectCount = 0 is easier to understand, works everywhere and slots nicely into the predication
-             * fallback code we have in place. */
-
-            /* Only attempt this if we can do it in a hoisted fashion. Otherwise, we're just introducing stalls
-             * which may as well be just as bad ... */
-
-            /* Only consider this for graphics. Graphics execute indirect is assumed
-             * to be the result of (occlusion) culling, which is very likely to cause empty draws.
-             * Compute is less likely, at least in the content we have looked at. */
-
-            /* This makes sense on RADV since it will use indirectCount == 0 as a predicate to skip
-             * all pre-process work. Maybe it makes sense on NV, will need further investigation.
-             * This only applies to GFX queue on RADV, since async compute does not use INDIRECT_BUFFER directly. */
-            union vkd3d_predicate_command_direct_args args;
-            VkDeviceAddress indirect_va =
-                    arg_buffer->res.va + arg_buffer_offset + signature->argument_buffer_offset_for_command;
-            args.execute_indirect.max_commands = max_command_count;
-            args.execute_indirect.stride_words = signature->desc.ByteStride / sizeof(uint32_t);
-
-            d3d12_command_list_emit_predicated_command(list,
-                    signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
-                            VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_COMPUTE :
-                            VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_GRAPHICS,
-                    indirect_va, &args, &predication_allocation);
             require_custom_predication = true;
         }
     }
