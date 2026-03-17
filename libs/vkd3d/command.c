@@ -16150,6 +16150,76 @@ STATIC_ASSERT(sizeof(VkDrawIndexedIndirectCommand) == sizeof(D3D12_DRAW_INDEXED_
 STATIC_ASSERT(sizeof(VkDrawIndirectCommand) == sizeof(D3D12_DRAW_ARGUMENTS));
 STATIC_ASSERT(offsetof(VkTraceRaysIndirectCommand2KHR, depth) == offsetof(D3D12_DISPATCH_RAYS_DESC, Depth));
 
+static void d3d12_command_list_clear_signature_state(
+        struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature)
+{
+    struct vkd3d_pipeline_bindings *bindings;
+    unsigned int i;
+
+    bindings = signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
+          &list->compute_bindings : &list->graphics_bindings;
+
+    /* Need to clear state to zero if it was part of a command signature. */
+    for (i = 0; i < signature->desc.NumArgumentDescs; i++)
+    {
+        const D3D12_INDIRECT_ARGUMENT_DESC *arg = &signature->desc.pArgumentDescs[i];
+        switch (arg->Type)
+        {
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
+                /* Null IBO */
+                list->index_buffer.buffer = VK_NULL_HANDLE;
+                list->index_buffer.is_dirty = true;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+            {
+                /* Null VBO */
+                uint32_t slot = arg->VertexBuffer.Slot;
+                list->dynamic_state.vertex_buffers[slot] = VK_NULL_HANDLE;
+                list->dynamic_state.vertex_strides[slot] = 0;
+                list->dynamic_state.vertex_offsets[slot] = 0;
+                list->dynamic_state.vertex_sizes[slot] = 0;
+                break;
+            }
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
+            {
+                uint32_t index = arg->ConstantBufferView.RootParameterIndex;
+                d3d12_command_list_set_root_descriptor(list,
+                        bindings, index, 0);
+                break;
+            }
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
+            {
+                uint32_t zeroes[D3D12_MAX_ROOT_COST];
+                memset(zeroes, 0, sizeof(uint32_t) * arg->Constant.Num32BitValuesToSet);
+                d3d12_command_list_set_root_constants(list,
+                        bindings, arg->Constant.RootParameterIndex,
+                        arg->Constant.DestOffsetIn32BitValues,
+                        arg->Constant.Num32BitValuesToSet, zeroes);
+                break;
+            }
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT:
+            {
+                uint32_t zero = 0;
+                d3d12_command_list_set_root_constants(list,
+                        bindings, arg->IncrementingConstant.RootParameterIndex,
+                        arg->IncrementingConstant.DestOffsetIn32BitValues,
+                        1, &zero);
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+}
+
 static HRESULT d3d12_command_signature_allocate_stream_memory_for_list(
         struct d3d12_command_list *list,
         struct d3d12_command_signature *signature,
@@ -16280,7 +16350,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     uint32_t minSequencesCountBufferOffsetAlignment;
     bool old_predication_enabled_on_command_buffer;
     struct vkd3d_execute_indirect_args patch_args;
-    struct vkd3d_pipeline_bindings *bindings;
     VkGeneratedCommandsInfoEXT generated_ext;
     VkGeneratedCommandsInfoNV generated_nv;
     VkCommandBuffer vk_patch_cmd_buffer;
@@ -16388,9 +16457,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         if (!d3d12_command_list_update_graphics_pipeline(list, signature->pipeline_type))
             return;
     }
-
-    bindings = signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
-          &list->compute_bindings : &list->graphics_bindings;
 
     current_pipeline = list->current_pipeline;
 
@@ -16744,64 +16810,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     d3d12_command_list_debug_mark_end_region(list);
 
-    /* Need to clear state to zero if it was part of a command signature. */
-    for (i = 0; i < signature->desc.NumArgumentDescs; i++)
-    {
-        const D3D12_INDIRECT_ARGUMENT_DESC *arg = &signature->desc.pArgumentDescs[i];
-        switch (arg->Type)
-        {
-            case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
-                /* Null IBO */
-                list->index_buffer.buffer = VK_NULL_HANDLE;
-                list->index_buffer.is_dirty = true;
-                break;
-
-            case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
-            {
-                /* Null VBO */
-                uint32_t slot = arg->VertexBuffer.Slot;
-                list->dynamic_state.vertex_buffers[slot] = VK_NULL_HANDLE;
-                list->dynamic_state.vertex_strides[slot] = 0;
-                list->dynamic_state.vertex_offsets[slot] = 0;
-                list->dynamic_state.vertex_sizes[slot] = 0;
-                break;
-            }
-
-            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
-            case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
-            case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
-            {
-                uint32_t index = arg->ConstantBufferView.RootParameterIndex;
-                d3d12_command_list_set_root_descriptor(list,
-                        bindings, index, 0);
-                break;
-            }
-
-            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
-            {
-                uint32_t zeroes[D3D12_MAX_ROOT_COST];
-                memset(zeroes, 0, sizeof(uint32_t) * arg->Constant.Num32BitValuesToSet);
-                d3d12_command_list_set_root_constants(list,
-                        bindings, arg->Constant.RootParameterIndex,
-                        arg->Constant.DestOffsetIn32BitValues,
-                        arg->Constant.Num32BitValuesToSet, zeroes);
-                break;
-            }
-
-            case D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT:
-            {
-                uint32_t zero = 0;
-                d3d12_command_list_set_root_constants(list,
-                        bindings, arg->IncrementingConstant.RootParameterIndex,
-                        arg->IncrementingConstant.DestOffsetIn32BitValues,
-                        1, &zero);
-                break;
-            }
-
-            default:
-                break;
-        }
-    }
+    d3d12_command_list_clear_signature_state(list, signature);
 
     /* Spec mentions that all state related to the bind point is undefined after this, so
      * invalidate all state. Unclear exactly which state is invalidated though ...
