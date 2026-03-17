@@ -3158,6 +3158,43 @@ struct vkd3d_query_ranges
     size_t count;
 };
 
+struct vkd3d_index_buffer
+{
+    VkBuffer buffer;
+    VkDeviceSize offset;
+    VkDeviceSize size;
+    DXGI_FORMAT dxgi_format;
+    VkIndexType vk_type;
+    bool is_dirty;
+};
+
+struct vkd3d_dgc_batch_draw
+{
+    struct d3d12_command_signature *signature;
+    uint32_t max_command_count;
+    struct d3d12_resource *arg_buffer;
+    UINT64 arg_buffer_offset;
+    struct d3d12_resource *count_buffer;
+    UINT64 count_buffer_offset;
+
+    /* Capture state relevant to a DGC draw.
+     * Other state changing breaks the batch. */
+    struct d3d12_pipeline_state *state;
+    struct vkd3d_index_buffer index_buffer;
+    struct vkd3d_dynamic_state dynamic_state;
+    struct vkd3d_pipeline_bindings graphics_bindings;
+
+    VkDeviceAddress preprocess_va;
+    VkDeviceSize preprocess_size;
+};
+
+struct vkd3d_dgc_batch
+{
+    struct vkd3d_dgc_batch_draw *draws;
+    size_t draws_size;
+    size_t draws_count;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -3172,15 +3209,8 @@ struct d3d12_command_list
     bool debug_capture;
     bool has_replaced_shaders;
 
-    struct
-    {
-        VkBuffer buffer;
-        VkDeviceSize offset;
-        VkDeviceSize size;
-        DXGI_FORMAT dxgi_format;
-        VkIndexType vk_type;
-        bool is_dirty;
-    } index_buffer;
+    struct vkd3d_index_buffer index_buffer;
+    struct vkd3d_dgc_batch dgc_batch;
 
     struct d3d12_command_list_sequence cmd;
 
@@ -3338,6 +3368,7 @@ void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *li
         struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
         struct vkd3d_pipeline_bindings *sibling_push_domain);
 void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_list *list);
+void d3d12_command_list_flush_dgc_batch(struct d3d12_command_list *list);
 
 union vkd3d_root_parameter_data
 {

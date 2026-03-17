@@ -2284,7 +2284,7 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
 static bool d3d12_command_list_allows_new_sequence(struct d3d12_command_list *list)
 {
     /* We could in theory virtualize these queries, but that is extreme overkill. */
-    return list->cmd.active_non_inline_running_queries == 0;
+    return list->dgc_batch.draws_count == 0 && list->cmd.active_non_inline_running_queries == 0;
 }
 
 static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *list)
@@ -5828,7 +5828,6 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
     {
         /* Conditional rendering must be fully inside or fully outside a render pass. */
         d3d12_command_list_update_conditional_rendering_state(list, true);
-
         d3d12_command_list_end_rendering(list);
 
         /* Don't break suspend-resume. */
@@ -6304,6 +6303,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         for (i = 0; i < list->retained_resources_count; i++)
             d3d12_resource_decref_weak(list->retained_resources[i]);
         vkd3d_free(list->retained_resources);
+        vkd3d_free(list->dgc_batch.draws);
         hash_map_free(&list->query_resolve_lut);
         d3d12_command_list_free_rtas_batch(list);
 
@@ -6489,6 +6489,7 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
 void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list)
 {
     /* TODO: Revisit this w.r.t. splitting VkCommandBuffer */
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_end_current_render_pass(list, false);
 
     d3d12_command_list_end_transfer_batch(list);
@@ -6521,6 +6522,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         return E_FAIL;
     }
 
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_update_conditional_rendering_state(list, true);
 
 #ifdef VKD3D_ENABLE_PROFILING
@@ -6874,6 +6876,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
     list->submit_allocator = NULL;
+    list->dgc_batch.draws_count = 0;
 
     for (i = 0; i < list->retained_resources_count; i++)
         d3d12_resource_decref_weak(list->retained_resources[i]);
@@ -6939,6 +6942,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearState(d3d12_command_list_i
 
     TRACE("iface %p, pipline_state %p!\n", iface, pipeline_state);
 
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_check_render_pass_validation(list, "ClearState called within a render pass.\n", false);
 
     d3d12_command_list_end_current_render_pass(list, false);
@@ -8682,6 +8686,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
             iface, vertex_count_per_instance, instance_count,
             start_vertex_location, start_instance_location);
 
+    d3d12_command_list_flush_dgc_batch(list);
+
     if (list->predication.fallback_enabled)
     {
         union vkd3d_predicate_command_direct_args args;
@@ -8764,6 +8770,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
             "base_vertex_location %d, start_instance_location %u.\n",
             iface, index_count_per_instance, instance_count, start_vertex_location,
             base_vertex_location, start_instance_location);
+
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_command_list_update_index_buffer(list))
         return;
@@ -8930,6 +8938,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
 
     d3d12_command_list_check_render_pass_validation(list, "Dispatch called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     limits = &list->device->device_info.properties2.properties.limits;
     /* NVIDIA nops the dispatch on native if this happens, so apps would never ship like that. */
@@ -9003,6 +9012,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
             iface, dst, dst_offset, src, src_offset, byte_count);
 
     d3d12_command_list_check_render_pass_validation(list, "CopyBufferRegion called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -10262,6 +10272,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
 
     d3d12_command_list_check_render_pass_validation(list, "CopyTextureRegion called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (src_box && !validate_d3d12_box(src_box))
     {
@@ -10362,6 +10373,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     TRACE("iface %p, dst_resource %p, src_resource %p.\n", iface, dst, src);
 
     d3d12_command_list_check_render_pass_validation(list, "CopyResource called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     vk_procs = &list->device->vk_procs;
 
@@ -10726,6 +10738,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             buffer, buffer_offset, flags);
 
     d3d12_command_list_check_render_pass_validation(list, "CopyTiles called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
@@ -11720,6 +11733,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
             "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
 
     d3d12_command_list_check_render_pass_validation(list, "ResolveSubresource called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -12810,6 +12824,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
     TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
 
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_barrier_batch_init(&batch);
@@ -13222,6 +13237,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
 
     TRACE("iface %p, heap_count %u, heaps %p.\n", iface, heap_count, heaps);
+
+    /* We don't capture heap state as part of DGC batch. */
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (d3d12_device_uses_descriptor_buffers(list->device))
         d3d12_command_list_set_descriptor_heaps_buffers(list, heap_count, heaps);
@@ -13820,6 +13838,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
 
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_end_current_render_pass(list, true);
 
     if (!list->device->vk_info.EXT_transform_feedback)
@@ -14044,6 +14063,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             single_descriptor_handle, depth_stencil_descriptor);
 
     d3d12_command_list_check_render_pass_validation(list, "OMSetRenderTargets called within a render pass.\n", false);
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (d3d12_command_list_filter_set_render_targets(list, render_target_descriptor_count,
             render_target_descriptors, single_descriptor_handle, depth_stencil_descriptor))
@@ -14340,6 +14360,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
             iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
 
     d3d12_command_list_check_render_pass_validation(list, "ClearDepthStencilView called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -14453,6 +14474,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
             iface, rtv.ptr, color, rect_count, rects);
 
     d3d12_command_list_check_render_pass_validation(list, "ClearRenderTargetView called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -15103,6 +15125,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
     d3d12_command_list_check_render_pass_validation(list, "ClearUnorderedAccessViewUint called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -15235,6 +15258,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
     d3d12_command_list_check_render_pass_validation(list, "ClearUnorderedAccessViewFloat called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -15338,6 +15362,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     TRACE("iface %p, resource %p, region %p.\n", iface, resource, region);
 
     d3d12_command_list_check_render_pass_validation(list, "DiscardResource called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     /* This method is only supported on DIRECT and COMPUTE queues,
      * but we only implement it for render targets, so ignore it
@@ -15657,6 +15682,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
         return;
     }
 
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_track_query_heap(list, query_heap);
 
     if (d3d12_query_heap_type_is_inline(query_heap->desc.Type))
@@ -15701,6 +15727,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
 
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_track_query_heap(list, query_heap);
 
     if (d3d12_query_heap_type_is_inline(query_heap->desc.Type))
@@ -15813,6 +15840,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             dst_buffer, aligned_dst_buffer_offset);
 
     d3d12_command_list_check_render_pass_validation(list, "ResolveQueryData called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     /* Some games call this with a query_count of 0.
      * Avoid ending the render pass and doing worthless tracking. */
@@ -15881,6 +15909,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
 
     TRACE("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x.\n",
             iface, buffer, aligned_buffer_offset, operation);
+
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (resource && (aligned_buffer_offset & 0x7))
         return;
@@ -16334,11 +16364,24 @@ static void d3d12_command_list_execute_indirect_state_template_compute(
     /* No need to implicitly invalidate anything here, since we used the normal APIs. */
 }
 
+enum vkd3d_dgc_mode
+{
+    /* When ExecuteIndirect is being called directly by application. */
+    VKD3D_DGC_MODE_APPLICATION_CALL,
+    /* If batching the DGC, all draws go through a preprocess step. */
+    VKD3D_DGC_MODE_PREPROCESS_ONLY,
+    /* ... which are then just executed back to back. */
+    VKD3D_DGC_MODE_EXECUTE_ONLY,
+    /* If we batched, but decided we shouldn't preprocess we just go through this. */
+    VKD3D_DGC_MODE_PREPROCESS_AND_EXECUTE,
+};
+
 static void d3d12_command_list_execute_indirect_state_template_dgc(
         struct d3d12_command_list *list, struct d3d12_command_signature *signature,
         uint32_t max_command_count,
         struct d3d12_resource *arg_buffer, UINT64 arg_buffer_offset,
-        struct d3d12_resource *count_buffer, UINT64 count_buffer_offset)
+        struct d3d12_resource *count_buffer, UINT64 count_buffer_offset,
+        enum vkd3d_dgc_mode dgc_mode, VkDeviceAddress preprocess_va, VkDeviceSize preprocess_size)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_scratch_allocation predication_allocation;
@@ -16355,7 +16398,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     VkCommandBuffer vk_patch_cmd_buffer;
     VkIndirectCommandsStreamNV stream;
     bool require_custom_predication;
-    VkDeviceSize preprocess_size;
     VkPipeline current_pipeline;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
@@ -16430,7 +16472,16 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     /* If we have custom predication, we would need to introduce a barrier to synchronize with the
      * new indirect count, which is not desirable. */
-    if (!require_custom_predication &&
+
+    if (dgc_mode == VKD3D_DGC_MODE_PREPROCESS_ONLY)
+    {
+        explicit_preprocess = true;
+    }
+    else if (dgc_mode == VKD3D_DGC_MODE_PREPROCESS_AND_EXECUTE)
+    {
+        explicit_preprocess = false;
+    }
+    else if (!require_custom_predication && list->dgc_batch.draws_count == 0 &&
             (signature->state_template.dgc.layout_preprocess_nv ||
              signature->state_template.dgc.layout_preprocess_ext))
     {
@@ -16440,6 +16491,42 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         if (list->cmd.vk_command_buffer != list->cmd.vk_post_indirect_barrier_commands)
             explicit_preprocess = true;
     }
+
+    /* Don't try to batch if we have predication since it's just needless complexity.
+     * Don't do this on tilers since we'll be introducing more technically unnecessary render pass flushes. */
+    if (!list->predication.va && dgc_mode == VKD3D_DGC_MODE_APPLICATION_CALL && use_ext_dgc &&
+        !list->device->workarounds.tiler_suspend_resume &&
+        !explicit_preprocess && list->state && list->state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
+    {
+        /* FIXME: Will not work if doing indirect breadcrumb trace, but that's not merged. */
+        struct vkd3d_dgc_batch_draw *draw;
+        vkd3d_array_reserve((void **)&list->dgc_batch.draws, &list->dgc_batch.draws_size,
+            list->dgc_batch.draws_count + 1, sizeof(*list->dgc_batch.draws));
+        draw = &list->dgc_batch.draws[list->dgc_batch.draws_count++];
+
+        /* Just defer the command. Capture any relevant state we might need to replay.
+         * Only deal with graphics pipelines. If there are scenarios in the wild where compute
+         * matters, it's technically possible to deal with it. */
+        draw->state = list->state;
+        draw->signature = signature;
+        draw->arg_buffer = arg_buffer;
+        draw->arg_buffer_offset = arg_buffer_offset;
+        draw->count_buffer = count_buffer;
+        draw->count_buffer_offset = count_buffer_offset;
+        draw->max_command_count = max_command_count;
+        draw->dynamic_state = list->dynamic_state;
+        draw->graphics_bindings = list->graphics_bindings;
+        draw->index_buffer = list->index_buffer;
+        draw->preprocess_va = 0;
+        draw->preprocess_size = 0;
+
+        /* Future commands are expected to observe the cleared state if the signature changes. */
+        d3d12_command_list_clear_signature_state(list, signature);
+        return;
+    }
+
+    if (dgc_mode == VKD3D_DGC_MODE_APPLICATION_CALL)
+        d3d12_command_list_flush_dgc_batch(list);
 
     /* To build device generated commands, we need to know the pipeline we're going to render with. */
     if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
@@ -16503,6 +16590,9 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     {
         require_patch = true;
     }
+
+    if (dgc_mode != VKD3D_DGC_MODE_APPLICATION_CALL)
+        require_patch = false;
 
     if (require_patch)
     {
@@ -16586,14 +16676,25 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         }
     }
 
-    if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
-            signature->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
+    if (dgc_mode != VKD3D_DGC_MODE_PREPROCESS_ONLY)
     {
-        if (!d3d12_command_list_begin_render_pass(list, signature->pipeline_type))
+        if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+                signature->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
         {
-            WARN("Failed to begin render pass, ignoring draw.\n");
-            return;
+            if (!d3d12_command_list_begin_render_pass(list, signature->pipeline_type))
+            {
+                WARN("Failed to begin render pass, ignoring draw.\n");
+                return;
+            }
         }
+    }
+    else
+    {
+        /* Do the minimal flushing necessary to make state consistent. */
+        d3d12_command_list_update_graphics_pipeline(list, signature->pipeline_type);
+        if (list->dynamic_state.dirty_flags)
+            d3d12_command_list_update_dynamic_state(list);
+        d3d12_command_list_update_descriptors(list);
     }
 
     if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE &&
@@ -16610,12 +16711,15 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     if (use_ext_dgc)
     {
-        if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list_ext(
-                list, signature, current_pipeline, explicit_preprocess,
-                max_command_count, &preprocess_allocation, &preprocess_size)))
+        if (!preprocess_va)
         {
-            WARN("Failed to allocate preprocess memory.\n");
-            return;
+            if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list_ext(
+                    list, signature, current_pipeline, explicit_preprocess,
+                    max_command_count, &preprocess_allocation, &preprocess_size)))
+            {
+                WARN("Failed to allocate preprocess memory.\n");
+                return;
+            }
         }
 
         pipeline_info.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_PIPELINE_INFO_EXT;
@@ -16631,10 +16735,10 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         else
             generated_ext.shaderStages = list->state->graphics.stage_flags;
 
-        generated_ext.indirectCommandsLayout = explicit_preprocess ?
+        generated_ext.indirectCommandsLayout = explicit_preprocess || dgc_mode == VKD3D_DGC_MODE_EXECUTE_ONLY ?
                 signature->state_template.dgc.layout_preprocess_ext :
                 signature->state_template.dgc.layout_implicit_ext;
-        generated_ext.preprocessAddress = preprocess_allocation.va;
+        generated_ext.preprocessAddress = preprocess_va ? preprocess_va : preprocess_allocation.va;
         generated_ext.preprocessSize = preprocess_size;
         generated_ext.maxSequenceCount = max_command_count;
 
@@ -16727,6 +16831,15 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     if (explicit_preprocess)
     {
+        if (dgc_mode == VKD3D_DGC_MODE_PREPROCESS_ONLY)
+        {
+            /* This is called in a controlled state where we're not inside a render pass. */
+            assert(!(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE));
+            VK_CALL(vkCmdPreprocessGeneratedCommandsEXT(list->cmd.vk_command_buffer,
+                   &generated_ext, list->cmd.vk_command_buffer));
+            return;
+        }
+
         d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
 
         if (use_ext_dgc)
@@ -16800,7 +16913,8 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     if (use_ext_dgc)
     {
         VK_CALL(vkCmdExecuteGeneratedCommandsEXT(list->cmd.vk_command_buffer,
-                explicit_preprocess ? VK_TRUE : VK_FALSE, &generated_ext));
+                explicit_preprocess || dgc_mode == VKD3D_DGC_MODE_EXECUTE_ONLY ? VK_TRUE : VK_FALSE,
+                &generated_ext));
     }
     else
     {
@@ -16823,6 +16937,122 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         list->predication.enabled_on_command_buffer = old_predication_enabled_on_command_buffer;
         d3d12_command_list_update_conditional_rendering_state(list, false);
     }
+}
+
+void d3d12_command_list_flush_dgc_batch(struct d3d12_command_list *list)
+{
+    struct vkd3d_pipeline_bindings graphics_bindings;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct vkd3d_dynamic_state dynamic_state;
+    struct vkd3d_index_buffer index_buffer;
+    struct d3d12_pipeline_state *state;
+    struct vkd3d_dgc_batch_draw *draw;
+    size_t i, iter, num_iter;
+    HRESULT hr;
+
+    if (list->dgc_batch.draws_count == 0)
+        return;
+
+    vk_procs = &list->device->vk_procs;
+
+    graphics_bindings = list->graphics_bindings;
+    dynamic_state = list->dynamic_state;
+    index_buffer = list->index_buffer;
+    state = list->state;
+
+    num_iter = list->dgc_batch.draws_count > 1 ? 2 : 1;
+
+    if (num_iter > 1)
+        d3d12_command_list_end_current_render_pass(list, true);
+
+    for (iter = 0; iter < num_iter; iter++)
+    {
+        d3d12_command_list_debug_mark_begin_region(list, iter ? "DGC execute batch" : "DGC preprocess inline batch");
+
+        for (i = 0; i < list->dgc_batch.draws_count; i++)
+        {
+            enum vkd3d_dgc_mode dgc_mode;
+            draw = &list->dgc_batch.draws[i];
+
+            /* Lots of weird state stuff to consider, so take the common path until proven necessary to make it faster. */
+            d3d12_command_list_SetPipelineState(
+                    &list->ID3D12GraphicsCommandList_iface,
+                    &draw->state->ID3D12PipelineState_iface);
+
+            list->graphics_bindings = draw->graphics_bindings;
+            list->dynamic_state = draw->dynamic_state;
+            list->index_buffer = draw->index_buffer;
+            d3d12_command_list_invalidate_all_state(list);
+
+            if (iter == 0 && num_iter == 2)
+            {
+                struct vkd3d_scratch_allocation preprocess_allocation;
+
+                d3d12_command_list_promote_dsv_layout(list);
+                if (!d3d12_command_list_update_graphics_pipeline(list, draw->signature->pipeline_type))
+                    return;
+
+                if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list_ext(
+                        list, draw->signature, list->current_pipeline, true,
+                        draw->max_command_count, &preprocess_allocation, &draw->preprocess_size)))
+                {
+                    WARN("Failed to allocate preprocess memory.\n");
+                    return;
+                }
+
+                draw->preprocess_va = preprocess_allocation.va;
+            }
+
+            if (num_iter == 1)
+                dgc_mode = VKD3D_DGC_MODE_PREPROCESS_AND_EXECUTE;
+            else if (iter == 0)
+                dgc_mode = VKD3D_DGC_MODE_PREPROCESS_ONLY;
+            else
+                dgc_mode = VKD3D_DGC_MODE_EXECUTE_ONLY;
+
+            d3d12_command_list_execute_indirect_state_template_dgc(list,
+                    draw->signature, draw->max_command_count,
+                    draw->arg_buffer, draw->arg_buffer_offset,
+                    draw->count_buffer, draw->count_buffer_offset,
+                    dgc_mode, draw->preprocess_va, draw->preprocess_size);
+        }
+
+        if (iter == 0 && num_iter == 2)
+        {
+            VkDependencyInfo dep_info;
+            VkMemoryBarrier2 barrier;
+
+            memset(&barrier, 0, sizeof(barrier));
+            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_EXT;
+            barrier.srcAccessMask = VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_EXT;
+            /* vkCmdExecuteGeneratedCommands consumes in draw indirect stage. */
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+
+            memset(&dep_info, 0, sizeof(dep_info));
+            dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep_info.memoryBarrierCount = 1;
+            dep_info.pMemoryBarriers = &barrier;
+
+            VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        }
+
+        d3d12_command_list_debug_mark_end_region(list);
+    }
+
+    list->dgc_batch.draws_count = 0;
+
+    /* Restore state. */
+    list->graphics_bindings = graphics_bindings;
+    list->dynamic_state = dynamic_state;
+    list->index_buffer = index_buffer;
+
+    d3d12_command_list_invalidate_all_state(list);
+
+    d3d12_command_list_SetPipelineState(
+            &list->ID3D12GraphicsCommandList_iface,
+            state ? &state->ID3D12PipelineState_iface : NULL);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_list_iface *iface,
@@ -16874,7 +17104,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
             d3d12_command_list_execute_indirect_state_template_dgc(list, sig_impl,
                     max_command_count,
                     arg_impl, arg_buffer_offset,
-                    count_impl, count_buffer_offset);
+                    count_impl, count_buffer_offset, VKD3D_DGC_MODE_APPLICATION_CALL, 0, 0);
         }
         else if (sig_impl->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
@@ -16887,6 +17117,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_TEMPLATE);
         return;
     }
+
+    d3d12_command_list_flush_dgc_batch(list);
 
     /* Temporary workaround, since we cannot parse non-draw arguments yet. Point directly
      * to the first argument. Should avoid hard crashes for now. */
@@ -17975,6 +18207,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
             src, src_sub_resource_idx, src_rect, format, mode);
 
     d3d12_command_list_check_render_pass_validation(list, "ResolveSubresourceRegion called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -18231,6 +18464,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
             {
                 /* Implicitly calls end_wbi_batch. We cannot have any pending transfers
                  * while inside a render pass instance that we would have to end. */
+                d3d12_command_list_flush_dgc_batch(list);
                 d3d12_command_list_end_current_render_pass(list, true);
 
                 /* Flush subsequent batches now that the render pass instance has ended */
@@ -18846,6 +19080,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
     TRACE("iface %p, rt_count %u, render_targets %p, depth_stencil %p, flags %#x.\n",
             iface, rt_count, render_targets, depth_stencil, flags);
 
+    d3d12_command_list_flush_dgc_batch(list);
+
     /* It's possible we're attempting to resume an existing suspend in the same command buffer,
      * however, it's not *necessarily* compatible because D3D12 render passes are being
      * annoying as usual. */
@@ -19135,6 +19371,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
         return;
     }
 
+    d3d12_command_list_flush_dgc_batch(list);
+
     if (list->rendering_info.has_pending_render_pass_load_store_work &&
             !(list->rendering_info.info.flags & VKD3D_RENDERING_ACTIVE))
     {
@@ -19254,6 +19492,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_comman
 
     /* The only meta commands we understand are compute related, so this cannot possibly work. */
     d3d12_command_list_check_render_pass_validation(list, "Cannot call ExecuteMetaCommands inside render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
@@ -19548,6 +19787,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
             iface, desc, num_postbuild_info_descs, postbuild_info_descs);
 
     d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -19742,6 +19982,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
             iface, desc, num_acceleration_structures, src_data);
 
     d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -19770,6 +20011,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
           iface, dst_data, src_data, mode);
 
     d3d12_command_list_check_render_pass_validation(list, "CopyRaytracingAccelerationStructure called within a render pass.\n", true);
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -19834,6 +20076,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
     if (list->rt_state == state)
         return;
 
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_invalidate_current_pipeline(list, false);
     /* SetPSO and SetPSO1 alias the same internal active pipeline state even if they are completely different types. */
     list->state = NULL;
@@ -20048,6 +20291,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
 
     /* Need to end the renderpass if we have one to make
      * way for the new VRS attachment */
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_invalidate_rendering_info(list);
     d3d12_command_list_end_current_render_pass(list, false);
 
@@ -20070,6 +20314,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
     struct vkd3d_scratch_allocation scratch;
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
+
+    d3d12_command_list_flush_dgc_batch(list);
 
     if (list->predication.fallback_enabled)
     {
@@ -20740,6 +20986,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_ifac
         return;
     }
 
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_barrier_batch_init(&batch);
@@ -20850,6 +21097,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetProgram(
         return;
     }
 
+    d3d12_command_list_flush_dgc_batch(list);
+
     list->wg_state = desc->WorkGraph;
 
     /* We only get program identifier, not the state object? Spicy ... */
@@ -20880,6 +21129,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchGraph(
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     TRACE("iface %p, desc %p\n", iface, desc);
+    d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_workgraph_dispatch(list, desc);
 }
 
