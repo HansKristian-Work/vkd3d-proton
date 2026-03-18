@@ -1798,7 +1798,7 @@ static void *vkd3d_shared_fence_worker_main(void *userdata)
 }
 
 static HRESULT d3d12_shared_fence_set_native_sync_handle_on_completion_explicit(struct d3d12_shared_fence *fence,
-        enum vkd3d_waiting_event_type wait_type, UINT64 value, vkd3d_native_sync_handle handle, uint32_t *payload)
+        enum vkd3d_waiting_event_type wait_type, uint64_t value, vkd3d_native_sync_handle handle, uint32_t *payload)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &fence->device->vk_procs;
     struct vkd3d_shared_fence_waiting_event *waiting_event;
@@ -22499,7 +22499,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
 }
 
 static void d3d12_command_queue_wait_shared(struct d3d12_command_queue *command_queue,
-        struct d3d12_shared_fence *fence, UINT64 value)
+        struct d3d12_shared_fence *fence, uint64_t value)
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     VkSemaphoreWaitInfo wait_info;

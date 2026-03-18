@@ -3611,7 +3611,7 @@ struct d3d12_command_queue
     uint64_t drain_count;
     uint64_t queue_drain_count;
 
-    UINT64 last_submission_timeline_value;
+    uint64_t last_submission_timeline_value;
     UINT64 last_submission_time_ns;
     bool stagger_submissions;
 
