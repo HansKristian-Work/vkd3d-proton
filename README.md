@@ -113,6 +113,26 @@ meson --buildtype release --prefix /your/vkd3d-proton/directory build.86
 ninja -C build.86 install
 ```
 
+#### Cross-compilation build for aarch64
+
+First, setup a distrobox using Steam's runtime for it.
+
+```
+distrobox create --image registry.gitlab.steamos.cloud/steamrt/steamrt4/sdk/arm64-on-amd64 --name aarch64
+distrobox enter aarch64
+# Inside container
+sudo apt install mingw-w64-tools
+meson setup build-aarch64 \
+  --buildtype release \
+  --cross-file /usr/share/meson/cross/aarch64-linux-gnu-gcc.txt \
+  --cross-file ./build-widl.txt \
+  -Denable_extras=true \
+  -Denable_tests=true \
+  --prefix /tmp/vkd3d-proton-aarch64
+ninja -C build-aarch64 install
+cp build-aarch64/tests/d3d12 /tmp/vkd3d-proton-aarch64/bin
+```
+
 ## Using vkd3d-proton
 
 The intended way to use vkd3d-proton is as native Win32 DLLs (d3d12.dll and d3d12core.dll).

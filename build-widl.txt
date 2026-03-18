@@ -1,0 +1,2 @@
+[binaries]
+widl-mingw-tools-fallback = 'x86_64-w64-mingw32-widl'
