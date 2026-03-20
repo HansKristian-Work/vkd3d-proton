@@ -967,6 +967,15 @@ static const struct vkd3d_shader_quirk_info robust_compute_quad_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST,
 };
 
+/* Some vertex shaders use precise fma, while others don't.
+ * Just forcing fma even for precise works around it and invariant gl_Position
+ * takes care of the rest.
+ * Works around some depth invariance issues when rendering the baby's eyeballs
+ * in intro cutscenes. */
+static const struct vkd3d_shader_quirk_info ds2_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_PRECISE_FMA,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1041,6 +1050,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", &hfw_quirks },
     /* Crimson Desert (3321460) */
     { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", &robust_compute_quad_quirks },
+    /* Death Stranding 2 (3280350) */
+    { VKD3D_STRING_COMPARE_EXACT, "DS2.exe", &ds2_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */

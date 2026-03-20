@@ -544,6 +544,9 @@ enum vkd3d_shader_target_extension
 
 #define VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE (1ull << 32)
 
+/* Use precise fma instead of the spec correct mad. To workaround issues with invariance. */
+#define VKD3D_SHADER_QUIRK_PRECISE_FMA (1ull << 33)
+
 typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
