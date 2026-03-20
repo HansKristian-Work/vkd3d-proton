@@ -54,17 +54,6 @@ static inline bool vkd3d_swapchain_present_mode_parse(const char *string, VkPres
     return false;
 }
 
-static inline bool present_mode_pacing_should_wait(VkPresentModeKHR present_mode)
-{
-    /* FIFO_LATEST_READY is intentionally excluded. Unlike FIFO and FIFO_RELAXED,
-     * it does not block on Vsync boundaries and present-wait would not provide
-     * meaningful backpressure. When VK_EXT_present_timing becomes available,
-     * VkPresentTimingInfoEXT.targetTime would be the appropriate pacing mechanism.
-     */
-    return present_mode == VK_PRESENT_MODE_FIFO_KHR ||
-           present_mode == VK_PRESENT_MODE_FIFO_RELAXED_KHR;
-}
-
 static inline struct dxgi_vk_swap_chain_factory *impl_from_IDXGIVkSwapChainFactory(IDXGIVkSwapChainFactory *iface)
 {
     return CONTAINING_RECORD(iface, struct dxgi_vk_swap_chain_factory, IDXGIVkSwapChainFactory_iface);
@@ -354,6 +343,41 @@ struct dxgi_vk_swap_chain
         uint64_t timing_property_counter;
     } wait_thread;
 };
+
+static bool dxgi_vk_swap_chain_pacing_should_wait(struct dxgi_vk_swap_chain *chain)
+{
+    /* FIFO_LATEST_READY is intentionally excluded. Unlike FIFO and FIFO_RELAXED,
+     * it does not block on Vsync boundaries and present-wait would not provide
+     * meaningful backpressure.
+     */
+    bool mode_supports_wait =
+            chain->present.selected_present_mode == VK_PRESENT_MODE_FIFO_KHR ||
+            chain->present.selected_present_mode == VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+    return chain->present.wait && mode_supports_wait;
+}
+
+static bool dxgi_vk_swap_chain_pacing_should_present_id(struct dxgi_vk_swap_chain *chain)
+{
+    return chain->present.low_latency_state.mode ||
+           chain->present.timing ||
+           dxgi_vk_swap_chain_pacing_should_wait(chain);
+}
+
+static bool dxgi_vk_swap_chain_pacing_should_target_time(struct dxgi_vk_swap_chain *chain, uint64_t present_count, uint64_t refresh_delta)
+{
+    bool mode_supports_target_time =
+            chain->present.selected_present_mode == VK_PRESENT_MODE_FIFO_KHR ||
+            chain->present.selected_present_mode == VK_PRESENT_MODE_FIFO_RELAXED_KHR ||
+            chain->present.selected_present_mode == VK_PRESENT_MODE_FIFO_LATEST_READY_KHR;
+    bool feedback_counts_presents =
+            present_count > chain->timing.feedback.present_count &&
+            chain->timing.feedback.present_count;
+    bool meaningful_refresh_duration = chain->timing.refresh_duration >= refresh_delta;
+    bool chain_supports_target_time =
+            chain->present.timing_absolute ||
+            chain->present.timing_relative;
+    return mode_supports_target_time && feedback_counts_presents && meaningful_refresh_duration && chain_supports_target_time;
+}
 
 static void dxgi_vk_swap_chain_drain_internal_blit_semaphore(struct dxgi_vk_swap_chain *chain, uint64_t value);
 
@@ -2773,13 +2797,7 @@ static bool dxgi_vk_swap_chain_setup_present_timing_request(
 
 #define DELTA_NS 500000
 
-    /* Present timing targets only work on FIFO modes.
-     * Don't bother trying to get timing feedback for non-FIFO modes. */
-    use_present_timing_target = chain->request.swap_interval > 0 &&
-            present_count > chain->timing.feedback.present_count &&
-            chain->timing.feedback.present_count &&
-            chain->timing.refresh_duration >= DELTA_NS &&
-            (chain->present.timing_absolute || chain->present.timing_relative);
+    use_present_timing_target = dxgi_vk_swap_chain_pacing_should_target_time(chain, present_count, DELTA_NS);
 
     if (use_present_timing_target && frame_limiter_ns > chain->timing.refresh_duration)
     {
@@ -2894,7 +2912,6 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     VkPresentId2KHR present_id2;
     VkPresentIdKHR present_id;
     uint32_t swapchain_index;
-    bool pacing_should_wait;
     bool use_present_id;
     VkResult vk_result;
     VkQueue vk_queue;
@@ -2975,14 +2992,14 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
         }
     }
 
-    pacing_should_wait = present_mode_pacing_should_wait(chain->present.selected_present_mode) ||
-        chain->present.low_latency_state.mode;
-
-    /* Only bother with present-wait path for capped swapchains like FIFO and FIFO Relaxed.
-     * Uncapped swapchains will pump their frame latency handles through the fallback path of blit command being done.
-     * Especially on Xwayland, the present ID is updated when images actually hit on-screen due to MAILBOX behavior.
-     * This would unnecessarily stall our progress. */
-    if (chain->present.wait && !chain->present.present_id_valid && pacing_should_wait)
+    /* Attach a present ID when required for backpressure (FIFO, FIFO_RELAXED) or
+     * for low latency pacing. The actual vkWaitForPresentKHR call is separately
+     * gated on pacing_should_wait in the wait thread.
+     *
+     * On Xwayland, present IDs are updated at scan-out rather than queue submission
+     * due to MAILBOX behavior, so uncapped modes without low latency pacing should
+     * not attach a present ID since it would unnecessarily stall progress. */
+    if (chain->present.wait && !chain->present.present_id_valid && dxgi_vk_swap_chain_pacing_should_present_id(chain))
     {
         minimum_present_id = chain->present.present_id + 1;
         if (chain->present.low_latency_state.mode)
@@ -3565,7 +3582,7 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         {
             cookie = vkd3d_queue_timeline_trace_register_present_wait(timeline_trace, entry.id);
             /* In skip wait mode we just need to make sure that we signal latency fences properly. */
-            if (!chain->wait_thread.skip_waits)
+            if (dxgi_vk_swap_chain_pacing_should_wait(chain) && !chain->wait_thread.skip_waits)
             {
                 /* We don't really care if we observed OUT_OF_DATE or something here. */
                 if (chain->present.wait2)
