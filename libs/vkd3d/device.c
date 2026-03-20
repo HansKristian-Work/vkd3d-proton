@@ -1039,7 +1039,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "ROTTR.exe", &rottr_quirks },
     /* Horizon Forbidden West (2420110). */
     { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", &hfw_quirks },
-    { VKD3D_STRING_COMPARE_HASH_EQUAL, "441a039d8598593f", &robust_compute_quad_quirks },
+    /* Crimson Desert (3321460) */
+    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", &robust_compute_quad_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
