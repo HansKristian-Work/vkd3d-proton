@@ -138,8 +138,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* NV extensions */
     VK_EXTENSION(NV_OPTICAL_FLOW, NV_optical_flow),
     VK_EXTENSION(NV_SHADER_SM_BUILTINS, NV_shader_sm_builtins),
-    VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
-    VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
+    VK_EXTENSION_DISABLE_COND(NVX_BINARY_IMPORT, NVX_binary_import, VKD3D_CONFIG_FLAG_NO_NVX),
+    VK_EXTENSION_DISABLE_COND(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle, VKD3D_CONFIG_FLAG_NO_NVX),
     VK_EXTENSION(NV_FRAGMENT_SHADER_BARYCENTRIC, NV_fragment_shader_barycentric),
     VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
     VK_EXTENSION_COND(NV_DEVICE_DIAGNOSTIC_CHECKPOINTS, NV_device_diagnostic_checkpoints, VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE),
@@ -381,8 +381,8 @@ static bool vkd3d_disable_nvx_extensions(struct d3d12_device *device, const char
 
     static const struct vkd3d_optional_extension_info nvx_extensions[] =
     {
-        VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
-        VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
+        VK_EXTENSION_DISABLE_COND(NVX_BINARY_IMPORT, NVX_binary_import, VKD3D_CONFIG_FLAG_NO_NVX),
+        VK_EXTENSION_DISABLE_COND(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle, VKD3D_CONFIG_FLAG_NO_NVX),
     };
 
     for (i = 0; i < ARRAY_SIZE(nvx_extensions); ++i)
@@ -1276,6 +1276,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"damage_not_zeroed_allocations", VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS},
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
     {"prefer_thin_uav_tiling", VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING},
+    {"no_nvx", VKD3D_CONFIG_FLAG_NO_NVX},
 };
 
 static void vkd3d_config_flags_init_once(void)
