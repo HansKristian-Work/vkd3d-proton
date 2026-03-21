@@ -187,7 +187,9 @@ void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_
 
         while (block_va < max_va)
         {
-            block = vkd3d_va_map_get_block(va_map, block_va);
+            block = vkd3d_va_map_find_block(va_map, block_va);
+            if (!block)
+                goto next_remove;
 
             if (vkd3d_atomic_ptr_load_explicit(&block->l.resource, vkd3d_memory_order_relaxed) == resource)
             {
@@ -200,6 +202,8 @@ void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_
                 vkd3d_atomic_ptr_store_explicit(&block->r.resource, NULL, vkd3d_memory_order_relaxed);
             }
 
+
+        next_remove:
             block_va += VKD3D_VA_BLOCK_SIZE;
         }
     }
