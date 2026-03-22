@@ -24302,6 +24302,13 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     HRESULT hr;
     int rc;
 
+    hr = d3d12_device_removed_reason(device);
+    if (hr != S_OK)
+    {
+        WARN("Device %p is removed (reason %#x).\n", device, hr);
+        return DXGI_ERROR_DEVICE_REMOVED;
+    }
+
     queue->ID3D12CommandQueue_iface.lpVtbl = &d3d12_command_queue_vtbl;
     queue->ID3D12CommandQueueExt_iface.lpVtbl = &d3d12_command_queue_vkd3d_ext_vtbl;
     queue->refcount = 1;

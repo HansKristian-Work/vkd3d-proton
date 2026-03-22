@@ -7442,7 +7442,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(d3d12_devic
 
     TRACE("iface %p.\n", iface);
 
-    return vkd3d_atomic_uint32_load_explicit(&device->removed_reason, vkd3d_memory_order_acquire);
+    return d3d12_device_removed_reason(device);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_iface *iface,
@@ -10848,6 +10848,11 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     *device = object;
 
     return S_OK;
+}
+
+HRESULT d3d12_device_removed_reason(struct d3d12_device *device)
+{
+    return vkd3d_atomic_uint32_load_explicit(&device->removed_reason, vkd3d_memory_order_acquire);
 }
 
 void d3d12_device_report_fault(struct d3d12_device *device)

@@ -5562,6 +5562,7 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);
 void d3d12_device_report_fault(struct d3d12_device *device);
+HRESULT d3d12_device_removed_reason(struct d3d12_device *device);
 
 VkPipeline d3d12_device_get_or_create_vertex_input_pipeline(struct d3d12_device *device,
         const struct vkd3d_vertex_input_pipeline_desc *desc);

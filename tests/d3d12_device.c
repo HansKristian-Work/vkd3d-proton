@@ -1664,7 +1664,7 @@ void test_device_removed_reason(void)
 
     hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
             &IID_ID3D12CommandQueue, (void **)&tmp_queue);
-    todo ok(hr == DXGI_ERROR_DEVICE_REMOVED, "Got unexpected hr %#x.\n", hr);
+    ok(hr == DXGI_ERROR_DEVICE_REMOVED, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12CommandQueue_Release(tmp_queue);
 
