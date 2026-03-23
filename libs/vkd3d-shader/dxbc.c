@@ -1356,6 +1356,94 @@ static int validate_descriptor_table_v_1_1(const struct vkd3d_root_descriptor_ta
     return VKD3D_OK;
 }
 
+static bool shader_visibility_overlaps(enum vkd3d_shader_visibility a, enum vkd3d_shader_visibility b)
+{
+    if (a == VKD3D_SHADER_VISIBILITY_ALL || b == VKD3D_SHADER_VISIBILITY_ALL)
+        return true;
+    return a == b;
+}
+
+/* NOTE: This reads .constants.shader_register and .constants.register_space for all
+ * parameter types. This works because vkd3d_root_constants and vkd3d_root_descriptor
+ * share the same layout for these fields (both start with shader_register, register_space). */
+static int validate_visibility_overlap_v_1_0(const struct vkd3d_root_signature_desc *descriptor_signature)
+{
+    unsigned int register_space, shader_register;
+    unsigned int next_register_space, next_shader_register;
+    unsigned int i, j;
+
+    for (i = 0; i < descriptor_signature->parameter_count; ++i)
+    {
+        if (descriptor_signature->parameters[i].parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            continue;
+
+        register_space = descriptor_signature->parameters[i].constants.register_space;
+        shader_register = descriptor_signature->parameters[i].constants.shader_register;
+        for (j = i + 1; j < descriptor_signature->parameter_count; ++j)
+        {
+            if (descriptor_signature->parameters[j].parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+                continue;
+
+            if (descriptor_signature->parameters[i].parameter_type != descriptor_signature->parameters[j].parameter_type)
+                continue;
+
+            next_register_space = descriptor_signature->parameters[j].constants.register_space;
+            next_shader_register = descriptor_signature->parameters[j].constants.shader_register;
+
+            if (register_space == next_register_space && shader_register == next_shader_register)
+            {
+                if (shader_visibility_overlaps(descriptor_signature->parameters[i].shader_visibility,
+                    descriptor_signature->parameters[j].shader_visibility))
+                {
+                    WARN("Root parameters have overlapping register bindings.\n");
+                    return VKD3D_ERROR_INVALID_ARGUMENT;
+                }
+            }
+        }
+    }
+
+    return VKD3D_OK;
+}
+
+static int validate_visibility_overlap_v_1_1(const struct vkd3d_root_signature_desc1 *descriptor_signature)
+{
+    unsigned int register_space, shader_register;
+    unsigned int next_register_space, next_shader_register;
+    unsigned int i, j;
+
+    for (i = 0; i < descriptor_signature->parameter_count; ++i)
+    {
+        if (descriptor_signature->parameters[i].parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            continue;
+
+        register_space = descriptor_signature->parameters[i].constants.register_space;
+        shader_register = descriptor_signature->parameters[i].constants.shader_register;
+        for (j = i + 1; j < descriptor_signature->parameter_count; ++j)
+        {
+            if (descriptor_signature->parameters[j].parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+                continue;
+
+            if (descriptor_signature->parameters[i].parameter_type != descriptor_signature->parameters[j].parameter_type)
+                continue;
+
+            next_register_space = descriptor_signature->parameters[j].constants.register_space;
+            next_shader_register = descriptor_signature->parameters[j].constants.shader_register;
+
+            if (register_space == next_register_space && shader_register == next_shader_register)
+            {
+                if (shader_visibility_overlaps(descriptor_signature->parameters[i].shader_visibility,
+                    descriptor_signature->parameters[j].shader_visibility))
+                {
+                    WARN("Root parameters have overlapping register bindings.\n");
+                    return VKD3D_ERROR_INVALID_ARGUMENT;
+                }
+            }
+        }
+    }
+
+    return VKD3D_OK;
+}
+
 static int validate_root_signature_desc(const struct vkd3d_versioned_root_signature_desc *desc)
 {
     int ret = VKD3D_OK;
@@ -1376,6 +1464,14 @@ static int validate_root_signature_desc(const struct vkd3d_versioned_root_signat
 
         if (ret < 0)
             break;
+    }
+
+    if (ret == VKD3D_OK)
+    {
+        if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+            ret = validate_visibility_overlap_v_1_0(&desc->v_1_0);
+        else
+            ret = validate_visibility_overlap_v_1_1(&desc->v_1_1);
     }
 
     return ret;
