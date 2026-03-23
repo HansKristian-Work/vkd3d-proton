@@ -193,12 +193,12 @@ struct vkd3d_vulkan_info
     bool AMD_shader_core_properties;
     bool AMD_shader_core_properties2;
     bool AMD_anti_lag;
+    bool AMD_shader_explicit_vertex_parameter;
     /* NV device extensions */
     bool NV_optical_flow;
     bool NV_shader_sm_builtins;
     bool NVX_binary_import;
     bool NVX_image_view_handle;
-    bool NV_fragment_shader_barycentric;
     bool NV_compute_shader_derivatives;
     bool NV_device_diagnostic_checkpoints;
     bool NV_device_generated_commands;
@@ -5017,7 +5017,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;
-    VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV barycentric_features_nv;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric_features_khr;
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features;
     VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR compute_shader_derivatives_features_khr;

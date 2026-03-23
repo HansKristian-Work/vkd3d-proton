@@ -20029,6 +20029,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRate(d3d12_command_
 
     TRACE("iface %p, base %#x, combiners %p\n", iface, base, combiners);
 
+    /* Relevant if emulating. */
+    if (!list->device->device_info.fragment_shading_rate_features.pipelineFragmentShadingRate)
+        return;
+
     fragment_size.width = vk_fragment_size_from_d3d12(D3D12_GET_COARSE_SHADING_RATE_X_AXIS(base));
     fragment_size.height = vk_fragment_size_from_d3d12(D3D12_GET_COARSE_SHADING_RATE_Y_AXIS(base));
 
@@ -20061,6 +20065,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
     struct d3d12_resource *vrs_image = impl_from_ID3D12Resource(image);
 
     TRACE("iface %p, image %p.\n", iface, image);
+
+    if (!list->device->device_info.fragment_shading_rate_features.attachmentFragmentShadingRate)
+        return;
 
     /* Handle invalid images being set here. */
     if (vrs_image && !vrs_image->vrs_view)
