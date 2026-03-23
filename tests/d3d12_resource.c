@@ -3312,6 +3312,14 @@ void test_stress_fallback_render_target_allocation_device(void)
     if (!init_compute_test_context(&context))
         return;
 
+    /* This test is mostly relevant for dGPU. */
+    if (is_integrated_vulkan_device(context.device))
+    {
+        skip("Skipping useless stress test on iGPU.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     /* Spam allocate enough that we should exhaust VRAM and require fallbacks to system memory.
      * Verify that we don't collapse in such a situation.
      * Render targets hit some particular edge cases on NV that we should focus on testing. */
