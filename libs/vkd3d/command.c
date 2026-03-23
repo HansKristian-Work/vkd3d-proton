@@ -14584,6 +14584,26 @@ static void copy_and_clamp_clear_color(VkFormat vk_format, float color[4], const
             color[3] = 0.0f;
             break;
 
+        case VK_FORMAT_R8_UNORM:
+        case VK_FORMAT_R8G8_UNORM:
+        case VK_FORMAT_R8G8B8A8_UNORM:
+        case VK_FORMAT_R8G8B8A8_SRGB:
+        case VK_FORMAT_B8G8R8A8_UNORM:
+        case VK_FORMAT_B8G8R8A8_SRGB:
+        case VK_FORMAT_R16_UNORM:
+        case VK_FORMAT_R16G16_UNORM:
+        case VK_FORMAT_R16G16B16A16_UNORM:
+        case VK_FORMAT_R8_SNORM:
+        case VK_FORMAT_R8G8_SNORM:
+        case VK_FORMAT_R8G8B8A8_SNORM:
+        case VK_FORMAT_R16_SNORM:
+        case VK_FORMAT_R16G16_SNORM:
+        case VK_FORMAT_R16G16B16A16_SNORM:
+            /* NaN should flush to 0. Vulkan does not guarantee this. */
+            for (i = 0; i < 4; i++)
+                color[i] = isnan(in_color[i]) ? 0.0f : in_color[i];
+            break;
+
         default:
             for (i = 0; i < 4; i++)
                 color[i] = in_color[i];
