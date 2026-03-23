@@ -9256,10 +9256,17 @@ uint32_t d3d12_device_get_max_descriptor_heap_size(struct d3d12_device *device, 
 static bool d3d12_device_supports_16bit_shader_ops(struct d3d12_device *device)
 {
     return device->device_info.vulkan_1_2_features.shaderFloat16 &&
+            device->device_info.features2.features.shaderInt16 &&
             device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
             device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16 &&
             device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE &&
             device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
+}
+
+static bool d3d12_device_supports_relaxed_precision_shader_ops(struct d3d12_device *device)
+{
+    return device->device_info.vulkan_1_2_features.shaderFloat16 == VK_TRUE &&
+            device->device_info.features2.features.shaderInt16 == VK_TRUE;
 }
 
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
@@ -9281,8 +9288,7 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
             device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
 
     options->OutputMergerLogicOp = features->logicOp;
-    /* Ignored in DXBC, but properly supported in DXIL if device supports 16-bit ops */
-    options->MinPrecisionSupport = d3d12_device_supports_16bit_shader_ops(device)
+    options->MinPrecisionSupport = d3d12_device_supports_relaxed_precision_shader_ops(device)
             ? D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT : D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
     options->TiledResourcesTier = d3d12_device_determine_tiled_resources_tier(device);
     options->ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
@@ -10134,6 +10140,14 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT;
+    }
+    else if (d3d12_device_supports_relaxed_precision_shader_ops(device))
+    {
+        /* Quirky hardware. It supports FP16, but not denorms (?!). We cannot expose full FP16,
+         * but it's okay to expose min16float.
+         * D3D11.3 functional spec (7.20.2.2.1) allows this behavior for min16float. */
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_RELAXED;
     }
 
     /* NV driver implies denorm preserve by default in FP16 and 64, but there's an issue where

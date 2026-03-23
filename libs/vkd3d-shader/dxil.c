@@ -1006,6 +1006,17 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     }
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_RELAXED)
+            {
+                static const dxil_spv_option_arithmetic_relaxed_precision helper =
+                    { { DXIL_SPV_OPTION_ARITHMETIC_RELAXED_PRECISION }, DXIL_SPV_TRUE };
+
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support MIN_PRECISION_IS_RELAXED.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
                 denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
