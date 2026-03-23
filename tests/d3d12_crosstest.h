@@ -580,6 +580,11 @@ static inline bool is_adreno_device(ID3D12Device *device)
     return false;
 }
 
+static inline bool is_integrated_vulkan_device(ID3D12Device *device)
+{
+    return false;
+}
+
 static inline bool is_vk_device_extension_supported(ID3D12Device *device, const char *ext)
 {
     return false;
@@ -805,6 +810,15 @@ static inline bool is_adreno_device(ID3D12Device *device)
     get_driver_properties(device, &properties);
     return properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY ||
             properties.driverID == VK_DRIVER_ID_MESA_TURNIP;
+}
+
+static inline bool is_integrated_vulkan_device(ID3D12Device *device)
+{
+    VkPhysicalDeviceProperties2 props2;
+    memset(&props2, 0, sizeof(props2));
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    return get_vulkan_device_properties2(device, &props2) &&
+            props2.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
 }
 #endif
 
