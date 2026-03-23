@@ -9370,8 +9370,10 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
             D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE | D3D12_COMMAND_LIST_SUPPORT_FLAG_COPY |
             D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE;
 
+    /* Tilers can take good advantage of multiview, just expose it for them even if we're not quite compliant. */
     if (vkd3d_debug_control_is_test_suite() ||
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES))
+        device->workarounds.tiler_suspend_resume ||
+        (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES))
     {
         /* Currently only partially implemented.
          * TIER_2 is most appropriate since it allows for fast path in certain situations and
