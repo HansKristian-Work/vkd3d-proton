@@ -1703,6 +1703,7 @@ static void test_fence_pending_signal_cpu_rewind(bool use_shared)
     ID3D12Fence *fence;
     unsigned int i, j;
     unsigned int iter;
+    bool is_adreno;
     HANDLE event;
     UINT64 value;
     HRESULT hr;
@@ -1771,6 +1772,8 @@ static void test_fence_pending_signal_cpu_rewind(bool use_shared)
         }
     }
 
+    is_adreno = is_adreno_device(context.device);
+
     for (iter = 0; iter < 64; iter++)
     {
         ID3D12Fence_Signal(fence, 8);
@@ -1789,9 +1792,11 @@ static void test_fence_pending_signal_cpu_rewind(bool use_shared)
 
             if (i)
             {
+                /* Avoids GPU timeout if we spam too much work. */
                 ID3D12GraphicsCommandList_Dispatch(context.list,
-                                                   16 * 1024, 256 * ARRAY_SIZE(dummy_resources) / (16 * 1024),
-                                                   use_warp_device ? 1 : 4);
+                                                   is_adreno ? 256 : 4 * 1024,
+                                                   256 * ARRAY_SIZE(dummy_resources) / (16 * 1024),
+                                                   use_warp_device || is_adreno ? 1 : 4);
             }
             else
             {
