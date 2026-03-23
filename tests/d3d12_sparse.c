@@ -2552,7 +2552,8 @@ void test_sparse_depth_stencil_rendering(void)
         /* Unmapped pages should pass the depth test. We enable write in the PSO, but this write should be masked when passing.
          * We draw two full-screen primitives, the first with depth 0.25, the second one with 0.25 - delta.
          * If sparse isn't working as intended, we'll draw 0.25 depth, then 0.25 - delta fails, meaning we end up with 200 in RT.
-         * If sparse is working as intended, the depth test will always compare against 0, so we'll end up with 150 in RT. */
+         * If sparse is working as intended, the depth test will always compare against 0, so we'll end up with 150 in RT.
+         * Due to tiler caching (which is allowed) we may observe depth writes coming through for the first instance. */
         params[0] = 0.25f;
         params[1] = -0.05f;
         ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 0, ARRAY_SIZE(params), params, 0);
@@ -2579,15 +2580,39 @@ void test_sparse_depth_stencil_rendering(void)
         {
             for (x = 0; x < 2; x++)
             {
-                uint8_t value, expected;
+                uint8_t value, expected, expected_alt;
                 value = get_readback_uint8(&rb, x * 128, y * 128);
 
                 /* For mapped pages, we cleared to 0.5, so we don't expect to see FB write. */
                 expected = y * 2 + x <= iter ? 0 : 150;
+                expected_alt = y * 2 + x <= iter ? 0 : 200;
 
                 /* We work around lack of sparse support currently. */
                 todo_if(is_radv_device(context.device))
-                ok(value == expected, "Iter %u, tile %u, %u: expected %u, got %u.\n", iter, x, y, expected, value);
+                ok(value == expected || value == expected_alt, "Iter %u, tile %u, %u: expected %u or %u, got %u.\n",
+                    iter, x, y, expected, expected_alt, value);
+            }
+        }
+
+        release_resource_readback(&rb);
+
+        get_texture_readback_with_command_list(ds, 0, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (y = 0; y < 2; y++)
+        {
+            for (x = 0; x < 2; x++)
+            {
+                float value, expected;
+                value = get_readback_float(&rb, x * 128, y * 128);
+
+                /* For mapped pages, we cleared to 0.5, so we don't expect to see FB write. */
+                expected = y * 2 + x <= iter ? 0.5f : 0.0f;
+
+                /* We work around lack of sparse support currently. */
+                todo_if(is_radv_device(context.device))
+                ok(value == expected, "Iter %u, tile %u, %u: expected %f, got %f.\n",
+                    iter, x, y, expected, value);
             }
         }
 
