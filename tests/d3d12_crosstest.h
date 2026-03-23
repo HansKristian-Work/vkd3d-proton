@@ -594,6 +594,11 @@ static inline bool get_driver_vk_features(ID3D12Device *device, void *pnext)
 {
     return false;
 }
+
+static inline bool get_vulkan_device_properties2(ID3D12Device *device, VkPhysicalDeviceProperties2 *props2)
+{
+    return false;
+}
 #else
 
 static ID3D12Device *create_device(void)
@@ -633,10 +638,9 @@ static inline bool get_driver_vk_features(ID3D12Device *device, void *pnext)
     return true;
 }
 
-static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPropertiesKHR *driver_properties)
+static inline bool get_vulkan_device_properties2(ID3D12Device *device, VkPhysicalDeviceProperties2 *props2)
 {
     PFN_vkGetPhysicalDeviceProperties2 pfn_vkGetPhysicalDeviceProperties2;
-    VkPhysicalDeviceProperties2 device_properties2;
     VkPhysicalDevice vk_physical_device;
     VkInstance vk_instance;
     ID3D12DeviceExt *ext;
@@ -649,20 +653,28 @@ static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPr
         return false;
 
     ID3D12DeviceExt_GetVulkanHandles(ext, &vk_instance, &vk_physical_device, &vk_device);
-	ID3D12DeviceExt_Release(ext);
-
-    memset(driver_properties, 0, sizeof(*driver_properties));
-    driver_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
+    ID3D12DeviceExt_Release(ext);
 
     pfn_vkGetPhysicalDeviceProperties2
         = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2");
     ok(pfn_vkGetPhysicalDeviceProperties2, "vkGetPhysicalDeviceProperties2 is NULL.\n");
 
+    pfn_vkGetPhysicalDeviceProperties2(vk_physical_device, props2);
+    return true;
+}
+
+static inline bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPropertiesKHR *driver_properties)
+{
+    VkPhysicalDeviceProperties2 device_properties2;
+
     memset(&device_properties2, 0, sizeof(device_properties2));
     device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+
+    memset(driver_properties, 0, sizeof(*driver_properties));
+    driver_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
     device_properties2.pNext = driver_properties;
-    pfn_vkGetPhysicalDeviceProperties2(vk_physical_device, &device_properties2);
-    return true;
+
+    return get_vulkan_device_properties2(device, &device_properties2);
 }
 
 static inline bool is_vk_device_extension_supported(ID3D12Device *device, const char *ext)
