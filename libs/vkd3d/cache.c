@@ -543,7 +543,6 @@ static bool d3d12_pipeline_library_find_internal_blob(struct d3d12_pipeline_libr
     bool ret = false;
 
     /* We are called from within D3D12 PSO creation, and we won't have read locks active here. */
-    if (rwlock_lock_read(&pipeline_library->mutex))
     if (rwlock_lock_read(&pipeline_library->internal_hashmap_mutex))
         return false;
 
