@@ -3609,6 +3609,16 @@ static void d3d12_command_list_resolve_transfer_waw(struct d3d12_command_list *l
         vk_barrier.dstStageMask = list->transfer_batch.vk_stages;
         vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
+        if ((list->transfer_batch.vk_stages & VK_PIPELINE_STAGE_2_RESOLVE_BIT) &&
+            d3d12_device_prefers_render_pass_resolves(list->device))
+        {
+            /* Match assumptions made in ResourceBarrier. */
+            vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            vk_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            vk_barrier.srcAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            vk_barrier.dstAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+        }
+
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep_info.memoryBarrierCount = 1;
@@ -11011,7 +11021,7 @@ static void d3d12_get_resolve_barrier_for_dst_resource(struct d3d12_resource *re
         resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         resolve_stages = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
         /* ResourceBarrier has already handled this. */
-        resolve_access = 0;
+        resolve_access = post_resolve ? VK_ACCESS_TRANSFER_WRITE_BIT : 0;
     }
     else if (path == VKD3D_RESOLVE_IMAGE_PATH_COMPUTE_PIPELINE)
     {
@@ -11491,6 +11501,42 @@ cleanup_graphics:
     }
 }
 
+static void vkd3d_get_resolve_dst_outside_access(struct d3d12_device *device,
+        struct d3d12_resource *resource, enum vkd3d_resolve_image_path path,
+        VkPipelineStageFlags2 *vk_stages, VkAccessFlags2 *vk_access)
+{
+    /* RESOLVE_DEST assumes a normal resolve. If we resolve in unusual ways, we need to sync.
+     * Otherwise, we can defer to WAW hazard tracker. */
+    if (d3d12_device_prefers_render_pass_resolves(device))
+    {
+        bool unusual_resolve;
+        *vk_stages = VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+        if (path == VKD3D_RESOLVE_IMAGE_PATH_DIRECT || path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
+            unusual_resolve = false;
+        else if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE)
+            unusual_resolve = (resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
+        else
+            unusual_resolve = true;
+
+        if (unusual_resolve)
+        {
+            *vk_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+                    VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        }
+        else
+        {
+            *vk_access = 0;
+        }
+    }
+    else
+    {
+        /* Anything not directly using CmdResolveImage is outside our assumptions. */
+        *vk_stages = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        *vk_access = path != VKD3D_RESOLVE_IMAGE_PATH_DIRECT ? VK_ACCESS_2_TRANSFER_WRITE_BIT : 0;
+    }
+}
+
 static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, uint32_t dst_subresource_idx,
         struct d3d12_resource *src_resource,
@@ -11499,7 +11545,9 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_command_list_barrier_batch batch;
     VkImageMemoryBarrier2 vk_image_barriers[2];
+    VkPipelineStageFlags2 dst_outside_stages;
     enum vkd3d_resolve_image_path path;
+    VkAccessFlags2 dst_outside_access;
     VkDependencyInfo dep_info;
 
     path = d3d12_command_list_select_resolve_path(list, dst_resource, src_resource, 1, resolve, format, mode);
@@ -11549,9 +11597,13 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
 
     d3d12_command_list_execute_resolve(list, dst_resource, src_resource, 1, resolve, format, mode, path);
 
+    vkd3d_get_resolve_dst_outside_access(list->device, dst_resource, path, &dst_outside_stages, &dst_outside_access);
+
     d3d12_get_resolve_barrier_for_dst_resource(dst_resource, resolve, path, true,
             d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL),
-            VK_PIPELINE_STAGE_2_RESOLVE_BIT, VK_ACCESS_2_NONE, &vk_image_barriers[0]);
+            dst_outside_stages, dst_outside_access,
+            &vk_image_barriers[0]);
+
     d3d12_get_resolve_barrier_for_src_resource(src_resource, resolve, path, true,
             d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
             VK_PIPELINE_STAGE_2_RESOLVE_BIT, VK_ACCESS_2_NONE, &vk_image_barriers[1]);
@@ -18284,6 +18336,9 @@ static void d3d12_command_list_resolve_render_pass_attachments(struct d3d12_comm
             {
                 /* The destination image must be in RESOLVE_DEST state */
                 VkImageLayout dst_layout = d3d12_resource_pick_layout(resolve->dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                VkPipelineStageFlags2 dst_outside_stages;
+                VkAccessFlags2 dst_outside_access;
+
                 barrier_index = dep_info.imageMemoryBarrierCount++;
 
                 d3d12_get_resolve_barrier_for_dst_resource(resolve->dst_resource, &regions[j],
@@ -18291,10 +18346,13 @@ static void d3d12_command_list_resolve_render_pass_attachments(struct d3d12_comm
                         VK_PIPELINE_STAGE_2_RESOLVE_BIT,
                         VK_ACCESS_2_NONE, &barriers[barrier_index]);
 
+                vkd3d_get_resolve_dst_outside_access(list->device, resolve->dst_resource, resolve_paths[i],
+                        &dst_outside_stages, &dst_outside_access);
+
                 d3d12_get_resolve_barrier_for_dst_resource(resolve->dst_resource, &regions[j],
                         resolve_paths[i], true, dst_layout,
-                        VK_PIPELINE_STAGE_2_RESOLVE_BIT,
-                        VK_ACCESS_2_NONE, &barriers[barrier_count + barrier_index]);
+                        dst_outside_stages, dst_outside_access,
+                        &barriers[barrier_count + barrier_index]);
             }
         }
     }
