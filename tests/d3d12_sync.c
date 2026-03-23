@@ -1205,6 +1205,7 @@ void test_fence_wait_robustness_inner(bool shared_handles)
     ID3D12Fence *wait_fence;
     ID3D12Resource *src;
     ID3D12Resource *dst;
+    bool is_integrated;
     unsigned int i;
     HANDLE event;
     UINT value;
@@ -1315,8 +1316,10 @@ void test_fence_wait_robustness_inner(bool shared_handles)
                 &IID_ID3D12GraphicsCommandList, (void**)&list[i]);
     }
 
-    /* Heavy copy action. */
-    for (i = 0; i < 128; i++)
+    /* Heavy copy action. Don't hammer integrated so hard, since it risks timeouts. */
+    is_integrated = is_integrated_vulkan_device(context.device);
+
+    for (i = 0; i < (is_integrated ? 16 : 128); i++)
     {
         ID3D12GraphicsCommandList_CopyResource(list[0], dst, src);
         ID3D12GraphicsCommandList_CopyResource(list[1], src, dst);
