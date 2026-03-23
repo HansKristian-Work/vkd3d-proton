@@ -845,12 +845,15 @@ void test_shader_instructions(void)
     };
 
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    VkPhysicalDeviceVulkan12Properties vk12_props;
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     ID3D12GraphicsCommandList *command_list;
     const struct named_shader *current_ps;
+    VkPhysicalDeviceProperties2 vk_props;
     struct test_context_desc desc;
     D3D12_SHADER_BYTECODE shader;
     struct test_context context;
+    bool supports_fp16_denorms;
     ID3D12CommandQueue *queue;
     ID3D12Resource *cb;
     unsigned int i;
@@ -2825,6 +2828,7 @@ void test_shader_instructions(void)
         bool skip_on_warp;
         bool requires_fp64;
         bool is_todo;
+        bool requires_fp16_denorms;
     }
     uint_tests[] =
     {
@@ -2988,8 +2992,8 @@ void test_shader_instructions(void)
         {&ps_f16tof32_2, {{{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}}, {{250, 100, 1, 0}}},
 
         /* Verify subnormal behavior. D3D11 functional spec says FP16 denorms must be preserved. */
-        {&ps_f32tof16, {.f = {{1.0f / 0x1000000, 2.0f / 0x1000000, 3.0f / 0x1000000, 4.0f / 0x1000000}}}, {{1, 2, 3, 4}}},
-        {&ps_f32tof16, {.f = {{-1.0f / 0x1000000, -2.0f / 0x1000000, -3.0f / 0x1000000, -4.0f / 0x1000000}}}, {{0x8001, 0x8002, 0x8003, 0x8004}}},
+        {&ps_f32tof16, {.f = {{1.0f / 0x1000000, 2.0f / 0x1000000, 3.0f / 0x1000000, 4.0f / 0x1000000}}}, {{1, 2, 3, 4}}, false, false, false, true},
+        {&ps_f32tof16, {.f = {{-1.0f / 0x1000000, -2.0f / 0x1000000, -3.0f / 0x1000000, -4.0f / 0x1000000}}}, {{0x8001, 0x8002, 0x8003, 0x8004}}, false, false, false, true},
         /* Verify RTZ behavior on fp32 -> fp16 rounding. D3D11 functional spec calls this out explicitly. */
         {&ps_f32tof16, {.f = {{1024.0f, 1025.0f, 1026.0f, 1027.0f}}}, {{0x6400, 0x6401, 0x6402, 0x6403}}},
         {&ps_f32tof16, {.f = {{2048.0f, 2050.0f, 2052.0f, 2054.0f}}}, {{0x6800, 0x6801, 0x6802, 0x6803}}},
@@ -3431,6 +3435,14 @@ void test_shader_instructions(void)
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_UINT;
     create_render_target(&context, &desc, &context.render_target, &context.rtv);
 
+    memset(&vk_props, 0, sizeof(vk_props));
+    memset(&vk12_props, 0, sizeof(vk12_props));
+    vk_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    vk_props.pNext = &vk12_props;
+    vk12_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+    supports_fp16_denorms = get_vulkan_device_properties2(context.device, &vk_props) &&
+        vk12_props.shaderDenormPreserveFloat16;
+
     for (i = 0; i < ARRAY_SIZE(uint_tests); ++i)
     {
         vkd3d_test_set_context("%u:%s", i, uint_tests[i].ps->name);
@@ -3475,7 +3487,7 @@ void test_shader_instructions(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-        todo_if(uint_tests[i].is_todo)
+        todo_if(uint_tests[i].is_todo || (uint_tests[i].requires_fp16_denorms && !supports_fp16_denorms))
         check_sub_resource_uvec4(context.render_target, 0, queue, command_list, &uint_tests[i].output.u);
 
         reset_command_list(command_list, context.allocator);
