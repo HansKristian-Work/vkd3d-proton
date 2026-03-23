@@ -932,6 +932,14 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     else
                         ERR("Too many tracked built-in variables.\n");
                 }
+                else if (builtin == SpvBuiltInBaryCoordSmoothAMD || builtin == SpvBuiltInBaryCoordNoPerspAMD)
+                {
+                    meta |= VKD3D_SHADER_META_FLAG_USES_FRAGMENT_BARYCENTRIC;
+                }
+            }
+            else if (decoration == SpvDecorationExplicitInterpAMD)
+            {
+                meta |= VKD3D_SHADER_META_FLAG_USES_FRAGMENT_BARYCENTRIC;
             }
         }
         else if (op == SpvOpVariable && count >= 4)

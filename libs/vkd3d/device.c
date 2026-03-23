@@ -135,12 +135,12 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES, AMD_shader_core_properties),
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES_2, AMD_shader_core_properties2),
     VK_EXTENSION(AMD_ANTI_LAG, AMD_anti_lag),
+    VK_EXTENSION(AMD_SHADER_EXPLICIT_VERTEX_PARAMETER, AMD_shader_explicit_vertex_parameter),
     /* NV extensions */
     VK_EXTENSION(NV_OPTICAL_FLOW, NV_optical_flow),
     VK_EXTENSION(NV_SHADER_SM_BUILTINS, NV_shader_sm_builtins),
     VK_EXTENSION_DISABLE_COND(NVX_BINARY_IMPORT, NVX_binary_import, VKD3D_CONFIG_FLAG_NO_NVX),
     VK_EXTENSION_DISABLE_COND(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle, VKD3D_CONFIG_FLAG_NO_NVX),
-    VK_EXTENSION(NV_FRAGMENT_SHADER_BARYCENTRIC, NV_fragment_shader_barycentric),
     VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
     VK_EXTENSION_COND(NV_DEVICE_DIAGNOSTIC_CHECKPOINTS, NV_device_diagnostic_checkpoints, VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE),
     VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS, NV_device_generated_commands),
@@ -574,6 +574,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX,
     VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS,
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG,
+    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -714,6 +715,11 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "ACValhalla.exe", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION, 0 },
     /* Guardians of the Galaxy: Tries to use root descriptors with indirect rendering if it detects an Nvidia GPU. */
     { VKD3D_STRING_COMPARE_EXACT, "gotg.exe", VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV, 0 },
+    /* Crimson Desert (3321460).
+     * Game advertises being able to run on RDNA1, but when we don't expose some RDNA2+ features,
+     * it just exits on startup. It seems to rely on unstable barycentrics, which we can implement on older AMD,
+     * and VRS can be nooped. */
+    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", 0, 0, VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -1682,7 +1688,14 @@ bool d3d12_device_supports_variable_shading_rate_tier_2(struct d3d12_device *dev
 static D3D12_VARIABLE_SHADING_RATE_TIER d3d12_device_determine_variable_shading_rate_tier(struct d3d12_device *device)
 {
     if (!d3d12_device_supports_variable_shading_rate_tier_1(device))
-        return D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
+    {
+        if (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY &&
+            device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
+            device->device_info.vulkan_1_3_properties.minSubgroupSize == 32)
+            return D3D12_VARIABLE_SHADING_RATE_TIER_1;
+        else
+            return D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
+    }
 
     if (!d3d12_device_supports_variable_shading_rate_tier_2(device))
         return D3D12_VARIABLE_SHADING_RATE_TIER_1;
@@ -2124,13 +2137,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->fragment_shading_rate_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
         vk_prepend_struct(&info->properties2, &info->fragment_shading_rate_properties);
         vk_prepend_struct(&info->features2, &info->fragment_shading_rate_features);
-    }
-
-    if (vulkan_info->NV_fragment_shader_barycentric && !vulkan_info->KHR_fragment_shader_barycentric)
-    {
-        info->barycentric_features_nv.sType =
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_NV;
-        vk_prepend_struct(&info->features2, &info->barycentric_features_nv);
     }
 
     if (vulkan_info->KHR_fragment_shader_barycentric)
@@ -3759,6 +3765,15 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
 
     /* Have a local copy of this since we may need to apply per-device workarounds in shader compiler. */
     device->workarounds.quirks = vkd3d_shader_quirk_info_template;
+
+    /* If we're faking VRS tier 1, we need to just nop out everything about primitive shading rate. */
+    if (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY &&
+        device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
+        device->device_info.vulkan_1_3_properties.minSubgroupSize == 32 &&
+        !d3d12_device_supports_variable_shading_rate_tier_1(device))
+    {
+        device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE;
+    }
 
     /* IMRs should not have this workaround enabled or else perf will drop.
      * Technically, this isn't really a workaround as much as a speed hack on IMR. */
@@ -9379,9 +9394,15 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
         options3->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
     }
 
+    /* We can implement barycentrics with unstable barycentrics.
+     * Don't enable on GCN since the affected game breaks. */
+
     options3->BarycentricsSupported =
-            device->device_info.barycentric_features_nv.fragmentShaderBarycentric ||
-            device->device_info.barycentric_features_khr.fragmentShaderBarycentric;
+            device->device_info.barycentric_features_khr.fragmentShaderBarycentric ||
+            (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY &&
+                device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
+                device->vk_info.AMD_shader_explicit_vertex_parameter &&
+                device->device_info.vulkan_1_3_properties.minSubgroupSize == 32);
 }
 
 static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
