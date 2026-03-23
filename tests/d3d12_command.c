@@ -1468,6 +1468,14 @@ void test_execute_indirect_multi_dispatch_root_descriptors(void)
     if (!init_compute_test_context(&context))
         return;
 
+    if (is_vkd3d_proton_device(context.device) &&
+        !is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        skip("DGC not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     desc.ByteStride = sizeof(indirect_data.dispatches[0]);
     desc.NodeMask = 0;
     desc.NumArgumentDescs = ARRAY_SIZE(arguments);
@@ -1608,6 +1616,14 @@ void test_execute_indirect_multi_dispatch_root_constants(void)
 
     if (!init_compute_test_context(&context))
         return;
+
+    if (is_vkd3d_proton_device(context.device) &&
+        !is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        skip("DGC not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     desc.ByteStride = sizeof(uint32_t) + sizeof(D3D12_DISPATCH_ARGUMENTS);
     desc.NodeMask = 0;
@@ -1930,6 +1946,14 @@ void test_execute_indirect_state_predication(void)
     desc.no_root_signature = true;
     if (!init_test_context(&context, &desc))
         return;
+
+    if (is_vkd3d_proton_device(context.device) &&
+        !is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        skip("DGC not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     memset(rs_params, 0, sizeof(rs_params));
@@ -2646,6 +2670,15 @@ void test_execute_indirect_state(void)
     desc.no_pipeline = true;
     if (!init_test_context(&context, &desc))
         return;
+
+    if (is_vkd3d_proton_device(context.device) &&
+        !is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        skip("DGC not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     command_list = context.list;
     queue = context.queue;
 
@@ -3269,6 +3302,14 @@ void test_execute_indirect_state_vbo_offsets(void)
     desc.rt_height = 1;
     if (!init_test_context(&context, &desc))
         return;
+
+    if (is_vkd3d_proton_device(context.device) &&
+        !is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        skip("DGC not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     indirect_buffer = create_upload_buffer(context.device, sizeof(draw), &draw);
     instance_buffer = create_upload_buffer(context.device, sizeof(instance_data), instance_data);

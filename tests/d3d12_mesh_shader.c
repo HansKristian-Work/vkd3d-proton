@@ -895,6 +895,14 @@ void test_mesh_shader_execute_indirect_state(void)
     if (!init_test_context(&context, &desc))
         return;
 
+    if (is_vkd3d_proton_device(context.device) &&
+        !is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        skip("DGC not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     memset(&options7, 0, sizeof(options7));
     hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
     ok(SUCCEEDED(hr), "OPTIONS7 is not supported by runtime.\n");
@@ -1339,6 +1347,14 @@ void test_amplification_shader_execute_indirect_state(void)
     desc.no_pipeline = true;
     if (!init_test_context(&context, &desc))
         return;
+
+    if (is_vkd3d_proton_device(context.device) &&
+        !is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        skip("DGC not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     memset(&options7, 0, sizeof(options7));
     hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
