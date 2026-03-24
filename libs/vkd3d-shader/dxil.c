@@ -667,6 +667,19 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         }
     }
 
+    if (quirks & VKD3D_SHADER_QUIRK_EXTENDED_ARRAY_ROBUSTNESS)
+    {
+        struct dxil_spv_option_extended_robustness robustness = { { DXIL_SPV_OPTION_EXTENDED_ROBUSTNESS } };
+        robustness.robust_alloca = DXIL_SPV_TRUE;
+        robustness.robust_constant_lut = DXIL_SPV_TRUE;
+        robustness.robust_group_shared = DXIL_SPV_TRUE;
+        if (dxil_spv_converter_add_option(converter, &robustness.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support EXTENDED_ROBUSTNESS.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
     return true;
 }
 
