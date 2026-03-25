@@ -483,7 +483,9 @@
                 "VK_KHR_pipeline_library": 1,
                 "VK_AMD_buffer_marker": 1,
                 "VK_EXT_scalar_block_layout": 1,
-                "VK_EXT_swapchain_maintenance1" : 1
+                "VK_EXT_swapchain_maintenance1" : 1,
+                "VK_KHR_maintenance9": 1,
+                "VK_KHR_maintenance10": 1
             },
             "features": {
                 "VkPhysicalDeviceDescriptorBufferFeaturesEXT": {
@@ -517,6 +519,12 @@
                 },
                 "VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT": {
                     "swapchainMaintenance1": true
+                },
+                "VkPhysicalDeviceMaintenance9FeaturesKHR": {
+                    "maintenance9": true
+                },
+                "VkPhysicalDeviceMaintenance10FeaturesKHR": {
+                    "maintenance10": true
                 }
             },
             "properties": {

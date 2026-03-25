@@ -3127,13 +3127,14 @@ void test_resolve_batch(void)
         heap_desc.SizeInBytes += align(allocation_info.SizeInBytes, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
     }
 
-    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
     ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&texture_heap);
     heap_desc.SizeInBytes = 0;
 
     for (i = 0; i < ARRAY_SIZE(placed_tex); i++)
     {
         res_desc = ID3D12Resource_GetDesc(committed_tex[i]);
+        res_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
         allocation_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &res_desc);
         ID3D12Device_CreatePlacedResource(context.device, texture_heap, heap_desc.SizeInBytes,
                 &res_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void **)&placed_tex[i]);
@@ -3560,4 +3561,695 @@ void test_copy_subresource_depth_stencil_batch(void)
     ID3D12Resource_Release(resource);
     ID3D12DescriptorHeap_Release(dsv);
     destroy_test_context(&context);
+}
+
+/* Suitable for copy tests on any queue type (DIRECT, COMPUTE or COPY). */
+struct test_context_copy
+{
+    struct test_context context;
+    ID3D12CommandAllocator *copy_allocator;
+    ID3D12GraphicsCommandList *copy_list;
+    ID3D12CommandQueue *copy_queue;
+};
+
+static bool init_copy_test_context(struct test_context_copy *context, D3D12_COMMAND_LIST_TYPE type)
+{
+    D3D12_COMMAND_QUEUE_DESC copy_queue_desc;
+    struct test_context_desc context_desc;
+    HRESULT hr;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context->context, &context_desc))
+        return false;
+
+    hr = ID3D12Device_CreateCommandAllocator(context->context.device, type,
+        &IID_ID3D12CommandAllocator, (void **)&context->copy_allocator);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr #%x\n", hr);
+
+    memset(&copy_queue_desc, 0, sizeof(copy_queue_desc));
+    copy_queue_desc.Type = type;
+    hr = ID3D12Device_CreateCommandQueue(context->context.device, &copy_queue_desc,
+        &IID_ID3D12CommandQueue, (void **)&context->copy_queue);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+
+    ID3D12Device_CreateCommandList(context->context.device, 0, type,
+        context->copy_allocator, NULL,
+        &IID_ID3D12GraphicsCommandList, (void **)&context->copy_list);
+    ID3D12GraphicsCommandList_Close(context->copy_list);
+
+    return true;
+}
+
+static void destroy_copy_test_context(struct test_context_copy *context)
+{
+    ID3D12GraphicsCommandList_Release(context->copy_list);
+    ID3D12CommandAllocator_Release(context->copy_allocator);
+    ID3D12CommandQueue_Release(context->copy_queue);
+    destroy_test_context(&context->context);
+}
+
+static void test_queue_buffer(D3D12_COMMAND_LIST_TYPE type)
+{
+    struct test_context_copy context;
+    ID3D12Resource *a, *b, *c, *d;
+    struct resource_readback rb;
+    ID3D12Fence *fence;
+    unsigned int i;
+    bool all_equal;
+    uint32_t *ptr;
+    HRESULT hr;
+
+    if (!init_copy_test_context(&context, type))
+        return;
+
+    hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    a = create_upload_buffer(context.context.device, 4 * 1024 * 1024, NULL);
+    ID3D12Resource_Map(a, 0, NULL, (void **)&ptr);
+    for (i = 0; i < 1024 * 1024; i++)
+        ptr[i] = i;
+    ID3D12Resource_Unmap(a, 0, NULL);
+
+    /* Roundtrip copies between DIRECT and COPY queues to make sure memory is preserved. */
+
+    b = create_default_buffer(context.context.device, 4 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    c = create_default_buffer(context.context.device, 4 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    d = create_default_buffer(context.context.device, 4 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_CopyResource(context.context.list, b, a);
+    ID3D12GraphicsCommandList_Close(context.context.list);
+    exec_command_list(context.context.queue, context.context.list);
+    ID3D12CommandQueue_Signal(context.context.queue, fence, 1);
+    ID3D12CommandQueue_Wait(context.copy_queue, fence, 1);
+
+    ID3D12GraphicsCommandList_Reset(context.copy_list, context.copy_allocator, NULL);
+    ID3D12GraphicsCommandList_CopyResource(context.copy_list, c, b);
+    ID3D12GraphicsCommandList_Close(context.copy_list);
+    exec_command_list(context.copy_queue, context.copy_list);
+    ID3D12CommandQueue_Signal(context.copy_queue, fence, 2);
+    ID3D12CommandQueue_Wait(context.context.queue, fence, 2);
+
+    ID3D12GraphicsCommandList_Reset(context.context.list, context.context.allocator, NULL);
+    ID3D12GraphicsCommandList_CopyResource(context.context.list, d, c);
+    transition_resource_state(context.context.list, d, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(d, DXGI_FORMAT_UNKNOWN, &rb, context.context.queue, context.context.list);
+
+    all_equal = true;
+    for (i = 0; i < 1024 * 1024 && all_equal; i++)
+    {
+        uint32_t value = get_readback_uint(&rb, i, 0, 0);
+        if (value != i)
+            all_equal = false;
+    }
+
+    ok(all_equal, "Failed equal test.\n");
+
+    release_resource_readback(&rb);
+    ID3D12Fence_Release(fence);
+    ID3D12Resource_Release(a);
+    ID3D12Resource_Release(b);
+    ID3D12Resource_Release(c);
+    ID3D12Resource_Release(d);
+    destroy_copy_test_context(&context);
+}
+
+void test_copy_queue_buffer(void)
+{
+    test_queue_buffer(D3D12_COMMAND_LIST_TYPE_COPY);
+}
+
+void test_compute_queue_buffer(void)
+{
+    test_queue_buffer(D3D12_COMMAND_LIST_TYPE_COMPUTE);
+}
+
+void test_graphics_queue_buffer(void)
+{
+    test_queue_buffer(D3D12_COMMAND_LIST_TYPE_DIRECT);
+}
+
+static void test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE type)
+{
+    D3D12_TEXTURE_COPY_LOCATION dst, src;
+    struct test_context_copy context;
+    struct resource_readback rb;
+    ID3D12Resource *a, *b, *c;
+    ID3D12Fence *direct_fence;
+    ID3D12Fence *copy_fence;
+    unsigned int i;
+    bool all_equal;
+    uint32_t *ptr;
+    HRESULT hr;
+
+    if (!init_copy_test_context(&context, type))
+        return;
+
+    ID3D12GraphicsCommandList_Close(context.context.list);
+
+    hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
+        &IID_ID3D12Fence, (void **)&direct_fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+    hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
+        &IID_ID3D12Fence, (void **)&copy_fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    a = create_upload_buffer(context.context.device, 4 * 1024 * 1024, NULL);
+    ID3D12Resource_Map(a, 0, NULL, (void **)&ptr);
+    for (i = 0; i < 1024 * 1024; i++)
+        ptr[i] = i;
+    ID3D12Resource_Unmap(a, 0, NULL);
+
+    /* Typical staging copy use case. */
+
+    b = create_default_texture2d(context.context.device, 1024, 1024, 1, 1, DXGI_FORMAT_R32_UINT,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    c = create_default_texture2d(context.context.device, 1024, 1024, 1, 1, DXGI_FORMAT_R32_UINT,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    memset(&dst, 0, sizeof(dst));
+    memset(&src, 0, sizeof(src));
+
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+
+    src.pResource = a;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src.PlacedFootprint.Footprint.Width = 1024;
+    src.PlacedFootprint.Footprint.Height = 1024;
+    src.PlacedFootprint.Footprint.Depth = 1;
+    src.PlacedFootprint.Footprint.RowPitch = 4096;
+    src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_UINT;
+
+    for (i = 0; i < 2; i++)
+    {
+        ID3D12CommandAllocator *allocator = i ? context.copy_allocator : context.context.allocator;
+        ID3D12GraphicsCommandList *list = i ? context.copy_list : context.context.list;
+        ID3D12CommandQueue *queue = i ? context.copy_queue : context.context.queue;
+        ID3D12Fence *fence = i ? copy_fence : direct_fence;
+
+        dst.pResource = i ? c : b;
+        ID3D12GraphicsCommandList_Reset(list, allocator, NULL);
+        ID3D12GraphicsCommandList_CopyTextureRegion(list, &dst, 0, 0, 0, &src, NULL);
+        if (type != D3D12_COMMAND_LIST_TYPE_COPY)
+            transition_resource_state(list, dst.pResource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        ID3D12GraphicsCommandList_Close(list);
+        exec_command_list(queue, list);
+        ID3D12CommandQueue_Signal(queue, fence, 1);
+    }
+
+    ID3D12CommandQueue_Wait(context.context.queue, copy_fence, 1);
+    ID3D12CommandQueue_Wait(context.copy_queue, direct_fence, 1);
+
+    for (i = 0; i < 2; i++)
+    {
+        ID3D12CommandAllocator *allocator = i ? context.copy_allocator : context.context.allocator;
+        ID3D12GraphicsCommandList *list = i ? context.copy_list : context.context.list;
+        ID3D12CommandQueue *queue = i ? context.copy_queue : context.context.queue;
+        ID3D12Resource *res = i ? b : c;
+
+        ID3D12GraphicsCommandList_Reset(list, allocator, NULL);
+        get_texture_readback_with_command_list(res, 0, &rb, queue, list);
+
+        all_equal = true;
+        for (i = 0; i < 1024 * 1024 && all_equal; i++)
+        {
+            uint32_t value = get_readback_uint(&rb, i, 0, 0);
+            if (value != i)
+                all_equal = false;
+        }
+
+        ok(all_equal, "Failed equal test.\n");
+        release_resource_readback(&rb);
+    }
+
+    ID3D12Fence_Release(direct_fence);
+    ID3D12Fence_Release(copy_fence);
+    ID3D12Resource_Release(a);
+    ID3D12Resource_Release(b);
+    ID3D12Resource_Release(c);
+    destroy_copy_test_context(&context);
+}
+
+void test_copy_queue_buffer_image(void)
+{
+    test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE_COPY);
+}
+
+void test_compute_queue_buffer_image(void)
+{
+    test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE_COMPUTE);
+}
+
+void test_graphics_queue_buffer_image(void)
+{
+    test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE_DIRECT);
+}
+
+static void test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE type, bool msaa)
+{
+    const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    const FLOAT green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    const FLOAT black[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    const FLOAT blue[] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    ID3D12Resource *tex, *upload_buf, *copy_tex;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    D3D12_TEXTURE_COPY_LOCATION dst, src;
+    struct test_context_copy context;
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *rtv;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Fence *fence;
+    unsigned int x, y;
+    D3D12_RECT rect;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    if (!init_copy_test_context(&context, type))
+        return;
+
+    hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    upload_buf = create_default_buffer(context.context.device, 64 * 64 * sizeof(uint32_t),
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    rtv = create_cpu_descriptor_heap(context.context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = 1024;
+    desc.Height = 1024;
+    desc.DepthOrArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = msaa ? 4 : 1;
+    desc.MipLevels = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&tex);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&copy_tex);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv);
+    ID3D12Device_CreateRenderTargetView(context.context.device, tex, NULL, rtv_handle);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, white, 0, NULL);
+    set_rect(&rect, 10, 10, 20, 20);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, blue, 1, &rect);
+    set_rect(&rect, 40, 40, 50, 50);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, green, 1, &rect);
+    set_rect(&rect, 1000, 1000, 1024, 1024);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, black, 1, &rect);
+
+    /* Required to consume image on copy queue. */
+    transition_resource_state(context.context.list, tex,
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_Close(context.context.list);
+    exec_command_list(context.context.queue, context.context.list);
+    ID3D12CommandQueue_Signal(context.context.queue, fence, 1);
+    ID3D12CommandQueue_Wait(context.copy_queue, fence, 1);
+
+    memset(&dst, 0, sizeof(dst));
+    memset(&src, 0, sizeof(src));
+
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.pResource = tex;
+
+    if (msaa)
+    {
+        src.pResource = copy_tex;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    }
+    else
+    {
+        src.pResource = upload_buf;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        src.PlacedFootprint.Footprint.Width = 64;
+        src.PlacedFootprint.Footprint.Height = 64;
+        src.PlacedFootprint.Footprint.Depth = 1;
+        src.PlacedFootprint.Footprint.RowPitch = 256;
+        src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    }
+
+    ID3D12GraphicsCommandList_Reset(context.copy_list, context.copy_allocator, NULL);
+    ID3D12GraphicsCommandList_CopyResource(context.copy_list, copy_tex, tex);
+    /* COPY queue does not seem to like COPY_SOURCE for some reason. */
+    transition_resource_state(context.copy_list, copy_tex, D3D12_RESOURCE_STATE_COPY_DEST,
+        type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    if (!msaa)
+    {
+        /* Cannot resolve on COPY queue. */
+        get_texture_readback_with_command_list(tex, 0, &rb, context.copy_queue, context.copy_list);
+
+        for (y = 0; y < 1024; y++)
+        {
+            for (x = 0; x < 1024; x++)
+            {
+                uint32_t value = get_readback_uint(&rb, x, y, 0);
+                uint32_t expected;
+
+                if (x >= 10 && x < 20 && y >= 10 && y < 20)
+                    expected = 0xffff0000;
+                else if (x >= 40 && x < 50 && y >= 40 && y < 50)
+                    expected = 0xff00ff00;
+                else if (x >= 1000 && y >= 1000)
+                    expected = 0xff000000;
+                else
+                    expected = UINT32_MAX;
+
+                ok(value == expected, "Coord %u, %u: expected #%x, got #%x.\n", x, y, expected, value);
+                if (value != expected)
+                    goto out;
+            }
+        }
+out:
+        release_resource_readback(&rb);
+
+        reset_command_list(context.copy_list, context.copy_allocator);
+    }
+
+    /* Write to render target image in COPY queue. */
+    if (msaa)
+    {
+        set_box(&box, 1000, 1000, 0, 1004, 1004, 1);
+        transition_resource_state(context.copy_list, tex, D3D12_RESOURCE_STATE_COPY_SOURCE,
+            type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    else
+        set_box(&box, 0, 0, 0, 4, 4, 1);
+
+    ID3D12GraphicsCommandList_CopyTextureRegion(context.copy_list, &dst, 1, 1, 0, &src, &box);
+    ID3D12GraphicsCommandList_Close(context.copy_list);
+    exec_command_list(context.copy_queue, context.copy_list);
+    ID3D12CommandQueue_Signal(context.copy_queue, fence, 2);
+    ID3D12CommandQueue_Wait(context.context.queue, fence, 2);
+
+    ID3D12GraphicsCommandList_Reset(context.context.list, context.context.allocator, NULL);
+    transition_resource_state(context.context.list, tex,
+        type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    set_rect(&rect, 5, 5, 7, 7);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.context.list, rtv_handle, blue, 1, &rect);
+    transition_resource_state(context.context.list, tex, D3D12_RESOURCE_STATE_RENDER_TARGET,
+        msaa ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE : D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(tex, 0, &rb, context.context.queue, context.context.list);
+
+    for (y = 0; y < 1024; y++)
+    {
+        for (x = 0; x < 1024; x++)
+        {
+            uint32_t value = get_readback_uint(&rb, x, y, 0);
+            uint32_t expected;
+
+            if (x >= 1 && x < 5 && y >= 1 && y < 5)
+                expected = msaa ? 0xff000000 : 0;
+            else if (x >= 5 && x < 7 && y >= 5 && y < 7)
+                expected = 0xffff0000;
+            else if (x >= 10 && x < 20 && y >= 10 && y < 20)
+                expected = 0xffff0000;
+            else if (x >= 40 && x < 50 && y >= 40 && y < 50)
+                expected = 0xff00ff00;
+            else if (x >= 1000 && y >= 1000)
+                expected = 0xff000000;
+            else
+                expected = UINT32_MAX;
+
+            ok(value == expected, "Coord %u, %u: expected #%x, got #%x.\n", x, y, expected, value);
+            if (value != expected)
+                goto out2;
+        }
+    }
+out2:
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(rtv);
+    ID3D12Fence_Release(fence);
+    ID3D12Resource_Release(tex);
+    ID3D12Resource_Release(copy_tex);
+    ID3D12Resource_Release(upload_buf);
+    destroy_copy_test_context(&context);
+}
+
+void test_copy_queue_render_target(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_COPY, false);
+}
+
+void test_copy_queue_render_target_msaa(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_COPY, true);
+}
+
+void test_compute_queue_render_target(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_COMPUTE, false);
+}
+
+void test_compute_queue_render_target_msaa(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_COMPUTE, true);
+}
+
+void test_graphics_queue_render_target(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, false);
+}
+
+void test_graphics_queue_render_target_msaa(void)
+{
+    test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, true);
+}
+
+static void test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE type, bool msaa)
+{
+    ID3D12Resource *tex, *upload_buf, *copy_tex;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
+    D3D12_TEXTURE_COPY_LOCATION dst, src;
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct test_context_copy context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *dsv;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Fence *fence;
+    unsigned int x, y;
+    D3D12_RECT rect;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    if (!init_copy_test_context(&context, type))
+        return;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = 1024;
+    desc.Height = 1024;
+    desc.DepthOrArraySize = 1;
+    desc.Format = DXGI_FORMAT_D32_FLOAT;
+    desc.SampleDesc.Count = msaa ? 4 : 1;
+    desc.MipLevels = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    upload_buf = create_default_buffer(context.context.device, 64 * 64 * sizeof(float),
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void **)&tex);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&copy_tex);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    dsv = create_cpu_descriptor_heap(context.context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+    dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv);
+    ID3D12Device_CreateDepthStencilView(context.context.device, tex, NULL, dsv_handle);
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
+    set_rect(&rect, 10, 10, 20, 20);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 1, &rect);
+    set_rect(&rect, 40, 40, 50, 50);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.25f, 0, 1, &rect);
+    set_rect(&rect, 1000, 1000, 1024, 1024);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.75f, 0, 1, &rect);
+
+    /* Required to consume image on copy queue. */
+    transition_resource_state(context.context.list, tex,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_Close(context.context.list);
+    exec_command_list(context.context.queue, context.context.list);
+    ID3D12CommandQueue_Signal(context.context.queue, fence, 1);
+    ID3D12CommandQueue_Wait(context.copy_queue, fence, 1);
+
+    memset(&dst, 0, sizeof(dst));
+    memset(&src, 0, sizeof(src));
+
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.pResource = tex;
+
+    if (msaa)
+    {
+        src.pResource = copy_tex;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    }
+    else
+    {
+        src.pResource = upload_buf;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        src.PlacedFootprint.Footprint.Width = 64;
+        src.PlacedFootprint.Footprint.Height = 64;
+        src.PlacedFootprint.Footprint.Depth = 1;
+        src.PlacedFootprint.Footprint.RowPitch = 256;
+        src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+    }
+
+    ID3D12GraphicsCommandList_Reset(context.copy_list, context.copy_allocator, NULL);
+    ID3D12GraphicsCommandList_CopyResource(context.copy_list, copy_tex, tex);
+    transition_resource_state(context.copy_list, copy_tex, D3D12_RESOURCE_STATE_COPY_DEST,
+        type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    if (!msaa)
+    {
+        get_texture_readback_with_command_list(tex, 0, &rb, context.copy_queue, context.copy_list);
+
+        for (y = 0; y < 1024; y++)
+        {
+            for (x = 0; x < 1024; x++)
+            {
+                float value = get_readback_float(&rb, x, y);
+                float expected;
+
+                if (x >= 10 && x < 20 && y >= 10 && y < 20)
+                    expected = 0.5f;
+                else if (x >= 40 && x < 50 && y >= 40 && y < 50)
+                    expected = 0.25f;
+                else if (x >= 1000 && y >= 1000)
+                    expected = 0.75f;
+                else
+                    expected = 1.0f;
+
+                ok(value == expected, "Coord %u, %u: expected %f, got %f.\n", x, y, expected, value);
+                if (value != expected)
+                    goto out;
+            }
+        }
+out:
+        release_resource_readback(&rb);
+
+        reset_command_list(context.copy_list, context.copy_allocator);
+    }
+
+    /* Write to depth image in COPY queue.
+     * https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-copytextureregion
+     * says that depth-stencil and MSAA only works on full subresources, but let's see what happens anyway. */
+    if (msaa)
+    {
+        set_box(&box, 1000, 1000, 0, 1004, 1004, 1);
+        transition_resource_state(context.copy_list, tex, D3D12_RESOURCE_STATE_COPY_SOURCE,
+            type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    else
+        set_box(&box, 0, 0, 0, 4, 4, 1);
+
+    ID3D12GraphicsCommandList_CopyTextureRegion(context.copy_list, &dst, 1, 1, 0, &src, &box);
+    ID3D12GraphicsCommandList_Close(context.copy_list);
+    exec_command_list(context.copy_queue, context.copy_list);
+    ID3D12CommandQueue_Signal(context.copy_queue, fence, 2);
+    ID3D12CommandQueue_Wait(context.context.queue, fence, 2);
+
+    ID3D12GraphicsCommandList_Reset(context.context.list, context.context.allocator, NULL);
+    transition_resource_state(context.context.list, tex,
+        type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    set_rect(&rect, 5, 5, 7, 7);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.125f, 0, 1, &rect);
+    transition_resource_state(context.context.list, tex, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        msaa ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE : D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(tex, 0, &rb, context.context.queue, context.context.list);
+
+    for (y = 0; y < 1024; y++)
+    {
+        for (x = 0; x < 1024; x++)
+        {
+            float value = get_readback_float(&rb, x, y);
+            float expected;
+
+            if (x >= 1 && x < 5 && y >= 1 && y < 5)
+                expected = msaa ? 0.75f : 0.0f;
+            else if (x >= 5 && x < 7 && y >= 5 && y < 7)
+                expected = 0.125f;
+            else if (x >= 10 && x < 20 && y >= 10 && y < 20)
+                expected = 0.5f;
+            else if (x >= 40 && x < 50 && y >= 40 && y < 50)
+                expected = 0.25f;
+            else if (x >= 1000 && y >= 1000)
+                expected = 0.75f;
+            else
+                expected = 1.0f;
+
+            ok(value == expected, "Coord %u, %u: expected %f, got %f.\n", x, y, expected, value);
+            if (value != expected)
+                goto out2;
+        }
+    }
+out2:
+    release_resource_readback(&rb);
+
+    ID3D12DescriptorHeap_Release(dsv);
+    ID3D12Fence_Release(fence);
+    ID3D12Resource_Release(tex);
+    ID3D12Resource_Release(copy_tex);
+    ID3D12Resource_Release(upload_buf);
+    destroy_copy_test_context(&context);
+}
+
+void test_copy_queue_depth_stencil(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_COPY, false);
+}
+
+void test_copy_queue_depth_stencil_msaa(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_COPY, true);
+}
+
+void test_compute_queue_depth_stencil(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_COMPUTE, false);
+}
+
+void test_compute_queue_depth_stencil_msaa(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_COMPUTE, true);
+}
+
+/* Baseline for comparison */
+void test_graphics_queue_depth_stencil(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, false);
+}
+
+void test_graphics_queue_depth_stencil_msaa(void)
+{
+    test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, true);
 }

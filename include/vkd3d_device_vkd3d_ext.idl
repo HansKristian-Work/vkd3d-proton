@@ -85,6 +85,20 @@ interface ID3D12DXVKInteropDevice2 : ID3D12DXVKInteropDevice1
 }
 
 [
+    uuid(22a70184-a6a4-4c24-bf97-7d6df9f12d8a),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DXVKInteropDevice3 : ID3D12DXVKInteropDevice2
+{
+    /* Returns VkDeviceMemory and memory offset corresponding to the D3D12 heap allocation.
+     * If the heap has no Vulkan backing allocation yet, this method fails. */
+    HRESULT GetVulkanHeapInfo(ID3D12Heap *heap, UINT64 *vk_memory, UINT64 *heap_offset,
+            UINT32 *vk_memory_type);
+}
+
+[
     uuid(f3112584-41f9-348d-a59b-00b7e1d285d6),
     object,
     local,

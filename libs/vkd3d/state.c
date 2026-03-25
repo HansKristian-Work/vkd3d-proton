@@ -2036,7 +2036,7 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
     compile_arguments->max_subgroup_size = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
     compile_arguments->promote_wave_size_heuristics =
             d3d12_device_supports_required_subgroup_size_for_stage(device, stage);
-    compile_arguments->quirks = &vkd3d_shader_quirk_info;
+    compile_arguments->quirks = &device->workarounds.quirks;
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
     {
@@ -5945,6 +5945,7 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
 
     /* It should be illegal to use different patch size for topology compared to pipeline, but be safe here. */
     if (dyn_state->vk_primitive_topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
+        (graphics->stage_flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) &&
         !(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS) &&
         (dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1) != graphics->patch_vertex_count)
     {

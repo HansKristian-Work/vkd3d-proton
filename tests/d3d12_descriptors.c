@@ -4940,6 +4940,11 @@ void test_undefined_descriptor_heap_mismatch_types(void)
                     skip("Skipping image sampled as typed buffer on NVIDIA since it will hang GPU.\n");
                     continue;
                 }
+                else if ((access_type == SRV_RAW_BUFFER || access_type == UAV_RAW_BUFFER) && descriptor_type == CBV)
+                {
+                    skip("Skipping CBV accessed as raw buffer on NVIDIA since it will hang GPU.\n");
+                    continue;
+                }
             }
             else if (is_mesa_intel_device(context.device))
             {

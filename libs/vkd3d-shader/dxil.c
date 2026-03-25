@@ -666,6 +666,9 @@ static const struct vkd3d_quirk_to_dxil_mapping
     { VKD3D_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS, DXIL_SPV_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS },
     { VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN, DXIL_SPV_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN },
     { VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE, DXIL_SPV_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE },
+    { VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS, DXIL_SPV_SHADER_QUIRK_GROUP_SHARED_AUTO_BARRIER },
+    { VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST, DXIL_SPV_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST },
+    { VKD3D_SHADER_QUIRK_PRECISE_FMA, DXIL_SPV_SHADER_QUIRK_PRECISE_FMA },
 };
 
 static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
@@ -1160,6 +1163,18 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                 if (dxil_spv_converter_add_option(converter, &mixed.base) != DXIL_SPV_SUCCESS)
                 {
                     ERR("dxil-spirv does not support MIXED_FLOAT_DOT_PRODUCT.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_QUAD)
+            {
+                static const dxil_spv_option_compute_shader_derivatives_quad quad = {
+                    { DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES_QUAD }, DXIL_SPV_TRUE
+                };
+
+                if (dxil_spv_converter_add_option(converter, &quad.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support COMPUTE_SHADER_DERIVATIVES_QUAD.\n");
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }

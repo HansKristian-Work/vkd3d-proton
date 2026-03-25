@@ -75,12 +75,15 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_DISABLE_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_NO_DXR),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
+    VK_EXTENSION(KHR_PRESENT_MODE_FIFO_LATEST_READY, KHR_present_mode_fifo_latest_ready),
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
     VK_EXTENSION(KHR_PRESENT_WAIT, KHR_present_wait),
     VK_EXTENSION(KHR_MAINTENANCE_5, KHR_maintenance5),
     VK_EXTENSION(KHR_MAINTENANCE_6, KHR_maintenance6),
     VK_EXTENSION(KHR_MAINTENANCE_7, KHR_maintenance7),
     VK_EXTENSION(KHR_MAINTENANCE_8, KHR_maintenance8),
+    VK_EXTENSION(KHR_MAINTENANCE_9, KHR_maintenance9),
+    VK_EXTENSION(KHR_MAINTENANCE_10, KHR_maintenance10),
     VK_EXTENSION(KHR_SHADER_MAXIMAL_RECONVERGENCE, KHR_shader_maximal_reconvergence),
     VK_EXTENSION(KHR_SHADER_QUAD_CONTROL, KHR_shader_quad_control),
     VK_EXTENSION(KHR_COMPUTE_SHADER_DERIVATIVES, KHR_compute_shader_derivatives),
@@ -136,8 +139,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* NV extensions */
     VK_EXTENSION(NV_OPTICAL_FLOW, NV_optical_flow),
     VK_EXTENSION(NV_SHADER_SM_BUILTINS, NV_shader_sm_builtins),
-    VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
-    VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
+    VK_EXTENSION_DISABLE_COND(NVX_BINARY_IMPORT, NVX_binary_import, VKD3D_CONFIG_FLAG_NO_NVX),
+    VK_EXTENSION_DISABLE_COND(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle, VKD3D_CONFIG_FLAG_NO_NVX),
     VK_EXTENSION(NV_FRAGMENT_SHADER_BARYCENTRIC, NV_fragment_shader_barycentric),
     VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
     VK_EXTENSION_COND(NV_DEVICE_DIAGNOSTIC_CHECKPOINTS, NV_device_diagnostic_checkpoints, VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE),
@@ -377,8 +380,8 @@ static bool vkd3d_disable_nvx_extensions(struct d3d12_device *device, const char
 
     static const struct vkd3d_optional_extension_info nvx_extensions[] =
     {
-        VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
-        VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
+        VK_EXTENSION_DISABLE_COND(NVX_BINARY_IMPORT, NVX_binary_import, VKD3D_CONFIG_FLAG_NO_NVX),
+        VK_EXTENSION_DISABLE_COND(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle, VKD3D_CONFIG_FLAG_NO_NVX),
     };
 
     for (i = 0; i < ARRAY_SIZE(nvx_extensions); ++i)
@@ -453,6 +456,8 @@ bool vkd3d_debug_control_mute_message_id(const char *vuid);
 bool vkd3d_debug_control_is_test_suite(void);
 bool vkd3d_debug_control_explode_on_vvl_error(void);
 
+static uint32_t vkd3d_vvl_debug_sentinel_error_count;
+
 static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
         VkDebugUtilsMessageTypeFlagsEXT message_types,
@@ -465,12 +470,14 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
     {
         if (callback_data->pMessageIdName)
         {
-            if (vkd3d_debug_control_mute_message_id(callback_data->pMessageIdName))
-                return VK_FALSE;
+            /* Sentinel to check if validation is loaded properly. */
+            if (strcmp(callback_data->pMessageIdName, "VUID-VkDebugUtilsMessengerCallbackDataEXT-pNext-pNext") == 0)
+            {
+                vkd3d_atomic_uint32_increment(&vkd3d_vvl_debug_sentinel_error_count, vkd3d_memory_order_relaxed);
+                return VK_TRUE;
+            }
 
-            if (strstr(callback_data->pMessageIdName, "11453"))
-                return VK_FALSE;
-            if (strstr(callback_data->pMessageIdName, "SuspendResume-Mismatch"))
+            if (vkd3d_debug_control_mute_message_id(callback_data->pMessageIdName))
                 return VK_FALSE;
         }
 
@@ -491,6 +498,8 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
     }
     else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
         WARN("%s\n", callback_data->pMessage);
+    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+        INFO("%s\n", callback_data->pMessage);
 
     (void)userdata;
     (void)message_types;
@@ -500,15 +509,19 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
 static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &instance->vk_procs;
+    VkDebugUtilsMessengerCallbackDataEXT callback_data;
     VkDebugUtilsMessengerCreateInfoEXT callback_info;
     VkInstance vk_instance = instance->vk_instance;
     VkDebugUtilsMessengerEXT callback;
+    uint32_t old_count, new_count;
+    VkBaseInStructure dummy_pnext;
     VkResult vr;
 
     callback_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     callback_info.pNext = NULL;
     callback_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
-                                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
     callback_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
     callback_info.pfnUserCallback = vkd3d_debug_messenger_callback;
     callback_info.pUserData = NULL;
@@ -517,6 +530,35 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
     {
         WARN("Failed to create debug report callback, vr %d.\n", vr);
         return;
+    }
+
+    memset(&dummy_pnext, 0, sizeof(dummy_pnext));
+    dummy_pnext.sType = VK_STRUCTURE_TYPE_MAX_ENUM;
+
+    memset(&callback_data, 0, sizeof(callback_data));
+    callback_data.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CALLBACK_DATA_EXT;
+    callback_data.flags = 0;
+    callback_data.pMessage = "Self-inserted message to check if we're getting messages. "
+            "This should be skipped if VVL is working as intended.";
+    callback_data.pNext = &dummy_pnext; /* Pass in benign pnext that we expect VVL to catch if it's working. */
+
+    INFO("Attempting to send invalid call to VVL to verify that it's active ...\n");
+
+    old_count = vkd3d_atomic_uint32_load_explicit(&vkd3d_vvl_debug_sentinel_error_count, vkd3d_memory_order_relaxed);
+    VK_CALL(vkSubmitDebugUtilsMessageEXT(vk_instance, VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT,
+            VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT, &callback_data));
+    new_count = vkd3d_atomic_uint32_load_explicit(&vkd3d_vvl_debug_sentinel_error_count, vkd3d_memory_order_relaxed);
+
+    if (old_count != new_count)
+    {
+        INFO("Validation layers seem to be loaded correctly.\n");
+    }
+    else
+    {
+        ERR("Validation layers do not seem to be loaded correctly.\n"
+            "When vkd3d-proton is run through Wine/Proton, help from environment variables is required.\n"
+            "Use VKD3D_CONFIG=vk_debug VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation instead!\n"
+            "If this still does not work, VK_LOADER_DEBUG=layer can be used to debug why it's not loaded.\n");
     }
 
     instance->vk_debug_callback = callback;
@@ -535,7 +577,7 @@ enum vkd3d_application_feature_override
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
 uint64_t vkd3d_config_flags;
-struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
+struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info_template;
 
 struct vkd3d_instance_application_meta
 {
@@ -603,8 +645,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* Red Dead Redemption (2668510). Inconsistent performance with ReBAR at cutscenes of the game. */
     { VKD3D_STRING_COMPARE_EXACT, "RDR.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
-    /* Horizon Forbidden West (2420110). Work around RADV 23.3.1 that ships on stableOS at time of making WAR. */
-    { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS, 0 },
     /* Starfield (1716740) */
     { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe",
             VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
@@ -635,6 +675,11 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe",
             VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0,
             VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
+    /* REANIMAL (2129530). Game can destroy PSOs while they are in-flight on loading screen.
+     * Smells very similar to FFVII Rebirth.
+     * It also has bugs with FSR3 being destroyed while in flight (but that case is automatically covered already). */
+    { VKD3D_STRING_COMPARE_EXACT, "REANIMAL.exe",
+            VKD3D_CONFIG_FLAG_RETAIN_PSOS | VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT, 0 },
     /* There aren't many games that use mesh shaders outside of UE5 Nanite fallbacks.
      * UE5 is broken w.r.t. feature checks, so we have to do opt-in instead :( */
     { VKD3D_STRING_COMPARE_EXACT, "AlanWake2.exe", 0, 0, VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
@@ -735,12 +780,6 @@ static const struct vkd3d_shader_quirk_hash re_hashes[] = {
 
 static const struct vkd3d_shader_quirk_info re_quirks = {
     re_hashes, ARRAY_SIZE(re_hashes), 0,
-};
-
-/* Works around a weird GPU hang on RDNA4. See mesa issue https://gitlab.freedesktop.org/mesa/mesa/-/issues/14812.
- * The game doesn't seem to actually write useful subsampling here anyway. */
-static const struct vkd3d_shader_quirk_info re2_quirks = {
-    re_hashes, ARRAY_SIZE(re_hashes), VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE,
 };
 
 /* There are lots of shaders which cause random flicker due to bad 16-bit behavior.
@@ -872,7 +911,7 @@ static const struct vkd3d_shader_quirk_info death_stranding_quirks = {
 
 static const struct vkd3d_shader_quirk_hash wuthering_waves_hashes[] = {
     /* LightGridInjectionCS. Forgets to UAV barrier after ClearCS. */
-    { 0x3961a9adabf4e1e4, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
+    { 0x0e31f94fee8016dd, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info wuthering_waves_quirks = {
@@ -914,6 +953,28 @@ static const struct vkd3d_shader_quirk_info rottr_quirks = {
     rottr_hashes, ARRAY_SIZE(rottr_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash hfw_hashes[] = {
+    /* Classic case of a clear CS that is followed up by overwriting it without proper barrier. */
+    { 0x548a3de5dc3828ef, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
+};
+
+static const struct vkd3d_shader_quirk_info hfw_quirks = {
+    hfw_hashes, ARRAY_SIZE(hfw_hashes), 0,
+};
+
+static const struct vkd3d_shader_quirk_info robust_compute_quad_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST,
+};
+
+/* Some vertex shaders use precise fma, while others don't.
+ * Just forcing fma even for precise works around it and invariant gl_Position
+ * takes care of the rest.
+ * Works around some depth invariance issues when rendering the baby's eyeballs
+ * in intro cutscenes. */
+static const struct vkd3d_shader_quirk_info ds2_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_PRECISE_FMA,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -926,7 +987,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Rise of the Ronin (1340990) */
     { VKD3D_STRING_COMPARE_EXACT, "Ronin.exe", &team_ninja_quirks },
     /* Resident Evil 2 (883710) */
-    { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re2_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re_quirks },
     /* Resident Evil 7 (418370) */
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe", &re_quirks },
     /* Resident Evil 4 (2050650) */
@@ -984,6 +1045,12 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", &control_quirks },
 	/* Rise of the Tomb Raider */
     { VKD3D_STRING_COMPARE_EXACT, "ROTTR.exe", &rottr_quirks },
+    /* Horizon Forbidden West (2420110). */
+    { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", &hfw_quirks },
+    /* Crimson Desert (3321460) */
+    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", &robust_compute_quad_quirks },
+    /* Death Stranding 2 (3280350) */
+    { VKD3D_STRING_COMPARE_EXACT, "DS2.exe", &ds2_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
@@ -1016,7 +1083,7 @@ static void vkd3d_instance_apply_application_workarounds(void)
     {
         if (vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name))
         {
-            vkd3d_shader_quirk_info = *application_shader_quirks[i].info;
+            vkd3d_shader_quirk_info_template = *application_shader_quirks[i].info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
             break;
         }
@@ -1110,7 +1177,7 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
     {
         eq_test = overrides[i].negative ? 0 : overrides[i].config;
         if ((vkd3d_config_flags & overrides[i].config) == eq_test)
-            vkd3d_shader_quirk_info.global_quirks |= overrides[i].quirk;
+            vkd3d_shader_quirk_info_template.global_quirks |= overrides[i].quirk;
     }
 
     if (vkd3d_get_env_var("VKD3D_LIMIT_TESS_FACTORS", env, sizeof(env)))
@@ -1128,7 +1195,7 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
         };
 
         /* Override what any app profile did. */
-        vkd3d_shader_quirk_info.global_quirks &= ~(VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 |
+        vkd3d_shader_quirk_info_template.global_quirks &= ~(VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 |
                 VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8 |
                 VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12 |
                 VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16 |
@@ -1142,7 +1209,7 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
             if (level <= mapping[i].level)
             {
                 INFO("Limiting tessellation factors to %ux.\n", mapping[i].level);
-                vkd3d_shader_quirk_info.global_quirks |= mapping[i].quirk;
+                vkd3d_shader_quirk_info_template.global_quirks |= mapping[i].quirk;
                 break;
             }
         }
@@ -1196,9 +1263,9 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"small_vram_rebar", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR},
     {"no_staggered_submit", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT},
     {"no_clear_uav_sync", VKD3D_CONFIG_FLAG_NO_CLEAR_UAV_SYNC},
+    {"retain_psos", VKD3D_CONFIG_FLAG_RETAIN_PSOS},
     {"force_dynamic_msaa", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA},
     {"instruction_qa_checks", VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS},
-    {"transfer_queue", VKD3D_CONFIG_FLAG_TRANSFER_QUEUE},
     {"no_gpu_upload_heap", VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP},
     {"one_time_submit", VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT},
     {"skip_null_sparse_tiles", VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES},
@@ -1206,6 +1273,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"damage_not_zeroed_allocations", VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS},
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
     {"prefer_thin_uav_tiling", VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING},
+    {"no_nvx", VKD3D_CONFIG_FLAG_NO_NVX},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -1363,11 +1431,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
             }
         }
 
-        if (instance_info.enabledLayerCount == 0)
-        {
-            ERR("Failed to enumerate instance layers, will not use VK_LAYER_KHRONOS_validation directly.\n"
-                "Use VKD3D_CONFIG=vk_debug VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation instead!\n");
-        }
         vkd3d_free(layers);
     }
 
@@ -1766,6 +1829,124 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
     }
 }
 
+static void vkd3d_physical_device_info_init_maint9(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
+{
+    /* The ownership mask is maximum uint32_t, so it's unreasonable to check for more queue families. */
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkQueueFamilyOwnershipTransferPropertiesKHR ownership_props[32];
+    uint32_t cross_queue_supported = UINT32_MAX;
+    VkQueueFamilyProperties2 props[32];
+    unsigned int i;
+    uint32_t count;
+
+    static const VkQueueFlags relevant_families =
+        VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+
+    memset(props, 0, sizeof(props));
+    memset(ownership_props, 0, sizeof(ownership_props));
+
+    for (i = 0; i < ARRAY_SIZE(props); i++)
+    {
+        props[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+        ownership_props[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_OWNERSHIP_TRANSFER_PROPERTIES_KHR;
+        props[i].pNext = &ownership_props[i];
+    }
+
+    count = ARRAY_SIZE(props);
+    VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties2(device->vk_physical_device, &count, props));
+
+    /* If all queue families can elide QFOT with eachother, we can drop CONCURRENT for any non-RTV/DSV images. */
+    for (i = 0; i < count; i++)
+        if (props[i].queueFamilyProperties.queueFlags & relevant_families)
+            cross_queue_supported &= ownership_props[i].optimalImageTransferToQueueFamilies;
+
+    for (i = 0; i < count; i++)
+    {
+        if (props[i].queueFamilyProperties.queueFlags & relevant_families)
+        {
+            if (!(cross_queue_supported & (1u << i)))
+            {
+                INFO("Implementation does not support eliding QFOT for non-compressed optimal images.\n");
+                return;
+            }
+        }
+    }
+
+    INFO("Implementation supports eliding QFOT for non-compressed optimal images.\n");
+    info->non_compressed_implicit_concurrent_supported = true;
+}
+
+static void vkd3d_physical_device_info_init_maint10(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkFormatProperties2 props2;
+    VkFormatProperties3 props3;
+    unsigned int i;
+
+    static const struct
+    {
+        VkFormat format;
+        VkImageAspectFlags aspect;
+    } formats[] = {
+        { VK_FORMAT_D16_UNORM, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { VK_FORMAT_D24_UNORM_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT },
+        { VK_FORMAT_X8_D24_UNORM_PACK32, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT },
+        { VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT },
+    };
+
+    memset(&props3, 0, sizeof(props3));
+    memset(&props2, 0, sizeof(props2));
+    props2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+    props2.pNext = &props3;
+    props3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+
+    device->device_info.depth_aspect_copy_on_compute = true;
+    device->device_info.stencil_aspect_copy_on_compute = true;
+    device->device_info.depth_aspect_copy_on_transfer = true;
+    device->device_info.stencil_aspect_copy_on_transfer = true;
+
+    for (i = 0; i < ARRAY_SIZE(formats); i++)
+    {
+        VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, formats[i].format, &props2));
+        if (!(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT))
+            continue;
+
+        if ((formats[i].aspect & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+            !(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR))
+        {
+            device->device_info.depth_aspect_copy_on_compute = false;
+        }
+
+        if ((formats[i].aspect & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+            !(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR))
+        {
+            device->device_info.depth_aspect_copy_on_transfer = false;
+        }
+
+        if ((formats[i].aspect & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+            !(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR))
+        {
+            device->device_info.stencil_aspect_copy_on_compute = false;
+        }
+
+        if ((formats[i].aspect & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+            !(props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR))
+        {
+            device->device_info.stencil_aspect_copy_on_transfer = false;
+        }
+    }
+
+    if (device->device_info.depth_aspect_copy_on_compute)
+        INFO("Implementation can copy depth aspect on compute queue.\n");
+    if (device->device_info.depth_aspect_copy_on_transfer)
+        INFO("Implementation can copy depth aspect on transfer queue.\n");
+    if (device->device_info.stencil_aspect_copy_on_compute)
+        INFO("Implementation can copy stencil aspect on compute queue.\n");
+    if (device->device_info.stencil_aspect_copy_on_transfer)
+        INFO("Implementation can copy stencil aspect on transfer queue.\n");
+}
+
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
@@ -1991,6 +2172,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->present_id_features);
     }
 
+    if (vulkan_info->KHR_present_mode_fifo_latest_ready)
+    {
+        info->present_mode_fifo_latest_ready_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->present_mode_fifo_latest_ready_features);
+    }
+
     if (vulkan_info->KHR_present_wait)
     {
         info->present_wait_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
@@ -2044,6 +2231,23 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->maintenance_8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_8_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->maintenance_8_features);
+    }
+
+    if (vulkan_info->KHR_maintenance9)
+    {
+        info->maintenance_9_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_9_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->maintenance_9_features);
+        vkd3d_physical_device_info_init_maint9(info, device);
+    }
+
+    if (vulkan_info->KHR_maintenance10)
+    {
+        info->maintenance_10_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_10_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->maintenance_10_features);
+
+        info->maintenance_10_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_10_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, &info->maintenance_10_properties);
+        vkd3d_physical_device_info_init_maint10(info, device);
     }
 
     if (vulkan_info->KHR_shader_maximal_reconvergence)
@@ -3244,11 +3448,13 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     HRESULT hr;
 
     device->unique_queue_mask = 0;
-    device->concurrent_queue_family_count = 0;
+    device->concurrent_queue_family_buffer_count = 0;
+    device->concurrent_queue_family_image_count = 0;
     memset(device->queue_families, 0, sizeof(device->queue_families));
     for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
     {
-        device->concurrent_queue_family_indices[i] = VK_QUEUE_FAMILY_IGNORED;
+        device->concurrent_queue_family_indices_buffer[i] = VK_QUEUE_FAMILY_IGNORED;
+        device->concurrent_queue_family_indices_image[i] = VK_QUEUE_FAMILY_IGNORED;
     }
 
     for (i = 0, k = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
@@ -3308,11 +3514,23 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         info->vk_family_index = queue_info->family_index[i];
         info->vk_queue_flags = queue_info->vk_properties[i].queueFlags;
         info->timestamp_bits = queue_info->vk_properties[i].timestampValidBits;
+        info->transfer_granularity = queue_info->vk_properties[i].minImageTransferGranularity;
 
         device->queue_families[i] = info;
 
         if (i != VKD3D_QUEUE_FAMILY_SPARSE_BINDING)
-            device->concurrent_queue_family_indices[device->concurrent_queue_family_count++] = info->vk_family_index;
+        {
+            bool pure_transfer =
+                (info->vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT)) == VK_QUEUE_TRANSFER_BIT;
+
+            /* Fallback for when maint9 is not supported. We want to support concurrent transfer for buffers
+             * in this case. */
+            device->concurrent_queue_family_indices_buffer[device->concurrent_queue_family_buffer_count++] = info->vk_family_index;
+
+            /* Pure transfer queues tend to nuke compression. Only allow it for GPUs that are known to work well here. */
+            if (!pure_transfer || device->concurrent_transfer_queue)
+                device->concurrent_queue_family_indices_image[device->concurrent_queue_family_image_count++] = info->vk_family_index;
+        }
 
         if (info->queue_count && i != VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE)
             device->unique_queue_mask |= 1u << i;
@@ -3339,11 +3557,34 @@ static uint32_t vkd3d_find_queue(unsigned int count, const VkQueueFamilyProperti
 
     for (i = 0; i < count; i++)
     {
+        /* (0, 0, 0) means full mip only transfers.
+         * We're at too high risk to require fallbacks, and it's not going to work
+         * with sparse usage patterns at all, so just ignore these implementations.
+         * No known drivers should be reporting this in 2026 ... */
+        if ((properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+            (properties[i].minImageTransferGranularity.width == 0 ||
+             properties[i].minImageTransferGranularity.height == 0 ||
+             properties[i].minImageTransferGranularity.depth == 0))
+            continue;
+
         if ((properties[i].queueFlags & mask) == flags)
             return i;
     }
 
     return VK_QUEUE_FAMILY_IGNORED;
+}
+
+static bool vkd3d_driver_has_fast_concurrent_transfer_queue(VkDriverId driver_id)
+{
+    switch (driver_id)
+    {
+        case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
+        case VK_DRIVER_ID_MESA_NVK:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
@@ -3393,20 +3634,12 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
     if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
 
-    /* Vulkan transfer queue cannot represent some esoteric edge cases that D3D12 copy queue can. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_TRANSFER_QUEUE)
-    {
-        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = vkd3d_find_queue(count, queue_properties,
-                VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, VK_QUEUE_TRANSFER_BIT);
-    }
-    else
-    {
-        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
-    }
+    info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = vkd3d_find_queue(count, queue_properties,
+            VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, VK_QUEUE_TRANSFER_BIT);
 
-    /* Prefer compute queues for transfer. When using concurrent sharing, DMA queue tends to force compression off. */
     if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
+
     info->family_index[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
 
     if (single_queue)
@@ -3494,6 +3727,9 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
 {
     uint32_t major, minor, patch;
 
+    /* Have a local copy of this since we may need to apply per-device workarounds in shader compiler. */
+    device->workarounds.quirks = vkd3d_shader_quirk_info_template;
+
     /* IMRs should not have this workaround enabled or else perf will drop.
      * Technically, this isn't really a workaround as much as a speed hack on IMR. */
     switch (device->device_info.vulkan_1_2_properties.driverID)
@@ -3580,6 +3816,19 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
          * It's unknown which kernel version introduced it and when it will be fixed.
          * Only seems to affect very specific content which does not really rely on the NULL page behavior anyway. */
         device->workarounds.amdgpu_broken_null_tile_mapping = true;
+
+        /* Works around a weird GPU hang on RDNA4.
+         * See mesa issue https://gitlab.freedesktop.org/mesa/mesa/-/issues/14812.
+         * Observed in both RE2 and RE8, so this is likely a uarch specific issue.
+         * The game doesn't seem to actually write useful subsampling here anyway.
+         * Use large 1D texture support as a sentinel for RDNA4.
+         * RDNA3 reports 16k. */
+        if (device->device_info.properties2.properties.limits.maxImageDimension1D >= 32768 &&
+            !vkd3d_debug_control_is_test_suite())
+        {
+            INFO("Nooping SV_ShadingRate on RDNA4 due to unknown HW quirk causing hangs.\n");
+            device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE;
+        }
     }
 }
 
@@ -3649,6 +3898,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         return E_OUTOFMEMORY;
     }
 
+    device->concurrent_transfer_queue = vkd3d_driver_has_fast_concurrent_transfer_queue(device->device_info.vulkan_1_2_properties.driverID);
+
     if (FAILED(hr = vkd3d_select_queues(device, physical_device, &device_queue_info)))
     {
         vkd3d_free(user_extension_supported);
@@ -3666,6 +3917,15 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]);
     TRACE("Using queue family %u for optical flow.\n",
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_OPTICAL_FLOW]);
+
+    if (device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER] ==
+        device_queue_info.family_index[VKD3D_QUEUE_FAMILY_COMPUTE] ||
+        device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER] ==
+        device_queue_info.family_index[VKD3D_QUEUE_FAMILY_GRAPHICS])
+    {
+        /* If we emulate TRANSFER queue, we're implicitly concurrent. */
+        device->concurrent_transfer_queue = true;
+    }
 
     /* Create device */
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -4169,7 +4429,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
 
     if (IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice)
             || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice1)
-            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice2))
+            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice2)
+            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice3))
     {
         d3d12_dxvk_interop_device_AddRef(&device->ID3D12DXVKInteropDevice_iface);
         *object = &device->ID3D12DXVKInteropDevice_iface;
@@ -4203,6 +4464,16 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         return S_OK;
     }
 
+    if (IsEqualGUID(riid, &IID_ID3D12DeviceConfiguration) ||
+        IsEqualGUID(riid, &IID_ID3D12DeviceConfiguration1))
+    {
+        /* Unfortunately we cannot safely borrow from a ID3D12DeviceFactory pointer since
+         * tests prove refcounts have to work like COM expects, so need to duplicate stuff :( */
+        ID3D12DeviceConfiguration1_AddRef(&device->ID3D12DeviceConfiguration1_iface);
+        *object = &device->ID3D12DeviceConfiguration1_iface;
+        return S_OK;
+    }
+
     WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
 
     *object = NULL;
@@ -4222,6 +4493,17 @@ ULONG d3d12_device_release_common(struct d3d12_device *device)
 {
     ULONG cur_refcount, cas_refcount;
     bool is_locked = false;
+
+    if (device->independent_device)
+    {
+        cur_refcount = InterlockedDecrement(&device->refcount);
+        if (cur_refcount == 0)
+        {
+            d3d12_device_destroy(device);
+            vkd3d_free_aligned(device);
+        }
+        return cur_refcount;
+    }
 
     cur_refcount = 0;
     cas_refcount = vkd3d_atomic_uint32_load_explicit(&device->refcount, vkd3d_memory_order_relaxed);
@@ -4356,7 +4638,6 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     rwlock_destroy(&device->fragment_output_lock);
     rwlock_destroy(&device->vertex_input_lock);
     pthread_mutex_destroy(&device->mutex);
-    pthread_mutex_destroy(&device->global_submission_mutex);
     d3d12_device_close_kmt(device);
     if (device->parent)
         IUnknown_Release(device->parent);
@@ -6664,7 +6945,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(d3d12_devic
 
     TRACE("iface %p.\n", iface);
 
-    return vkd3d_atomic_uint32_load_explicit(&device->removed_reason, vkd3d_memory_order_acquire);
+    return d3d12_device_removed_reason(device);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_iface *iface,
@@ -8109,6 +8390,91 @@ CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_##name = \
 
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(embedded_generic, embedded, embedded_generic);
 
+static struct d3d12_device *impl_from_ID3D12DeviceConfiguration1(ID3D12DeviceConfiguration1 *iface)
+{
+    if (!iface)
+        return NULL;
+    return CONTAINING_RECORD(iface, struct d3d12_device, ID3D12DeviceConfiguration1_iface);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_device_configuration_AddRef(ID3D12DeviceConfiguration1 *iface)
+{
+    struct d3d12_device *device = impl_from_ID3D12DeviceConfiguration1(iface);
+    return d3d12_device_add_ref_common(device);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_device_configuration_Release(ID3D12DeviceConfiguration1 *iface)
+{
+    struct d3d12_device *device = impl_from_ID3D12DeviceConfiguration1(iface);
+    return d3d12_device_release_common(device);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_QueryInterface(ID3D12DeviceConfiguration1 *iface,
+        REFIID iid, void **object)
+{
+    struct d3d12_device *device = impl_from_ID3D12DeviceConfiguration1(iface);
+    return d3d12_device_QueryInterface(&device->ID3D12Device_iface, iid, object);
+}
+
+static D3D12_DEVICE_CONFIGURATION_DESC * STDMETHODCALLTYPE d3d12_device_configuration_GetDesc(
+        ID3D12DeviceConfiguration1 *iface, D3D12_DEVICE_CONFIGURATION_DESC *desc)
+{
+    TRACE("iface %p\n", iface);
+    memset(desc, 0, sizeof(*desc));
+    desc->SDKVersion = D3D12_SDK_VERSION;
+    return desc;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_GetEnabledExperimentalFeatures(
+        ID3D12DeviceConfiguration1 *iface, GUID *pGuids, UINT NumGuids)
+{
+    FIXME("iface %p, pGuids %p, NumGuids %u stub!\n", iface, pGuids, NumGuids);
+    /* The spec doesn't say how this is supposed to work. We don't support experimental features anyway. */
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_SerializeVersionedRootSignature(
+        ID3D12DeviceConfiguration1 *iface, const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *pDesc,
+        ID3DBlob **ppResult, ID3DBlob **ppError)
+{
+    TRACE("iface %p, pDesc %p, ppResult %p, ppError %p\n", iface, pDesc, ppResult, ppError);
+    return vkd3d_serialize_versioned_root_signature(pDesc, ppResult, ppError);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_CreateVersionedRootSignatureDeserializer(
+        ID3D12DeviceConfiguration1 *iface, const void *pBlob, SIZE_T Size,
+        REFIID iid, void **ppvDeserializer)
+{
+    TRACE("iface %p, pBlob %p, Size %zu, iid %s, ppvDeserializer %p\n",
+        iface, pBlob, Size, debugstr_guid(iid), ppvDeserializer);
+    return vkd3d_create_versioned_root_signature_deserializer(pBlob, Size, iid, ppvDeserializer);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_configuration_CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary(
+        ID3D12DeviceConfiguration1 *iface, const void *pLibraryBlob, SIZE_T Size,
+        LPCWSTR RootSignatureSubobjectName, REFIID iid, void **ppvDeserializer)
+{
+    TRACE("iface %p, pLibraryBlob %p, Size %zu, RootSignatureSubobjectName %s, iid %s, ppvDeserializer %p\n",
+        iface, pLibraryBlob, Size, debugstr_w(RootSignatureSubobjectName), debugstr_guid(iid), ppvDeserializer);
+    return vkd3d_create_versioned_root_signature_deserializer_for_subobject(
+        pLibraryBlob, Size, RootSignatureSubobjectName, iid, ppvDeserializer);
+}
+
+static CONST_VTBL ID3D12DeviceConfiguration1Vtbl d3d12_device_configuration_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_device_configuration_QueryInterface,
+    d3d12_device_configuration_AddRef,
+    d3d12_device_configuration_Release,
+    /* ID3D12DeviceConfiguration methods */
+    d3d12_device_configuration_GetDesc,
+    d3d12_device_configuration_GetEnabledExperimentalFeatures,
+    d3d12_device_configuration_SerializeVersionedRootSignature,
+    d3d12_device_configuration_CreateVersionedRootSignatureDeserializer,
+    /* ID3D12DeviceConfiguration1 methods */
+    d3d12_device_configuration_CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary,
+};
+
 #ifdef VKD3D_ENABLE_PROFILING
 #include "device_profiled.h"
 #endif
@@ -9221,6 +9587,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
             compute_derivative_ext = VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_KHR;
 
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] = compute_derivative_ext;
+
+        if (device->device_info.compute_shader_derivatives_features_khr.computeDerivativeGroupQuads)
+        {
+            device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_QUAD;
+        }
     }
 
     if (device->d3d12_caps.options4.Native16BitShaderOpsSupported)
@@ -9335,6 +9707,7 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
     /* This key needs to hold all state which could potentially affect shader compilation.
      * We may generate different SPIR-V based on the bindless state flags.
      * The bindless states are affected by various flags. */
+    const struct vkd3d_shader_quirk_info *quirk_info = &device->workarounds.quirks;
     unsigned int i;
     char env[64];
     uint64_t key;
@@ -9370,15 +9743,15 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
         key = hash_fnv1_iterate_u32(key, device->bindless_state.descriptor_heap_sampler_size);
     }
 
-    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.global_quirks);
-    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.default_quirks);
-    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.num_hashes);
+    key = hash_fnv1_iterate_u32(key, quirk_info->global_quirks);
+    key = hash_fnv1_iterate_u32(key, quirk_info->default_quirks);
+    key = hash_fnv1_iterate_u32(key, quirk_info->num_hashes);
     /* If apps attempt to use the same shader cache with different executables, we might end up with different
      * quirk tables due to app workarounds, so hash that too. */
-    for (i = 0; i < vkd3d_shader_quirk_info.num_hashes; i++)
+    for (i = 0; i < quirk_info->num_hashes; i++)
     {
-        key = hash_fnv1_iterate_u64(key, vkd3d_shader_quirk_info.hashes[i].shader_hash);
-        key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.hashes[i].quirks);
+        key = hash_fnv1_iterate_u64(key, quirk_info->hashes[i].shader_hash);
+        key = hash_fnv1_iterate_u32(key, quirk_info->hashes[i].quirks);
     }
 
     for (i = 0; i < device->vk_info.shader_extension_count; i++)
@@ -9475,7 +9848,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
 }
 
 extern CONST_VTBL struct ID3D12DeviceExt2Vtbl d3d12_device_vkd3d_ext_vtbl;
-extern CONST_VTBL struct ID3D12DXVKInteropDevice2Vtbl d3d12_dxvk_interop_device_vtbl;
+extern CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
 
@@ -9555,24 +9928,18 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         goto out_free_instance;
     }
 
-    if ((rc = pthread_mutex_init(&device->global_submission_mutex, NULL)))
-    {
-        ERR("Failed to initialize mutex, error %d.\n", rc);
-        hr = hresult_from_errno(rc);
-        goto out_free_mutex;
-    }
-
     spinlock_init(&device->low_latency_swapchain_spinlock);
 
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
     device->ID3D12DXVKInteropDevice_iface.lpVtbl = &d3d12_dxvk_interop_device_vtbl;
     device->ID3DLowLatencyDevice_iface.lpVtbl = &d3d_low_latency_device_vtbl;
     device->IAmdExtAntiLagApi_iface.lpVtbl = &d3d_amd_ext_anti_lag_vtbl;
+    device->ID3D12DeviceConfiguration1_iface.lpVtbl = &d3d12_device_configuration_vtbl;
 
     if ((rc = rwlock_init(&device->vertex_input_lock)))
     {
         hr = hresult_from_errno(rc);
-        goto out_free_global_submission_mutex;
+        goto out_free_mutex;
     }
 
     if ((rc = rwlock_init(&device->fragment_output_lock)))
@@ -9726,8 +10093,6 @@ out_free_fragment_output_lock:
     rwlock_destroy(&device->fragment_output_lock);
 out_free_vertex_input_lock:
     rwlock_destroy(&device->vertex_input_lock);
-out_free_global_submission_mutex:
-    pthread_mutex_destroy(&device->global_submission_mutex);
 out_free_mutex:
     pthread_mutex_destroy(&device->mutex);
     return hr;
@@ -9862,17 +10227,57 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device)
 {
+    bool reject_existing_device = false;
+    bool forced_singletons = false;
     struct d3d12_device *object;
+    char env[64];
     HRESULT hr;
 
-    pthread_mutex_lock(&d3d12_device_map_mutex);
-    if ((object = d3d12_find_device_singleton(create_info->adapter_luid)))
+    if (create_info->independent)
     {
-        TRACE("Returned existing singleton device %p.\n", object);
+        /* RenderDoc does not support multiple VkDevices active.
+         * The independent devices APIs exposes this scenario. */
+        forced_singletons = vkd3d_get_env_var("ENABLE_VULKAN_RENDERDOC_CAPTURE", env, sizeof(env)) &&
+                strcmp(env, "1") == 0;
 
-        d3d12_device_add_ref(*device = object);
+        INFO("Forcing singleton device due to RenderDoc being enabled.\n");
+
+        if (forced_singletons &&
+            (create_info->device_factory_flags &
+                (D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_EXISTING_DEVICE |
+                 D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_INCOMPATIBLE_EXISTING_DEVICE)) == 0)
+        {
+            reject_existing_device = true;
+        }
+    }
+
+    pthread_mutex_lock(&d3d12_device_map_mutex);
+
+    if (!create_info->independent || forced_singletons)
+    {
+        if ((object = d3d12_find_device_singleton(create_info->adapter_luid)))
+        {
+            TRACE("Returned existing singleton device %p.\n", object);
+
+            if (reject_existing_device)
+            {
+                pthread_mutex_unlock(&d3d12_device_map_mutex);
+                INFO("Attempting to create a new independent device, but we're blocked by RenderDoc.\n");
+                return DXGI_ERROR_ALREADY_EXISTS;
+            }
+
+            d3d12_device_add_ref(*device = object);
+            pthread_mutex_unlock(&d3d12_device_map_mutex);
+            return S_OK;
+        }
+    }
+
+    if (forced_singletons &&
+        (create_info->device_factory_flags & D3D12_DEVICE_FACTORY_FLAG_DISALLOW_STORING_NEW_DEVICE_AS_SINGLETON))
+    {
         pthread_mutex_unlock(&d3d12_device_map_mutex);
-        return S_OK;
+        INFO("Attempting to create a new independent device, but we must store as singleton due to RenderDoc.\n");
+        return DXGI_ERROR_UNSUPPORTED;
     }
 
     if (!(object = vkd3d_malloc_aligned(sizeof(*object), 64)))
@@ -9901,13 +10306,21 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
 
     TRACE("Created device %p (dummy d3d12_device_AddRef for debug grep purposes).\n", object);
 
-    d3d12_add_device_singleton(object, create_info->adapter_luid);
+    if (create_info->independent && !forced_singletons)
+        object->independent_device = true;
+    else
+        d3d12_add_device_singleton(object, create_info->adapter_luid);
 
     pthread_mutex_unlock(&d3d12_device_map_mutex);
 
     *device = object;
 
     return S_OK;
+}
+
+HRESULT d3d12_device_removed_reason(struct d3d12_device *device)
+{
+    return vkd3d_atomic_uint32_load_explicit(&device->removed_reason, vkd3d_memory_order_acquire);
 }
 
 void d3d12_device_report_fault(struct d3d12_device *device)

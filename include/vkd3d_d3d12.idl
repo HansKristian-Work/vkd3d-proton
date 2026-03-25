@@ -378,7 +378,7 @@ const UINT D3D12_REQ_TEXTURECUBE_DIMENSION = 16384;
 const UINT D3D12_RESINFO_INSTRUCTION_MISSING_COMPONENT_RETVAL = 0;
 const UINT D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES = 0xffffffff;
 const UINT D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT = 2;
-const UINT D3D12_SDK_VERSION = 614;
+const UINT D3D12_SDK_VERSION = 618;
 const UINT D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES = 32;
 const UINT D3D12_SHADER_MAJOR_VERSION = 5;
 const UINT D3D12_SHADER_MAX_INSTANCES = 65535;
@@ -4157,6 +4157,7 @@ typedef enum D3D12_DRED_VERSION
     D3D12_DRED_VERSION_1_0 = 1,
     D3D12_DRED_VERSION_1_1 = 2,
     D3D12_DRED_VERSION_1_2 = 3,
+    D3D12_DRED_VERSION_1_3 = 4,
 } D3D12_DRED_VERSION;
 
 typedef enum D3D12_DRED_FLAGS
@@ -4266,12 +4267,45 @@ typedef struct D3D12_DEVICE_REMOVED_EXTENDED_DATA2
     D3D12_DRED_PAGE_FAULT_OUTPUT1 PageFaultOutput;
 } D3D12_DEVICE_REMOVED_EXTENDED_DATA2;
 
+typedef enum D3D12_DRED_PAGE_FAULT_FLAGS
+{
+    D3D12_DRED_PAGE_FAULT_FLAGS_NONE = 0,
+} D3D12_DRED_PAGE_FAULT_FLAGS;
+cpp_quote("DEFINE_ENUM_FLAG_OPERATORS(D3D12_DRED_PAGE_FAULT_FLAGS);")
+
+typedef struct D3D12_DRED_PAGE_FAULT_OUTPUT2
+{
+    D3D12_GPU_VIRTUAL_ADDRESS PageFaultVA;
+    const D3D12_DRED_ALLOCATION_NODE1 *pHeadExistingAllocationNode;
+    const D3D12_DRED_ALLOCATION_NODE1 *pHeadRecentFreedAllocationNode;
+    D3D12_DRED_PAGE_FAULT_FLAGS PageFaultFlags;
+} D3D12_DRED_PAGE_FAULT_OUTPUT2;
+
+typedef enum D3D12_DRED_DEVICE_STATE
+{
+    D3D12_DRED_DEVICE_STATE_UNKNOWN   = 0,
+    D3D12_DRED_DEVICE_STATE_HUNG      = 3,
+    D3D12_DRED_DEVICE_STATE_FAULT     = 6,
+    D3D12_DRED_DEVICE_STATE_PAGEFAULT = 7,
+} D3D12_DRED_DEVICE_STATE;
+
+typedef struct D3D12_DEVICE_REMOVED_EXTENDED_DATA3
+{
+    HRESULT DeviceRemovedReason;
+    D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 AutoBreadcrumbsOutput;
+    D3D12_DRED_PAGE_FAULT_OUTPUT2 PageFaultOutput;
+    D3D12_DRED_DEVICE_STATE DeviceState;
+} D3D12_DEVICE_REMOVED_EXTENDED_DATA3;
+
 typedef struct D3D12_VERSIONED_DEVICE_REMOVED_EXTENDED_DATA
 {
     D3D12_DRED_VERSION Version;
     union
     {
         D3D12_DEVICE_REMOVED_EXTENDED_DATA Dred_1_0;
+        D3D12_DEVICE_REMOVED_EXTENDED_DATA1 Dred_1_1;
+        D3D12_DEVICE_REMOVED_EXTENDED_DATA2 Dred_1_2;
+        D3D12_DEVICE_REMOVED_EXTENDED_DATA3 Dred_1_3;
     };
 } D3D12_VERSIONED_DEVICE_REMOVED_EXTENDED_DATA;
 
@@ -5584,6 +5618,13 @@ typedef HRESULT (__stdcall *PFN_D3D12_GET_DEBUG_INTERFACE)(REFIID iid, void **de
 cpp_quote("DEFINE_GUID(D3D12ExperimentalShaderModels, 0x76f5573e, 0xf13a, 0x40f5, 0xb2, 0x97, 0x81, 0xce, 0x9e, 0x18, 0x93, 0x3f );")
 cpp_quote("DEFINE_GUID(D3D12TiledResourceTier4,       0xc9c4725f, 0xa81a, 0x4f56, 0x8c, 0x5b, 0xc5, 0x10, 0x39, 0xd6, 0x94, 0xfb );")
 cpp_quote("DEFINE_GUID(D3D12MetaCommand,              0xc734c97e, 0x8077, 0x48c8, 0x9f, 0xdc, 0xd9, 0xd1, 0xdd, 0x31, 0xdd, 0x77 );")
+cpp_quote("DEFINE_GUID(CLSID_D3D12Debug,                        0xf2352aeb, 0xdd84, 0x49fe, 0xb9, 0x7b, 0xa9, 0xdc, 0xfd, 0xcc, 0x1b, 0x4f);")
+cpp_quote("DEFINE_GUID(CLSID_D3D12Tools,                        0xe38216b1, 0x3c8c, 0x4833, 0xaa, 0x09, 0x0a, 0x06, 0xb6, 0x5d, 0x96, 0xc8);")
+cpp_quote("DEFINE_GUID(CLSID_D3D12DeviceRemovedExtendedData,    0x4a75bbc4, 0x9ff4, 0x4ad8, 0x9f, 0x18, 0xab, 0xae, 0x84, 0xdc, 0x5f, 0xf2);")
+cpp_quote("DEFINE_GUID(CLSID_D3D12SDKConfiguration,             0x7cda6aca, 0xa03e, 0x49c8, 0x94, 0x58, 0x03, 0x34, 0xd2, 0x0e, 0x07, 0xce);")
+cpp_quote("DEFINE_GUID(CLSID_D3D12DeviceFactory,                0x114863bf, 0xc386, 0x4aee, 0xb3, 0x9d, 0x8f, 0x0b, 0xbb, 0x06, 0x29, 0x55);")
+cpp_quote("DEFINE_GUID(CLSID_D3D12DSRDeviceFactory,             0xbb6dd27e, 0x94a9, 0x41a6, 0x9f, 0x1b, 0x13, 0x37, 0x72, 0x17, 0x24, 0x28);")
+cpp_quote("DEFINE_GUID(CLSID_D3D12StateObjectFactory,           0x54e1c9f3, 0x1303, 0x4112, 0xbf, 0x8e, 0x7b, 0xf2, 0xbb, 0x60, 0x6a, 0x73);")
 
 typedef HRESULT (__stdcall *PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES)(UINT num_features,
         const IID *iids, void *config_structs, UINT *config_struct_sizes);
@@ -5594,5 +5635,161 @@ typedef HRESULT (__stdcall *PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES)(UINT num_fea
 typedef HRESULT (__stdcall *PFN_D3D12_GET_INTERFACE)(REFCLSID clsid, REFIID iid, void **debug);
 
 [local] HRESULT __stdcall D3D12GetInterface(REFCLSID clsid, REFIID iid, void **debug);
+
+[
+    uuid(e9eb5314-33aa-42b2-a718-d77f58b1f1c7),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12SDKConfiguration : IUnknown
+{
+    HRESULT SetSDKVersion(UINT SDKVersion, LPCSTR SDKPath);
+}
+
+[
+    uuid(8aaf9303-ad25-48b9-9a57-d9c37e009d9f),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12SDKConfiguration1 : ID3D12SDKConfiguration
+{
+    HRESULT CreateDeviceFactory(
+        UINT SDKVersion,
+        LPCSTR SDKPath,
+        REFIID riid,
+        void **ppvFactory);
+
+    void FreeUnusedSDKs();
+}
+
+typedef enum D3D12_DEVICE_FACTORY_FLAGS
+{
+    D3D12_DEVICE_FACTORY_FLAG_NONE = 0,
+    D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_EXISTING_DEVICE = 0x1,
+    D3D12_DEVICE_FACTORY_FLAG_ALLOW_RETURNING_INCOMPATIBLE_EXISTING_DEVICE = 0x2,
+    D3D12_DEVICE_FACTORY_FLAG_DISALLOW_STORING_NEW_DEVICE_AS_SINGLETON = 0x4,
+} D3D12_DEVICE_FACTORY_FLAGS;
+cpp_quote("DEFINE_ENUM_FLAG_OPERATORS(D3D12_DEVICE_FACTORY_FLAGS);")
+
+[
+    uuid(61f307d3-d34e-4e7c-8374-3ba4de23cccb),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceFactory : IUnknown
+{
+    HRESULT InitializeFromGlobalState();
+    HRESULT ApplyToGlobalState();
+
+    HRESULT SetFlags(D3D12_DEVICE_FACTORY_FLAGS flags);
+    D3D12_DEVICE_FACTORY_FLAGS GetFlags();
+
+    HRESULT GetConfigurationInterface(
+        REFCLSID clsid, REFIID iid, void **ppv);
+
+    HRESULT EnableExperimentalFeatures(
+       UINT NumFeatures, const IID *pIIDs,
+       void *pConfigurationStructs, UINT *pConfigurationStructSizes);
+
+    HRESULT CreateDevice(
+        IUnknown *adapter, D3D_FEATURE_LEVEL FeatureLevel,
+        REFIID riid, void **ppvDevice);
+};
+
+typedef enum D3D12_DEVICE_FLAGS
+{
+    D3D12_DEVICE_FLAG_NONE = 0,
+    D3D12_DEVICE_FLAG_DEBUG_LAYER_ENABLED = 0x1,
+    D3D12_DEVICE_FLAG_GPU_BASED_VALIDATION_ENABLED = 0x2,
+    D3D12_DEVICE_FLAG_SYNCHRONIZED_COMMAND_QUEUE_VALIDATION_DISABLED = 0x4,
+    D3D12_DEVICE_FLAG_DRED_AUTO_BREADCRUMBS_ENABLED = 0x8,
+    D3D12_DEVICE_FLAG_DRED_PAGE_FAULT_REPORTING_ENABLED = 0x10,
+    D3D12_DEVICE_FLAG_DRED_WATSON_REPORTING_ENABLED = 0x20,
+    D3D12_DEVICE_FLAG_DRED_BREADCRUMB_CONTEXT_ENABLED = 0x40,
+    D3D12_DEVICE_FLAG_DRED_USE_MARKERS_ONLY_BREADCRUMBS = 0x80,
+    D3D12_DEVICE_FLAG_SHADER_INSTRUMENTATION_ENABLED = 0x100,
+    D3D12_DEVICE_FLAG_AUTO_DEBUG_NAME_ENABLED = 0x200,
+    D3D12_DEVICE_FLAG_FORCE_LEGACY_STATE_VALIDATION = 0x400,
+} D3D12_DEVICE_FLAGS;
+cpp_quote("DEFINE_ENUM_FLAG_OPERATORS(D3D12_DEVICE_FLAGS);")
+
+typedef struct D3D12_DEVICE_CONFIGURATION_DESC
+{
+    D3D12_DEVICE_FLAGS Flags;
+    UINT GpuBasedValidationFlags;
+    UINT SDKVersion;
+    UINT NumEnabledExperimentalFeatures;
+} D3D12_DEVICE_CONFIGURATION_DESC;
+
+[
+    uuid(78dbf87b-f766-422b-a61c-c8c446bdb9ad),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceConfiguration : IUnknown
+{
+    D3D12_DEVICE_CONFIGURATION_DESC GetDesc();
+    HRESULT GetEnabledExperimentalFeatures(GUID *pGuids, UINT NumGuids);
+
+    HRESULT SerializeVersionedRootSignature(
+        const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *pDesc,
+        ID3DBlob **ppResult, ID3DBlob **ppError);
+
+    HRESULT CreateVersionedRootSignatureDeserializer(
+        const void *pBlob, SIZE_T Size,
+        REFIID riid, void **ppvDeserializer);
+};
+
+[
+    uuid(ed342442-6343-4e16-bb82-a3a577874e56),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceConfiguration1 : ID3D12DeviceConfiguration
+{
+    HRESULT CreateVersionedRootSignatureDeserializerFromSubobjectInLibrary(
+        const void* pLibraryBlob, SIZE_T Size,
+        LPCWSTR RootSignatureSubobjectName,
+        REFIID riid, void** ppvDeserializer);
+};
+
+[
+    uuid(DBD5AE51-3317-4F0A-ADF9-1D7CEDCAAE0B),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceRemovedExtendedDataSettings1 : ID3D12DeviceRemovedExtendedDataSettings
+{
+    void SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT Enablement);
+};
+
+[
+    uuid(61552388-01ab-4008-a436-83db189566ea),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceRemovedExtendedDataSettings2 : ID3D12DeviceRemovedExtendedDataSettings1
+{
+    void UseMarkersOnlyAutoBreadcrumbs(BOOL MarkersOnly);
+};
+
+[
+    uuid(98931D33-5AE8-4791-AA3C-1A73A2934E71),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceRemovedExtendedData : IUnknown
+{
+    HRESULT GetAutoBreadcrumbsOutput(D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT *pOutput);
+    HRESULT GetPageFaultAllocationOutput(D3D12_DRED_PAGE_FAULT_OUTPUT *pOutput);
+};
 
 cpp_quote("#pragma pop_macro(\"WIDL_EXPLICIT_AGGREGATE_RETURNS\")")

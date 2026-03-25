@@ -71,6 +71,9 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
         const char *fmt, ...) VKD3D_PRINTF_FUNC(4, 5);
 void vkd3d_dbg_flush(void);
 
+#define VKD3D_DEBUG_BUFFER_SIZE 512
+char *vkd3d_dbg_get_buffer(void);
+
 const char *vkd3d_dbg_sprintf(const char *fmt, ...) VKD3D_PRINTF_FUNC(1, 2);
 const char *vkd3d_dbg_vsprintf(const char *fmt, va_list args);
 const char *debugstr_a(const char *str);

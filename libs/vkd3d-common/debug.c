@@ -33,8 +33,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#define VKD3D_DEBUG_BUFFER_COUNT 64
-#define VKD3D_DEBUG_BUFFER_SIZE 512
+#define VKD3D_DEBUG_BUFFER_COUNT 8
 
 static const char *debug_level_names[] =
 {
@@ -266,12 +265,17 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
 
 static char *get_buffer(void)
 {
-    static char buffers[VKD3D_DEBUG_BUFFER_COUNT][VKD3D_DEBUG_BUFFER_SIZE];
-    static LONG buffer_index;
-    LONG current_index;
+    static VKD3D_THREAD_LOCAL char buffers[VKD3D_DEBUG_BUFFER_COUNT][VKD3D_DEBUG_BUFFER_SIZE];
+    static VKD3D_THREAD_LOCAL size_t buffer_index;
+    size_t current_index;
 
-    current_index = InterlockedIncrement(&buffer_index) % ARRAY_SIZE(buffers);
+    current_index = (++buffer_index) % ARRAY_SIZE(buffers);
     return buffers[current_index];
+}
+
+char *vkd3d_dbg_get_buffer(void)
+{
+    return get_buffer();
 }
 
 const char *vkd3d_dbg_vsprintf(const char *fmt, va_list args)

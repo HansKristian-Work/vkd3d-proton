@@ -212,9 +212,126 @@ HRESULT WINAPI DLLEXPORT D3D12EnableExperimentalFeatures(UINT feature_count,
     return IVKD3DCoreInterface_EnableExperimentalFeatures(core, feature_count, iids, configurations, configurations_sizes);
 }
 
+struct d3d12_sdk_configuration
+{
+    ID3D12SDKConfiguration1 iface;
+    LONG refcount;
+};
+
+static struct d3d12_sdk_configuration *impl_from_ID3D12SDKConfiguration1(ID3D12SDKConfiguration1 *iface)
+{
+    if (!iface)
+        return NULL;
+    return CONTAINING_RECORD(iface, struct d3d12_sdk_configuration, iface);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_sdk_configuration_AddRef(ID3D12SDKConfiguration1 *iface)
+{
+    struct d3d12_sdk_configuration *config = impl_from_ID3D12SDKConfiguration1(iface);
+    TRACE("iface %p\n", iface);
+    return InterlockedIncrement(&config->refcount);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_sdk_configuration_Release(ID3D12SDKConfiguration1 *iface)
+{
+    struct d3d12_sdk_configuration *config = impl_from_ID3D12SDKConfiguration1(iface);
+    ULONG refcount;
+    TRACE("iface %p\n", iface);
+    refcount = InterlockedDecrement(&config->refcount);
+    if (refcount == 0)
+        vkd3d_free(config);
+    return refcount;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_sdk_configuration_QueryInterface(ID3D12SDKConfiguration1 *iface, REFIID iid, void **object)
+{
+    TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
+
+    if (!object)
+        return E_POINTER;
+
+    if (IsEqualGUID(iid, &IID_ID3D12SDKConfiguration) ||
+        IsEqualGUID(iid, &IID_ID3D12SDKConfiguration1) ||
+        IsEqualGUID(iid, &IID_IUnknown))
+    {
+        d3d12_sdk_configuration_AddRef(iface);
+        *object = iface;
+        return S_OK;
+    }
+
+    return E_NOINTERFACE;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_sdk_configuration_SetSDKVersion(
+    ID3D12SDKConfiguration1 *iface, UINT SDKVersion, LPCSTR SDKPath)
+{
+    FIXME("iface %p, SDKVersion %u, SDKPath %s stub!\n", iface, SDKVersion, SDKPath);
+    /* Native seems to just return S_OK here even for garbage inputs, *shrug*. */
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_sdk_configuration_CreateDeviceFactory(ID3D12SDKConfiguration1 *iface,
+    UINT SDKVersion, LPCSTR SDKPath, REFIID iid, void **ppvFactory)
+{
+    TRACE("iface %p, SDKVersion %u, SDKPath %s, iid %s, ppvFactory %p!\n", iface, SDKVersion, SDKPath,
+            debugstr_guid(iid), ppvFactory);
+
+    if (!load_d3d12core())
+        return E_NOINTERFACE;
+
+    return IVKD3DCoreInterface_GetInterface(core, &CLSID_D3D12DeviceFactory, iid, ppvFactory);
+}
+
+static void STDMETHODCALLTYPE d3d12_sdk_configuration_FreeUnusedSDKs(ID3D12SDKConfiguration1 *iface)
+{
+    FIXME("iface %p stub!\n", iface);
+}
+
+static CONST_VTBL ID3D12SDKConfiguration1Vtbl d3d12_sdk_configuration_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_sdk_configuration_QueryInterface,
+    d3d12_sdk_configuration_AddRef,
+    d3d12_sdk_configuration_Release,
+    /* ID3D12SDKConfiguration methods */
+    d3d12_sdk_configuration_SetSDKVersion,
+    /* ID3D12SDKConfiguration1 methods */
+    d3d12_sdk_configuration_CreateDeviceFactory,
+    d3d12_sdk_configuration_FreeUnusedSDKs,
+};
+
+static ID3D12SDKConfiguration1 *create_sdk_configuration_interface(void)
+{
+    struct d3d12_sdk_configuration *config = vkd3d_calloc(1, sizeof(*config));
+    if (!config)
+        return NULL;
+
+    config->refcount = 1;
+    config->iface.lpVtbl = &d3d12_sdk_configuration_vtbl;
+    return &config->iface;
+}
+
 HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **debug)
 {
     TRACE("rcslid %s iid %s, debug %p.\n", debugstr_guid(rcslid), debugstr_guid(iid), debug);
+
+    if (IsEqualGUID(rcslid, &CLSID_D3D12SDKConfiguration))
+    {
+        /* The vtable for this must live in d3d12.dll. d3d12core.dll should not be loaded yet. */
+        ID3D12SDKConfiguration1 *iface;
+        HRESULT hr;
+
+        if (!debug)
+            return S_FALSE;
+
+        iface = create_sdk_configuration_interface();
+        if (!iface)
+            return E_OUTOFMEMORY;
+
+        hr = ID3D12SDKConfiguration1_QueryInterface(iface, iid, debug);
+        ID3D12SDKConfiguration1_Release(iface);
+        return hr;
+    }
 
     if (!load_d3d12core())
         return E_NOINTERFACE;

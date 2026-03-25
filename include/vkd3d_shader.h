@@ -423,6 +423,7 @@ enum vkd3d_shader_target_extension
     VKD3D_SHADER_TARGET_EXTENSION_NV_COOPMAT2_CONVERSIONS,
     VKD3D_SHADER_TARGET_EXTENSION_EXTENDED_NON_SEMANTIC,
     VKD3D_SHADER_TARGET_EXTENSION_MIXED_FLOAT_DOT_PRODUCT,
+    VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_QUAD,
     VKD3D_SHADER_TARGET_EXTENSION_COUNT,
 };
 
@@ -532,9 +533,13 @@ enum vkd3d_shader_target_extension
 /* Replaces dodgy normalize(0) patterns. */
 #define VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN (1ull << 30)
 
-/* Bit 31 vacant. */
+/* Selects in 0 if broadcasted lane is not active. Emulates NV HW behavior. */
+#define VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST (1ull << 31)
 
 #define VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE (1ull << 32)
+
+/* Use precise fma instead of the spec correct mad. To workaround issues with invariance. */
+#define VKD3D_SHADER_QUIRK_PRECISE_FMA (1ull << 33)
 
 typedef uint64_t vkd3d_shader_quirks_t;
 

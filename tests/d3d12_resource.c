@@ -1539,9 +1539,9 @@ void test_map_placed_resources(void)
 #define check_copyable_footprints(a, b, c, d, e, f, g, h) \
         check_copyable_footprints_(__LINE__, a, b, c, d, e, f, g, h)
 static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_DESC *desc,
-        unsigned int sub_resource_idx, unsigned int sub_resource_count, uint64_t base_offset,
+        unsigned int sub_resource_idx, unsigned int sub_resource_count, UINT64 base_offset,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, const UINT *row_counts,
-        const uint64_t *row_sizes, uint64_t *total_size)
+        const UINT64 *row_sizes, UINT64 *total_size)
 {
     unsigned int miplevel, width, height, depth, row_count, row_size, row_pitch, row_alignment, layers, plane, num_planes;
     unsigned int subsample_x_log2, subsample_y_log2;

@@ -19,6 +19,16 @@
 
 /* Can be included multiple times. */
 
+/* These tests check for loading of d3d12core.dll,
+ * so they need to be run at the very beginning. */
+decl_test(test_sdk_configuration_creation);
+decl_test(test_sdk_configuration_set_sdk_path);
+decl_test(test_sdk_configuration1);
+decl_test(test_device_factory);
+decl_test(test_device_factory_creation);
+decl_test(test_device_factory_create_device);
+decl_test(test_device_configuration);
+
 decl_test(test_create_device);
 decl_test(test_node_count);
 decl_test(test_check_feature_support);
@@ -61,6 +71,8 @@ decl_test(test_fence_signal_order_deadlock_stress_shared);
 decl_test(test_fence_signal_availability_shared);
 decl_test(test_clear_depth_stencil_view);
 decl_test(test_clear_render_target_view);
+decl_test(test_clear_render_target_view_extreme_values);
+decl_test(test_clear_uav_extreme_values);
 decl_test(test_clear_unordered_access_view_buffer);
 decl_test(test_clear_unordered_access_view_image);
 decl_test(test_set_render_targets);
@@ -442,6 +454,7 @@ decl_test(test_coverage_export_atoc_dxbc);
 decl_test(test_coverage_export_atoc_dxil);
 decl_test(test_renderpass_validation);
 decl_test(test_renderpass_rendering);
+decl_test(test_renderpass_resolve_suspend_resume);
 decl_test(test_sampler_rounding);
 decl_test(test_scissor_clamping);
 decl_test(test_mismatching_rtv_dsv_size);
@@ -488,6 +501,7 @@ decl_test(test_wmma_multi_matmul);
 decl_test(test_wmma_layout_assumptions);
 decl_test(test_wmma_special_conversions);
 decl_test(test_wmma_element_wise);
+decl_test(test_ags_float8_conversion);
 decl_test(test_tex2d_array_reinterpretation_sm51);
 decl_test(test_tex2d_array_reinterpretation_dxil);
 decl_test(test_tex1d_array_reinterpretation_sm51);
@@ -534,3 +548,21 @@ decl_test(test_static_sampler_dynamic_index);
 decl_test(test_descriptor_range_validation);
 decl_test(test_primitive_id_read_tess_geom);
 decl_test(test_buffer_rtv_dsv_usage);
+decl_test(test_graphics_queue_buffer);
+decl_test(test_graphics_queue_buffer_image);
+decl_test(test_graphics_queue_render_target);
+decl_test(test_graphics_queue_depth_stencil);
+decl_test(test_graphics_queue_render_target_msaa);
+decl_test(test_graphics_queue_depth_stencil_msaa);
+decl_test(test_compute_queue_buffer);
+decl_test(test_compute_queue_buffer_image);
+decl_test(test_compute_queue_render_target);
+decl_test(test_compute_queue_depth_stencil);
+decl_test(test_compute_queue_render_target_msaa);
+decl_test(test_compute_queue_depth_stencil_msaa);
+decl_test(test_copy_queue_buffer);
+decl_test(test_copy_queue_buffer_image);
+decl_test(test_copy_queue_render_target);
+decl_test(test_copy_queue_depth_stencil);
+decl_test(test_copy_queue_render_target_msaa);
+decl_test(test_copy_queue_depth_stencil_msaa);
