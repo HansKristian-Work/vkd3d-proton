@@ -3826,6 +3826,16 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS)
         return;
 
+    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+    {
+        if (device->device_info.properties2.properties.limits.maxImageDimension1D < 32768 &&
+            device->device_info.compute_shader_derivatives_features_khr.computeDerivativeGroupQuads)
+        {
+            WARN("Disabling computeDerivativeGroupQuads on pre-RDNA4 HW due to buggy emulation.\n");
+            device->device_info.compute_shader_derivatives_features_khr.computeDerivativeGroupQuads = VK_FALSE;
+        }
+    }
+
     if (device->device_info.properties2.properties.vendorID == 0x1002)
     {
         if (vkd3d_get_linux_kernel_version(&major, &minor, &patch))
