@@ -224,6 +224,7 @@ struct dxgi_vk_swap_chain
         VkPresentModeKHR unlocked_present_mode;
         VkPresentModeKHR selected_present_mode;
         bool compatible_unlocked_present_mode;
+        bool override_present_mode;
 
         /* Info about the current low latency state of the swapchain */
         uint32_t low_latency_present_mode_count;
@@ -1847,7 +1848,6 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     VkDevice vk_device = chain->queue->device->vk_device;
     VkCommandPoolCreateInfo command_pool_create_info;
     VkSwapchainCreateInfoKHR swapchain_create_info;
-    bool has_present_mode_override = false;
     VkPresentModeKHR present_mode_group[2];
     char present_mode_env[VKD3D_PATH_MAX];
     VkSurfaceCapabilitiesKHR surface_caps;
@@ -1903,6 +1903,8 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     memset(&swapchain_create_info, 0, sizeof(swapchain_create_info));
     swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 
+    chain->present.override_present_mode = false;
+
     if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_PRESENT_MODE", present_mode_env, sizeof(present_mode_env)))
     {
         VkPresentModeKHR candidate_present_mode;
@@ -1912,7 +1914,7 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
             {
                 chain->present.selected_present_mode = candidate_present_mode;
                 chain->present.compatible_unlocked_present_mode = false;
-                has_present_mode_override = true;
+                chain->present.override_present_mode = true;
                 INFO("Overriding swapchain present mode to %s.\n", present_mode_env);
             }
             else
@@ -1922,7 +1924,7 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
             WARN("Ignoring unrecognized value for VKD3D_SWAPCHAIN_PRESENT_MODE=%s.\n", present_mode_env);
     }
 
-    if (!has_present_mode_override)
+    if (!chain->present.override_present_mode)
     {
         chain->present.compatible_unlocked_present_mode =
                 dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(chain,
@@ -2080,7 +2082,8 @@ static bool dxgi_vk_swap_chain_request_needs_swapchain_recreation(
             request->dxgi_format != last_request->dxgi_format ||
             request->target_min_image_count != last_request->target_min_image_count ||
             ((!!request->swap_interval) != (!!last_request->swap_interval) &&
-                    !chain->present.compatible_unlocked_present_mode);
+                    !chain->present.compatible_unlocked_present_mode &&
+                    !chain->present.override_present_mode);
 }
 
 static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap_chain *chain, uint64_t present_count)
