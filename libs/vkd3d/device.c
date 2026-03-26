@@ -977,6 +977,14 @@ static const struct vkd3d_shader_quirk_info ds2_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_PRECISE_FMA,
 };
 
+static const struct vkd3d_shader_quirk_hash spiderman2_hashes[] = {
+    { 0x324071d329f05ccc, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
+};
+
+static const struct vkd3d_shader_quirk_info spiderman2_quirks = {
+    spiderman2_hashes, ARRAY_SIZE(spiderman2_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1055,6 +1063,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "DS2.exe", &ds2_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
+	/* Spider Man 2 (2651280) */
+    { VKD3D_STRING_COMPARE_EXACT, "Spider-Man2.exe", &spiderman2_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
