@@ -964,8 +964,13 @@ static const struct vkd3d_shader_quirk_info hfw_quirks = {
     hfw_hashes, ARRAY_SIZE(hfw_hashes), 0,
 };
 
-static const struct vkd3d_shader_quirk_info robust_compute_quad_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST,
+/* Misses some sync with depth in SSDM_FillHolesDepthDisplacementPS */
+static const struct vkd3d_shader_quirk_hash crimson_desert_hashes[] = {
+    { 0xa2e7501dea1487da, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
+};
+
+static const struct vkd3d_shader_quirk_info crimson_desert_quirks = {
+    crimson_desert_hashes, ARRAY_SIZE(crimson_desert_hashes), VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST,
 };
 
 /* Some vertex shaders use precise fma, while others don't.
@@ -1050,7 +1055,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Horizon Forbidden West (2420110). */
     { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", &hfw_quirks },
     /* Crimson Desert (3321460) */
-    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", &robust_compute_quad_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", &crimson_desert_quirks },
     /* Death Stranding 2 (3280350) */
     { VKD3D_STRING_COMPARE_EXACT, "DS2.exe", &ds2_quirks },
     /* Unreal Engine 4 */
