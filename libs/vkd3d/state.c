@@ -4848,6 +4848,18 @@ static bool d3d12_pipeline_state_validate_view_instancing(struct d3d12_device *d
     graphics->multiview.dynamic_mask =
             !!(desc->view_instancing_desc.Flags & D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING);
 
+    if (desc->gs.BytecodeLength && !device->device_info.vulkan_1_1_features.multiviewGeometryShader)
+    {
+        FIXME_ONCE("Multiview + geometry shader is used, but device does not support it.\n");
+        return false;
+    }
+
+    if (desc->ds.BytecodeLength && !device->device_info.vulkan_1_1_features.multiviewTessellationShader)
+    {
+        FIXME_ONCE("Multiview + tessellation is used, but device does not support it.\n");
+        return false;
+    }
+
     for (i = 0; i < desc->view_instancing_desc.ViewInstanceCount; i++)
     {
         const D3D12_VIEW_INSTANCE_LOCATION *loc = &desc->view_instancing_desc.pViewInstanceLocations[i];
