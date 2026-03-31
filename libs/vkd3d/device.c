@@ -3786,6 +3786,16 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
             break;
     }
 
+    /* For testing purposes, allow us to exercise all code paths on all GPUs. */
+    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_TILER_SYNC)
+        device->workarounds.tiler_renderpass_barriers = true;
+    else if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_DISABLE_TILER_SYNC)
+        device->workarounds.tiler_renderpass_barriers = false;
+    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_SUSPEND_RESUME)
+        device->workarounds.tiler_suspend_resume = true;
+    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_DISABLE_SUSPEND_RESUME)
+        device->workarounds.tiler_suspend_resume = false;
+
     /* Having to split render passes when there is a mismatch in load-store ops is unfortunate.
      * Be spec correct by default, and go a bit out of spec if we know the drivers are sensible. */
     switch (device->device_info.vulkan_1_2_properties.driverID)
@@ -3796,22 +3806,12 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
         case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
         case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
             /* Currently only relevant on Turnip really, since that's where we enable suspend-resume by default. */
-            device->workarounds.tiler_suspend_resume_relax_load_store_op = true;
+            device->workarounds.tiler_suspend_resume_relax_load_store_op = device->workarounds.tiler_suspend_resume;
             break;
 
         default:
             break;
     }
-
-    /* For testing purposes, allow us to exercise all code paths on all GPUs. */
-    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_TILER_SYNC)
-        device->workarounds.tiler_renderpass_barriers = true;
-    else if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_DISABLE_TILER_SYNC)
-        device->workarounds.tiler_renderpass_barriers = false;
-    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_SUSPEND_RESUME)
-        device->workarounds.tiler_suspend_resume = true;
-    if (vkd3d_debug_control_get_behavior_flags() & VKD3D_DEBUG_CONTROL_BEHAVIOR_DISABLE_SUSPEND_RESUME)
-        device->workarounds.tiler_suspend_resume = false;
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS)
         return;

@@ -2843,15 +2843,9 @@ struct vkd3d_rendering_info
     uint32_t state_flags;
     uint32_t rtv_mask;
 
-    /* Only relevant for suspend-resume style passes with load-store op compatibility.
-     * If we complete a render pass, use load-store-op mismatch workaround to decide on discard/resolve late. */
-    uint32_t pending_discardable_mask;
-    VkResolveModeFlagBits pending_resolves[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    VkResolveModeFlagBits pending_resolve_depth;
-    VkResolveModeFlagBits pending_resolve_stencil;
-
     /* If true, we have pending work in loadOp/resolveOp which must happen. */
     bool has_pending_render_pass_load_store_work;
+    bool keep_resolves_and_discards;
 };
 
 /* ID3D12CommandListExt */
