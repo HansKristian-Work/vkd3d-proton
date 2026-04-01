@@ -1230,6 +1230,8 @@ void test_renderpass_rendering(void)
         uint32_t sample_mask;
     } shader_args;
 
+    vkd3d_set_behavior_flags(VKD3D_DEBUG_CONTROL_BEHAVIOR_ENABLE_SUSPEND_RESUME);
+
     memset(&desc, 0, sizeof(desc));
     desc.no_render_target = true;
     desc.no_root_signature = true;
@@ -1783,6 +1785,7 @@ void test_renderpass_rendering(void)
 
     ID3D12GraphicsCommandList4_Release(command_list4);
 
+    vkd3d_set_behavior_flags(0);
     destroy_test_context(&context);
 }
 
