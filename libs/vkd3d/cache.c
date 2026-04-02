@@ -21,6 +21,7 @@
 
 #include "vkd3d_private.h"
 #include "vkd3d_shader.h"
+#include "../vkd3d-shader/vkd3d_shader_private.h"
 
 struct vkd3d_cached_pipeline_key
 {
@@ -2753,8 +2754,12 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
         {
             const struct vkd3d_shader_code dxbc = { code_list[i]->pShaderBytecode, code_list[i]->BytecodeLength };
             compat->dxbc_blob_hashes[output_index] = vkd3d_shader_hash(&dxbc);
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
-                INFO("Shader hash: %016"PRIx64".\n", compat->dxbc_blob_hashes[output_index]);
+            {
+                uint32_t checksum[4];
+                vkd3d_compute_dxbc_checksum(dxbc.code, dxbc.size, checksum);
+                INFO("DXBC shader hash: %016"PRIx64" (MD5 %08x%08x%08x%08x).\n",
+                    compat->dxbc_blob_hashes[output_index], checksum[0], checksum[1], checksum[2], checksum[3]);
+            }
             compat->dxbc_blob_hashes[output_index] = hash_fnv1_iterate_u8(compat->dxbc_blob_hashes[output_index], i);
             output_index++;
         }
