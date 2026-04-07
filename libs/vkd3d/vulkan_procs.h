@@ -200,6 +200,7 @@ VK_DEVICE_PFN(vkWaitForFences)
 VK_DEVICE_PFN(vkWaitSemaphores)
 VK_DEVICE_PFN(vkCmdSetDepthWriteEnable)
 VK_DEVICE_PFN(vkResetQueryPool)
+VK_DEVICE_PFN(vkCmdBlitImage)
 
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
