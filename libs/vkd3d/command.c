@@ -24809,7 +24809,7 @@ static HRESULT d3d12_command_signature_init_patch_commands_buffer(struct d3d12_c
         return hr;
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, signature->state_template.dgc.buffer,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 0,
             &signature->state_template.dgc.memory)))
         return hr;
 

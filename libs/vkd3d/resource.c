@@ -8161,6 +8161,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descrip
 {
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     struct d3d12_device *device = descriptor_heap->device;
+    VkMemoryAllocateFlags allocate_flags = 0;
     VkMemoryPropertyFlags property_flags;
     VkDeviceSize descriptor_count;
     VkBufferUsageFlags2KHR usage;
@@ -8256,8 +8257,14 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descrip
 
         property_flags = device->memory_info.descriptor_heap_memory_properties;
 
+        /* A freshly initialized descriptor buffer is undefined.
+         * For sake of best-effort robustness, make sure it gets zero-cleared,
+         * but don't go beyond that. */
+        if (device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory)
+            allocate_flags |= VK_MEMORY_ALLOCATE_ZERO_INITIALIZE_BIT_EXT;
+
         if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, descriptor_heap->descriptor_buffer.vk_buffer,
-                property_flags,
+                property_flags, allocate_flags,
                 &descriptor_heap->descriptor_buffer.device_allocation)))
         {
             VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->descriptor_buffer.vk_buffer, NULL));
@@ -8288,6 +8295,8 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descrip
             ERR("Failed to allocate host descriptor buffer.\n");
             return E_OUTOFMEMORY;
         }
+
+        memset(descriptor_heap->descriptor_buffer.host_allocation, 0, alloc_size);
     }
 
     descriptor_heap->descriptor_buffer.size = alloc_size;
@@ -8422,7 +8431,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
         property_flags = device->memory_info.descriptor_heap_memory_properties;
 
         if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, descriptor_heap->descriptor_buffer.vk_buffer,
-                property_flags,
+                property_flags, 0,
                 &descriptor_heap->descriptor_buffer.device_allocation)))
         {
             VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->descriptor_buffer.vk_buffer, NULL));
@@ -8772,7 +8781,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
         property_flags = device->memory_info.descriptor_heap_memory_properties;
 
         if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, descriptor_heap->vk_buffer,
-                property_flags, &descriptor_heap->device_allocation)))
+                property_flags, 0, &descriptor_heap->device_allocation)))
             return hr;
 
         if ((vr = VK_CALL(vkMapMemory(device->vk_device, descriptor_heap->device_allocation.vk_memory,
@@ -9655,7 +9664,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
         }
 
         if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, object->vk_buffer,
-                VK_MEMORY_HEAP_DEVICE_LOCAL_BIT, &object->device_allocation)))
+                VK_MEMORY_HEAP_DEVICE_LOCAL_BIT, 0, &object->device_allocation)))
         {
             VK_CALL(vkDestroyBuffer(device->vk_device, object->vk_buffer, NULL));
             vkd3d_free(object);
@@ -10174,7 +10183,7 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
     }
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_descriptor_buffer->resource.vk_buffer,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0,
             &global_descriptor_buffer->resource.device_allocation)))
     {
         vkd3d_global_descriptor_buffer_cleanup(global_descriptor_buffer, device);
@@ -10194,7 +10203,7 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
     }
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_descriptor_buffer->sampler.vk_buffer,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0,
             &global_descriptor_buffer->sampler.device_allocation)))
     {
         vkd3d_global_descriptor_buffer_cleanup(global_descriptor_buffer, device);
