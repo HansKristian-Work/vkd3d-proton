@@ -190,6 +190,7 @@ struct vkd3d_vulkan_info
     bool EXT_opacity_micromap;
     bool EXT_shader_float8;
     bool EXT_present_timing;
+    bool EXT_descriptor_heap;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -5035,6 +5036,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMaintenance5PropertiesKHR maintenance_5_properties;
     VkPhysicalDeviceMaintenance6PropertiesKHR maintenance_6_properties;
     VkPhysicalDeviceMaintenance7PropertiesKHR maintenance_7_properties;
+    VkPhysicalDeviceDescriptorHeapPropertiesEXT descriptor_heap_properties;
     /* the ID of the layer implementation if running layered */
     VkDriverId layer_driver_id;
     VkPhysicalDeviceLineRasterizationPropertiesEXT line_rasterization_properties;
@@ -5111,6 +5113,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDevicePresentId2FeaturesKHR present_id2_features;
     VkPhysicalDevicePresentWait2FeaturesKHR present_wait2_features;
     VkPhysicalDevicePresentTimingFeaturesEXT present_timing_features;
+    VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptor_heap_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
