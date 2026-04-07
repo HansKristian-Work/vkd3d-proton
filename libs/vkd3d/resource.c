@@ -8157,6 +8157,144 @@ CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
     d3d12_descriptor_heap_GetGPUDescriptorHandleForHeapStart,
 };
 
+static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descriptor_heap *descriptor_heap)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
+    struct d3d12_device *device = descriptor_heap->device;
+    VkMemoryPropertyFlags property_flags;
+    VkDeviceSize descriptor_count;
+    VkBufferUsageFlags2KHR usage;
+    VkDeviceSize alloc_size;
+    VkResult vr;
+    HRESULT hr;
+
+    if (descriptor_heap->desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+            descriptor_heap->desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+        return S_OK;
+
+    descriptor_count = descriptor_heap->desc.NumDescriptors;
+
+    /* Sampler heap layout is trivial:
+     * Lower 2k bank for samplers.
+     * Upper 2k bank for reserved embedded. */
+
+    /* Shader visible resource heap is a bit more complex:
+     * - Redzone of up to 4 SSBOs. Stores SSBO pointing to own heap.
+     * - N descriptors. (heapOffset is used in root signature to shift out of redzone)
+     * - 1 dummy descriptor to serve as universal NULL descriptor for robustness hackery.
+     * - Reservation region
+     */
+
+    if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    {
+        alloc_size = device->bindless_state.cbv_srv_uav_size * descriptor_count;
+
+        if (!(descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+        {
+            if (device->bindless_state.packed_metadata_offset == 0)
+            {
+                /* Need to store planar metadata. */
+                alloc_size += device->bindless_state.cbv_srv_uav_size *
+                    (1u << vkd3d_log2i_ceil(max(1u, descriptor_count)));
+            }
+        }
+        else
+        {
+            /* At the beginning of the heap, store some magic. */
+            alloc_size += device->bindless_state.heap.redzone_size;
+
+            alloc_size = align64(alloc_size, device->bindless_state.cbv_srv_uav_size);
+
+            /* Allocate some space for clamped NULL descriptor
+             * (only relevant if we're doing some form of workaround or QA checks). */
+            alloc_size += device->bindless_state.cbv_srv_uav_size;
+
+            /* Align for start of reservation region. */
+            alloc_size = align64(alloc_size, device->device_info.descriptor_heap_properties.resourceHeapAlignment);
+            descriptor_heap->descriptor_buffer.reserved_offset = alloc_size;
+            alloc_size += device->device_info.descriptor_heap_properties.minResourceHeapReservedRange;
+
+            if (alloc_size > device->device_info.descriptor_heap_properties.maxResourceHeapSize)
+            {
+                /* Should not happen. */
+                ERR("Resource heap is allocated with too large size, %"PRIu64" > %"PRIu64".\n",
+                        alloc_size, device->device_info.descriptor_heap_properties.maxResourceHeapSize);
+                return E_OUTOFMEMORY;
+            }
+        }
+    }
+    else
+    {
+        alloc_size = device->bindless_state.sampler_size;
+        alloc_size *= descriptor_count;
+
+        if (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+        {
+            alloc_size = align64(alloc_size, device->device_info.descriptor_heap_properties.samplerHeapAlignment);
+            descriptor_heap->descriptor_buffer.reserved_offset = alloc_size;
+            alloc_size += device->device_info.descriptor_heap_properties.minSamplerHeapReservedRangeWithEmbedded;
+
+            if (alloc_size > device->device_info.descriptor_heap_properties.maxSamplerHeapSize)
+            {
+                /* Should not happen. */
+                ERR("Sampler heap is allocated with too large size, %"PRIu64" > %"PRIu64".\n",
+                        alloc_size, device->device_info.descriptor_heap_properties.maxSamplerHeapSize);
+                return E_OUTOFMEMORY;
+            }
+        }
+    }
+
+    if (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+    {
+        usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT;
+        if (device->bindless_state.heap.redzone_size)
+            usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+        if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, usage, alloc_size,
+                "descriptor-buffer", &descriptor_heap->descriptor_buffer.vk_buffer)))
+            return hr;
+
+        property_flags = device->memory_info.descriptor_heap_memory_properties;
+
+        if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, descriptor_heap->descriptor_buffer.vk_buffer,
+                property_flags,
+                &descriptor_heap->descriptor_buffer.device_allocation)))
+        {
+            VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->descriptor_buffer.vk_buffer, NULL));
+            descriptor_heap->descriptor_buffer.vk_buffer = VK_NULL_HANDLE;
+            return hr;
+        }
+
+        descriptor_heap->descriptor_buffer.va =
+                vkd3d_get_buffer_device_address(device, descriptor_heap->descriptor_buffer.vk_buffer);
+
+        if ((vr = VK_CALL(vkMapMemory(device->vk_device,
+                descriptor_heap->descriptor_buffer.device_allocation.vk_memory,
+                0, VK_WHOLE_SIZE, 0, (void**)&descriptor_heap->descriptor_buffer.host_allocation))))
+        {
+            ERR("Failed to map descriptor set memory.\n");
+            vkd3d_free_device_memory(device, &descriptor_heap->descriptor_buffer.device_allocation);
+            VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->descriptor_buffer.vk_buffer, NULL));
+            return hresult_from_vk_result(vr);
+        }
+    }
+    else
+    {
+        descriptor_heap->descriptor_buffer.host_allocation = vkd3d_malloc_aligned(alloc_size,
+                device->device_info.properties2.properties.limits.nonCoherentAtomSize);
+
+        if (!descriptor_heap->descriptor_buffer.host_allocation)
+        {
+            ERR("Failed to allocate host descriptor buffer.\n");
+            return E_OUTOFMEMORY;
+        }
+    }
+
+    descriptor_heap->descriptor_buffer.size = alloc_size;
+
+    return S_OK;
+}
+
 static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descriptor_heap *descriptor_heap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
@@ -8868,33 +9006,40 @@ static void d3d12_descriptor_heap_add_null_descriptor_template_descriptors(
     descriptor_heap->null_descriptor_template.set_info_mask |= 1u << set_info_index;
 }
 
-static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
+static void d3d12_descriptor_heap_write_redzone_descriptors(
+        struct d3d12_descriptor_heap *descriptor_heap, struct d3d12_device *device)
+{
+    uint8_t *host_memory = descriptor_heap->descriptor_buffer.host_allocation;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkResourceDescriptorInfoEXT desc_info;
+    VkDeviceAddressRangeEXT ssbo_range;
+    VkHostAddressRangeEXT desc_range;
+
+    /* If we don't need redzone descriptors, just skip it. */
+    if (!device->bindless_state.heap.redzone_size)
+        return;
+
+    memset(&desc_info, 0, sizeof(desc_info));
+    desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    desc_info.data.pAddressRange = &ssbo_range;
+
+    ssbo_range.address = descriptor_heap->descriptor_buffer.va + device->bindless_state.heap.redzone_size;
+    ssbo_range.size = descriptor_heap->desc.NumDescriptors * device->bindless_state.cbv_srv_uav_size;
+    desc_range.address = host_memory;
+    desc_range.size = device->device_info.descriptor_heap_properties.bufferDescriptorSize;
+
+    VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+
+    /* TODO: Can write QA descriptors here as well. For now we fallback to legacy path if we need pure debug options. */
+}
+
+static HRESULT d3d12_descriptor_heap_init_legacy(struct d3d12_descriptor_heap *descriptor_heap,
         struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
     uint32_t fast_bank_pointer_index = 0;
     unsigned int i;
     HRESULT hr;
-
-    memset(descriptor_heap, 0, sizeof(*descriptor_heap));
-    descriptor_heap->ID3D12DescriptorHeap_iface.lpVtbl = &d3d12_descriptor_heap_vtbl;
-    descriptor_heap->refcount = 1;
-    descriptor_heap->device = device;
-    descriptor_heap->desc = *desc;
-
-    if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
-        descriptor_heap->gpu_va = d3d12_device_get_descriptor_heap_gpu_va(device, desc->Type);
-
-    if (d3d12_device_uses_descriptor_buffers(device))
-    {
-        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_buffer(descriptor_heap)))
-            goto fail;
-    }
-    else
-    {
-        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_pool(descriptor_heap,
-                &descriptor_heap->vk_descriptor_pool)))
-            goto fail;
-    }
 
     if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
             desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
@@ -8909,7 +9054,7 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
                 {
                     if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_set(descriptor_heap,
                             set_info, &descriptor_heap->sets[set_info->set_index].vk_descriptor_set)))
-                        goto fail;
+                        return hr;
                 }
 
                 d3d12_descriptor_heap_get_host_mapping(descriptor_heap, set_info, set_info->set_index);
@@ -8936,13 +9081,58 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
     }
 
     if (FAILED(hr = d3d12_descriptor_heap_init_data_buffer(descriptor_heap, device, desc)))
-        goto fail;
+        return hr;
 
     if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
         descriptor_heap->fast_pointer_bank[fast_bank_pointer_index++] = descriptor_heap->raw_va_aux_buffer.host_ptr;
 
     if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
         d3d12_descriptor_heap_update_extra_bindings(descriptor_heap, device);
+
+    return S_OK;
+}
+
+static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
+        struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
+{
+    HRESULT hr;
+
+    memset(descriptor_heap, 0, sizeof(*descriptor_heap));
+    descriptor_heap->ID3D12DescriptorHeap_iface.lpVtbl = &d3d12_descriptor_heap_vtbl;
+    descriptor_heap->refcount = 1;
+    descriptor_heap->device = device;
+    descriptor_heap->desc = *desc;
+
+    if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+        descriptor_heap->gpu_va = d3d12_device_get_descriptor_heap_gpu_va(device, desc->Type);
+
+    if (d3d12_device_use_descriptor_heap(device))
+    {
+        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_heap(descriptor_heap)))
+            goto fail;
+    }
+    else if (d3d12_device_uses_descriptor_buffers(device))
+    {
+        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_buffer(descriptor_heap)))
+            goto fail;
+    }
+    else
+    {
+        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_pool(descriptor_heap,
+                &descriptor_heap->vk_descriptor_pool)))
+            goto fail;
+    }
+
+    /* Legacy junk that deals with mapping sets to the descriptor buffer. */
+    if (!d3d12_device_use_descriptor_heap(device))
+        if (FAILED(hr = d3d12_descriptor_heap_init_legacy(descriptor_heap, device, desc)))
+            goto fail;
+
+    if (d3d12_device_use_descriptor_heap(device) && desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+        (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+    {
+        d3d12_descriptor_heap_write_redzone_descriptors(descriptor_heap, device);
+    }
 
     if (FAILED(hr = vkd3d_private_store_init(&descriptor_heap->private_store)))
         goto fail;
@@ -9120,11 +9310,21 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
     {
         if (d3d12_device_use_embedded_mutable_descriptors(device))
         {
-            /* Need to guarantee that this offset is aligned to 32 byte.
-             * We're guaranteed the base allocation is aligned, but to align the mutable descriptor binding itself,
-             * we might need to get creative.
-             * We can tweak the descriptor set layout such that we get an aligned offset, however. */
-            object->cpu_va.ptr = (SIZE_T)object->sets[0].mapped_set;
+            if (d3d12_device_use_descriptor_heap(device))
+            {
+                object->cpu_va.ptr = (SIZE_T)object->descriptor_buffer.host_allocation;
+                if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+                    object->cpu_va.ptr += device->bindless_state.heap.redzone_size;
+            }
+            else
+            {
+                /* Need to guarantee that this offset is aligned to 32 byte.
+                 * We're guaranteed the base allocation is aligned, but to align the mutable descriptor binding itself,
+                 * we might need to get creative.
+                 * We can tweak the descriptor set layout such that we get an aligned offset, however. */
+                object->cpu_va.ptr = (SIZE_T)object->sets[0].mapped_set;
+            }
+
             assert(!(object->cpu_va.ptr & VKD3D_RESOURCE_EMBEDDED_METADATA_OFFSET_LOG2_MASK));
 
             if (!(desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) &&
