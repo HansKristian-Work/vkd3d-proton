@@ -1265,6 +1265,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     dxil_spv_shader_stage stage;
     unsigned int i, max_size;
     vkd3d_shader_hash_t hash;
+    const char *quirk_entry;
     int ret = VKD3D_OK;
     void *code;
 
@@ -1281,7 +1282,24 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
         return ret;
     }
-    quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash);
+
+    dxil_spv_begin_thread_allocator_context();
+
+    vkd3d_shader_dump_shader(hash, dxbc, is_dxil ? "dxil" : "dxbc");
+
+    if (dxil_spv_parse_dxil_blob(dxbc->code, dxbc->size, &blob) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_SHADER;
+        goto end;
+    }
+
+    if (dxil_spv_parsed_blob_get_entry_point_demangled_name(blob, 0, &quirk_entry) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_SHADER;
+        goto end;
+    }
+
+    quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash, quirk_entry);
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER)
@@ -1294,16 +1312,6 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS;
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS;
-
-    dxil_spv_begin_thread_allocator_context();
-
-    vkd3d_shader_dump_shader(hash, dxbc, is_dxil ? "dxil" : "dxbc");
-
-    if (dxil_spv_parse_dxil_blob(dxbc->code, dxbc->size, &blob) != DXIL_SPV_SUCCESS)
-    {
-        ret = VKD3D_ERROR_INVALID_SHADER;
-        goto end;
-    }
 
     stage = dxil_spv_parsed_blob_get_shader_stage(blob);
     if (!dxil_match_shader_stage(stage, shader_interface_info->stage))
@@ -1516,7 +1524,17 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     hash = vkd3d_shader_hash(dxil);
     spirv->meta.hash = hash;
 
-    quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash);
+    /* For user provided (not mangled) export names, just inherit that name. */
+    if (!demangled_export)
+        demangled_export = export;
+
+    if (demangled_export && vkd3d_shader_replace_export(hash, &spirv->code, &spirv->size, demangled_export))
+    {
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
+        return ret;
+    }
+
+    quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash, demangled_export);
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER)
@@ -1527,16 +1545,6 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH;
     if (quirks & VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS;
-
-    /* For user provided (not mangled) export names, just inherit that name. */
-    if (!demangled_export)
-        demangled_export = export;
-
-    if (demangled_export && vkd3d_shader_replace_export(hash, &spirv->code, &spirv->size, demangled_export))
-    {
-        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
-        return ret;
-    }
 
     dxil_spv_begin_thread_allocator_context();
 

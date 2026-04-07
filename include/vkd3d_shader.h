@@ -551,14 +551,15 @@ typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
 {
+    const char *entry;
     vkd3d_shader_hash_t shader_hash;
     vkd3d_shader_quirks_t quirks;
 };
 
 struct vkd3d_shader_quirk_info
 {
-    const struct vkd3d_shader_quirk_hash *hashes;
-    unsigned int num_hashes;
+    const struct vkd3d_shader_quirk_hash *entry_points;
+    unsigned int num_entry_points;
     vkd3d_shader_quirks_t default_quirks;
 
     /* Quirks which are ORed in with the other masks (including default_quirks).
@@ -1180,7 +1181,8 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const struct vkd3d_shader_compile_arguments *compiler_args);
 
 vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
-        const struct vkd3d_shader_compile_arguments *args, vkd3d_shader_hash_t hash);
+        const struct vkd3d_shader_compile_arguments *args,
+        vkd3d_shader_hash_t hash, const char *entry);
 
 uint64_t vkd3d_shader_get_revision(void);
 
