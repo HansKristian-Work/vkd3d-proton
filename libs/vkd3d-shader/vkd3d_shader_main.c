@@ -473,7 +473,8 @@ static void vkd3d_shader_init_quirk_table(void)
 static pthread_once_t vkd3d_shader_quirk_once = PTHREAD_ONCE_INIT;
 
 vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
-        const struct vkd3d_shader_compile_arguments *compile_args, vkd3d_shader_hash_t shader_hash)
+        const struct vkd3d_shader_compile_arguments *compile_args,
+        vkd3d_shader_hash_t shader_hash, const char *entry)
 {
     vkd3d_shader_quirks_t quirks = 0;
     unsigned int i;
@@ -492,9 +493,16 @@ vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
 
     if (compile_args && compile_args->quirks)
     {
-        for (i = 0; i < compile_args->quirks->num_hashes; i++)
-            if (compile_args->quirks->hashes[i].shader_hash == shader_hash)
-                return quirks | compile_args->quirks->hashes[i].quirks | compile_args->quirks->global_quirks;
+        for (i = 0; i < compile_args->quirks->num_entry_points; i++)
+        {
+            const char *quirk_entry = compile_args->quirks->entry_points[i].entry;
+            if (compile_args->quirks->entry_points[i].shader_hash == shader_hash ||
+                (entry && quirk_entry && !strcmp(entry, quirk_entry)))
+            {
+                return quirks | compile_args->quirks->entry_points[i].quirks | compile_args->quirks->global_quirks;
+            }
+        }
+
         return quirks | compile_args->quirks->default_quirks | compile_args->quirks->global_quirks;
     }
     else

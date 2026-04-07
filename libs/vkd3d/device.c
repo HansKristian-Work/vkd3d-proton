@@ -732,13 +732,13 @@ struct vkd3d_shader_quirk_meta
 };
 
 static const struct vkd3d_shader_quirk_hash ue4_hashes[] = {
-    { 0x08a323ee81c1e393ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { 0x75dcbd76ee898815ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { 0x6c37b5a66059b751ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { 0xaf6d07d7b56a3effull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { 0xa48ead2a618e12d8ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { 0xebfd864995d3fc07ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { 0xcca7b582db60199cull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+    { NULL, 0x08a323ee81c1e393ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+    { NULL, 0x75dcbd76ee898815ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+    { NULL, 0x6c37b5a66059b751ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+    { NULL, 0xaf6d07d7b56a3effull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+    { NULL, 0xa48ead2a618e12d8ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+    { NULL, 0xebfd864995d3fc07ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+    { NULL, 0xcca7b582db60199cull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
 };
 
 static const struct vkd3d_shader_quirk_info ue4_quirks = {
@@ -753,7 +753,7 @@ static const struct vkd3d_shader_quirk_hash borderlands3_hashes[] = {
     /* Shader breaks due to floor(a / exp(x)) being refactored to floor(a * exp(-x))
      * and shader does not expect this.
      * See https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/19910. */
-    { 0xbf0af7db6a7fb86bull, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH },
+    { NULL, 0xbf0af7db6a7fb86bull, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH },
 };
 
 static const struct vkd3d_shader_quirk_info borderlands3_quirks = {
@@ -774,16 +774,16 @@ static const struct vkd3d_shader_quirk_info atelier_yumia_quirks = {
  * Just pretend the subgroup size is non-sensical to use the normal FFX CACAO code path. */
 static const struct vkd3d_shader_quirk_hash re_hashes[] = {
     /* RE4 */
-    { 0xa100b53736f9c1bfull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
+    { NULL, 0xa100b53736f9c1bfull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
     /* RE2 and RE7 */
-    { 0x1c4c8782b75c498bull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
+    { NULL, 0x1c4c8782b75c498bull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
     /* Temporary driver workaround for RADV. See https://gitlab.freedesktop.org/mesa/mesa/-/issues/9852. */
     /* This shader trips on Mesa 23.0.3. */
-    { 0xdb1593ced60da3f1ull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
+    { NULL, 0xdb1593ced60da3f1ull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
     /* This shader hangs on Mesa main. */
-    { 0x5784e9e2f7a76819ull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
+    { NULL, 0x5784e9e2f7a76819ull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
     /* This shader hangs on RDNA1 */
-    { 0x7b3cec4ba6d32cacull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
+    { NULL, 0x7b3cec4ba6d32cacull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
 };
 
 static const struct vkd3d_shader_quirk_info re_quirks = {
@@ -800,7 +800,7 @@ static const struct vkd3d_shader_quirk_hash mhr_hashes[] = {
     /* Shader is extremely sensitive to nocontract behavior.
      * There some places where catastrophic cancellation occurs
      * and one ULP difference is the difference between blown out bloom and not. */
-    { 0xd892f8024f52d3ca, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH },
+    { NULL, 0xd892f8024f52d3ca, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH },
 };
 
 static const struct vkd3d_shader_quirk_info mhr_quirks = {
@@ -812,7 +812,7 @@ static const struct vkd3d_shader_quirk_hash witcher3_hashes[] = {
      * by a VS -> tess -> geom pass that writes out data to a UAV in the GS.
      * There appears to be missing synchronization here by game (no UAV -> VBO barrier) and
      * forcing barriers fixes a ton of glitches on both NV and RADV. */
-    { 0x2c16686e5d9b04a8, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
+    { NULL, 0x2c16686e5d9b04a8, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info witcher3_quirks = {
@@ -827,7 +827,7 @@ static const struct vkd3d_shader_quirk_hash ac_mirage_hashes[] = {
     /* There is a write-after-read hazard.
      * Index buffer is being read from, and there is a compute shader afterwards
      * that writes to that index buffer without a barrier. */
-    { 0x0cb130fa374982e3, VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER },
+    { NULL, 0x0cb130fa374982e3, VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info ac_mirage_quirks = {
@@ -838,7 +838,7 @@ static const struct vkd3d_shader_quirk_hash ffxvi_hashes[] = {
     /* On RADV 24.1.6 RDNA3, we seem to be plagued with a compiler bug/hardware quirk.
      * It works on main, but only by chance.
      * https://gitlab.freedesktop.org/mesa/mesa/-/issues/11738. */
-    { 0xa98606e01cdd5924, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
+    { NULL, 0xa98606e01cdd5924, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
 };
 
 static const struct vkd3d_shader_quirk_info ffxvi_quirks = {
@@ -860,7 +860,7 @@ static const struct vkd3d_shader_quirk_hash tfd_hashes[] = {
     /* ReflectionCaptureFilteredImportanceSamplingCS is somewhat broken as it assumes
      * that the lowest res mips are valid, but they are never written to by ReflectionCaptureGenerateMipmapCS.
      * It stops at 8x8 (the workgroup size). The workaround just clamps the explicit LOD to whatever mips is 8x8. */
-    { 0x74b8eaf23e3d166c, VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS },
+    { NULL, 0x74b8eaf23e3d166c, VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS },
 };
 
 static const struct vkd3d_shader_quirk_info tfd_quirks = {
@@ -879,9 +879,9 @@ static const struct vkd3d_shader_quirk_info starfield_quirks = {
 static const struct vkd3d_shader_quirk_hash rebirth_hashes[] = {
     /* GenerateMassiveEnvironmentBatchedNodesCS(). Missing barrier after a CS based clear.
      * Exactly same bug as before, but then it was ComputeBatchedMeshletOffsetsCS(). */
-    { 0xe6cb9c843fa1bd18, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
+    { NULL, 0xe6cb9c843fa1bd18, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
     /* 1.003 update. Hash changed, but didn't fix the bug. */
-    { 0xf047c7f2f4f32111, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
+    { NULL, 0xf047c7f2f4f32111, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info rebirth_quirks = {
@@ -891,7 +891,7 @@ static const struct vkd3d_shader_quirk_info rebirth_quirks = {
 /* Game misses a transition from color to resource before FSR3.
  * The shader hash is FSR3-PREPARE-INPUTS. */
 static const struct vkd3d_shader_quirk_hash satisfactory_hashes[] = {
-    { 0x1bc3c90cfe16ad1e, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER },
+    { NULL, 0x1bc3c90cfe16ad1e, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info satisfactory_quirks = {
@@ -901,7 +901,7 @@ static const struct vkd3d_shader_quirk_info satisfactory_quirks = {
 static const struct vkd3d_shader_quirk_hash deadspace_hashes[] = {
     /* Shader calculates derivatives in non-uniform control flow,
      * leading to NaN pixels on Nvidia GPUs. */
-    { 0x8b981fdafe14b649, VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES },
+    { NULL, 0x8b981fdafe14b649, VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES },
 };
 
 static const struct vkd3d_shader_quirk_info deadspace_quirks = {
@@ -910,7 +910,7 @@ static const struct vkd3d_shader_quirk_info deadspace_quirks = {
 
 static const struct vkd3d_shader_quirk_hash death_stranding_hashes[] = {
     /* Game forgets to transition RENDER_TARGET to PIXEL_SHADER_RESOURCE. */
-    { 0x014fa51aaa3f3139, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
+    { NULL, 0x014fa51aaa3f3139, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
 };
 
 static const struct vkd3d_shader_quirk_info death_stranding_quirks = {
@@ -919,7 +919,7 @@ static const struct vkd3d_shader_quirk_info death_stranding_quirks = {
 
 static const struct vkd3d_shader_quirk_hash wuthering_waves_hashes[] = {
     /* LightGridInjectionCS. Forgets to UAV barrier after ClearCS. */
-    { 0x0e31f94fee8016dd, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
+    { "LightGridInjectionCS", 0, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info wuthering_waves_quirks = {
@@ -933,8 +933,8 @@ static const struct vkd3d_shader_quirk_info dune_quirks = {
 static const struct vkd3d_shader_quirk_hash bl4_hashes[] = {
     /* See Mesa issue 13981. Impossible looking HW bug on RDNA2 specifically
      * caused by NSA image_sample_d. */
-    { 0x3b9937c41027ca73, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
-    { 0x0bf58981278d2126, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
+    { NULL, 0x3b9937c41027ca73, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
+    { NULL, 0x0bf58981278d2126, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
 };
 
 static const struct vkd3d_shader_quirk_info bl4_quirks = {
@@ -945,7 +945,7 @@ static const struct vkd3d_shader_quirk_hash control_hashes[] = {
     /* A closest hit shader is doing x / sqrt(dot(x, x)) where X is 0.
      * It's fetching positions from a buffer from SBT root descriptors, so
      * this doesn't 100% prove a game bug, but it's overwhelmingly likely. */
-    { 0xdb22fce4505969f2, VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN },
+    { NULL, 0xdb22fce4505969f2, VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN },
 };
 
 static const struct vkd3d_shader_quirk_info control_quirks = {
@@ -954,7 +954,7 @@ static const struct vkd3d_shader_quirk_info control_quirks = {
 
 static const struct vkd3d_shader_quirk_hash rottr_hashes[] = {
     /* Game forgets to transition depth to pixel shader resource. */
-    { 0x7d1af7d0c7d63856, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
+    { NULL, 0x7d1af7d0c7d63856, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
 };
 
 static const struct vkd3d_shader_quirk_info rottr_quirks = {
@@ -963,7 +963,7 @@ static const struct vkd3d_shader_quirk_info rottr_quirks = {
 
 static const struct vkd3d_shader_quirk_hash hfw_hashes[] = {
     /* Classic case of a clear CS that is followed up by overwriting it without proper barrier. */
-    { 0x548a3de5dc3828ef, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
+    { NULL, 0x548a3de5dc3828ef, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info hfw_quirks = {
@@ -972,7 +972,7 @@ static const struct vkd3d_shader_quirk_info hfw_quirks = {
 
 /* Misses some sync with depth in SSDM_FillHolesDepthDisplacementPS */
 static const struct vkd3d_shader_quirk_hash crimson_desert_hashes[] = {
-    { 0xa2e7501dea1487da, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
+    { "SSDM_FillHolesDepthDisplacementPS", 0, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
 };
 
 static const struct vkd3d_shader_quirk_info crimson_desert_quirks = {
@@ -989,7 +989,7 @@ static const struct vkd3d_shader_quirk_info ds2_quirks = {
 };
 
 static const struct vkd3d_shader_quirk_hash spiderman2_hashes[] = {
-    { 0x324071d329f05ccc, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
+    { NULL, 0x324071d329f05ccc, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
 };
 
 static const struct vkd3d_shader_quirk_info spiderman2_quirks = {
@@ -10316,13 +10316,14 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
 
     key = hash_fnv1_iterate_u32(key, quirk_info->global_quirks);
     key = hash_fnv1_iterate_u32(key, quirk_info->default_quirks);
-    key = hash_fnv1_iterate_u32(key, quirk_info->num_hashes);
+    key = hash_fnv1_iterate_u32(key, quirk_info->num_entry_points);
     /* If apps attempt to use the same shader cache with different executables, we might end up with different
      * quirk tables due to app workarounds, so hash that too. */
-    for (i = 0; i < quirk_info->num_hashes; i++)
+    for (i = 0; i < quirk_info->num_entry_points; i++)
     {
-        key = hash_fnv1_iterate_u64(key, quirk_info->hashes[i].shader_hash);
-        key = hash_fnv1_iterate_u32(key, quirk_info->hashes[i].quirks);
+        key = hash_fnv1_iterate_u64(key, quirk_info->entry_points[i].shader_hash);
+        key = hash_fnv1_iterate_u32(key, quirk_info->entry_points[i].quirks);
+        key = hash_fnv1_iterate_string(key, quirk_info->entry_points[i].entry ? quirk_info->entry_points[i].entry : "");
     }
 
     for (i = 0; i < device->vk_info.shader_extension_count; i++)

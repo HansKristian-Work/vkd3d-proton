@@ -9220,8 +9220,8 @@ bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *devi
     /* If we use descriptor heap robustness, reserve a dummy descriptor we can use
      * as fake NULL descriptor. */
     quirks = device->workarounds.quirks.default_quirks | device->workarounds.quirks.global_quirks;
-    for (i = 0; i < device->workarounds.quirks.num_hashes; i++)
-        quirks |= device->workarounds.quirks.hashes[i].quirks;
+    for (i = 0; i < device->workarounds.quirks.num_entry_points; i++)
+        quirks |= device->workarounds.quirks.entry_points[i].quirks;
     return !!(quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS);
 }
 
