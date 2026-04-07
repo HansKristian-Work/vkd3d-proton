@@ -1583,6 +1583,8 @@ struct d3d12_descriptor_heap
     {
         VkBuffer vk_buffer;
         VkDeviceAddress va;
+        VkDeviceSize size;
+        VkDeviceSize reserved_offset;
         struct vkd3d_device_memory_allocation device_allocation;
         uint8_t *host_allocation;
         VkDeviceSize offsets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
