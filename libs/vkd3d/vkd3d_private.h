@@ -201,10 +201,8 @@ struct vkd3d_vulkan_info
     bool NVX_image_view_handle;
     bool NV_compute_shader_derivatives;
     bool NV_device_diagnostic_checkpoints;
-    bool NV_device_generated_commands;
     bool NV_shader_subgroup_partitioned;
     bool NV_memory_decompression;
-    bool NV_device_generated_commands_compute;
     bool NV_low_latency2;
     bool NV_raw_access_chains;
     bool NV_cooperative_matrix2;
@@ -3763,10 +3761,8 @@ struct d3d12_command_signature
             VkBuffer buffer;
             VkDeviceAddress buffer_va;
             struct vkd3d_device_memory_allocation memory;
-            VkIndirectCommandsLayoutNV layout_implicit_nv;
-            VkIndirectCommandsLayoutNV layout_preprocess_nv;
-            VkIndirectCommandsLayoutEXT layout_implicit_ext;
-            VkIndirectCommandsLayoutEXT layout_preprocess_ext;
+            VkIndirectCommandsLayoutEXT layout_implicit;
+            VkIndirectCommandsLayoutEXT layout_preprocess;
             uint32_t stride;
             struct vkd3d_execute_indirect_info pipeline;
         } dgc;
@@ -3776,7 +3772,6 @@ struct d3d12_command_signature
             uint32_t dispatch_offset_words;
         } compute;
     } state_template;
-    bool requires_state_template_dgc;
     bool requires_state_template;
     enum vkd3d_pipeline_type pipeline_type;
 
@@ -4239,8 +4234,7 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO            = (1u << 8),
     VKD3D_BINDLESS_MUTABLE_EMBEDDED                 = (1u << 9),
     VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA = (1u << 10),
-    VKD3D_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO    = (1u << 11),
-    VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED     = (1u << 12),
+    VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED     = (1u << 11),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
@@ -4718,23 +4712,10 @@ struct vkd3d_multi_dispatch_indirect_args
     uint32_t max_commands;
 };
 
-struct vkd3d_multi_dispatch_indirect_state_args
-{
-    VkDeviceAddress indirect_va;
-    VkDeviceAddress count_va;
-    VkDeviceAddress dispatch_va;
-    VkDeviceAddress root_parameters_va;
-    VkDeviceAddress root_parameter_template_va;
-    uint32_t stride_words;
-    uint32_t dispatch_offset_words;
-};
-
 struct vkd3d_multi_dispatch_indirect_ops
 {
     VkPipelineLayout vk_multi_dispatch_indirect_layout;
-    VkPipelineLayout vk_multi_dispatch_indirect_state_layout;
     VkPipeline vk_multi_dispatch_indirect_pipeline;
-    VkPipeline vk_multi_dispatch_indirect_state_pipeline;
 };
 
 struct vkd3d_execute_indirect_args
@@ -4942,8 +4923,6 @@ void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
 
 void vkd3d_meta_get_multi_dispatch_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
         struct vkd3d_multi_dispatch_indirect_info *info);
-void vkd3d_meta_get_multi_dispatch_indirect_state_pipeline(struct vkd3d_meta_ops *meta_ops,
-        struct vkd3d_multi_dispatch_indirect_info *info);
 
 static inline uint32_t vkd3d_meta_get_multi_dispatch_indirect_workgroup_size(void)
 {
@@ -5012,8 +4991,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties;
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
     VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
-    VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV device_generated_commands_properties_nv;
-    VkPhysicalDeviceDeviceGeneratedCommandsPropertiesEXT device_generated_commands_properties_ext;
+    VkPhysicalDeviceDeviceGeneratedCommandsPropertiesEXT device_generated_commands_properties;
     VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties;
     VkPhysicalDeviceShaderModuleIdentifierPropertiesEXT shader_module_identifier_properties;
     VkPhysicalDeviceDescriptorBufferPropertiesEXT descriptor_buffer_properties;
@@ -5053,8 +5031,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
     VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR ray_tracing_maintenance1_features;
-    VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV device_generated_commands_features_nv;
-    VkPhysicalDeviceDeviceGeneratedCommandsFeaturesEXT device_generated_commands_features_ext;
+    VkPhysicalDeviceDeviceGeneratedCommandsFeaturesEXT device_generated_commands_features;
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features;
     VkPhysicalDeviceShaderModuleIdentifierFeaturesEXT shader_module_identifier_features;
     VkPhysicalDevicePresentIdFeaturesKHR present_id_features;
@@ -5068,7 +5045,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_device_memory_features;
     VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT dynamic_rendering_unused_attachments_features;
     VkPhysicalDeviceMemoryDecompressionFeaturesNV memory_decompression_features;
-    VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV device_generated_commands_compute_features_nv;
     VkPhysicalDeviceMaintenance5FeaturesKHR maintenance_5_features;
     VkPhysicalDeviceMaintenance6FeaturesKHR maintenance_6_features;
     VkPhysicalDeviceMaintenance7FeaturesKHR maintenance_7_features;

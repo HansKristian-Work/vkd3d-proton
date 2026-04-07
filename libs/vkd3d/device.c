@@ -144,10 +144,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_DISABLE_COND(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle, VKD3D_CONFIG_FLAG_NO_NVX),
     VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
     VK_EXTENSION_COND(NV_DEVICE_DIAGNOSTIC_CHECKPOINTS, NV_device_diagnostic_checkpoints, VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE),
-    VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS, NV_device_generated_commands),
     VK_EXTENSION(NV_SHADER_SUBGROUP_PARTITIONED, NV_shader_subgroup_partitioned),
     VK_EXTENSION(NV_MEMORY_DECOMPRESSION, NV_memory_decompression),
-    VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS_COMPUTE, NV_device_generated_commands_compute),
     VK_EXTENSION_VERSION(NV_LOW_LATENCY_2, NV_low_latency2, 2),
     VK_EXTENSION(NV_RAW_ACCESS_CHAINS, NV_raw_access_chains),
     VK_EXTENSION(NV_COOPERATIVE_MATRIX_2, NV_cooperative_matrix2),
@@ -604,8 +602,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "HaloInfinite.exe",
             VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV |
             VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS |
-            VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV |
-            VKD3D_CONFIG_FLAG_DISABLE_DGCC, 0 },
+            VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* (1182900) Workaround amdgpu kernel bug with host memory import and concurrent submissions. */
     { VKD3D_STRING_COMPARE_EXACT, "APlagueTaleRequiem_x64.exe",
             VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION, 0 },
@@ -650,7 +647,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "RDR.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* Starfield (1716740) */
     { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe",
-            VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
+            VKD3D_CONFIG_FLAG_HUGE_NV_DGC_BUFFERS | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
     /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
     { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", 0, 0, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
     /* Basically never bothers doing initial transitions.
@@ -1276,7 +1273,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"preallocate_srv_mip_clamps", VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS},
     {"force_initial_transition", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION},
     {"breadcrumbs_trace", VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE},
-    {"requires_compute_indirect_templates", VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES},
     {"skip_driver_workarounds", VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS},
     {"enable_experimental_features", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES},
     {"reject_padded_small_resource_alignment", VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT},
@@ -1832,17 +1828,6 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
 
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
     {
-        if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
-                device->vk_info.NV_device_generated_commands_compute &&
-                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_DGCC))
-        {
-            device->vk_info.NV_device_generated_commands_compute = false;
-            device->vk_info.EXT_device_generated_commands = false;
-            device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute = VK_FALSE;
-            device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands = VK_FALSE;
-            WARN("Disabling DGCC due to config flag.\n");
-        }
-
         /* Two known bugs in the wild:
          * - presentID = 0 handling when toggling present mode is broken.
          * - swapchain fence is not enough to avoid DEVICE_LOST when resizing swapchain.
@@ -2042,12 +2027,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
 
     if (vulkan_info->EXT_device_generated_commands)
     {
-        info->device_generated_commands_features_ext.sType =
+        info->device_generated_commands_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_FEATURES_EXT;
-        info->device_generated_commands_properties_ext.sType =
+        info->device_generated_commands_properties.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_EXT;
-        vk_prepend_struct(&info->features2, &info->device_generated_commands_features_ext);
-        vk_prepend_struct(&info->properties2, &info->device_generated_commands_properties_ext);
+        vk_prepend_struct(&info->features2, &info->device_generated_commands_features);
+        vk_prepend_struct(&info->properties2, &info->device_generated_commands_properties);
     }
 
     if (vulkan_info->EXT_robustness2)
@@ -2160,23 +2145,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->barycentric_features_khr.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->barycentric_features_khr);
-    }
-
-    if (vulkan_info->NV_device_generated_commands)
-    {
-        info->device_generated_commands_features_nv.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_FEATURES_NV;
-        info->device_generated_commands_properties_nv.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_NV;
-        vk_prepend_struct(&info->features2, &info->device_generated_commands_features_nv);
-        vk_prepend_struct(&info->properties2, &info->device_generated_commands_properties_nv);
-    }
-
-    if (vulkan_info->NV_device_generated_commands_compute)
-    {
-        info->device_generated_commands_compute_features_nv.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_COMPUTE_FEATURES_NV;
-        vk_prepend_struct(&info->features2, &info->device_generated_commands_compute_features_nv);
     }
 
     if (vulkan_info->EXT_shader_image_atomic_int64)
@@ -3250,13 +3218,11 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     physical_device_info->extended_dynamic_state2_features.extendedDynamicState2LogicOp = VK_FALSE;
 
     /* Unneeded. */
-    physical_device_info->device_generated_commands_compute_features_nv.deviceGeneratedComputeCaptureReplay = VK_FALSE;
-    physical_device_info->device_generated_commands_compute_features_nv.deviceGeneratedComputePipelines = VK_FALSE;
-    physical_device_info->device_generated_commands_features_ext.dynamicGeneratedPipelineLayout = VK_FALSE;
+    physical_device_info->device_generated_commands_features.dynamicGeneratedPipelineLayout = VK_FALSE;
 
     {
         const VkShaderStageFlags supported_stages =
-                physical_device_info->device_generated_commands_properties_ext.supportedIndirectCommandsShaderStages;
+                physical_device_info->device_generated_commands_properties.supportedIndirectCommandsShaderStages;
         VkShaderStageFlags required_stages = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT;
         if (physical_device_info->mesh_shader_features.meshShader)
             required_stages |= VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT;
@@ -3265,15 +3231,9 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         {
             /* Can be relaxed if needed in the wild, but in principle, everything needs to be supported
              * to be D3D12 compliant. */
-            INFO("Not all relevant pipeline stages are supported by EXT_dgc. Skipping EXT.\n");
-            physical_device_info->device_generated_commands_features_ext.deviceGeneratedCommands = VK_FALSE;
+            INFO("Not all relevant pipeline stages are supported by EXT_dgc. Skipping.\n");
+            physical_device_info->device_generated_commands_features.deviceGeneratedCommands = VK_FALSE;
         }
-    }
-
-    if (physical_device_info->device_generated_commands_features_ext.deviceGeneratedCommands)
-    {
-        physical_device_info->device_generated_commands_features_nv.deviceGeneratedCommands = VK_FALSE;
-        physical_device_info->device_generated_commands_compute_features_nv.deviceGeneratedCompute = VK_FALSE;
     }
 
     if (!physical_device_info->vulkan_1_2_properties.robustBufferAccessUpdateAfterBind)
@@ -4157,7 +4117,7 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, e
         alloc_info.heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
         alloc_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER | VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
         alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
-        if (device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands)
+        if (device->device_info.device_generated_commands_features.deviceGeneratedCommands)
         {
             /* this flag cannot be used with the existing buffer heaps */
             alloc_info.explicit_global_buffer_usage =
@@ -9664,7 +9624,7 @@ static void d3d12_device_caps_init_feature_options21(struct d3d12_device *device
     /* Enable WGs in test suite to avoid bitrot. */
     options21->WorkGraphsTier = d3d12_device_supports_workgraphs(device) ?
             D3D12_WORK_GRAPHS_TIER_1_0 : D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED;
-    options21->ExecuteIndirectTier = device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands ?
+    options21->ExecuteIndirectTier = device->device_info.device_generated_commands_features.deviceGeneratedCommands ?
             D3D12_EXECUTE_INDIRECT_TIER_1_1 : D3D12_EXECUTE_INDIRECT_TIER_1_0;
     options21->SampleCmpGradientAndBiasSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_8 &&
             device->d3d12_caps.options14.AdvancedTextureOpsSupported;
@@ -10433,9 +10393,8 @@ static void vkd3d_scratch_pool_init(struct d3d12_device *device)
 
     if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
     {
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES) &&
-            (device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute ||
-             device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands))
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_HUGE_NV_DGC_BUFFERS) &&
+            device->device_info.device_generated_commands_features.deviceGeneratedCommands)
         {
             /* DGCC preprocess buffers are gigantic on NV. Starfield requires 27 MB for 4096 dispatches ... */
             device->scratch_pools[VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS].block_size =
