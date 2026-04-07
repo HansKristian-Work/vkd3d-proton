@@ -4257,6 +4257,12 @@ static inline void vkd3d_breadcrumb_buffer_copy(
 #endif /* VKD3D_ENABLE_BREADCRUMBS */
 
 /* Bindless */
+
+/* In heap, these flags are mostly obsolete, except for:
+ * - EMBEDDED (implied by heap)
+ * - EMBEDDED_PACKED_METADATA (affects metadata layout just like for descriptor buffer)
+ * - HEAP (if we opted into heap)
+ */
 enum vkd3d_bindless_flags
 {
     VKD3D_BINDLESS_CBV_AS_SSBO                      = (1u << 0),
@@ -4271,6 +4277,7 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_MUTABLE_EMBEDDED                 = (1u << 9),
     VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA = (1u << 10),
     VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED     = (1u << 11),
+    VKD3D_BINDLESS_HEAP                             = (1u << 12),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
@@ -4328,21 +4335,49 @@ struct vkd3d_bindless_state
 {
     uint32_t flags; /* vkd3d_bindless_flags */
 
-    /* For descriptor buffers, pre-baked array passed directly to vkCmdBindDescriptorBuffersEXT. */
-    uint32_t vk_descriptor_buffer_indices[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
-    struct vkd3d_bindless_set_info set_info[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
-    unsigned int set_count;
-    unsigned int cbv_srv_uav_count;
+    /* Shared between heap and legacy. */
+    size_t cbv_srv_uav_size;
+    size_t sampler_size;
+    unsigned int cbv_srv_uav_size_log2;
+    unsigned int sampler_size_log2;
+    unsigned int packed_raw_buffer_offset;
+    unsigned int packed_metadata_offset;
 
-    /* NULL descriptor payloads are not necessarily all zero.
-     * Access the array with vkd3d_bindless_state_get_null_descriptor_payload(). */
-    DECLSPEC_ALIGN(16) uint8_t null_descriptor_payloads[6][VKD3D_MAX_DESCRIPTOR_SIZE];
-    size_t descriptor_buffer_cbv_srv_uav_size;
-    size_t descriptor_buffer_sampler_size;
-    unsigned int descriptor_buffer_cbv_srv_uav_size_log2;
-    unsigned int descriptor_buffer_sampler_size_log2;
-    unsigned int descriptor_buffer_packed_raw_buffer_offset;
-    unsigned int descriptor_buffer_packed_metadata_offset;
+    struct
+    {
+        struct vkd3d_bindless_set_info set_info[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+        unsigned int set_count;
+        unsigned int cbv_srv_uav_count;
+
+        /* For descriptor buffers, pre-baked array passed directly to vkCmdBindDescriptorBuffersEXT. */
+        uint32_t vk_descriptor_buffer_indices[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+
+        /* NULL descriptor payloads are not necessarily all zero.
+         * Access the array with vkd3d_bindless_state_get_null_descriptor_payload(). */
+        DECLSPEC_ALIGN(16) uint8_t null_descriptor_payloads[6][VKD3D_MAX_DESCRIPTOR_SIZE];
+    } legacy;
+
+    struct
+    {
+        unsigned int storage_image_size;
+        unsigned int sampled_image_size;
+        unsigned int storage_texel_buffer_size;
+        unsigned int uniform_texel_buffer_size;
+        unsigned int ubo_size;
+        unsigned int ssbo_size;
+        unsigned int uav_buffer_size;
+
+        /* Here we place internal descriptors and other special per-heap data. */
+        unsigned int redzone_size;
+
+        /* On some implementations, the SSBO size is quirky,
+         * and we can slide a UAV counter at top 8 bytes for profit. */
+        unsigned int uav_counter_embedded_offset;
+
+        bool supports_universal_structured_ssbo;
+        bool supports_universal_byte_address_ssbo;
+        unsigned int min_ssbo_alignment;
+    } heap;
 };
 
 HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
@@ -4359,8 +4394,8 @@ static inline struct vkd3d_descriptor_binding vkd3d_bindless_state_binding_from_
         const struct vkd3d_bindless_state *bindless_state, uint32_t index)
 {
     struct vkd3d_descriptor_binding binding;
-    binding.binding = bindless_state->set_info[index].binding_index;
-    binding.set = bindless_state->set_info[index].set_index;
+    binding.binding = bindless_state->legacy.set_info[index].binding_index;
+    binding.set = bindless_state->legacy.set_info[index].set_index;
     return binding;
 }
 
@@ -4377,7 +4412,7 @@ static inline uint8_t *vkd3d_bindless_state_get_null_descriptor_payload(struct v
     /* The descriptor types we care about are laid out nicely in enum-space. */
     int index = type;
     assert(index >= 2 && index < 8);
-    return bindless_state->null_descriptor_payloads[index - 2];
+    return bindless_state->legacy.null_descriptor_payloads[index - 2];
 }
 
 enum vkd3d_format_type
@@ -5727,6 +5762,11 @@ static inline ULONG d3d12_device_release(struct d3d12_device *device)
     return refcount;
 }
 
+static inline bool d3d12_device_use_descriptor_heap(struct d3d12_device *device)
+{
+    return (device->bindless_state.flags & VKD3D_BINDLESS_HEAP) != 0;
+}
+
 static inline bool d3d12_device_use_embedded_mutable_descriptors(struct d3d12_device *device)
 {
     return (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED) != 0;
@@ -5751,7 +5791,7 @@ static inline struct d3d12_desc_split_metadata d3d12_desc_decode_metadata(
         {
             struct vkd3d_descriptor_metadata_view *m;
             va &= ~VKD3D_RESOURCE_EMBEDDED_CACHED_MASK;
-            m = (void *)(uintptr_t)(va + device->bindless_state.descriptor_buffer_packed_metadata_offset);
+            m = (void *)(uintptr_t)(va + device->bindless_state.packed_metadata_offset);
             meta.view = m;
             meta.types = NULL;
         }
@@ -5788,10 +5828,10 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(
     {
         case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
             return d3d12_device_use_embedded_mutable_descriptors(device) ?
-                    device->bindless_state.descriptor_buffer_cbv_srv_uav_size : VKD3D_RESOURCE_DESC_INCREMENT;
+                    device->bindless_state.cbv_srv_uav_size : VKD3D_RESOURCE_DESC_INCREMENT;
         case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
             return d3d12_device_use_embedded_mutable_descriptors(device) ?
-                    device->bindless_state.descriptor_buffer_sampler_size : VKD3D_RESOURCE_DESC_INCREMENT;
+                    device->bindless_state.sampler_size : VKD3D_RESOURCE_DESC_INCREMENT;
 
         case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
         case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:

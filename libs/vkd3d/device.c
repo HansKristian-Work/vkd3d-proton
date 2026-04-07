@@ -6826,14 +6826,14 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_embedded_generi
         d3d12_desc_copy_embedded_resource(
                 dst_descriptor_range_offset.ptr,
                 src_descriptor_range_offset.ptr,
-                device->bindless_state.descriptor_buffer_cbv_srv_uav_size * descriptor_count);
+                device->bindless_state.cbv_srv_uav_size * descriptor_count);
     }
     else if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
     {
         vkd3d_memcpy_aligned_cached(
                 (void *)dst_descriptor_range_offset.ptr,
                 (const void *)src_descriptor_range_offset.ptr,
-                device->bindless_state.descriptor_buffer_sampler_size * descriptor_count);
+                device->bindless_state.sampler_size * descriptor_count);
     }
     else
     {
@@ -10331,23 +10331,35 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
     key = hash_fnv1_iterate_u32(key, device->device_info.vulkan_1_3_properties.minSubgroupSize);
     key = hash_fnv1_iterate_u32(key, device->device_info.vulkan_1_3_properties.maxSubgroupSize);
     key = hash_fnv1_iterate_u32(key, device->bindless_state.flags);
-    key = hash_fnv1_iterate_u32(key, device->bindless_state.cbv_srv_uav_count);
-    key = hash_fnv1_iterate_u32(key, device->bindless_state.set_count);
-    for (i = 0; i < device->bindless_state.set_count; i++)
+
+    if (d3d12_device_use_descriptor_heap(device))
     {
-        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].flags);
-        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].binding_index);
-        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].set_index);
-        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].heap_type);
-        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].vk_descriptor_type);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.supports_universal_byte_address_ssbo);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.supports_universal_structured_ssbo);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.uav_counter_embedded_offset);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.min_ssbo_alignment);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.redzone_size);
+    }
+    else
+    {
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.legacy.cbv_srv_uav_count);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.legacy.set_count);
+        for (i = 0; i < device->bindless_state.legacy.set_count; i++)
+        {
+            key = hash_fnv1_iterate_u32(key, device->bindless_state.legacy.set_info[i].flags);
+            key = hash_fnv1_iterate_u32(key, device->bindless_state.legacy.set_info[i].binding_index);
+            key = hash_fnv1_iterate_u32(key, device->bindless_state.legacy.set_info[i].set_index);
+            key = hash_fnv1_iterate_u32(key, device->bindless_state.legacy.set_info[i].heap_type);
+            key = hash_fnv1_iterate_u32(key, device->bindless_state.legacy.set_info[i].vk_descriptor_type);
+        }
     }
 
     if (d3d12_device_use_embedded_mutable_descriptors(device))
     {
         /* Will affect shaders which use raw VA descriptors like RTAS, UAV counters and local root signatures. */
-        key = hash_fnv1_iterate_u32(key, device->bindless_state.descriptor_buffer_cbv_srv_uav_size);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.cbv_srv_uav_size);
         /* Will affect shaders which use local root signatures. */
-        key = hash_fnv1_iterate_u32(key, device->bindless_state.descriptor_buffer_sampler_size);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.sampler_size);
     }
 
     key = hash_fnv1_iterate_u64(key, quirk_info->global_quirks);
@@ -10413,14 +10425,14 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     if (d3d12_device_use_embedded_mutable_descriptors(device))
     {
         if ((device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA) &&
-                device->bindless_state.descriptor_buffer_cbv_srv_uav_size == 64 &&
-                device->bindless_state.descriptor_buffer_sampler_size == 16)
+                device->bindless_state.cbv_srv_uav_size == 64 &&
+                device->bindless_state.sampler_size == 16)
         {
             device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_embedded_64_16_packed;
         }
         else if (!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA) &&
-                device->bindless_state.descriptor_buffer_cbv_srv_uav_size == 32 &&
-                device->bindless_state.descriptor_buffer_sampler_size == 16)
+                device->bindless_state.cbv_srv_uav_size == 32 &&
+                device->bindless_state.sampler_size == 16)
         {
             device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_embedded_32_16_planar;
         }
@@ -10435,17 +10447,17 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
          * Only attempt to optimize the copy itself by avoid various indirections. */
         if (device->device_info.mutable_descriptor_features.mutableDescriptorType &&
                 !(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO) &&
-                device->bindless_state.descriptor_buffer_cbv_srv_uav_size == 16 &&
+                device->bindless_state.cbv_srv_uav_size == 16 &&
                 device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize == 16 &&
-                device->bindless_state.descriptor_buffer_sampler_size == 4)
+                device->bindless_state.sampler_size == 4)
         {
             device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_descriptor_buffer_16_16_4;
         }
         else if (device->device_info.mutable_descriptor_features.mutableDescriptorType &&
                 !(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO) &&
-                device->bindless_state.descriptor_buffer_cbv_srv_uav_size == 64 &&
+                device->bindless_state.cbv_srv_uav_size == 64 &&
                 device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize == 64 &&
-                device->bindless_state.descriptor_buffer_sampler_size == 32)
+                device->bindless_state.sampler_size == 32)
         {
             /* Matches Intel Arc on ANV. */
             device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_descriptor_buffer_64_64_32;

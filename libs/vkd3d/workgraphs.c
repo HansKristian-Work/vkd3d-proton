@@ -2584,13 +2584,13 @@ static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_lis
     if (d3d12_device_uses_descriptor_buffers(list->device))
     {
         VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                module->vk_pipeline_layout, 0, bindless_state->set_count,
-                bindless_state->vk_descriptor_buffer_indices,
+                module->vk_pipeline_layout, 0, bindless_state->legacy.set_count,
+                bindless_state->legacy.vk_descriptor_buffer_indices,
                 list->descriptor_heap.buffers.vk_offsets));
     }
     else
     {
-        for (i = 0; i < bindless_state->set_count; i++)
+        for (i = 0; i < bindless_state->legacy.set_count; i++)
         {
             if (list->descriptor_heap.sets.vk_sets[i])
             {
