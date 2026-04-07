@@ -692,7 +692,7 @@ D3D12_GPU_VIRTUAL_ADDRESS vkd3d_get_null_rtas_va(struct d3d12_device *device)
     }
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, device->null_rtas_allocation.buffer,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device->null_rtas_allocation.alloc)))
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &device->null_rtas_allocation.alloc)))
     {
         ERR("Failed to allocate empty RTAS memory.\n");
         goto end_unlock;

@@ -1184,7 +1184,7 @@ static HRESULT d3d12_wg_state_object_allocate_ring(struct d3d12_wg_state_object_
     }
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, ring->vk_buffer,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0,
             &ring->allocation)))
     {
         return hr;
