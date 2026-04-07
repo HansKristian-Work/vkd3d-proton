@@ -3608,7 +3608,7 @@ void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain);
 void dxgi_vk_swap_chain_set_latency_sleep_mode(struct dxgi_vk_swap_chain *chain,
 	bool low_latency_mode, bool low_latency_boost, uint32_t minimum_interval_us);
 void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain *chain,
-	uint64_t frameID, VkLatencyMarkerNV marker);
+	uint64_t frameID, VkLatencyMarkerNV marker, bool from_app);
 void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain,
 	D3D12_LATENCY_RESULTS *latency_results);
 
@@ -5174,6 +5174,7 @@ struct vkd3d_device_frame_markers
 {
     UINT64 render;
     UINT64 present;
+    UINT64 out_of_band_present;
     UINT64 consumed_present_id;
 };
 

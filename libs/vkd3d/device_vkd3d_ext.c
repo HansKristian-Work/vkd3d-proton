@@ -906,7 +906,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
 
     if (low_latency_swapchain)
     {
-        dxgi_vk_swap_chain_set_latency_marker(low_latency_swapchain, internal_frame_id, vk_marker);
+        dxgi_vk_swap_chain_set_latency_marker(low_latency_swapchain, internal_frame_id, vk_marker, true);
         dxgi_vk_swap_chain_decref(low_latency_swapchain);
     }
 
