@@ -130,6 +130,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_ZERO_INITIALIZE_DEVICE_MEMORY, EXT_zero_initialize_device_memory),
     VK_EXTENSION_COND(EXT_OPACITY_MICROMAP, EXT_opacity_micromap, VKD3D_CONFIG_FLAG_DXR_1_2),
     VK_EXTENSION(EXT_SHADER_FLOAT8, EXT_shader_float8),
+    VK_EXTENSION_COND(EXT_DESCRIPTOR_HEAP, EXT_descriptor_heap, VKD3D_CONFIG_FLAG_DESCRIPTOR_HEAP),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1295,6 +1296,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
     {"prefer_thin_uav_tiling", VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING},
     {"no_nvx", VKD3D_CONFIG_FLAG_NO_NVX},
+    {"i_want_broken_descriptor_heap", VKD3D_CONFIG_FLAG_DESCRIPTOR_HEAP},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -2482,6 +2484,16 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->shader_mixed_float_dot_product_features);
     }
 
+    if (vulkan_info->EXT_descriptor_heap)
+    {
+        info->descriptor_heap_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT;
+        info->descriptor_heap_properties.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT;
+        vk_prepend_struct(&info->features2, &info->descriptor_heap_features);
+        vk_prepend_struct(&info->properties2, &info->descriptor_heap_properties);
+    }
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
@@ -3170,6 +3182,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     descriptor_buffer = &physical_device_info->descriptor_buffer_features;
     descriptor_buffer->descriptorBufferCaptureReplay = VK_FALSE;
     descriptor_buffer->descriptorBufferImageLayoutIgnored = VK_FALSE;
+    physical_device_info->descriptor_heap_features.descriptorHeapCaptureReplay = VK_FALSE;
 
     /* We only use dynamic rasterization samples. Also Keep the following enabled for 11on12:
      * alphaToCoverage, sampleMask, lineRasterizationMode, depthClipEnable. */
