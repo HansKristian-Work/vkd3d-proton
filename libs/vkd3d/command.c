@@ -5911,7 +5911,7 @@ void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *li
     if (invalidate_descriptor_heaps)
     {
         struct d3d12_device *device = bindings->root_signature->device;
-        bindings->descriptor_heap_dirty_mask = (1ull << device->bindless_state.set_count) - 1;
+        bindings->descriptor_heap_dirty_mask = (1ull << device->bindless_state.legacy.set_count) - 1;
     }
 }
 
@@ -7439,8 +7439,8 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
         if (bindings->descriptor_heap_dirty_mask)
         {
             VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, vk_bind_point,
-                    layout, 0, bindless_state->set_count,
-                    bindless_state->vk_descriptor_buffer_indices,
+                    layout, 0, bindless_state->legacy.set_count,
+                    bindless_state->legacy.vk_descriptor_buffer_indices,
                     list->descriptor_heap.buffers.vk_offsets));
             bindings->descriptor_heap_dirty_mask = 0;
         }
@@ -13035,8 +13035,8 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
             list->descriptor_heap.buffers.heap_va_sampler = heap->descriptor_buffer.va;
         }
 
-        for (j = 0; j < bindless_state->set_count; j++)
-            if (bindless_state->set_info[j].heap_type == heap->desc.Type)
+        for (j = 0; j < bindless_state->legacy.set_count; j++)
+            if (bindless_state->legacy.set_info[j].heap_type == heap->desc.Type)
                 list->descriptor_heap.buffers.vk_offsets[j] = heap->descriptor_buffer.offsets[set_index++];
     }
 
@@ -13066,9 +13066,9 @@ static void d3d12_command_list_set_descriptor_heaps_sets(struct d3d12_command_li
         if (!heap)
             continue;
 
-        for (j = 0; j < bindless_state->set_count; j++)
+        for (j = 0; j < bindless_state->legacy.set_count; j++)
         {
-            if (bindless_state->set_info[j].heap_type != heap->desc.Type)
+            if (bindless_state->legacy.set_info[j].heap_type != heap->desc.Type)
                 continue;
 
             list->descriptor_heap.sets.vk_sets[j] = heap->sets[set_index++].vk_descriptor_set;
@@ -13254,8 +13254,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_e
 
     d3d12_command_list_set_descriptor_table_embedded(list, &list->compute_bindings,
             root_parameter_index, base_descriptor,
-            list->device->bindless_state.descriptor_buffer_cbv_srv_uav_size_log2,
-            list->device->bindless_state.descriptor_buffer_sampler_size_log2);
+            list->device->bindless_state.cbv_srv_uav_size_log2,
+            list->device->bindless_state.sampler_size_log2);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable_embedded_default(
@@ -13269,8 +13269,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable_
 
     d3d12_command_list_set_descriptor_table_embedded(list, &list->graphics_bindings,
             root_parameter_index, base_descriptor,
-            list->device->bindless_state.descriptor_buffer_cbv_srv_uav_size_log2,
-            list->device->bindless_state.descriptor_buffer_sampler_size_log2);
+            list->device->bindless_state.cbv_srv_uav_size_log2,
+            list->device->bindless_state.sampler_size_log2);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_default(
@@ -20890,13 +20890,13 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
         {
             /* Specialize SetDescriptorTable calls since we need different code paths for those,
              * and they are quite hot. */
-            if (device->bindless_state.descriptor_buffer_cbv_srv_uav_size == 64 &&
-                    device->bindless_state.descriptor_buffer_sampler_size == 16)
+            if (device->bindless_state.cbv_srv_uav_size == 64 &&
+                    device->bindless_state.sampler_size == 16)
             {
                 list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl_embedded_64_16;
             }
-            else if (device->bindless_state.descriptor_buffer_cbv_srv_uav_size == 32 &&
-                    device->bindless_state.descriptor_buffer_sampler_size == 16)
+            else if (device->bindless_state.cbv_srv_uav_size == 32 &&
+                    device->bindless_state.sampler_size == 16)
             {
                 list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl_embedded_32_16;
             }

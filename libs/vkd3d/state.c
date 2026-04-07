@@ -1463,8 +1463,8 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
             return hr;
     }
 
-    for (i = 0; i < bindless_state->set_count; i++)
-        root_signature->set_layouts[context.vk_set++] = bindless_state->set_info[i].vk_set_layout;
+    for (i = 0; i < bindless_state->legacy.set_count; i++)
+        root_signature->set_layouts[context.vk_set++] = bindless_state->legacy.set_info[i].vk_set_layout;
 
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, desc,
                 &context, &root_signature->vk_sampler_descriptor_layout)))
@@ -6849,8 +6849,8 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
         struct d3d12_device *device, uint32_t flags,
         VkDescriptorType vk_descriptor_type, VkDescriptorType vk_init_null_descriptor_type)
 {
+    struct vkd3d_bindless_set_info *set_info = &bindless_state->legacy.set_info[bindless_state->legacy.set_count];
     VkMutableDescriptorTypeListEXT mutable_descriptor_list[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
-    struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[bindless_state->set_count];
     VkDescriptorSetLayoutBinding vk_binding_info[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
     VkDescriptorBindingFlags vk_binding_flags[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
     VkDescriptorType mutable_descriptor_types[VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES];
@@ -6871,11 +6871,11 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     set_info->flags = flags;
     set_info->binding_index = vkd3d_popcount(flags & VKD3D_BINDLESS_SET_EXTRA_MASK);
 
-    bindless_state->vk_descriptor_buffer_indices[bindless_state->set_count] =
+    bindless_state->legacy.vk_descriptor_buffer_indices[bindless_state->legacy.set_count] =
             set_info->heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ? 0 : 1;
 
     if (set_info->heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
-        set_info->set_index = bindless_state->cbv_srv_uav_count++;
+        set_info->set_index = bindless_state->legacy.cbv_srv_uav_count++;
     else
         set_info->set_index = 0;
 
@@ -7010,7 +7010,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
             ERR("Failed to create descriptor set layout, vr %d.\n", vr);
     }
 
-    bindless_state->set_count++;
+    bindless_state->legacy.set_count++;
 
     return hresult_from_vk_result(vr);
 }
@@ -7360,7 +7360,7 @@ static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bind
     uint8_t *payload;
     uint32_t i;
 
-    bindless_state->descriptor_buffer_cbv_srv_uav_size = 0;
+    bindless_state->cbv_srv_uav_size = 0;
 
     get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
     get_info.pNext = NULL;
@@ -7386,7 +7386,7 @@ static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bind
             VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
                     device->device_info.descriptor_buffer_properties.robustUniformTexelBufferDescriptorSize,
                     payload));
-            payload += bindless_state->descriptor_buffer_packed_raw_buffer_offset;
+            payload += bindless_state->packed_raw_buffer_offset;
         }
 
         get_info.type = types[i].vk_descriptor_type;
@@ -7401,7 +7401,7 @@ static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bind
             /* If we pack SSBOs + metadata above the storage image (embedded packed metadata),
              * add NULL SSBO descriptor as well. */
             if (types[i].vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE &&
-                    bindless_state->descriptor_buffer_packed_raw_buffer_offset >=
+                    bindless_state->packed_raw_buffer_offset >=
                     device->device_info.descriptor_buffer_properties.storageImageDescriptorSize)
             {
                 write_null_ssbo = true;
@@ -7413,7 +7413,7 @@ static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bind
                  * Emit NULL typed buffer in first half, and NULL SSBO after.
                  * When creating a NULL buffer descriptor we'll always use the typed template,
                  * since SSBO is ambiguous (we don't know UAV vs SRV necessarily). */
-                payload += bindless_state->descriptor_buffer_packed_raw_buffer_offset;
+                payload += bindless_state->packed_raw_buffer_offset;
                 get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
                         device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
@@ -7421,30 +7421,167 @@ static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bind
             }
         }
 
-        bindless_state->descriptor_buffer_cbv_srv_uav_size =
-                max(bindless_state->descriptor_buffer_cbv_srv_uav_size, types[i].size);
+        bindless_state->cbv_srv_uav_size = max(bindless_state->cbv_srv_uav_size, types[i].size);
     }
 }
 
-HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
+static HRESULT vkd3d_bindless_state_init_heap(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_physical_device_info *device_info = &device->device_info;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint32_t minimum_buffer_offset, minimum_metadata_offset;
+
+    if (!device->device_info.descriptor_heap_features.descriptorHeap)
+        return E_NOTIMPL;
+
+    if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment > 16)
+        return E_NOTIMPL;
+
+    /* Ignore heap if we're on a non-happy path. */
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks() || vkd3d_descriptor_debug_active_instruction_qa_checks())
+        return E_NOTIMPL;
+
+#ifdef VKD3D_ENABLE_PROFILING
+    /* For now, we don't do vtable variant shenanigans for profiled devices.
+     * This can be fixed, but it's not that important at this time. */
+    if (vkd3d_uses_profiling())
+        return E_NOTIMPL;
+#endif
+
+    /* cbv_srv_uav_size is computed while setting up null payload. */
+    bindless_state->cbv_srv_uav_size = max(
+            device->device_info.descriptor_heap_properties.imageDescriptorSize,
+            device->device_info.descriptor_heap_properties.bufferDescriptorSize);
+    bindless_state->cbv_srv_uav_size = align(bindless_state->cbv_srv_uav_size,
+        max(device->device_info.descriptor_heap_properties.imageDescriptorAlignment,
+            device->device_info.descriptor_heap_properties.bufferDescriptorAlignment));
+
+    bindless_state->sampler_size =
+            device->device_info.descriptor_heap_properties.samplerDescriptorSize;
+
+    bindless_state->sampler_size = align(bindless_state->sampler_size,
+        device->device_info.descriptor_heap_properties.samplerDescriptorAlignment);
+
+    bindless_state->cbv_srv_uav_size_log2 = vkd3d_log2i_ceil(bindless_state->cbv_srv_uav_size);
+    bindless_state->sampler_size_log2 = vkd3d_log2i_ceil(bindless_state->sampler_size);
+
+    /* If we cannot place two buffers size by side, we may need to pad the descriptor.
+     * Not all implementations support this. More recent Intel GPUs will be able to support this. */
+    if (device->device_info.descriptor_heap_properties.bufferDescriptorSize * 2 >
+        device->device_info.descriptor_heap_properties.imageDescriptorSize &&
+        (2u << bindless_state->cbv_srv_uav_size_log2) * ((1 << 20) - (1 << 15)) <=
+        device->device_info.descriptor_heap_properties.maxResourceHeapSize)
+    {
+        bindless_state->cbv_srv_uav_size_log2 += 1;
+    }
+
+    /* Just in case we get an implementation that wants non-POT descriptor sizes for whatever reason. */
+    bindless_state->cbv_srv_uav_size = 1u << bindless_state->cbv_srv_uav_size_log2;
+    bindless_state->sampler_size = 1u << bindless_state->sampler_size_log2;
+
+    minimum_buffer_offset = max(
+            device->device_info.descriptor_heap_properties.bufferDescriptorSize,
+            device->device_info.descriptor_heap_properties.bufferDescriptorAlignment);
+
+    bindless_state->heap.storage_image_size =
+            VK_CALL(vkGetPhysicalDeviceDescriptorSizeEXT(device->vk_physical_device, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE));
+    bindless_state->heap.sampled_image_size =
+            VK_CALL(vkGetPhysicalDeviceDescriptorSizeEXT(device->vk_physical_device, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE));
+    bindless_state->heap.storage_texel_buffer_size =
+            VK_CALL(vkGetPhysicalDeviceDescriptorSizeEXT(device->vk_physical_device, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER));
+    bindless_state->heap.uniform_texel_buffer_size =
+            VK_CALL(vkGetPhysicalDeviceDescriptorSizeEXT(device->vk_physical_device, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER));
+    bindless_state->heap.ubo_size =
+            VK_CALL(vkGetPhysicalDeviceDescriptorSizeEXT(device->vk_physical_device, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
+    bindless_state->heap.ssbo_size =
+            VK_CALL(vkGetPhysicalDeviceDescriptorSizeEXT(device->vk_physical_device, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER));
+
+    bindless_state->heap.uav_buffer_size = max(bindless_state->heap.storage_texel_buffer_size, bindless_state->heap.ssbo_size);
+
+    /* The first N descriptors of the heap contain meta descriptors which are not visible to app.
+     * These meta descriptors include:
+     * - May have to do descriptor QA
+     * - Descriptor heap robustness
+     * - Need raw VA UAV counters. */
+    bindless_state->heap.redzone_size = device->device_info.descriptor_heap_properties.bufferDescriptorSize * 4;
+    bindless_state->heap.redzone_size = align(bindless_state->heap.redzone_size,
+        max(device->device_info.descriptor_heap_properties.imageDescriptorAlignment,
+            device->device_info.descriptor_heap_properties.bufferDescriptorAlignment));
+
+    bindless_state->heap.supports_universal_byte_address_ssbo =
+            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
+    bindless_state->heap.supports_universal_structured_ssbo =
+            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 4;
+
+    bindless_state->heap.min_ssbo_alignment = device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment;
+    if (bindless_state->heap.min_ssbo_alignment <= 4)
+        bindless_state->heap.min_ssbo_alignment = 1;
+
+    if (bindless_state->heap.supports_universal_byte_address_ssbo &&
+        bindless_state->heap.supports_universal_structured_ssbo &&
+        minimum_buffer_offset * 2 <= bindless_state->cbv_srv_uav_size)
+    {
+        uint32_t required_packed_metadata_size;
+        bindless_state->packed_raw_buffer_offset = bindless_state->cbv_srv_uav_size / 2;
+
+        minimum_metadata_offset = max(bindless_state->heap.storage_image_size, bindless_state->heap.storage_texel_buffer_size);
+        minimum_metadata_offset = max(minimum_metadata_offset, bindless_state->packed_raw_buffer_offset +
+                device->device_info.descriptor_heap_properties.bufferDescriptorSize);
+
+        required_packed_metadata_size = minimum_metadata_offset + sizeof(struct vkd3d_descriptor_metadata_view);
+
+        if (required_packed_metadata_size <= bindless_state->cbv_srv_uav_size)
+        {
+            /* If we have space to sneak the metadata into upper half of the descriptor, do that.
+             * This is mostly relevant for RADV with 64 byte descriptors. */
+            bindless_state->packed_metadata_offset =
+                bindless_state->cbv_srv_uav_size - sizeof(struct vkd3d_descriptor_metadata_view);
+
+            bindless_state->flags |= VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA;
+        }
+    }
+    else if (bindless_state->heap.supports_universal_structured_ssbo &&
+            bindless_state->heap.ssbo_size + sizeof(VkDeviceAddress) <= bindless_state->cbv_srv_uav_size)
+    {
+        /* Very cursed NV hack. SSBO is 24 bytes which allows us to pack UAV counter in top 8 bytes. */
+        bindless_state->heap.uav_counter_embedded_offset =
+            bindless_state->cbv_srv_uav_size - sizeof(VkDeviceAddress);
+    }
+
+    if (bindless_state->packed_raw_buffer_offset == 0 &&
+        bindless_state->heap.uav_counter_embedded_offset == 0)
+    {
+        /* UAV counters cannot be implemented. Fallback to legacy. */
+        FIXME("Not possible to implement heap path on this GPU.\n");
+        return E_NOTIMPL;
+    }
+
+    if (bindless_state->packed_raw_buffer_offset == 0)
+    {
+        /* For this path to work, we need to know that the hardware and driver can alias texel buffer and SSBO. */
+        if (bindless_state->heap.ssbo_size != bindless_state->heap.storage_texel_buffer_size ||
+            device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
+        {
+            FIXME("SSBO/Texel buffer aliasing required, but not possible to implement heap path on this GPU.\n");
+            return E_NOTIMPL;
+        }
+    }
+
+    bindless_state->flags |= VKD3D_BINDLESS_MUTABLE_EMBEDDED | VKD3D_BINDLESS_HEAP | VKD3D_BINDLESS_RAW_SSBO |
+            VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV | VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV;
+
+    return S_OK;
+}
+
+static HRESULT vkd3d_bindless_state_init_legacy(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device)
 {
     const struct vkd3d_physical_device_info *device_info = &device->device_info;
     uint32_t extra_bindings = 0;
     HRESULT hr = E_FAIL;
 
-    memset(bindless_state, 0, sizeof(*bindless_state));
     bindless_state->flags = vkd3d_bindless_state_get_bindless_flags(device);
-
-    if (!device_info->vulkan_1_2_features.descriptorIndexing ||
-            /* Some extra features not covered by descriptorIndexing meta-feature. */
-            !device_info->vulkan_1_2_features.shaderStorageTexelBufferArrayNonUniformIndexing ||
-            !device_info->vulkan_1_2_features.shaderStorageImageArrayNonUniformIndexing ||
-            !device_info->vulkan_1_2_features.descriptorBindingVariableDescriptorCount)
-    {
-        ERR("Insufficient descriptor indexing support.\n");
-        goto fail;
-    }
 
     if (!d3d12_device_uses_descriptor_buffers(device))
     {
@@ -7565,15 +7702,15 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
     {
         vkd3d_bindless_state_init_null_descriptor_payloads(bindless_state, device);
         /* cbv_srv_uav_size is computed while setting up null payload. */
-        bindless_state->descriptor_buffer_sampler_size =
+        bindless_state->sampler_size =
                 device->device_info.descriptor_buffer_properties.samplerDescriptorSize;
-        bindless_state->descriptor_buffer_cbv_srv_uav_size_log2 =
-                vkd3d_log2i(bindless_state->descriptor_buffer_cbv_srv_uav_size);
-        bindless_state->descriptor_buffer_sampler_size_log2 =
-                vkd3d_log2i(bindless_state->descriptor_buffer_sampler_size);
-        bindless_state->descriptor_buffer_packed_raw_buffer_offset =
+        bindless_state->cbv_srv_uav_size_log2 =
+                vkd3d_log2i(bindless_state->cbv_srv_uav_size);
+        bindless_state->sampler_size_log2 =
+                vkd3d_log2i(bindless_state->sampler_size);
+        bindless_state->packed_raw_buffer_offset =
                 vkd3d_bindless_embedded_mutable_raw_buffer_offset(device);
-        bindless_state->descriptor_buffer_packed_metadata_offset =
+        bindless_state->packed_metadata_offset =
                 vkd3d_bindless_embedded_mutable_packed_metadata_offset(device);
     }
 
@@ -7584,16 +7721,40 @@ fail:
     return hr;
 }
 
+HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_physical_device_info *device_info = &device->device_info;
+
+    memset(bindless_state, 0, sizeof(*bindless_state));
+
+    /* Basic sanity check. These are technically orthogonal to descriptor heap. */
+
+    if (!device_info->vulkan_1_2_features.descriptorIndexing ||
+            /* Some extra features not covered by descriptorIndexing meta-feature. */
+            !device_info->vulkan_1_2_features.shaderStorageTexelBufferArrayNonUniformIndexing ||
+            !device_info->vulkan_1_2_features.shaderStorageImageArrayNonUniformIndexing ||
+            !device_info->vulkan_1_2_features.descriptorBindingVariableDescriptorCount)
+    {
+        ERR("Insufficient descriptor indexing support.\n");
+        return E_NOTIMPL;
+    }
+
+    if (SUCCEEDED(vkd3d_bindless_state_init_heap(bindless_state, device)))
+        return S_OK;
+    return vkd3d_bindless_state_init_legacy(bindless_state, device);
+}
+
 void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     unsigned int i;
 
-    for (i = 0; i < bindless_state->set_count; i++)
+    for (i = 0; i < bindless_state->legacy.set_count; i++)
     {
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->set_info[i].vk_set_layout, NULL));
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->set_info[i].vk_host_set_layout, NULL));
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->legacy.set_info[i].vk_set_layout, NULL));
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, bindless_state->legacy.set_info[i].vk_host_set_layout, NULL));
     }
 }
 
@@ -7607,9 +7768,9 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
 {
     unsigned int i;
 
-    for (i = 0; i < bindless_state->set_count; i++)
+    for (i = 0; i < bindless_state->legacy.set_count; i++)
     {
-        const struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[i];
+        const struct vkd3d_bindless_set_info *set_info = &bindless_state->legacy.set_info[i];
 
         if ((set_info->flags & flags) == flags)
         {
@@ -7635,9 +7796,9 @@ struct vkd3d_descriptor_binding vkd3d_bindless_state_find_set(const struct vkd3d
             ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
             : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 
-    for (i = 0; i < bindless_state->set_count; i++)
+    for (i = 0; i < bindless_state->legacy.set_count; i++)
     {
-        const struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[i];
+        const struct vkd3d_bindless_set_info *set_info = &bindless_state->legacy.set_info[i];
 
         if (set_info->heap_type == heap_type)
         {
@@ -7670,9 +7831,9 @@ uint32_t vkd3d_bindless_state_find_set_info_index(const struct vkd3d_bindless_st
                 ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
                 : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 
-    for (i = 0; i < bindless_state->set_count; i++)
+    for (i = 0; i < bindless_state->legacy.set_count; i++)
     {
-        const struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[i];
+        const struct vkd3d_bindless_set_info *set_info = &bindless_state->legacy.set_info[i];
         if (set_info->heap_type == heap_type && (set_info->flags & flags) == flags)
             return i;
     }
