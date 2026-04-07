@@ -12489,12 +12489,22 @@ static bool vk_image_barrier_overlaps_subresource(const VkImageMemoryBarrier2 *a
                     b->subresourceRange.baseArrayLayer, b->subresourceRange.layerCount);
 }
 
+static bool vk_image_barrier_memory_dependency_match(const VkImageMemoryBarrier2 *a, const VkImageMemoryBarrier2 *b)
+{
+    return a->srcStageMask == b->srcStageMask &&
+            a->srcAccessMask == b->srcAccessMask &&
+            a->dstStageMask == b->dstStageMask &&
+            a->dstAccessMask == b->dstAccessMask &&
+            a->srcQueueFamilyIndex == b->srcQueueFamilyIndex &&
+            a->dstQueueFamilyIndex == b->dstQueueFamilyIndex;
+}
+
 static void d3d12_command_list_barrier_batch_add_layout_transition(
         struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch,
         const VkImageMemoryBarrier2 *image_barrier)
 {
-    bool layout_match, exact_match, skip_transition;
+    bool dependency_match, layout_match, exact_match, skip_transition;
     uint32_t i;
 
     if (batch->image_barrier_count == ARRAY_SIZE(batch->vk_image_barriers))
@@ -12519,11 +12529,19 @@ static void d3d12_command_list_barrier_batch_add_layout_transition(
 
             /* No need to split the barrier if we're not actually doing RMW layout transition. */
             skip_transition = image_barrier->oldLayout == image_barrier->newLayout;
+            dependency_match = vk_image_barrier_memory_dependency_match(image_barrier, &batch->vk_image_barriers[i]);
 
-            if (exact_match && layout_match)
+            if (exact_match && layout_match && dependency_match)
             {
                 /* Exact duplicate, skip this barrier. */
                 return;
+            }
+            else if (exact_match && layout_match && !dependency_match)
+            {
+                /* Layout-only dedup is illegal for GENERAL->GENERAL style transitions where
+                 * stage/access masks carry the memory dependency. */
+                d3d12_command_list_barrier_batch_end(list, batch);
+                break;
             }
             else if (!skip_transition)
             {
@@ -12974,6 +12992,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                         transition->StateAfter, list->vk_queue_flags, &transition_dst_stage_mask,
                         &transition_dst_access);
 
+                if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
+                        (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS ||
+                         transition->StateAfter == D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
+                {
+                    TRACE("UAV edge: cookie %u, subresource %#x, queue %#x, cmd_cost %u, state(%#x -> %#x), "
+                            "src(stages=%#"PRIx64", access=%#"PRIx64"), dst(stages=%#"PRIx64", access=%#"PRIx64").\n",
+                            preserve_resource->res.cookie.index, transition->Subresource,
+                            list->vk_queue_flags, list->cmd.estimated_cost,
+                            transition->StateBefore, transition->StateAfter,
+                            transition_src_stage_mask, transition_src_access,
+                            transition_dst_stage_mask, transition_dst_access);
+                }
+
                 if (d3d12_resource_is_texture(preserve_resource))
                 {
                     VkImageMemoryBarrier2 vk_transition;
@@ -12984,6 +13015,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                             transition_src_stage_mask, transition_src_access,
                             transition_dst_stage_mask, transition_dst_access,
                             dsv_decay_mask);
+
+                    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
+                            (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS ||
+                             transition->StateAfter == D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
+                    {
+                        TRACE("UAV image barrier: cookie %u image=%p range(aspect=%#x mip=%u+%u layer=%u+%u) "
+                                "layout(%#x -> %#x) qf(%u -> %u).\n",
+                                preserve_resource->res.cookie.index, (void *)vk_transition.image,
+                                vk_transition.subresourceRange.aspectMask,
+                                vk_transition.subresourceRange.baseMipLevel,
+                                vk_transition.subresourceRange.levelCount,
+                                vk_transition.subresourceRange.baseArrayLayer,
+                                vk_transition.subresourceRange.layerCount,
+                                vk_transition.oldLayout, vk_transition.newLayout,
+                                vk_transition.srcQueueFamilyIndex, vk_transition.dstQueueFamilyIndex);
+                    }
+
                     d3d12_command_list_barrier_batch_add_layout_transition(list, &batch, &vk_transition);
                 }
                 else

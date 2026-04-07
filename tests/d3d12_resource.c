@@ -5009,6 +5009,148 @@ void test_large_texel_buffer_view(void)
     destroy_test_context(&context);
 }
 
+void test_uav_to_srv_transition_dependency(void)
+{
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
+    D3D12_RESOURCE_BARRIER barriers[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[1];
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support;
+    ID3D12DescriptorHeap *gpu_heap, *cpu_heap;
+    ID3D12PipelineState *compute_pso;
+    struct test_context context;
+    ID3D12Resource *src, *dst;
+    UINT clear_value[4];
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/resource/headers/cs_copy_simple.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&support, 0, sizeof(support));
+    support.Format = DXGI_FORMAT_R32_UINT;
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
+    ok(hr == S_OK || hr == E_FAIL, "Unexpected format support hr %#x.\n", hr);
+    if (FAILED(hr) || !(support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD) ||
+            !(support.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) ||
+            !(support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE))
+    {
+        skip("R32_UINT UAV/SRV format support is not available.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(descriptor_ranges, 0, sizeof(descriptor_ranges));
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[1].NumDescriptors = 1;
+    descriptor_ranges[1].OffsetInDescriptorsFromTableStart = 1;
+
+    memset(rs_params, 0, sizeof(rs_params));
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(descriptor_ranges);
+    rs_params[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS;
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    compute_pso = create_compute_pipeline_state(context.device, context.root_signature, cs_copy_simple_dxbc);
+
+    src = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R32_UINT,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    dst = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R32_UINT,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    gpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 3);
+    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.Format = DXGI_FORMAT_R32_UINT;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Texture2D.MipLevels = 1;
+    ID3D12Device_CreateShaderResourceView(context.device, src, &srv_desc,
+            get_cpu_descriptor_handle(&context, gpu_heap, 0));
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    ID3D12Device_CreateUnorderedAccessView(context.device, dst, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, gpu_heap, 1));
+    ID3D12Device_CreateUnorderedAccessView(context.device, src, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, gpu_heap, 2));
+    ID3D12Device_CreateUnorderedAccessView(context.device, src, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, cpu_heap, 0));
+
+    memset(&barriers, 0, sizeof(barriers));
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[0].Transition.pResource = src;
+    barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[1].Transition.pResource = src;
+    barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+    for (i = 0; i < 32; i++)
+    {
+        vkd3d_test_set_context("iteration %u", i);
+
+        if (i)
+        {
+            transition_resource_state(context.list, src,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            transition_resource_state(context.list, dst,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
+
+        clear_value[0] = i + 1;
+        clear_value[1] = 0;
+        clear_value[2] = 0;
+        clear_value[3] = 0;
+
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                get_gpu_descriptor_handle(&context, gpu_heap, 2),
+                get_cpu_descriptor_handle(&context, cpu_heap, 0),
+                src, clear_value, 0, NULL);
+
+        ID3D12GraphicsCommandList_ResourceBarrier(context.list, ARRAY_SIZE(barriers), barriers);
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+                get_gpu_descriptor_handle(&context, gpu_heap, 0));
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, compute_pso);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, dst,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(dst, 0, context.queue, context.list, i + 1, 0);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12DescriptorHeap_Release(gpu_heap);
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12Resource_Release(src);
+    ID3D12Resource_Release(dst);
+    ID3D12PipelineState_Release(compute_pso);
+    destroy_test_context(&context);
+}
+
 void test_large_heap(void)
 {
 #define SECTION_SIZE    (1ull << 30)
