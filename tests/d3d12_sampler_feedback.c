@@ -874,6 +874,7 @@ void test_sampler_feedback_decode_encode_min_mip(void)
     struct test_context_desc context_desc;
     ID3D12GraphicsCommandList1 *list1;
     D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12DescriptorHeap *desc_heap;
     struct test_context context;
     struct resource_readback rb;
     ID3D12Resource *resolve_tex;
@@ -907,6 +908,8 @@ void test_sampler_feedback_decode_encode_min_mip(void)
     ok(SUCCEEDED(hr), "Failed to query Device8, hr #%x.\n", hr);
     hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList1, (void **)&list1);
     ok(SUCCEEDED(hr), "Failed to query GraphicsCommandList1, hr #%x.\n", hr);
+
+    desc_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     memset(&desc, 0, sizeof(desc));
     memset(&heap_props, 0, sizeof(heap_props));
@@ -948,6 +951,7 @@ void test_sampler_feedback_decode_encode_min_mip(void)
 
         /* DstX/Y for buffers are ignored on NV, but not AMD. Inherit NV behavior here, it's the only one that makes some kind of sense ... */
         /* SrcRect is ignored on NV (spec says it's not allowed for MIN_MIP), but not AMD. Inherit NV behavior here. */
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
         ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_single, UINT_MAX, 0, 0, upload, 0, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
         transition_resource_state(context.list, feedback_min_mip_single, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
         ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, 0, 0, 0, feedback_min_mip_single, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
@@ -1006,6 +1010,7 @@ void test_sampler_feedback_decode_encode_min_mip(void)
         }
 
         transition_resource_state(context.list, upload_tex, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
 
         /* On ENCODE, dst subresource is always -1, and source subresource index is the slice to resolve.
          * This implies two rules: We can only resolve layer N to layer N, and layer size of source and dest must be the same. */
@@ -1090,6 +1095,7 @@ void test_sampler_feedback_decode_encode_min_mip(void)
     }
 
     ID3D12GraphicsCommandList1_Release(list1);
+    ID3D12DescriptorHeap_Release(desc_heap);
     ID3D12Resource_Release(feedback_min_mip_single);
     ID3D12Resource_Release(feedback_min_mip_array);
     ID3D12Resource_Release(upload_tex);
@@ -1123,6 +1129,7 @@ void test_sampler_feedback_decode_encode_mip_used(void)
     struct test_context_desc context_desc;
     ID3D12GraphicsCommandList1 *list1;
     D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12DescriptorHeap *desc_heap;
     struct test_context context;
     struct resource_readback rb;
     ID3D12Resource *resolve_tex;
@@ -1149,6 +1156,8 @@ void test_sampler_feedback_decode_encode_mip_used(void)
         destroy_test_context(&context);
         return;
     }
+
+    desc_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
     hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device8, (void **)&device8);
     ok(SUCCEEDED(hr), "Failed to query Device8, hr #%x.\n", hr);
@@ -1206,6 +1215,7 @@ void test_sampler_feedback_decode_encode_mip_used(void)
 
     transition_resource_state(context.list, upload_tex, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
 
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
     ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback, UINT_MAX, 0, 0, upload_tex, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
 
     transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
@@ -1238,6 +1248,7 @@ void test_sampler_feedback_decode_encode_mip_used(void)
     {
         /* Target Layer = 1, Level = 1 with Level = 0, Layer = 0 as source. This should not work, but it does.
          * Now DstX/Y works. */
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
         ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback, LEVELS + 1, 1, 2, upload_tex, 0, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
         transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
         transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
@@ -1269,6 +1280,7 @@ void test_sampler_feedback_decode_encode_mip_used(void)
     {
         D3D12_RECT decode_rect = { 1, 2, 9, 10 };
         D3D12_RECT encode_rect = { 4, 0, 5, 1 };
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
         ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback, 0, decode_rect.left, decode_rect.top, upload_tex, 0, &encode_rect, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
         transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
         transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
@@ -1304,6 +1316,7 @@ void test_sampler_feedback_decode_encode_mip_used(void)
     /* With MIP_USED region both dst and src subresource matters. */
 
     ID3D12GraphicsCommandList1_Release(list1);
+    ID3D12DescriptorHeap_Release(desc_heap);
     ID3D12Resource_Release(feedback);
     ID3D12Resource_Release(upload_tex);
     ID3D12Resource_Release(resolve_tex);
