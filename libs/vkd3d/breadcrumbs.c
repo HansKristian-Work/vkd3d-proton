@@ -190,7 +190,7 @@ HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, str
         }
 
         if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, tracer->host_buffer,
-                memory_props, &tracer->host_buffer_memory)))
+                memory_props, 0, &tracer->host_buffer_memory)))
         {
             goto err;
         }

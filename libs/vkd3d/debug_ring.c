@@ -405,7 +405,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
 #endif
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->host_buffer,
-            memory_props, &ring->host_buffer_memory)))
+            memory_props, 0, &ring->host_buffer_memory)))
         goto err_free_buffers;
 
     resource_desc.Width = ring->control_block_size;
@@ -425,7 +425,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
 #endif
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->device_atomic_buffer,
-            memory_props, &ring->device_atomic_buffer_memory)))
+            memory_props, 0, &ring->device_atomic_buffer_memory)))
         goto err_free_buffers;
 
     if (VK_CALL(vkMapMemory(device->vk_device, ring->host_buffer_memory.vk_memory,
