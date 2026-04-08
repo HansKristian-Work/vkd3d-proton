@@ -12381,7 +12381,13 @@ static void d3d12_command_list_barrier_batch_add_layout_transition(
 
             if (exact_match && layout_match)
             {
-                /* Exact duplicate, skip this barrier. */
+                /* Exact duplicate, but there may be different stages and accesses in case the application
+                 * is doing either illegal or transitive barriers in the same ResourceBarrier().
+                 * Just OR in all the masks which resolves it cleanly just in case. */
+                batch->vk_image_barriers[i].srcStageMask |= image_barrier->srcStageMask;
+                batch->vk_image_barriers[i].srcAccessMask |= image_barrier->srcAccessMask;
+                batch->vk_image_barriers[i].dstStageMask |= image_barrier->dstStageMask;
+                batch->vk_image_barriers[i].dstAccessMask |= image_barrier->dstAccessMask;
                 return;
             }
             else if (!skip_transition)
