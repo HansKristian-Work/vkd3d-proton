@@ -304,7 +304,7 @@ static bool vkd3d_serialized_pipeline_stream_entry_validate(const uint8_t *data,
 static const struct vkd3d_pipeline_blob_chunk *find_blob_chunk_masked(const struct vkd3d_pipeline_blob_chunk *chunk,
         size_t size, uint32_t type, uint32_t mask)
 {
-    uint32_t aligned_chunk_size;
+    size_t aligned_chunk_size;
 
     while (size >= sizeof(struct vkd3d_pipeline_blob_chunk))
     {
