@@ -5469,35 +5469,29 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     return true;
 }
 
-bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view)
+bool vkd3d_setup_texture_view(struct d3d12_device *device,
+        const struct vkd3d_texture_view_desc *desc,
+        struct vkd3d_texture_view_create_info *info)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkImageViewUsageCreateInfo image_usage_create_info;
     const struct vkd3d_format *format = desc->format;
-    VkImageViewMinLodCreateInfoEXT min_lod_desc;
-    VkImageViewSlicedCreateInfoEXT sliced_desc;
-    VkImageView vk_view = VK_NULL_HANDLE;
-    VkImageViewCreateInfo view_desc;
     int32_t miplevel_clamp_fixed;
-    struct vkd3d_view *object;
     uint32_t clamp_base_level;
     uint32_t end_level;
-    VkResult vr;
 
-    view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_desc.pNext = NULL;
-    view_desc.flags = 0;
-    view_desc.image = desc->image;
-    view_desc.viewType = desc->view_type;
-    view_desc.format = format->vk_format;
-    vkd3d_set_view_swizzle_for_format(&view_desc.components, format, desc->allowed_swizzle);
+    memset(info, 0, sizeof(*info));
+    info->view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    info->view_desc.flags = 0;
+    info->view_desc.image = desc->image;
+    info->view_desc.viewType = desc->view_type;
+    info->view_desc.format = format->vk_format;
+    vkd3d_set_view_swizzle_for_format(&info->view_desc.components, format, desc->allowed_swizzle);
     if (desc->allowed_swizzle)
-        vk_component_mapping_compose(&view_desc.components, &desc->components);
-    view_desc.subresourceRange.aspectMask = desc->aspect_mask;
-    view_desc.subresourceRange.baseMipLevel = desc->miplevel_idx;
-    view_desc.subresourceRange.levelCount = desc->miplevel_count;
-    view_desc.subresourceRange.baseArrayLayer = desc->layer_idx;
-    view_desc.subresourceRange.layerCount = desc->layer_count;
+        vk_component_mapping_compose(&info->view_desc.components, &desc->components);
+    info->view_desc.subresourceRange.aspectMask = desc->aspect_mask;
+    info->view_desc.subresourceRange.baseMipLevel = desc->miplevel_idx;
+    info->view_desc.subresourceRange.levelCount = desc->miplevel_count;
+    info->view_desc.subresourceRange.baseArrayLayer = desc->layer_idx;
+    info->view_desc.subresourceRange.layerCount = desc->layer_count;
 
     /* If the clamp is defined such that it would only access mip levels
      * outside the view range, don't make a view and use a NULL descriptor.
@@ -5511,10 +5505,9 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
             if (device->device_info.image_view_min_lod_features.minLod)
             {
                 /* Clamp minLod the highest accessed mip level to stay within spec */
-                min_lod_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT;
-                min_lod_desc.pNext = NULL;
-                min_lod_desc.minLod = vkd3d_fixed_24_8_to_float(miplevel_clamp_fixed);
-                vk_prepend_struct(&view_desc, &min_lod_desc);
+                info->min_lod_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT;
+                info->min_lod_desc.minLod = vkd3d_fixed_24_8_to_float(miplevel_clamp_fixed);
+                vk_prepend_struct(&info->view_desc, &info->min_lod_desc);
             }
             else
             {
@@ -5522,29 +5515,46 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
                 /* This is not correct, but it's the best we can do without VK_EXT_image_view_min_lod.
                  * It should at least avoid a scenario where implicit LOD fetches from invalid levels. */
                 clamp_base_level = (uint32_t)desc->miplevel_clamp;
-                end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
-                view_desc.subresourceRange.levelCount = end_level - clamp_base_level;
-                view_desc.subresourceRange.baseMipLevel = clamp_base_level;
+                end_level = info->view_desc.subresourceRange.baseMipLevel + info->view_desc.subresourceRange.levelCount;
+                info->view_desc.subresourceRange.levelCount = end_level - clamp_base_level;
+                info->view_desc.subresourceRange.baseMipLevel = clamp_base_level;
             }
         }
 
-        image_usage_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO;
-        image_usage_create_info.pNext = NULL;
-        image_usage_create_info.usage = desc->image_usage;
-        vk_prepend_struct(&view_desc, &image_usage_create_info);
+        info->image_usage_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO;
+        info->image_usage_create_info.usage = desc->image_usage;
+        vk_prepend_struct(&info->view_desc, &info->image_usage_create_info);
 
         if (desc->view_type == VK_IMAGE_VIEW_TYPE_3D &&
                 (desc->w_offset != 0 || desc->w_size != VK_REMAINING_3D_SLICES_EXT) &&
                 device->device_info.image_sliced_view_of_3d_features.imageSlicedViewOf3D)
         {
-            sliced_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_SLICED_CREATE_INFO_EXT;
-            sliced_desc.pNext = NULL;
-            sliced_desc.sliceOffset = desc->w_offset;
-            sliced_desc.sliceCount = desc->w_size;
-            vk_prepend_struct(&view_desc, &sliced_desc);
+            info->sliced_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_SLICED_CREATE_INFO_EXT;
+            info->sliced_desc.pNext = NULL;
+            info->sliced_desc.sliceOffset = desc->w_offset;
+            info->sliced_desc.sliceCount = desc->w_size;
+            vk_prepend_struct(&info->view_desc, &info->sliced_desc);
         }
 
-        if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_texture_view_create_info info;
+    VkImageView vk_view = VK_NULL_HANDLE;
+    struct vkd3d_view *object;
+    VkResult vr;
+
+    if (vkd3d_setup_texture_view(device, desc, &info))
+    {
+        if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &info.view_desc, NULL, &vk_view))) < 0)
         {
             WARN("Failed to create Vulkan image view, vr %d.\n", vr);
             return false;
@@ -5558,7 +5568,7 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     }
 
     object->vk_image_view = vk_view;
-    object->format = format;
+    object->format = desc->format;
     object->info.texture.vk_view_type = desc->view_type;
     object->info.texture.aspect_mask = desc->aspect_mask;
     object->info.texture.miplevel_idx = desc->miplevel_idx;
