@@ -2836,6 +2836,10 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
         d3d12_pipeline_state_dec_ref(allocator->pipelines[i]);
     }
     allocator->pipelines_count = 0;
+
+    for (i = 0; i < allocator->meta_allocs_count; i++)
+        d3d12_descriptor_heap_free_meta_index(allocator->meta_allocs[i].heap, allocator->meta_allocs[i].index);
+    allocator->meta_allocs_count = 0;
 }
 
 static void d3d12_command_allocator_set_name(struct d3d12_command_allocator *allocator, const char *name)
@@ -2944,6 +2948,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
         vkd3d_free(allocator->buffer_views);
         vkd3d_free(allocator->views);
         vkd3d_free(allocator->pipelines);
+        vkd3d_free(allocator->meta_allocs);
 
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
         {
@@ -3563,6 +3568,119 @@ static struct d3d12_command_allocator *d3d12_command_allocator_from_iface(ID3D12
         return NULL;
 
     return impl_from_ID3D12CommandAllocator(iface);
+}
+
+uint32_t d3d12_command_allocator_allocate_meta_index(
+        struct d3d12_command_allocator *allocator, struct d3d12_descriptor_heap *heap)
+{
+    uint32_t index = d3d12_descriptor_heap_allocate_meta_index(heap);
+    if (index == UINT32_MAX)
+    {
+        WARN("Meta descriptor pressure! Falling back to global heap (potentially slow) ...\n");
+        return index;
+    }
+
+    vkd3d_array_reserve((void**)&allocator->meta_allocs, &allocator->meta_allocs_size,
+            allocator->meta_allocs_count + 1, sizeof(*allocator->meta_allocs));
+    allocator->meta_allocs[allocator->meta_allocs_count].heap = heap;
+    allocator->meta_allocs[allocator->meta_allocs_count].index = index;
+    allocator->meta_allocs_count++;
+    return index;
+}
+
+static uint32_t d3d12_command_list_allocate_meta_buffer_view(
+        struct d3d12_command_list *list,
+        VkDeviceAddress va, VkDeviceSize range, VkFormat vk_format)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkTexelBufferDescriptorInfoEXT texel_buffer_info;
+    VkResourceDescriptorInfoEXT desc_info;
+    struct d3d12_descriptor_heap *heap;
+    VkHostAddressRangeEXT desc_range;
+    uint32_t heap_index;
+
+    heap = list->descriptor_heap.buffers.resource.heap;
+
+    /* If heap is dirty, we've moved back to global heap, and it's meaningless to attempt to rebind the heap.
+    * Just fallback to legacy descriptor model to avoid further disruptions. */
+    if (!heap || list->descriptor_heap.buffers.global_heap_dirty)
+        return UINT32_MAX;
+
+    heap_index = d3d12_command_allocator_allocate_meta_index(list->allocator, heap);
+    if (heap_index == UINT32_MAX)
+        return heap_index;
+
+    memset(&texel_buffer_info, 0, sizeof(texel_buffer_info));
+    texel_buffer_info.sType = VK_STRUCTURE_TYPE_TEXEL_BUFFER_DESCRIPTOR_INFO_EXT;
+    texel_buffer_info.addressRange.address = va;
+    texel_buffer_info.addressRange.size = range;
+    texel_buffer_info.format = vk_format;
+
+    memset(&desc_info, 0, sizeof(desc_info));
+    desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    desc_info.data.pTexelBuffer = &texel_buffer_info;
+
+    desc_range.address = heap->descriptor_buffer.host_allocation +
+                         heap_index * list->device->bindless_state.cbv_srv_uav_size;
+    desc_range.size = list->device->bindless_state.heap.storage_texel_buffer_size;
+    VK_CALL(vkWriteResourceDescriptorsEXT(list->device->vk_device, 1, &desc_info, &desc_range));
+    return heap_index;
+}
+
+static uint32_t d3d12_command_list_allocate_meta_image_view(
+        struct d3d12_command_list *list,
+        const struct vkd3d_texture_view_desc *view_desc, VkImageLayout vk_image_layout)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_texture_view_create_info vk_view_info;
+    VkResourceDescriptorInfoEXT desc_info;
+    VkImageDescriptorInfoEXT image_info;
+    struct d3d12_descriptor_heap *heap;
+    VkHostAddressRangeEXT desc_range;
+    uint32_t heap_index;
+
+    heap = list->descriptor_heap.buffers.resource.heap;
+
+    /* If heap is dirty, we've moved back to global heap, and it's meaningless to attempt to rebind the heap.
+    * Just fallback to legacy descriptor model to avoid further disruptions. */
+    if (!heap || list->descriptor_heap.buffers.global_heap_dirty)
+        return UINT32_MAX;
+
+    assert(view_desc->image_usage == VK_IMAGE_USAGE_SAMPLED_BIT ||
+           view_desc->image_usage == VK_IMAGE_USAGE_STORAGE_BIT);
+
+    heap_index = d3d12_command_allocator_allocate_meta_index(list->allocator, heap);
+    if (heap_index == UINT32_MAX)
+        return heap_index;
+
+    vkd3d_setup_texture_view(list->device, view_desc, &vk_view_info);
+
+    memset(&image_info, 0, sizeof(image_info));
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_DESCRIPTOR_INFO_EXT;
+    image_info.layout = vk_image_layout;
+    image_info.pView = &vk_view_info.view_desc;
+
+    memset(&desc_info, 0, sizeof(desc_info));
+    desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    desc_info.data.pImage = &image_info;
+
+    desc_range.address = heap->descriptor_buffer.host_allocation +
+                         heap_index * list->device->bindless_state.cbv_srv_uav_size;
+
+    if (view_desc->image_usage == VK_IMAGE_USAGE_SAMPLED_BIT)
+    {
+        desc_info.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        desc_range.size = list->device->bindless_state.heap.sampled_image_size;
+    }
+    else
+    {
+        desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        desc_range.size = list->device->bindless_state.heap.storage_image_size;
+    }
+
+    VK_CALL(vkWriteResourceDescriptorsEXT(list->device->vk_device, 1, &desc_info, &desc_range));
+    return heap_index;
 }
 
 /* ID3D12CommandList */
