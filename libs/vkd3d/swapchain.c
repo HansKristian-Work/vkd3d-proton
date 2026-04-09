@@ -2320,6 +2320,9 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
 
     if (blit_command)
     {
+		image_barrier[0].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
+        image_barrier[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
         image_barrier[1].srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT;
         image_barrier[1].srcAccessMask = VK_ACCESS_2_NONE;
         image_barrier[1].dstStageMask = VK_PIPELINE_STAGE_2_NONE;
