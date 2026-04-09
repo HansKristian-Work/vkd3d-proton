@@ -5198,7 +5198,23 @@ bool vkd3d_create_opacity_micromap_view(struct d3d12_device *device, const struc
 #define VKD3D_VIEW_RAW_BUFFER 0x1
 #define VKD3D_VIEW_BUFFER_SRV 0x2
 
-static void vkd3d_get_metadata_buffer_view_for_resource(struct d3d12_device *device,
+static void vkd3d_get_metadata_buffer_view_for_resource_heap(struct d3d12_device *device,
+        struct d3d12_resource *resource, DXGI_FORMAT view_format,
+        VkDeviceSize offset, VkDeviceSize size, VkDeviceSize structure_stride,
+        bool raw, struct vkd3d_descriptor_metadata_buffer_view *view)
+{
+    VkDeviceSize element_size;
+
+    element_size = view_format == DXGI_FORMAT_UNKNOWN
+            ? structure_stride : vkd3d_get_format(device, view_format, false)->byte_count;
+
+    view->va = resource->res.va + offset * element_size;
+    view->range = size * element_size;
+    view->dxgi_format = raw ? DXGI_FORMAT_UNKNOWN : view_format;
+    view->flags = VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+}
+
+static void vkd3d_get_metadata_buffer_view_for_resource_legacy(struct d3d12_device *device,
         struct d3d12_resource *resource, DXGI_FORMAT view_format,
         VkDeviceSize offset, VkDeviceSize size, VkDeviceSize structure_stride,
         struct vkd3d_descriptor_metadata_buffer_view *view)
@@ -6140,7 +6156,7 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     }
 
     /* Ignore metadata for SRV. */
-    vkd3d_get_metadata_buffer_view_for_resource(device, resource,
+    vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
             desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
             desc->Buffer.StructureByteStride, &view);
 
@@ -6283,7 +6299,7 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     }
 
     d.types->set_info_mask = 0;
-    vkd3d_get_metadata_buffer_view_for_resource(device, resource,
+    vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
             desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
             desc->Buffer.StructureByteStride, &d.view->info.buffer);
 
@@ -6937,7 +6953,7 @@ static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, 
     d = d3d12_desc_decode_embedded_resource_va(desc_va);
     m = d3d12_desc_decode_metadata(device, desc_va);
 
-    vkd3d_get_metadata_buffer_view_for_resource(device, resource,
+    vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
             desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
             desc->Buffer.StructureByteStride, &view);
 
@@ -7069,7 +7085,7 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     /* Handle UAV itself */
     d.types->set_info_mask = 0;
 
-    vkd3d_get_metadata_buffer_view_for_resource(device, resource,
+    vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
             desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
             desc->Buffer.StructureByteStride, &d.view->info.buffer);
     d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER;
