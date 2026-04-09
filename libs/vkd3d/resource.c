@@ -5819,6 +5819,57 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(vkd3d_cpu_descr
                     VKD3D_DESCRIPTOR_QA_TYPE_RT_ACCELERATION_STRUCTURE_BIT, vkd3d_null_cookie());
 }
 
+void d3d12_desc_create_cbv_heap(vkd3d_cpu_descriptor_va_t desc_va,
+        struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkResourceDescriptorInfoEXT desc_info;
+    struct d3d12_desc_split_embedded d;
+    VkDeviceAddressRangeEXT addr_range;
+    VkHostAddressRangeEXT desc_range;
+
+    if (!desc)
+    {
+        WARN("Constant buffer desc is NULL.\n");
+        return;
+    }
+
+    if (desc->SizeInBytes & (D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT - 1))
+    {
+        WARN("Size is not %u bytes aligned.\n", D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+        return;
+    }
+
+    d = d3d12_desc_decode_embedded_resource_va(desc_va);
+
+    memset(&desc_info, 0, sizeof(desc_info));
+    desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    desc_info.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+    if (desc->BufferLocation)
+    {
+        desc_info.data.pAddressRange = &addr_range;
+        addr_range.address = desc->BufferLocation;
+        addr_range.size = desc->SizeInBytes;
+    }
+
+    /* Clear out lower half which should ideally be a null descriptor. */
+    if (device->bindless_state.packed_raw_buffer_offset)
+        memset(d.payload, 0, device->bindless_state.packed_raw_buffer_offset);
+
+    desc_range.address = d.payload + device->bindless_state.packed_raw_buffer_offset;
+    desc_range.size = device->bindless_state.heap.ubo_size;
+    VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+
+    if (device->bindless_state.packed_raw_buffer_offset == 0 &&
+        device->bindless_state.heap.ubo_size < device->device_info.descriptor_heap_properties.bufferDescriptorSize)
+    {
+        uint8_t *padding = d.payload + device->bindless_state.packed_raw_buffer_offset;
+        padding += device->bindless_state.heap.ubo_size;
+        memset(padding, 0, device->device_info.descriptor_heap_properties.bufferDescriptorSize - device->bindless_state.heap.ubo_size);
+    }
+}
+
 void d3d12_desc_create_cbv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc)
 {
