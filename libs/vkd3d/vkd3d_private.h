@@ -2688,6 +2688,12 @@ struct d3d12_command_allocator_command_pool
     struct d3d12_command_allocator_command_pool_list recycled, pending;
 };
 
+struct vkd3d_descriptor_heap_meta_allocation
+{
+    struct d3d12_descriptor_heap *heap;
+    uint32_t index;
+};
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {
@@ -2719,6 +2725,10 @@ struct d3d12_command_allocator
     size_t query_pools_size;
     size_t query_pool_count;
 
+    struct vkd3d_descriptor_heap_meta_allocation *meta_allocs;
+    size_t meta_allocs_size;
+    size_t meta_allocs_count;
+
     struct vkd3d_query_pool active_query_pools[VKD3D_VIRTUAL_QUERY_TYPE_COUNT];
 
     struct d3d12_command_list *current_command_list;
@@ -2741,6 +2751,8 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
 bool d3d12_command_allocator_allocate_query_from_type_index(
         struct d3d12_command_allocator *allocator,
         uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index);
+uint32_t d3d12_command_allocator_allocate_meta_index(
+        struct d3d12_command_allocator *allocator, struct d3d12_descriptor_heap *heap);
 
 struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *iface);
 void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list);
