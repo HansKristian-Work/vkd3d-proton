@@ -61,7 +61,7 @@
 /* The above plus one push descriptor set + static sampler set + static sampler set for local root signatures. */
 #define VKD3D_MAX_DESCRIPTOR_SETS (VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS + 3u)
 #define VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES 6u
-#define VKD3D_MAX_DESCRIPTOR_SIZE 256u /* Maximum allowed value in VK_EXT_descriptor_buffer. */
+#define VKD3D_MAX_DESCRIPTOR_SIZE 256u /* Maximum allowed value in VK_EXT_descriptor_buffer/heap. */
 
 #define VKD3D_MIN_VIEW_DESCRIPTOR_COUNT (1000000u)
 #define VKD3D_MIN_SAMPLER_DESCRIPTOR_COUNT (2048u)
