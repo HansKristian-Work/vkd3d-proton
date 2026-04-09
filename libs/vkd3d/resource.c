@@ -6191,6 +6191,166 @@ static bool vkd3d_buffer_view_get_aligned_view(
     return true;
 }
 
+static bool d3d12_resource_desc_supports_heap_raw_ssbo(struct d3d12_device *device,
+        uint32_t stride, bool raw)
+{
+    assert(stride || raw);
+    if (stride)
+        return (stride & (device->bindless_state.heap.min_ssbo_alignment - 1)) == 0;
+    else
+        return device->bindless_state.heap.supports_universal_byte_address_ssbo;
+}
+
+static bool d3d12_resource_desc_supports_heap_raw_srv_ssbo(
+        struct d3d12_device *device, const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
+{
+    return d3d12_resource_desc_supports_heap_raw_ssbo(device,
+            desc->Buffer.StructureByteStride,
+            (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0);
+}
+
+static bool d3d12_resource_desc_supports_heap_raw_uav_ssbo(
+        struct d3d12_device *device, const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    return d3d12_resource_desc_supports_heap_raw_ssbo(device,
+            desc->Buffer.StructureByteStride,
+            (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0);
+}
+
+static void vkd3d_create_buffer_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_descriptor_metadata_buffer_view view;
+    VkTexelBufferDescriptorInfoEXT texel_buffer_info;
+    VkResourceDescriptorInfoEXT desc_info;
+    struct d3d12_desc_split_embedded d;
+    VkDeviceAddressRangeEXT ssbo_range;
+    VkHostAddressRangeEXT desc_range;
+    uint8_t stack_payload[256];
+
+    if (!desc)
+    {
+        FIXME("Default buffer SRV not supported.\n");
+        return;
+    }
+
+    d = d3d12_desc_decode_embedded_resource_va(desc_va);
+
+    memset(&desc_info, 0, sizeof(desc_info));
+    desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+
+    if (desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)
+    {
+        desc_info.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        if (desc->RaytracingAccelerationStructure.Location)
+        {
+            ssbo_range.address = desc->RaytracingAccelerationStructure.Location;
+            ssbo_range.size = 0; /* FIXME: Is this meaningful? */
+            desc_info.data.pAddressRange = &ssbo_range;
+        }
+
+        if (device->bindless_state.packed_raw_buffer_offset)
+            memset(d.payload, 0, device->bindless_state.packed_raw_buffer_offset);
+
+        desc_range.address = d.payload + device->bindless_state.packed_raw_buffer_offset;
+        desc_range.size = device->device_info.descriptor_heap_properties.bufferDescriptorSize;
+        VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+    }
+    else if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
+    {
+        const struct vkd3d_bindless_state *bindless = &device->bindless_state;
+        bool can_emit_sibling_typed_raw;
+        bool emit_typed;
+        bool is_typed;
+        bool emit_raw;
+
+        /* Ignore metadata for SRV. */
+        if (resource)
+        {
+            vkd3d_get_metadata_buffer_view_for_resource_heap(device, resource,
+                    desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                    desc->Buffer.StructureByteStride, (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0,
+                    &view);
+        }
+        else
+        {
+            memset(&view, 0, sizeof(view));
+        }
+
+        is_typed = desc->Format && !(desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+
+        can_emit_sibling_typed_raw = bindless->packed_raw_buffer_offset >= bindless->heap.uniform_texel_buffer_size;
+        memset(stack_payload, 0, bindless->cbv_srv_uav_size);
+
+        if (!is_typed && !d3d12_resource_desc_supports_heap_raw_srv_ssbo(device, desc))
+        {
+            is_typed = true;
+            view.dxgi_format = DXGI_FORMAT_R32_UINT;
+        }
+
+        /* TODO: Check max range for typed? */
+        emit_typed = is_typed || can_emit_sibling_typed_raw;
+        emit_raw = !is_typed || can_emit_sibling_typed_raw;
+
+        if (emit_typed)
+        {
+            desc_info.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            if (resource)
+            {
+                memset(&texel_buffer_info, 0, sizeof(texel_buffer_info));
+                texel_buffer_info.sType = VK_STRUCTURE_TYPE_TEXEL_BUFFER_DESCRIPTOR_INFO_EXT;
+                texel_buffer_info.addressRange.address = view.va;
+                texel_buffer_info.addressRange.size = view.range;
+                texel_buffer_info.format = vkd3d_internal_get_vk_format(device, view.dxgi_format);
+                if (texel_buffer_info.format == VK_FORMAT_UNDEFINED)
+                {
+                    if (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW)
+                    {
+                        texel_buffer_info.format = VK_FORMAT_R32_UINT;
+                    }
+                    else
+                    {
+                        texel_buffer_info.format = vkd3d_internal_get_vk_format(device,
+                            vkd3d_structured_srv_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                    }
+                }
+                desc_info.data.pTexelBuffer = &texel_buffer_info;
+            }
+
+            desc_range.address = stack_payload;
+            desc_range.size = device->bindless_state.heap.uniform_texel_buffer_size;
+            VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+        }
+
+        if (emit_raw)
+        {
+            desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            if (resource)
+            {
+                ssbo_range.address = view.va;
+                ssbo_range.size = view.range;
+                desc_info.data.pAddressRange = &ssbo_range;
+            }
+            else
+            {
+                desc_info.data.pAddressRange = NULL;
+            }
+
+            desc_range.address = stack_payload + bindless->packed_raw_buffer_offset;
+            desc_range.size = device->device_info.descriptor_heap_properties.bufferDescriptorSize;
+            VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+        }
+
+        memcpy(d.payload, stack_payload, bindless->cbv_srv_uav_size);
+    }
+    else
+    {
+        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
+    }
+}
+
 static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
@@ -6800,6 +6960,46 @@ static void vkd3d_create_texture_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
             d.payload));
 }
 
+static void vkd3d_create_texture_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_texture_view_create_info create_info;
+    VkResourceDescriptorInfoEXT desc_info;
+    struct vkd3d_texture_view_desc info;
+    VkImageDescriptorInfoEXT image_info;
+    struct d3d12_desc_split_embedded d;
+    VkHostAddressRangeEXT desc_range;
+
+    d = d3d12_desc_decode_embedded_resource_va(desc_va);
+
+    memset(&desc_info, 0, sizeof(desc_info));
+    desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    desc_info.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+
+    /* Ignore metadata. */
+    if (resource && vkd3d_setup_texture_srv_view(device, resource, desc, &info) &&
+        vkd3d_setup_texture_view(device, &info, &create_info))
+    {
+        desc_info.data.pImage = &image_info;
+        memset(&image_info, 0, sizeof(image_info));
+        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_DESCRIPTOR_INFO_EXT;
+        image_info.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        image_info.pView = &create_info.view_desc;
+    }
+
+    desc_range.address = d.payload;
+    desc_range.size = device->bindless_state.heap.sampled_image_size;
+    VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+
+    if (device->bindless_state.heap.sampled_image_size < device->bindless_state.cbv_srv_uav_size)
+    {
+        memset(d.payload + device->bindless_state.heap.sampled_image_size, 0,
+                device->bindless_state.cbv_srv_uav_size - device->bindless_state.heap.sampled_image_size);
+    }
+}
+
 static void vkd3d_create_texture_srv(vkd3d_cpu_descriptor_va_t desc_va,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
@@ -6895,6 +7095,33 @@ static void vkd3d_create_texture_srv(vkd3d_cpu_descriptor_va_t desc_va,
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset,
             VKD3D_DESCRIPTOR_QA_TYPE_SAMPLED_IMAGE_BIT, d.view->qa_cookie);
+}
+
+void d3d12_desc_create_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
+{
+    bool is_buffer;
+
+    if (resource)
+    {
+        is_buffer = d3d12_resource_is_buffer(resource);
+    }
+    else if (desc)
+    {
+        is_buffer = desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER ||
+                desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+    }
+    else
+    {
+        WARN("Description required for NULL SRV.\n");
+        return;
+    }
+
+    if (is_buffer)
+        vkd3d_create_buffer_srv_heap(desc_va, device, resource, desc);
+    else
+        vkd3d_create_texture_srv_heap(desc_va, device, resource, desc);
 }
 
 void d3d12_desc_create_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
