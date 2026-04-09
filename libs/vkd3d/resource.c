@@ -8114,6 +8114,33 @@ void d3d12_descriptor_heap_dec_ref(struct d3d12_descriptor_heap *heap)
     }
 }
 
+uint32_t d3d12_descriptor_heap_allocate_meta_index(struct d3d12_descriptor_heap *heap)
+{
+    uint32_t index = UINT32_MAX;
+    pthread_mutex_lock(&heap->meta_descriptor_lock);
+
+    if (heap->meta_descriptor_index_count == 0)
+        goto unlock;
+
+    index = heap->meta_descriptor_indices[--heap->meta_descriptor_index_count];
+    d3d12_descriptor_heap_inc_ref(heap);
+
+unlock:
+    pthread_mutex_unlock(&heap->meta_descriptor_lock);
+    return index;
+}
+
+void d3d12_descriptor_heap_free_meta_index(struct d3d12_descriptor_heap *heap, uint32_t index)
+{
+    assert(heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+        (heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE));
+    pthread_mutex_lock(&heap->meta_descriptor_lock);
+    assert(heap->meta_descriptor_index_count < VKD3D_DESCRIPTOR_HEAP_META_DESCRIPTOR_COUNT);
+    heap->meta_descriptor_indices[heap->meta_descriptor_index_count++] = index;
+    pthread_mutex_unlock(&heap->meta_descriptor_lock);
+    d3d12_descriptor_heap_dec_ref(heap);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHeap *iface)
 {
     struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
@@ -8238,6 +8265,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descrip
     VkDeviceSize alloc_size;
     VkResult vr;
     HRESULT hr;
+    size_t i;
 
     if (descriptor_heap->desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
             descriptor_heap->desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
@@ -8279,6 +8307,18 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descrip
             /* Allocate some space for clamped NULL descriptor
              * (only relevant if we're doing some form of workaround or QA checks). */
             alloc_size += device->bindless_state.cbv_srv_uav_size;
+
+            /* Allocate space for meta descriptors. */
+            pthread_mutex_init(&descriptor_heap->meta_descriptor_lock, NULL);
+            descriptor_heap->meta_descriptor_indices = vkd3d_malloc(
+                VKD3D_DESCRIPTOR_HEAP_META_DESCRIPTOR_COUNT * sizeof(uint32_t));
+            for (i = 0; i < VKD3D_DESCRIPTOR_HEAP_META_DESCRIPTOR_COUNT; i++)
+            {
+                /* All meta shaders use a simple stride from base. */
+                descriptor_heap->meta_descriptor_indices[i] = alloc_size >> device->bindless_state.cbv_srv_uav_size_log2;
+                alloc_size += device->bindless_state.cbv_srv_uav_size;
+            }
+            descriptor_heap->meta_descriptor_index_count = VKD3D_DESCRIPTOR_HEAP_META_DESCRIPTOR_COUNT;
 
             /* Align for start of reservation region. */
             alloc_size = align64(alloc_size, device->device_info.descriptor_heap_properties.resourceHeapAlignment);
@@ -9485,6 +9525,21 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
         vkd3d_free_aligned(descriptor_heap->descriptor_buffer.host_allocation);
     vkd3d_free_device_memory(device, &descriptor_heap->descriptor_buffer.device_allocation);
     VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->descriptor_buffer.vk_buffer, NULL));
+
+    if (d3d12_device_use_descriptor_heap(device))
+    {
+        if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+            (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+        {
+            if (descriptor_heap->meta_descriptor_index_count != VKD3D_DESCRIPTOR_HEAP_META_DESCRIPTOR_COUNT)
+            {
+                FIXME("Mismatch in meta descriptors. Expected VKD3D_DESCRIPTOR_HEAP_META_DESCRIPTOR_COUNT, got %zu.\n",
+                        descriptor_heap->meta_descriptor_index_count);
+            }
+            pthread_mutex_destroy(&descriptor_heap->meta_descriptor_lock);
+            vkd3d_free(descriptor_heap->meta_descriptor_indices);
+        }
+    }
 
     vkd3d_descriptor_debug_unregister_heap(descriptor_heap->cookie);
 }
