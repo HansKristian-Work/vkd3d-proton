@@ -6539,6 +6539,18 @@ static inline unsigned int d3d12_resource_get_sub_resource_count(const struct d3
             (resource->format ? vkd3d_popcount(resource->format->vk_aspect_mask) : 1);
 }
 
+struct vkd3d_texture_view_create_info
+{
+    VkImageViewUsageCreateInfo image_usage_create_info;
+    VkImageViewMinLodCreateInfoEXT min_lod_desc;
+    VkImageViewSlicedCreateInfoEXT sliced_desc;
+    VkImageViewCreateInfo view_desc;
+};
+
+bool vkd3d_setup_texture_view(struct d3d12_device *device,
+        const struct vkd3d_texture_view_desc *desc,
+        struct vkd3d_texture_view_create_info *info);
+
 static inline uint32_t d3d12_resource_desc_default_alignment(const D3D12_RESOURCE_DESC1 *desc)
 {
     return desc->SampleDesc.Count > 1 ?
