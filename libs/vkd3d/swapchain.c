@@ -3299,14 +3299,16 @@ void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12
                 D3D12_FRAME_REPORT *report;
 
                 /* If the frame ID isn't a natural aligned value,
-                 * we assume it's a fake frame that the application never submitted a marker for.
-                 * Ignore it. */
+                 * we assume it's a frame that the application never submitted a marker for.
+                 * Non-aligned IDs appear when the monotonicity guard in the present path
+                 * bumps a stale or duplicate low_latency_frame_id (e.g. after a Wayland
+                 * compositor workspace switch stalls presents, or when DLSS Frame Generation
+                 * presents interpolated frames without setting new latency markers).
+                 * Skip these entries rather than discarding all reports, since Streamline's
+                 * sl.dlss_g module checks latency reports to verify Reflex is active and
+                 * will disable Frame Generation if all reports are zeroed. */
                 if (frame_reports[i].presentID % VKD3D_LOW_LATENCY_FRAME_ID_STRIDE != 0 || frame_reports[i].presentID == 0)
-                {
-                    /* We either have to report all frames, or nothing. */
-                    memset(latency_results->frame_reports, 0, sizeof(latency_results->frame_reports));
-                    goto unlock_out;
-                }
+                    continue;
 
                 report = &latency_results->frame_reports[i];
 
@@ -3336,7 +3338,6 @@ void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12
         }
     }
 
-unlock_out:
     pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
 }
 
