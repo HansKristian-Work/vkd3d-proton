@@ -1574,6 +1574,7 @@ struct d3d12_descriptor_heap
 
     ID3D12DescriptorHeap ID3D12DescriptorHeap_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     uint64_t gpu_va;
     D3D12_DESCRIPTOR_HEAP_DESC desc;
@@ -1611,6 +1612,13 @@ struct d3d12_descriptor_heap
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
 
+    /* For descriptor heap, command allocator can borrow single descriptors from the heap
+     * which is required in order to execute meta commands. */
+#define VKD3D_DESCRIPTOR_HEAP_META_DESCRIPTOR_COUNT 4096
+    pthread_mutex_t meta_descriptor_lock;
+    uint32_t *meta_descriptor_indices;
+    size_t meta_descriptor_index_count;
+
     /* Here we pack metadata data structures for CBV_SRV_UAV and SAMPLER.
      * For RTV/DSV heaps, we just encode rtv_desc structs inline. */
     DECLSPEC_ALIGN(D3D12_DESC_ALIGNMENT) BYTE descriptors[];
@@ -1620,6 +1628,9 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap);
 void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap);
 bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *device);
+
+uint32_t d3d12_descriptor_heap_allocate_meta_index(struct d3d12_descriptor_heap *heap);
+void d3d12_descriptor_heap_free_meta_index(struct d3d12_descriptor_heap *heap, uint32_t index);
 
 static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
 {
