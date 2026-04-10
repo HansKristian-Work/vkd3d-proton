@@ -416,10 +416,19 @@ static bool d3d12_descriptor_range_can_hoist_cbv_descriptor(
 }
 
 static void d3d12_root_signature_info_count_srv_uav_table(struct d3d12_root_signature_info *info,
-        struct d3d12_device *device)
+        struct d3d12_device *device, D3D12_DESCRIPTOR_RANGE_TYPE range_type)
 {
-    /* separate image + buffer descriptors + aux buffer descriptor. */
-    info->binding_count += 3;
+    /* separate image + buffer descriptors + (most likely) aux buffer descriptor. */
+    bool uses_typed_uav_counter = device->bindless_state.heap.uav_counter_embedded_offset == 0;
+    info->binding_count += 2;
+
+    /* Needs to match d3d12_root_signature_init_srv_uav_binding. */
+    if ((d3d12_device_use_embedded_mutable_descriptors(device) &&
+            uses_typed_uav_counter && range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV) ||
+        (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV || !d3d12_device_use_descriptor_heap(device)))
+    {
+        info->binding_count += 1;
+    }
 
     if (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
         info->binding_count += 1;
@@ -447,7 +456,7 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
     {
         case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            d3d12_root_signature_info_count_srv_uav_table(info, device);
+            d3d12_root_signature_info_count_srv_uav_table(info, device, range->RangeType);
             break;
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
             if (!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE) &&
@@ -494,8 +503,8 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
     if (d3d12_root_signature_may_require_global_heap_binding(device) ||
             (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED))
     {
-        d3d12_root_signature_info_count_srv_uav_table(info, device);
-        d3d12_root_signature_info_count_srv_uav_table(info, device);
+        d3d12_root_signature_info_count_srv_uav_table(info, device, D3D12_DESCRIPTOR_RANGE_TYPE_SRV);
+        d3d12_root_signature_info_count_srv_uav_table(info, device, D3D12_DESCRIPTOR_RANGE_TYPE_UAV);
         d3d12_root_signature_info_count_cbv_table(info);
     }
 
@@ -763,6 +772,8 @@ static void d3d12_root_signature_init_srv_uav_binding(struct d3d12_root_signatur
         struct vkd3d_shader_resource_binding *binding,
         struct vkd3d_shader_resource_binding *out_bindings_base, uint32_t *out_index)
 {
+    /* Always true if not using heap */
+    bool uses_typed_uav_counter = root_signature->device->bindless_state.heap.uav_counter_embedded_offset == 0;
     struct vkd3d_bindless_state *bindless_state = &root_signature->device->bindless_state;
     enum vkd3d_bindless_set_flag range_flag;
 
@@ -770,7 +781,7 @@ static void d3d12_root_signature_init_srv_uav_binding(struct d3d12_root_signatur
     binding->flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
 
     if (d3d12_device_use_embedded_mutable_descriptors(root_signature->device) &&
-            range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+            uses_typed_uav_counter && range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
     {
         /* If we're relying on embedded mutable descriptors we have to be a bit careful with aliasing raw VAs.
          * With application bugs in play, it's somewhat easy to end up aliasing a true texel buffer
@@ -783,9 +794,10 @@ static void d3d12_root_signature_init_srv_uav_binding(struct d3d12_root_signatur
         if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_BUFFER, &binding->binding))
             out_bindings_base[(*out_index)++] = *binding;
     }
-    else
+    else if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV || !d3d12_device_use_descriptor_heap(root_signature->device))
     {
-        /* Use raw VA for both RTAS and UAV counters. */
+        /* Use raw VA for both RTAS and UAV counters.
+         * On heap, we use proper descriptors for RTAS, so skip this path for SRV. We'll pick up the normal buffer bindings. */
         binding->flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
         binding->binding = root_signature->raw_va_aux_buffer_binding;
         out_bindings_base[(*out_index)++] = *binding;
@@ -891,6 +903,9 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
         table->binding_count = 0;
         table->first_binding = &root_signature->bindings[context->binding_index];
+
+        /* TODO: Add mappings for proper tables. For now, keep manual lowering.
+         * The lowering path is necessary for descriptor heap robustness down the line. */
 
         for (j = 0; j < range_count; ++j)
         {
@@ -8011,6 +8026,18 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
         uint32_t flags, struct vkd3d_shader_descriptor_binding *binding)
 {
     unsigned int i;
+
+    if (bindless_state->flags & VKD3D_BINDLESS_HEAP)
+    {
+        /* Mapping struct takes care of typing.
+         * TODO: For QA buffers, we'll have to adjust the binding. */
+        binding->set = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+        if (flags & VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER)
+            binding->binding = VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING;
+        else
+            binding->binding = VKD3D_SHADER_GLOBAL_HEAP_BINDING;
+        return true;
+    }
 
     for (i = 0; i < bindless_state->legacy.set_count; i++)
     {
