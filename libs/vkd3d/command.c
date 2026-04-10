@@ -13603,87 +13603,39 @@ static inline void d3d12_command_list_set_descriptor_table(struct d3d12_command_
     VKD3D_BREADCRUMB_COMMAND_STATE(ROOT_TABLE);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_embedded_64_16(
-        d3d12_command_list_iface *iface,
-        UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
-{
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-
-    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n",
-            iface, root_parameter_index, base_descriptor.ptr);
-
-    d3d12_command_list_set_descriptor_table_embedded(list, &list->compute_bindings,
-            root_parameter_index, base_descriptor, 6, 4);
+/* Poor man's templates :V */
+#define DECLARE_ROOT_TABLE_VARIANT(variant, resource_log2, sampler_log2) \
+static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_##variant( \
+        d3d12_command_list_iface *iface, \
+        UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor) \
+{ \
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface); \
+ \
+    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n", \
+            iface, root_parameter_index, base_descriptor.ptr); \
+ \
+    d3d12_command_list_set_descriptor_table_embedded(list, &list->compute_bindings, \
+            root_parameter_index, base_descriptor, resource_log2, sampler_log2); \
+} \
+static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable_##variant( \
+        d3d12_command_list_iface *iface, \
+        UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor) \
+{ \
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface); \
+ \
+    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n", \
+            iface, root_parameter_index, base_descriptor.ptr); \
+ \
+    d3d12_command_list_set_descriptor_table_embedded(list, &list->graphics_bindings, \
+            root_parameter_index, base_descriptor, resource_log2, sampler_log2); \
 }
-
-static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable_embedded_64_16(
-        d3d12_command_list_iface *iface,
-        UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
-{
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-
-    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n",
-            iface, root_parameter_index, base_descriptor.ptr);
-
-    d3d12_command_list_set_descriptor_table_embedded(list, &list->graphics_bindings,
-            root_parameter_index, base_descriptor, 6, 4);
-}
-
-static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_embedded_32_16(
-        d3d12_command_list_iface *iface,
-        UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
-{
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-
-    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n",
-            iface, root_parameter_index, base_descriptor.ptr);
-
-    d3d12_command_list_set_descriptor_table_embedded(list, &list->compute_bindings,
-            root_parameter_index, base_descriptor, 5, 4);
-}
-
-static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable_embedded_32_16(
-        d3d12_command_list_iface *iface,
-        UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
-{
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-
-    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n",
-            iface, root_parameter_index, base_descriptor.ptr);
-
-    d3d12_command_list_set_descriptor_table_embedded(list, &list->graphics_bindings,
-            root_parameter_index, base_descriptor, 5, 4);
-}
-
-static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_embedded_default(
-        d3d12_command_list_iface *iface,
-        UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
-{
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-
-    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n",
-            iface, root_parameter_index, base_descriptor.ptr);
-
-    d3d12_command_list_set_descriptor_table_embedded(list, &list->compute_bindings,
-            root_parameter_index, base_descriptor,
-            list->device->bindless_state.cbv_srv_uav_size_log2,
-            list->device->bindless_state.sampler_size_log2);
-}
-
-static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable_embedded_default(
-        d3d12_command_list_iface *iface,
-        UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
-{
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-
-    TRACE("iface %p, root_parameter_index %u, base_descriptor %#"PRIx64".\n",
-            iface, root_parameter_index, base_descriptor.ptr);
-
-    d3d12_command_list_set_descriptor_table_embedded(list, &list->graphics_bindings,
-            root_parameter_index, base_descriptor,
-            list->device->bindless_state.cbv_srv_uav_size_log2,
-            list->device->bindless_state.sampler_size_log2);
-}
+DECLARE_ROOT_TABLE_VARIANT(embedded_64_16, 6, 4)
+DECLARE_ROOT_TABLE_VARIANT(embedded_32_16, 5, 4)
+DECLARE_ROOT_TABLE_VARIANT(embedded_32_32, 5, 5)
+DECLARE_ROOT_TABLE_VARIANT(embedded_128_32, 7, 5)
+DECLARE_ROOT_TABLE_VARIANT(embedded_default,
+    list->device->bindless_state.cbv_srv_uav_size_log2,
+    list->device->bindless_state.sampler_size_log2)
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_default(
         d3d12_command_list_iface *iface,
@@ -21288,6 +21240,8 @@ static CONST_VTBL struct ID3D12GraphicsCommandList10Vtbl d3d12_command_list_vtbl
 VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(default, default);
 VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(embedded_64_16, embedded_64_16);
 VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(embedded_32_16, embedded_32_16);
+VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(embedded_32_32, embedded_32_32);
+VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(embedded_128_32, embedded_128_32);
 VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(embedded_default, embedded_default);
 
 #ifdef VKD3D_ENABLE_PROFILING
@@ -21368,6 +21322,16 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
             {
                 list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl_embedded_32_16;
             }
+            else if (device->bindless_state.cbv_srv_uav_size == 32 &&
+                    device->bindless_state.sampler_size == 32)
+            {
+                list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl_embedded_32_32;
+            }
+            else if (device->bindless_state.cbv_srv_uav_size == 128 &&
+                    device->bindless_state.sampler_size == 32)
+            {
+                list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl_embedded_128_32;
+            }
             else
             {
                 list->ID3D12GraphicsCommandList_iface.lpVtbl = &d3d12_command_list_vtbl_embedded_default;
@@ -21437,7 +21401,9 @@ struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *ifac
     is_valid |=
             iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl_default ||
             iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl_embedded_64_16 ||
+            iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl_embedded_32_32 ||
             iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl_embedded_32_16 ||
+            iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl_embedded_128_32 ||
             iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl_embedded_default;
 
     if (!is_valid)

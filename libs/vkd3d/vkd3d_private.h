@@ -1475,6 +1475,17 @@ void d3d12_desc_create_uav_embedded(vkd3d_cpu_descriptor_va_t descriptor, struct
 void d3d12_desc_create_sampler_embedded(vkd3d_cpu_descriptor_va_t sampler,
         struct d3d12_device *device, const D3D12_SAMPLER_DESC2 *desc);
 
+void d3d12_desc_create_cbv_heap(vkd3d_cpu_descriptor_va_t descriptor,
+        struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc);
+void d3d12_desc_create_srv_heap(vkd3d_cpu_descriptor_va_t descriptor,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc);
+void d3d12_desc_create_uav_heap(vkd3d_cpu_descriptor_va_t descriptor, struct d3d12_device *device,
+        struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc);
+void d3d12_desc_create_sampler_heap(vkd3d_cpu_descriptor_va_t sampler,
+        struct d3d12_device *device, const D3D12_SAMPLER_DESC2 *desc);
+
 bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view);

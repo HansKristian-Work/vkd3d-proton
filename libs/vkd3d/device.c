@@ -6159,6 +6159,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(d3d12_device_i
             &IID_ID3D12RootSignature, riid, root_signature);
 }
 
+static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView_heap(d3d12_device_iface *iface,
+        const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
+
+    d3d12_desc_create_cbv_heap(descriptor.ptr, device, desc);
+}
+
 static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView_embedded(d3d12_device_iface *iface,
         const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
@@ -6177,6 +6187,18 @@ static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView_default(d3d1
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
     d3d12_desc_create_cbv(descriptor.ptr, device, desc);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView_heap(d3d12_device_iface *iface,
+        ID3D12Resource *resource, const D3D12_SHADER_RESOURCE_VIEW_DESC *desc,
+        D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
+            iface, resource, desc, descriptor.ptr);
+
+    d3d12_desc_create_srv_heap(descriptor.ptr, device, impl_from_ID3D12Resource(resource), desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView_embedded(d3d12_device_iface *iface,
@@ -6201,6 +6223,22 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView_default(d3d1
             iface, resource, desc, descriptor.ptr);
 
     d3d12_desc_create_srv(descriptor.ptr, device, impl_from_ID3D12Resource(resource), desc);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_heap(d3d12_device_iface *iface,
+        ID3D12Resource *resource, ID3D12Resource *counter_resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_resource *d3d12_resource_ = impl_from_ID3D12Resource(resource);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    TRACE("iface %p, resource %p, counter_resource %p, desc %p, descriptor %#lx.\n",
+            iface, resource, counter_resource, desc, descriptor.ptr);
+
+    d3d12_desc_create_uav_heap(descriptor.ptr,
+            device, d3d12_resource_,
+            impl_from_ID3D12Resource(counter_resource), desc);
+
+    /* TODO: Plumb d3d12_uav_info through later. */
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_embedded(d3d12_device_iface *iface,
@@ -6293,6 +6331,19 @@ static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView(d3d12_device_i
             impl_from_ID3D12Device(iface), impl_from_ID3D12Resource(resource), desc);
 }
 
+static void STDMETHODCALLTYPE d3d12_device_CreateSampler_heap(d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    D3D12_SAMPLER_DESC2 desc2;
+
+    TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
+
+    memcpy(&desc2, desc, sizeof(*desc));
+    desc2.Flags = D3D12_SAMPLER_FLAG_NONE;
+    d3d12_desc_create_sampler_heap(descriptor.ptr, device, &desc2);
+}
+
 static void STDMETHODCALLTYPE d3d12_device_CreateSampler_embedded(d3d12_device_iface *iface,
         const D3D12_SAMPLER_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
@@ -6317,6 +6368,16 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSampler_default(d3d12_device_if
     memcpy(&desc2, desc, sizeof(*desc));
     desc2.Flags = D3D12_SAMPLER_FLAG_NONE;
     d3d12_desc_create_sampler(descriptor.ptr, device, &desc2);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateSampler2_heap(d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC2 *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
+
+    d3d12_desc_create_sampler_heap(descriptor.ptr, device, desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateSampler2_embedded(d3d12_device_iface *iface,
@@ -6796,6 +6857,92 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_embedded_32_16_
                     (void *)dst_descriptor_range_offset.ptr,
                     (const void *)src_descriptor_range_offset.ptr,
                     16 * descriptor_count);
+        }
+    }
+    else
+    {
+        device = unsafe_impl_from_ID3D12Device(iface);
+        d3d12_device_copy_descriptors(device,
+                1, &dst_descriptor_range_offset, &descriptor_count,
+                1, &src_descriptor_range_offset, &descriptor_count,
+                descriptor_heap_type);
+    }
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_embedded_32_32_planar(d3d12_device_iface *iface,
+        UINT descriptor_count, const D3D12_CPU_DESCRIPTOR_HANDLE dst_descriptor_range_offset,
+        const D3D12_CPU_DESCRIPTOR_HANDLE src_descriptor_range_offset,
+        D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
+{
+    struct d3d12_device *device;
+    TRACE("iface %p, descriptor_count %u, dst_descriptor_range_offset %#lx, "
+          "src_descriptor_range_offset %#lx, descriptor_heap_type %#x.\n",
+            iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
+            descriptor_heap_type);
+
+    if (VKD3D_EXPECT_TRUE(descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+            descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER))
+    {
+        if (VKD3D_EXPECT_TRUE(descriptor_count == 1))
+        {
+            /* Expected path. */
+            d3d12_desc_copy_embedded_resource_single_32(
+                    dst_descriptor_range_offset.ptr,
+                    src_descriptor_range_offset.ptr);
+        }
+        else
+        {
+            /* Rare path. */
+            d3d12_desc_copy_embedded_resource(
+                    dst_descriptor_range_offset.ptr,
+                    src_descriptor_range_offset.ptr,
+                    32 * descriptor_count);
+        }
+    }
+    else
+    {
+        device = unsafe_impl_from_ID3D12Device(iface);
+        d3d12_device_copy_descriptors(device,
+                1, &dst_descriptor_range_offset, &descriptor_count,
+                1, &src_descriptor_range_offset, &descriptor_count,
+                descriptor_heap_type);
+    }
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_embedded_128_32_planar(d3d12_device_iface *iface,
+        UINT descriptor_count, const D3D12_CPU_DESCRIPTOR_HANDLE dst_descriptor_range_offset,
+        const D3D12_CPU_DESCRIPTOR_HANDLE src_descriptor_range_offset,
+        D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
+{
+    struct d3d12_device *device;
+    TRACE("iface %p, descriptor_count %u, dst_descriptor_range_offset %#lx, "
+          "src_descriptor_range_offset %#lx, descriptor_heap_type %#x.\n",
+            iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
+            descriptor_heap_type);
+
+    if (VKD3D_EXPECT_TRUE(descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV))
+    {
+        d3d12_desc_copy_embedded_resource(
+                dst_descriptor_range_offset.ptr,
+                src_descriptor_range_offset.ptr,
+                128 * descriptor_count);
+    }
+    else if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+        if (VKD3D_EXPECT_TRUE(descriptor_count == 1))
+        {
+            /* Expected path. */
+            vkd3d_memcpy_aligned_32_cached(
+                    (void *)dst_descriptor_range_offset.ptr,
+                    (const void *)src_descriptor_range_offset.ptr);
+        }
+        else
+        {
+            /* Rare path. */
+            vkd3d_memcpy_aligned_cached(
+                    (void *)dst_descriptor_range_offset.ptr,
+                    (const void *)src_descriptor_range_offset.ptr,
+                    32 * descriptor_count);
         }
     }
     else
@@ -8574,6 +8721,25 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessV
     d3d12_desc_create_uav_embedded(descriptor.ptr, device, feedback, NULL, &uav_desc);
 }
 
+static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessView_heap(d3d12_device_iface *iface,
+        ID3D12Resource *target_resource, ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_resource *feedback = impl_from_ID3D12Resource(feedback_resource);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+
+    TRACE("iface %p, target_resource %p, feedback_resource %p, descriptor %#lx\n",
+            iface, target_resource, feedback_resource, descriptor.ptr);
+
+    /* NULL paired resource means NULL descriptor.
+     * https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html#null-feedback-map-binding-is-permitted */
+    if (!target_resource)
+        feedback = NULL;
+
+    d3d12_device_create_sampler_feedback_desc(&uav_desc, feedback);
+    d3d12_desc_create_uav_heap(descriptor.ptr, device, feedback, NULL, &uav_desc);
+}
+
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_iface *iface,
         const D3D12_RESOURCE_DESC1 *desc, UINT first_sub_resource, UINT sub_resource_count,
         UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, UINT *row_counts,
@@ -8970,9 +9136,20 @@ CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_##name = \
 }
 
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(default, default, default);
-VKD3D_DECLARE_D3D12_DEVICE_VARIANT(embedded_64_16_packed, embedded, embedded_64_16_packed);
-VKD3D_DECLARE_D3D12_DEVICE_VARIANT(embedded_32_16_planar, embedded, embedded_32_16_planar);
+
+/* Descriptor heap paths. Create one optimized copy variant per known vendor config. */
+VKD3D_DECLARE_D3D12_DEVICE_VARIANT(heap_64_16_packed, heap, embedded_64_16_packed); /* RDNA2 */
+VKD3D_DECLARE_D3D12_DEVICE_VARIANT(heap_32_16_planar, heap, embedded_32_16_planar); /* RDNA3+ */
+VKD3D_DECLARE_D3D12_DEVICE_VARIANT(heap_32_32_planar, heap, embedded_32_32_planar); /* NV */
+VKD3D_DECLARE_D3D12_DEVICE_VARIANT(heap_128_32_planar, heap, embedded_128_32_planar); /* Intel */
+VKD3D_DECLARE_D3D12_DEVICE_VARIANT(heap_generic, heap, embedded_generic);
+
+/* Descriptor buffer with embedded mutable */
+VKD3D_DECLARE_D3D12_DEVICE_VARIANT(embedded_64_16_packed, embedded, embedded_64_16_packed); /* RDNA2 */
+VKD3D_DECLARE_D3D12_DEVICE_VARIANT(embedded_32_16_planar, embedded, embedded_32_16_planar); /* RDNA3+ */
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(embedded_generic, embedded, embedded_generic);
+
+/* Optimized descriptor buffer paths. */
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(descriptor_buffer_16_16_4, default, descriptor_buffer_16_16_4);
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(descriptor_buffer_64_64_32, default, descriptor_buffer_64_64_32);
 
@@ -10422,7 +10599,43 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     /* Don't bother modifying CopyDescriptors path, its main overhead is chasing other pointers anyway,
      * and that code path handles embedded mutable descriptors. */
 
-    if (d3d12_device_use_embedded_mutable_descriptors(device))
+    if (d3d12_device_use_descriptor_heap(device))
+    {
+        if ((device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA) &&
+                device->bindless_state.cbv_srv_uav_size == 64 &&
+                device->bindless_state.sampler_size == 16)
+        {
+            /* RDNA2 */
+            device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_heap_64_16_packed;
+        }
+        else if (!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA) &&
+                device->bindless_state.cbv_srv_uav_size == 32 &&
+                device->bindless_state.sampler_size == 16)
+        {
+            /* RDNA3+ */
+            device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_heap_32_16_planar;
+        }
+        else if (!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA) &&
+                device->bindless_state.cbv_srv_uav_size == 32 &&
+                device->bindless_state.sampler_size == 32)
+        {
+            /* NV */
+            device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_heap_32_32_planar;
+        }
+        else if (!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA) &&
+                device->bindless_state.cbv_srv_uav_size == 128 &&
+                device->bindless_state.sampler_size == 32)
+        {
+            /* Intel. If we can find a way to properly alias SSBO + Texel buffer and stuff UAV counter
+             * somewhere, we can probably do 64_32. */
+            device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_heap_128_32_planar;
+        }
+        else
+        {
+            device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_heap_generic;
+        }
+    }
+    else if (d3d12_device_use_embedded_mutable_descriptors(device))
     {
         if ((device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA) &&
                 device->bindless_state.cbv_srv_uav_size == 64 &&
