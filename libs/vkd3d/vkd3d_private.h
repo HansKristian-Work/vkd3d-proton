@@ -1096,7 +1096,7 @@ struct vkd3d_view_map
 struct vkd3d_sampler_view_map
 {
     struct vkd3d_view_map map;
-    uint32_t custom_border_color_count;
+    uint32_t legacy_custom_border_color_count;
     uint32_t live_object_count;
 };
 
