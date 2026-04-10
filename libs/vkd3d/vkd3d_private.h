@@ -1488,6 +1488,9 @@ bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
         D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view);
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
         const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler);
+void d3d12_setup_static_sampler_info(struct d3d12_device *device,
+        const D3D12_STATIC_SAMPLER_DESC1 *desc,
+        VkSamplerCreateInfo *sampler_desc, VkSamplerReductionModeCreateInfoEXT *reduction_desc);
 
 #define D3D12_DESC_ALIGNMENT 32
 struct d3d12_rtv_desc
