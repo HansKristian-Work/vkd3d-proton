@@ -8248,53 +8248,55 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
     return hresult_from_vk_result(vr);
 }
 
-static HRESULT d3d12_create_sampler(struct d3d12_device *device,
-        const D3D12_SAMPLER_DESC2 *desc, VkSampler *vk_sampler)
+struct vkd3d_sampler_view_create_info
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSamplerCustomBorderColorCreateInfoEXT border_color_info;
+    VkSamplerCustomBorderColorIndexCreateInfoEXT index_create_info;
     VkSamplerReductionModeCreateInfoEXT reduction_desc;
     VkSamplerCreateInfo sampler_desc;
+};
+
+static void d3d12_setup_sampler_info(struct d3d12_device *device,
+        const D3D12_SAMPLER_DESC2 *desc, struct vkd3d_sampler_view_create_info *info)
+{
     uint32_t num_live_objects;
-    VkResult vr;
 
-    border_color_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT;
-    border_color_info.pNext = NULL;
-    memcpy(border_color_info.customBorderColor.uint32, desc->UintBorderColor,
-            sizeof(border_color_info.customBorderColor.uint32));
-    border_color_info.format = VK_FORMAT_UNDEFINED;
+    memset(info, 0, sizeof(*info));
 
-    reduction_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT;
-    reduction_desc.pNext = NULL;
-    reduction_desc.reductionMode = vk_reduction_mode_from_d3d12(D3D12_DECODE_FILTER_REDUCTION(desc->Filter));
+    info->border_color_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT;
+    memcpy(info->border_color_info.customBorderColor.uint32, desc->UintBorderColor,
+            sizeof(info->border_color_info.customBorderColor.uint32));
+    info->border_color_info.format = VK_FORMAT_UNDEFINED;
 
-    sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_desc.pNext = NULL;
-    sampler_desc.flags = 0;
-    sampler_desc.magFilter = vk_filter_from_d3d12(D3D12_DECODE_MAG_FILTER(desc->Filter));
-    sampler_desc.minFilter = vk_filter_from_d3d12(D3D12_DECODE_MIN_FILTER(desc->Filter));
-    sampler_desc.mipmapMode = vk_mipmap_mode_from_d3d12(D3D12_DECODE_MIP_FILTER(desc->Filter));
-    sampler_desc.addressModeU = vk_address_mode_from_d3d12(desc->AddressU);
-    sampler_desc.addressModeV = vk_address_mode_from_d3d12(desc->AddressV);
-    sampler_desc.addressModeW = vk_address_mode_from_d3d12(desc->AddressW);
-    sampler_desc.mipLodBias = desc->MipLODBias;
-    sampler_desc.anisotropyEnable = D3D12_DECODE_IS_ANISOTROPIC_FILTER(desc->Filter);
-    sampler_desc.maxAnisotropy = desc->MaxAnisotropy;
-    sampler_desc.compareEnable = D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter);
-    sampler_desc.compareOp = sampler_desc.compareEnable ? vk_compare_op_from_d3d12(desc->ComparisonFunc) : 0;
-    sampler_desc.minLod = desc->MinLOD;
-    sampler_desc.maxLod = desc->MaxLOD;
-    sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-    sampler_desc.unnormalizedCoordinates = !!(desc->Flags & D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES);
+    info->reduction_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT;
+    info->reduction_desc.reductionMode = vk_reduction_mode_from_d3d12(D3D12_DECODE_FILTER_REDUCTION(desc->Filter));
 
-    if (sampler_desc.maxAnisotropy < 1.0f)
-        sampler_desc.anisotropyEnable = VK_FALSE;
+    info->sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info->sampler_desc.flags = 0;
+    info->sampler_desc.magFilter = vk_filter_from_d3d12(D3D12_DECODE_MAG_FILTER(desc->Filter));
+    info->sampler_desc.minFilter = vk_filter_from_d3d12(D3D12_DECODE_MIN_FILTER(desc->Filter));
+    info->sampler_desc.mipmapMode = vk_mipmap_mode_from_d3d12(D3D12_DECODE_MIP_FILTER(desc->Filter));
+    info->sampler_desc.addressModeU = vk_address_mode_from_d3d12(desc->AddressU);
+    info->sampler_desc.addressModeV = vk_address_mode_from_d3d12(desc->AddressV);
+    info->sampler_desc.addressModeW = vk_address_mode_from_d3d12(desc->AddressW);
+    info->sampler_desc.mipLodBias = desc->MipLODBias;
+    info->sampler_desc.anisotropyEnable = D3D12_DECODE_IS_ANISOTROPIC_FILTER(desc->Filter);
+    info->sampler_desc.maxAnisotropy = desc->MaxAnisotropy;
+    info->sampler_desc.compareEnable = D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter);
+    info->sampler_desc.compareOp = info->sampler_desc.compareEnable ? vk_compare_op_from_d3d12(desc->ComparisonFunc) : 0;
+    info->sampler_desc.minLod = desc->MinLOD;
+    info->sampler_desc.maxLod = desc->MaxLOD;
+    info->sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    info->sampler_desc.unnormalizedCoordinates = !!(desc->Flags & D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES);
 
-    if (sampler_desc.anisotropyEnable)
-        sampler_desc.maxAnisotropy = min(16.0f, sampler_desc.maxAnisotropy);
+    if (info->sampler_desc.maxAnisotropy < 1.0f)
+        info->sampler_desc.anisotropyEnable = VK_FALSE;
+
+    if (info->sampler_desc.anisotropyEnable)
+        info->sampler_desc.maxAnisotropy = min(16.0f, info->sampler_desc.maxAnisotropy);
 
     if (d3d12_sampler_needs_border_color(desc->AddressU, desc->AddressV, desc->AddressW))
-        sampler_desc.borderColor = vk_border_color_from_d3d12(device, desc->UintBorderColor, desc->Flags);
+        info->sampler_desc.borderColor = vk_border_color_from_d3d12(device, desc->UintBorderColor, desc->Flags);
 
     if (vkd3d_atomic_uint32_load_explicit(&device->sampler_map.live_object_count, vkd3d_memory_order_relaxed) <
         device->device_info.properties2.properties.limits.maxSamplerAllocationCount)
@@ -8311,49 +8313,86 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
     if (num_live_objects > device->device_info.properties2.properties.limits.maxSamplerAllocationCount)
         FIXME_ONCE("Trying to create a sampler, but device limits are exhausted. Creation may fail.\n");
 
-    if (sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT ||
-            sampler_desc.borderColor == VK_BORDER_COLOR_INT_CUSTOM_EXT)
+    if (info->sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT ||
+            info->sampler_desc.borderColor == VK_BORDER_COLOR_INT_CUSTOM_EXT)
     {
-        uint32_t num_border_colors;
+        uint32_t num_legacy_border_colors = 0;
 
-        /* Once a sampler is created, we keep it alive forever.
-         * There's a theoretical false positive here if samplers are created in parallel before they are inserted
-         * into the hashmaps. Some samplers may be destroyed right away,
-         * and we don't decrement the counters in that scenario, but the chance of this causing issues in the wild are nil. */
-        if (vkd3d_atomic_uint32_load_explicit(&device->sampler_map.custom_border_color_count, vkd3d_memory_order_relaxed) <
-            device->device_info.custom_border_color_properties.maxCustomBorderColorSamplers)
+        if (d3d12_device_use_descriptor_heap(device))
         {
-            /* Avoid theoretical situation where the counter wraps around. */
-            num_border_colors = vkd3d_atomic_uint32_increment(&device->sampler_map.custom_border_color_count,
-                    vkd3d_memory_order_relaxed);
+            info->index_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_INDEX_CREATE_INFO_EXT;
+            info->index_create_info.index = vkd3d_sampler_state_register_custom_border_color(
+                    device, &device->sampler_state, info->sampler_desc.borderColor, &info->border_color_info);
+
+            if (info->index_create_info.index == UINT32_MAX)
+                num_legacy_border_colors = UINT32_MAX;
+            else
+                vk_prepend_struct(&info->sampler_desc, &info->index_create_info);
         }
         else
         {
-            num_border_colors = UINT32_MAX;
+            /* Once a sampler is created, we keep it alive forever.
+             * There's a theoretical false positive here if samplers are created in parallel before they are inserted
+             * into the hashmaps. Some samplers may be destroyed right away,
+             * and we don't decrement the counters in that scenario, but the chance of this causing issues in the wild are nil. */
+            if (vkd3d_atomic_uint32_load_explicit(&device->sampler_map.legacy_custom_border_color_count, vkd3d_memory_order_relaxed) <
+                device->device_info.custom_border_color_properties.maxCustomBorderColorSamplers)
+            {
+                /* Avoid theoretical situation where the counter wraps around. */
+                num_legacy_border_colors = vkd3d_atomic_uint32_increment(&device->sampler_map.legacy_custom_border_color_count,
+                        vkd3d_memory_order_relaxed);
+            }
+            else
+            {
+                num_legacy_border_colors = UINT32_MAX;
+            }
         }
 
-        if (num_border_colors > device->device_info.custom_border_color_properties.maxCustomBorderColorSamplers)
+        if (num_legacy_border_colors > device->device_info.custom_border_color_properties.maxCustomBorderColorSamplers)
         {
             FIXME_ONCE("Trying to create custom border color, but device limits are exhausted, replacing with TRANSPARENT_BLACK.\n");
-            if (sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT)
-                sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+            if (info->sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT)
+                info->sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
             else
-                sampler_desc.borderColor = VK_BORDER_COLOR_INT_TRANSPARENT_BLACK;
+                info->sampler_desc.borderColor = VK_BORDER_COLOR_INT_TRANSPARENT_BLACK;
         }
         else
         {
-            vk_prepend_struct(&sampler_desc, &border_color_info);
+            vk_prepend_struct(&info->sampler_desc, &info->border_color_info);
         }
     }
 
-    if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE &&
+    if (info->reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE &&
             device->device_info.vulkan_1_2_features.samplerFilterMinmax)
-        vk_prepend_struct(&sampler_desc, &reduction_desc);
+        vk_prepend_struct(&info->sampler_desc, &info->reduction_desc);
+}
 
-    if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, vk_sampler))) < 0)
+static HRESULT d3d12_create_sampler(struct d3d12_device *device,
+        const D3D12_SAMPLER_DESC2 *desc, VkSampler *vk_sampler)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_sampler_view_create_info info;
+    VkResult vr;
+
+    d3d12_setup_sampler_info(device, desc, &info);
+
+    if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &info.sampler_desc, NULL, vk_sampler))) < 0)
         WARN("Failed to create Vulkan sampler, vr %d.\n", vr);
 
     return hresult_from_vk_result(vr);
+}
+
+void d3d12_desc_create_sampler_heap(vkd3d_cpu_descriptor_va_t desc_va,
+        struct d3d12_device *device, const D3D12_SAMPLER_DESC2 *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_sampler_view_create_info info;
+    VkHostAddressRangeEXT desc_range;
+
+    d3d12_setup_sampler_info(device, desc, &info);
+    desc_range.address = (void *)desc_va;
+    desc_range.size = device->bindless_state.sampler_size;
+    VK_CALL(vkWriteSamplerDescriptorsEXT(device->vk_device, 1, &info.sampler_desc, &desc_range));
 }
 
 void d3d12_desc_create_sampler_embedded(vkd3d_cpu_descriptor_va_t desc_va,
