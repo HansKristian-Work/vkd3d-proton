@@ -3335,11 +3335,6 @@ static inline struct d3d12_command_list *impl_from_ID3D12GraphicsCommandList(d3d
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
-static void d3d12_command_list_invalidate_rendering_info(struct d3d12_command_list *list)
-{
-    list->rendering_info.state_flags &= ~VKD3D_RENDERING_CURRENT;
-}
-
 void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader)
 {
     list->current_pipeline = VK_NULL_HANDLE;
@@ -6986,9 +6981,6 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     VkExtent2D old_extent;
     unsigned int i;
 
-    if (rendering_info->state_flags & VKD3D_RENDERING_CURRENT)
-        return true;
-
     /* Clear fuse needs to know the viewMask, so this must be updated now. */
     old_extent = rendering_info->info.renderArea.extent;
     rendering_info->info.renderArea.extent.width = list->fb_width;
@@ -7278,10 +7270,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         pso_invalidates_rp = true;
 
     if (pso_invalidates_rp)
-    {
-        d3d12_command_list_invalidate_rendering_info(list);
         d3d12_command_list_end_current_render_pass(list, false);
-    }
 
     /* We can't change pipelines while transform feedback is active, so end the render pass here if necessary. */
     if (list->command_buffer_pipeline != vk_pipeline && list->xfb_buffer_count)
@@ -8302,8 +8291,11 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     d3d12_command_list_promote_dsv_layout(list);
     if (pipeline_type != VKD3D_PIPELINE_TYPE_NONE && !d3d12_command_list_update_graphics_pipeline(list, pipeline_type))
         return false;
-    if (!d3d12_command_list_update_rendering_info(list))
-        return false;
+
+    /* It's not possible to modify rendering info while a render pass is in flight. */
+    if (!(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE))
+        if (!d3d12_command_list_update_rendering_info(list))
+            return false;
 
     if (pipeline_type != VKD3D_PIPELINE_TYPE_NONE)
     {
@@ -13934,7 +13926,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             render_target_descriptors, single_descriptor_handle, depth_stencil_descriptor))
         return;
 
-    d3d12_command_list_invalidate_rendering_info(list);
     d3d12_command_list_end_current_render_pass(list, false);
 
     if (render_target_descriptor_count > ARRAY_SIZE(list->rtvs))
@@ -18695,7 +18686,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
     {
         /* Force a new render pass since we may need to enforce loadOps.
          * loadOps don't apply to resuming passes. */
-        d3d12_command_list_invalidate_rendering_info(list);
         d3d12_command_list_end_current_render_pass(list, false);
     }
 
@@ -18933,7 +18923,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
         if (!valid)
         {
             FIXME_ONCE("Application is attempting to resume a render pass, but the attachments are incompatible.\n");
-            d3d12_command_list_invalidate_rendering_info(list);
             d3d12_command_list_end_current_render_pass(list, false);
         }
     }
@@ -19886,7 +19875,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
     /* Need to end the renderpass if we have one to make
      * way for the new VRS attachment */
     d3d12_command_list_flush_dgc_batch(list);
-    d3d12_command_list_invalidate_rendering_info(list);
     d3d12_command_list_end_current_render_pass(list, false);
 
     VKD3D_BREADCRUMB_TAG("RSSetShadingRateImage [cookie]");
