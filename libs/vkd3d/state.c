@@ -94,6 +94,8 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     vkd3d_free(root_signature->static_samplers_desc);
     vkd3d_free(root_signature->root_parameter_mappings);
     vkd3d_free(root_signature->root_signature_blob);
+    vkd3d_free(root_signature->heap.mappings);
+    vkd3d_free(root_signature->heap.vk_static_samplers_desc);
 }
 
 void d3d12_root_signature_inc_ref(struct d3d12_root_signature *root_signature)
@@ -1399,6 +1401,141 @@ static void d3d12_root_signature_update_bind_point_layout(struct d3d12_bind_poin
         layout->push_constant_range = *push_range;
 }
 
+static HRESULT d3d12_root_signature_init_global_mappings(struct d3d12_root_signature *root_signature,
+        const struct d3d12_root_signature_info *info)
+{
+    VkDescriptorSetAndBindingMappingEXT *mapping;
+
+    if (!vkd3d_array_reserve((void**)&root_signature->heap.mappings, &root_signature->heap.mappings_size,
+            root_signature->heap.mappings_count + 8, sizeof(*root_signature->heap.mappings)))
+        return E_OUTOFMEMORY;
+
+    /* SM 6.6 image heap mapping. */
+    {
+        mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+        memset(mapping, 0, sizeof(*mapping));
+        mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_SAMPLED_IMAGE_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_READ_ONLY_IMAGE_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_IMAGE_BIT_EXT;
+        mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        mapping->descriptorSet = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+        mapping->firstBinding = 0;
+        mapping->bindingCount = 1;
+        mapping->sourceData.constantOffset.heapOffset = root_signature->device->bindless_state.heap.redzone_size;
+        mapping->sourceData.constantOffset.heapArrayStride =
+                root_signature->device->bindless_state.cbv_srv_uav_size;
+    }
+
+    /* SM 6.6 buffer heap mapping */
+    {
+        mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+        memset(mapping, 0, sizeof(*mapping));
+        mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT;
+        if (d3d12_device_supports_ray_tracing_tier_1_0(root_signature->device))
+            mapping->resourceMask |= VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
+        mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        mapping->descriptorSet = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+        mapping->firstBinding = 0;
+        mapping->bindingCount = 1;
+        mapping->sourceData.constantOffset.heapOffset =
+                root_signature->device->bindless_state.heap.redzone_size +
+                root_signature->device->bindless_state.packed_raw_buffer_offset;
+        mapping->sourceData.constantOffset.heapArrayStride =
+                root_signature->device->bindless_state.cbv_srv_uav_size;
+    }
+
+    /* SM 6.6 sampler heap mapping */
+    {
+        mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+        memset(mapping, 0, sizeof(*mapping));
+        mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_SAMPLER_BIT_EXT;
+        mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        mapping->descriptorSet = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+        mapping->firstBinding = 0;
+        mapping->bindingCount = 1;
+        mapping->sourceData.constantOffset.heapOffset = 0;
+        mapping->sourceData.constantOffset.heapArrayStride = root_signature->device->bindless_state.sampler_size;
+    }
+
+    /* Global root parameter mapping when read as a UBO. */
+    {
+        mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+        memset(mapping, 0, sizeof(*mapping));
+        mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT;
+        mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_DATA_EXT;
+        mapping->descriptorSet = VKD3D_SHADER_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET;
+        mapping->firstBinding = 0;
+        mapping->bindingCount = 1;
+        mapping->sourceData.pushDataOffset = 0;
+    }
+
+    /* Global mapping when reading heap meta descriptors. */
+    {
+        mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+        memset(mapping, 0, sizeof(*mapping));
+        mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        mapping->resourceMask =
+                VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT;
+        mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+        mapping->descriptorSet = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+        mapping->firstBinding = VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS;
+        mapping->bindingCount = VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS_COUNT;
+        mapping->sourceData.constantOffset.heapOffset = 0;
+        mapping->sourceData.constantOffset.heapArrayStride =
+                align(root_signature->device->device_info.descriptor_heap_properties.bufferDescriptorSize,
+                    root_signature->device->device_info.descriptor_heap_properties.bufferDescriptorAlignment);
+    }
+
+    root_signature->heap.redzone_style = VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_NONE;
+
+    if (root_signature->device->bindless_state.heap.redzone_size)
+    {
+        /* We need to access the heap somehow in shaders. This gets more annoying than it should be ... */
+        if (info->cost <= 60)
+        {
+            root_signature->heap.redzone_style = VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_INLINE;
+            root_signature->heap.redzone_inline_heap_offset =
+                    align(info->cost * sizeof(uint32_t), sizeof(VkDeviceAddress));
+
+            /* We can store the data inline. */
+            mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+            memset(mapping, 0, sizeof(*mapping));
+            mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT;
+            mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_DATA_EXT;
+            mapping->descriptorSet = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+            mapping->firstBinding = VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING;
+            mapping->bindingCount = 1;
+            mapping->sourceData.pushDataOffset = root_signature->heap.redzone_inline_heap_offset;
+
+            mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+            memset(mapping, 0, sizeof(*mapping));
+            mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT;
+            mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_DATA_EXT;
+            mapping->descriptorSet = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
+            mapping->firstBinding = VKD3D_SHADER_GLOBAL_HEAP_SIZE_BINDING;
+            mapping->bindingCount = 1;
+            mapping->sourceData.pushDataOffset = root_signature->heap.redzone_inline_heap_offset + sizeof(VkDeviceAddress);
+        }
+        else
+        {
+            root_signature->heap.redzone_style = VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_DESCRIPTOR;
+            /* Refer to AUX descriptors. Can use a single SSBO here which covers both size + payloads.
+             * Slower, but it will always work. */
+        }
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
@@ -1514,63 +1651,71 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &info, &context)))
         return hr;
 
-    /* Select push UBO style or push constants on a per-pipeline type basis. */
-    d3d12_root_signature_update_bind_point_layout(&root_signature->graphics,
-            &push_constant_range, &context, &info);
-    d3d12_root_signature_update_bind_point_layout(&root_signature->mesh,
-            &push_constant_range, &context, &info);
-    d3d12_root_signature_update_bind_point_layout(&root_signature->compute,
-            &push_constant_range, &context, &info);
-    d3d12_root_signature_update_bind_point_layout(&root_signature->raygen,
-            &push_constant_range, &context, &info);
-
-    /* If we need to use restricted entry_points in vkCmdPushConstants,
-     * we are unfortunately required to do it like this
-     * since stageFlags in vkCmdPushConstants must cover at least all entry_points in the layout.
-     *
-     * We can pick the appropriate layout to use in PSO creation.
-     * In set_root_signature we can bind the appropriate layout as well.
-     *
-     * For graphics we can generally rely on visibility mask, but not so for compute and raygen,
-     * since they use ALL visibility. */
-
-    if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-            device, root_signature->graphics.num_set_layouts, root_signature->set_layouts,
-            &root_signature->graphics.push_constant_range,
-            VK_SHADER_STAGE_ALL_GRAPHICS, &root_signature->graphics)))
-        return hr;
-
-    if (device->device_info.mesh_shader_features.meshShader && device->device_info.mesh_shader_features.taskShader)
+    if (d3d12_device_use_descriptor_heap(device))
     {
-        mesh_shader_stages = VK_SHADER_STAGE_MESH_BIT_EXT |
-                VK_SHADER_STAGE_TASK_BIT_EXT |
-                VK_SHADER_STAGE_FRAGMENT_BIT;
-
-        if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-                device, root_signature->mesh.num_set_layouts, root_signature->set_layouts,
-                &root_signature->mesh.push_constant_range,
-                mesh_shader_stages, &root_signature->mesh)))
+        if (FAILED(hr = d3d12_root_signature_init_global_mappings(root_signature, &info)))
             return hr;
     }
-
-    if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-            device, root_signature->compute.num_set_layouts, root_signature->set_layouts,
-            &root_signature->compute.push_constant_range,
-            VK_SHADER_STAGE_COMPUTE_BIT, &root_signature->compute)))
-        return hr;
-
-    if (d3d12_device_supports_ray_tracing_tier_1_0(device))
+    else
     {
+        /* Select push UBO style or push constants on a per-pipeline type basis. */
+        d3d12_root_signature_update_bind_point_layout(&root_signature->graphics,
+                &push_constant_range, &context, &info);
+        d3d12_root_signature_update_bind_point_layout(&root_signature->mesh,
+                &push_constant_range, &context, &info);
+        d3d12_root_signature_update_bind_point_layout(&root_signature->compute,
+                &push_constant_range, &context, &info);
+        d3d12_root_signature_update_bind_point_layout(&root_signature->raygen,
+                &push_constant_range, &context, &info);
+
+        /* If we need to use restricted entry_points in vkCmdPushConstants,
+         * we are unfortunately required to do it like this
+         * since stageFlags in vkCmdPushConstants must cover at least all entry_points in the layout.
+         *
+         * We can pick the appropriate layout to use in PSO creation.
+         * In set_root_signature we can bind the appropriate layout as well.
+         *
+         * For graphics we can generally rely on visibility mask, but not so for compute and raygen,
+         * since they use ALL visibility. */
+
         if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-                device, root_signature->raygen.num_set_layouts, root_signature->set_layouts,
-                &root_signature->raygen.push_constant_range,
-                VK_SHADER_STAGE_RAYGEN_BIT_KHR |
-                VK_SHADER_STAGE_MISS_BIT_KHR |
-                VK_SHADER_STAGE_INTERSECTION_BIT_KHR |
-                VK_SHADER_STAGE_CALLABLE_BIT_KHR |
-                VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-                VK_SHADER_STAGE_ANY_HIT_BIT_KHR, &root_signature->raygen)))
+                device, root_signature->graphics.num_set_layouts, root_signature->set_layouts,
+                &root_signature->graphics.push_constant_range,
+                VK_SHADER_STAGE_ALL_GRAPHICS, &root_signature->graphics)))
             return hr;
+
+        if (device->device_info.mesh_shader_features.meshShader && device->device_info.mesh_shader_features.taskShader)
+        {
+            mesh_shader_stages = VK_SHADER_STAGE_MESH_BIT_EXT |
+                    VK_SHADER_STAGE_TASK_BIT_EXT |
+                    VK_SHADER_STAGE_FRAGMENT_BIT;
+
+            if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+                    device, root_signature->mesh.num_set_layouts, root_signature->set_layouts,
+                    &root_signature->mesh.push_constant_range,
+                    mesh_shader_stages, &root_signature->mesh)))
+                return hr;
+        }
+
+        if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+                device, root_signature->compute.num_set_layouts, root_signature->set_layouts,
+                &root_signature->compute.push_constant_range,
+                VK_SHADER_STAGE_COMPUTE_BIT, &root_signature->compute)))
+            return hr;
+
+        if (d3d12_device_supports_ray_tracing_tier_1_0(device))
+        {
+            if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+                    device, root_signature->raygen.num_set_layouts, root_signature->set_layouts,
+                    &root_signature->raygen.push_constant_range,
+                    VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+                    VK_SHADER_STAGE_MISS_BIT_KHR |
+                    VK_SHADER_STAGE_INTERSECTION_BIT_KHR |
+                    VK_SHADER_STAGE_CALLABLE_BIT_KHR |
+                    VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+                    VK_SHADER_STAGE_ANY_HIT_BIT_KHR, &root_signature->raygen)))
+                return hr;
+        }
     }
 
     return S_OK;

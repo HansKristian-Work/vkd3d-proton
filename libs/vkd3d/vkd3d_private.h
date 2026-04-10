@@ -1928,6 +1928,13 @@ struct vkd3d_descriptor_hoist_info
     unsigned int num_desc;
 };
 
+enum vkd3d_root_signature_heap_redzone_style
+{
+    VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_NONE = 0,
+    VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_INLINE,
+    VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_DESCRIPTOR
+};
+
 struct d3d12_root_signature
 {
     ID3D12RootSignature ID3D12RootSignature_iface;
@@ -1987,6 +1994,24 @@ struct d3d12_root_signature
     unsigned int static_sampler_count;
     D3D12_STATIC_SAMPLER_DESC1 *static_samplers_desc;
     VkSampler *static_samplers;
+
+    struct
+    {
+        VkShaderDescriptorSetAndBindingMappingInfoEXT mapping_info;
+        VkDescriptorSetAndBindingMappingEXT *mappings;
+        size_t mappings_size;
+        size_t mappings_count;
+
+        struct
+        {
+            VkSamplerCreateInfo desc;
+            VkSamplerReductionModeCreateInfoEXT reduction;
+        } *vk_static_samplers_desc;
+
+        enum vkd3d_root_signature_heap_redzone_style redzone_style;
+        /* Ideal: Push descriptor heap VA + descriptor heap size straight into PushData. */
+        uint32_t redzone_inline_heap_offset;
+    } heap;
 
     struct vkd3d_descriptor_hoist_info hoist_info;
 

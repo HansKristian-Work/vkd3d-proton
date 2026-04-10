@@ -1204,6 +1204,35 @@ bool vkd3d_shader_hash_range_parse_line(char *line,
         vkd3d_shader_hash_t *lo, vkd3d_shader_hash_t *hi,
         char **trail);
 
+/* In EXT_descriptor_heap, sets and bindings are non-physical concepts.
+ * Agree on a convention so that we can link SPIR-V to PSO creation. */
+enum
+{
+    VKD3D_SHADER_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE = 0, /* maximum 64 of these. binding encodes constant offset. */
+    VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET = 100,
+
+    /* Non-bindless bindings for global root signature */
+    VKD3D_SHADER_STATIC_SAMPLERS_VIRTUAL_DESCRIPTOR_SET = 101, /* bindings are allocated linearly */
+    VKD3D_SHADER_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET = 102, /* Allows reading root parameters as a UBO */
+    VKD3D_SHADER_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET = 103, /* binding = raw VA index */
+
+    /* Non-bindless bindings for local root signature */
+    VKD3D_SHADER_STATIC_LOCAL_SAMPLERS_VIRTUAL_DESCRIPTOR_SET = 104,
+    VKD3D_SHADER_LOCAL_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET = 105,
+    VKD3D_SHADER_LOCAL_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET = 106,
+
+    VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE = 200, /* Same as tables, but for shader records. */
+
+    /* Bindings within GLOBAL_HEAP set */
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING = 0,
+
+    /* These are either plain SSBOs or magic UBOs. */
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS = 1,
+    VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING = VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS,
+    VKD3D_SHADER_GLOBAL_HEAP_SIZE_BINDING,
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS_COUNT = 4
+};
+
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */
