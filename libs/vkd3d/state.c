@@ -1261,31 +1261,68 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
         const D3D12_ROOT_SIGNATURE_DESC2 *desc, struct vkd3d_descriptor_set_context *context,
         VkDescriptorSetLayout *vk_set_layout)
 {
-    VkDescriptorSetLayoutBinding *vk_binding_info, *vk_binding;
+    bool heap = d3d12_device_use_descriptor_heap(root_signature->device);
+    VkDescriptorSetLayoutBinding *vk_binding_info = NULL;
+    VkDescriptorSetAndBindingMappingEXT *vk_mapping;
     struct vkd3d_shader_resource_binding *binding;
+    VkDescriptorSetLayoutBinding *vk_binding;
     unsigned int i;
     HRESULT hr;
 
     if (!desc->NumStaticSamplers)
         return S_OK;
 
-    if (!(vk_binding_info = vkd3d_malloc(desc->NumStaticSamplers * sizeof(*vk_binding_info))))
+    if (!heap && !(vk_binding_info = vkd3d_malloc(desc->NumStaticSamplers * sizeof(*vk_binding_info))))
         return E_OUTOFMEMORY;
+
+    if (heap)
+    {
+        context->vk_set = VKD3D_SHADER_STATIC_SAMPLERS_VIRTUAL_DESCRIPTOR_SET;
+
+        if (!vkd3d_array_reserve((void **)&root_signature->heap.mappings, &root_signature->heap.mappings_size,
+                root_signature->heap.mappings_count + desc->NumStaticSamplers,
+                sizeof(*root_signature->heap.mappings)))
+            return E_OUTOFMEMORY;
+
+        root_signature->heap.vk_static_samplers_desc = vkd3d_calloc(
+            desc->NumStaticSamplers, sizeof(*root_signature->heap.vk_static_samplers_desc));
+        if (!root_signature->heap.vk_static_samplers_desc)
+            return E_OUTOFMEMORY;
+    }
 
     for (i = 0; i < desc->NumStaticSamplers; ++i)
     {
         const D3D12_STATIC_SAMPLER_DESC1 *s = &desc->pStaticSamplers[i];
 
-        if (FAILED(hr = vkd3d_sampler_state_create_static_sampler(&root_signature->device->sampler_state,
-                root_signature->device, s, &root_signature->static_samplers[i])))
-            goto cleanup;
+        if (heap)
+        {
+            d3d12_setup_static_sampler_info(root_signature->device, s,
+                    &root_signature->heap.vk_static_samplers_desc[i].desc,
+                    &root_signature->heap.vk_static_samplers_desc[i].reduction);
 
-        vk_binding = &vk_binding_info[i];
-        vk_binding->binding = context->vk_binding;
-        vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-        vk_binding->descriptorCount = 1;
-        vk_binding->stageFlags = vkd3d_vk_stage_flags_from_visibility(s->ShaderVisibility);
-        vk_binding->pImmutableSamplers = &root_signature->static_samplers[i];
+            vk_mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+            memset(vk_mapping, 0, sizeof(*vk_mapping));
+            vk_mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            vk_mapping->descriptorSet = context->vk_set;
+            vk_mapping->firstBinding = context->vk_binding;
+            vk_mapping->bindingCount = 1;
+            vk_mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_SAMPLER_BIT_EXT;
+            vk_mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+            vk_mapping->sourceData.constantOffset.pEmbeddedSampler = &root_signature->heap.vk_static_samplers_desc[i].desc;
+        }
+        else
+        {
+            vk_binding = &vk_binding_info[i];
+            vk_binding->binding = context->vk_binding;
+            vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+            vk_binding->descriptorCount = 1;
+            vk_binding->stageFlags = vkd3d_vk_stage_flags_from_visibility(s->ShaderVisibility);
+            vk_binding->pImmutableSamplers = &root_signature->static_samplers[i];
+
+            if (FAILED(hr = vkd3d_sampler_state_create_static_sampler(&root_signature->device->sampler_state,
+                    root_signature->device, s, &root_signature->static_samplers[i])))
+                goto cleanup;
+        }
 
         binding = &root_signature->bindings[context->binding_index];
         binding->type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
@@ -1303,22 +1340,25 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
         context->vk_binding += 1;
     }
 
-    if (FAILED(hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
-            desc->NumStaticSamplers, vk_binding_info,
-            VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT |
-                    VK_DESCRIPTOR_SET_LAYOUT_CREATE_EMBEDDED_IMMUTABLE_SAMPLERS_BIT_EXT,
-            &root_signature->vk_sampler_descriptor_layout)))
-        goto cleanup;
+    hr = S_OK;
 
-    /* With descriptor buffers we can implicitly bind immutable samplers, and no descriptors are necessary. */
-    if (!d3d12_device_uses_descriptor_buffers(root_signature->device))
+    if (!heap)
     {
-        hr = vkd3d_sampler_state_allocate_descriptor_set(&root_signature->device->sampler_state,
-                root_signature->device, root_signature->vk_sampler_descriptor_layout,
-                &root_signature->vk_sampler_set, &root_signature->vk_sampler_pool);
+        if (FAILED(hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
+                desc->NumStaticSamplers, vk_binding_info,
+                VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT |
+                        VK_DESCRIPTOR_SET_LAYOUT_CREATE_EMBEDDED_IMMUTABLE_SAMPLERS_BIT_EXT,
+                vk_set_layout)))
+            goto cleanup;
+
+        /* With descriptor buffers we can implicitly bind immutable samplers, and no descriptors are necessary. */
+        if (!d3d12_device_uses_descriptor_buffers(root_signature->device))
+        {
+            hr = vkd3d_sampler_state_allocate_descriptor_set(&root_signature->device->sampler_state,
+                    root_signature->device, *vk_set_layout,
+                    &root_signature->vk_sampler_set, &root_signature->vk_sampler_pool);
+        }
     }
-    else
-        hr = S_OK;
 
 cleanup:
     vkd3d_free(vk_binding_info);
