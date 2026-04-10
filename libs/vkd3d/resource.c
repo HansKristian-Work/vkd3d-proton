@@ -7195,11 +7195,54 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, vk_write_count, vk_write, 0, NULL));
 }
 
+static void vkd3d_descriptor_metadata_setup_image_view(struct vkd3d_descriptor_metadata_image_view *meta,
+        VkImageViewType vk_view_type, const VkImageSubresourceRange *vk_subresource_range,
+        struct d3d12_resource *resource, const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    /* Encodes sideband data that allows implementation to reconstruct a fresh image view
+     * should the need arise. This will always happen in descriptor heap path. */
+    meta->flags = VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+
+    if (desc && desc->Format)
+        meta->dxgi_format = desc->Format;
+    else
+        meta->dxgi_format = resource->format->dxgi_format;
+
+    meta->mip_slice = vk_subresource_range->baseMipLevel;
+
+    if (vk_view_type == VK_IMAGE_VIEW_TYPE_3D)
+    {
+        if (desc)
+        {
+            meta->first_array_slice = desc->Texture3D.FirstWSlice;
+            meta->array_size = desc->Texture3D.WSize;
+        }
+        else
+        {
+            /* This gets clamped in ClearUAV anyway. */
+            meta->first_array_slice = 0;
+            meta->array_size = UINT16_MAX;
+        }
+    }
+    else
+    {
+        meta->first_array_slice = vk_subresource_range->baseArrayLayer;
+        meta->array_size = vk_subresource_range->layerCount;
+    }
+
+    meta->vk_view_type = vk_view_type;
+    if (desc && desc->ViewDimension == D3D12_UAV_DIMENSION_TEXTURE2D)
+        meta->plane_slice = desc->Texture2D.PlaneSlice;
+    else
+        meta->plane_slice = 0;
+}
+
 static void vkd3d_create_texture_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkImageSubresourceRange vk_subresource_range;
     struct d3d12_desc_split_embedded d;
     struct d3d12_desc_split_metadata m;
     VkDescriptorGetInfoEXT get_info;
@@ -7223,8 +7266,10 @@ static void vkd3d_create_texture_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va,
 
     if (m.view)
     {
+        vk_subresource_range = vk_subresource_range_from_view(view);
         m.view->info.image.view = view;
-        m.view->info.image.flags = VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW;
+        vkd3d_descriptor_metadata_setup_image_view(&m.view->info.image,
+            view->info.texture.vk_view_type, &vk_subresource_range, resource, desc);
     }
 
     get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
@@ -7255,6 +7300,7 @@ static void vkd3d_create_texture_uav(vkd3d_cpu_descriptor_va_t desc_va,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info null_descriptor_info;
+    VkImageSubresourceRange vk_subresource_range;
     union vkd3d_descriptor_info descriptor_info;
     struct vkd3d_descriptor_binding binding;
     VkWriteDescriptorSet vk_writes[2];
@@ -7285,7 +7331,9 @@ static void vkd3d_create_texture_uav(vkd3d_cpu_descriptor_va_t desc_va,
     binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
 
     d.view->info.image.view = view;
-    d.view->info.image.flags = VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+    vk_subresource_range = vk_subresource_range_from_view(view);
+    vkd3d_descriptor_metadata_setup_image_view(&d.view->info.image,
+            view->info.texture.vk_view_type, &vk_subresource_range, resource, desc);
     d.types->set_info_mask = 1u << info_index;
     d.types->single_binding = binding;
 
