@@ -1686,6 +1686,18 @@ static inline struct d3d12_desc_split_embedded d3d12_desc_decode_embedded_resour
     return split;
 }
 
+static inline struct d3d12_desc_split_embedded d3d12_desc_decode_embedded_resource_va_with_metadata(
+        vkd3d_cpu_descriptor_va_t va, uint32_t packed_metadata_offset)
+{
+    struct d3d12_desc_split_embedded split = d3d12_desc_decode_embedded_resource_va(va);
+
+    /* Only fish out metadata for host descriptor heap. */
+    if (!split.metadata && (va & VKD3D_RESOURCE_EMBEDDED_METADATA_OFFSET_LOG2_MASK) == VKD3D_RESOURCE_EMBEDDED_CACHED_MASK)
+        split.metadata = (struct vkd3d_descriptor_metadata_view *)(split.payload + packed_metadata_offset);
+
+    return split;
+}
+
 static inline void d3d12_desc_copy_embedded_resource(vkd3d_cpu_descriptor_va_t dst_va,
         vkd3d_cpu_descriptor_va_t src_va, size_t size)
 {
