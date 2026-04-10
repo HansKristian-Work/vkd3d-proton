@@ -8182,6 +8182,46 @@ static VkBorderColor vk_border_color_from_d3d12(struct d3d12_device *device, con
     return uint_border ? VK_BORDER_COLOR_INT_CUSTOM_EXT : VK_BORDER_COLOR_FLOAT_CUSTOM_EXT;
 }
 
+void d3d12_setup_static_sampler_info(struct d3d12_device *device,
+        const D3D12_STATIC_SAMPLER_DESC1 *desc,
+        VkSamplerCreateInfo *sampler_desc, VkSamplerReductionModeCreateInfoEXT *reduction_desc)
+{
+    memset(sampler_desc, 0, sizeof(*sampler_desc));
+    memset(reduction_desc, 0, sizeof(*reduction_desc));
+    reduction_desc->sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT;
+    reduction_desc->reductionMode = vk_reduction_mode_from_d3d12(D3D12_DECODE_FILTER_REDUCTION(desc->Filter));
+
+    sampler_desc->sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_desc->magFilter = vk_filter_from_d3d12(D3D12_DECODE_MAG_FILTER(desc->Filter));
+    sampler_desc->minFilter = vk_filter_from_d3d12(D3D12_DECODE_MIN_FILTER(desc->Filter));
+    sampler_desc->mipmapMode = vk_mipmap_mode_from_d3d12(D3D12_DECODE_MIP_FILTER(desc->Filter));
+    sampler_desc->addressModeU = vk_address_mode_from_d3d12(desc->AddressU);
+    sampler_desc->addressModeV = vk_address_mode_from_d3d12(desc->AddressV);
+    sampler_desc->addressModeW = vk_address_mode_from_d3d12(desc->AddressW);
+    sampler_desc->mipLodBias = desc->MipLODBias;
+    sampler_desc->anisotropyEnable = D3D12_DECODE_IS_ANISOTROPIC_FILTER(desc->Filter);
+    sampler_desc->maxAnisotropy = desc->MaxAnisotropy;
+    sampler_desc->compareEnable = D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter);
+    sampler_desc->compareOp = sampler_desc->compareEnable ? vk_compare_op_from_d3d12(desc->ComparisonFunc) : 0;
+    sampler_desc->minLod = desc->MinLOD;
+    sampler_desc->maxLod = desc->MaxLOD;
+    sampler_desc->borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    sampler_desc->unnormalizedCoordinates = !!(desc->Flags & D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES);
+
+    if (sampler_desc->maxAnisotropy < 1.0f)
+        sampler_desc->anisotropyEnable = VK_FALSE;
+
+    if (sampler_desc->anisotropyEnable)
+        sampler_desc->maxAnisotropy = min(16.0f, sampler_desc->maxAnisotropy);
+
+    if (d3d12_sampler_needs_border_color(desc->AddressU, desc->AddressV, desc->AddressW))
+        sampler_desc->borderColor = vk_static_border_color_from_d3d12(desc->BorderColor);
+
+    if (reduction_desc->reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE &&
+            device->device_info.vulkan_1_2_features.samplerFilterMinmax)
+        vk_prepend_struct(sampler_desc, reduction_desc);
+}
+
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
         const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler)
 {
@@ -8191,41 +8231,7 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
     uint32_t num_live_objects;
     VkResult vr;
 
-    reduction_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT;
-    reduction_desc.pNext = NULL;
-    reduction_desc.reductionMode = vk_reduction_mode_from_d3d12(D3D12_DECODE_FILTER_REDUCTION(desc->Filter));
-
-    sampler_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_desc.pNext = NULL;
-    sampler_desc.flags = 0;
-    sampler_desc.magFilter = vk_filter_from_d3d12(D3D12_DECODE_MAG_FILTER(desc->Filter));
-    sampler_desc.minFilter = vk_filter_from_d3d12(D3D12_DECODE_MIN_FILTER(desc->Filter));
-    sampler_desc.mipmapMode = vk_mipmap_mode_from_d3d12(D3D12_DECODE_MIP_FILTER(desc->Filter));
-    sampler_desc.addressModeU = vk_address_mode_from_d3d12(desc->AddressU);
-    sampler_desc.addressModeV = vk_address_mode_from_d3d12(desc->AddressV);
-    sampler_desc.addressModeW = vk_address_mode_from_d3d12(desc->AddressW);
-    sampler_desc.mipLodBias = desc->MipLODBias;
-    sampler_desc.anisotropyEnable = D3D12_DECODE_IS_ANISOTROPIC_FILTER(desc->Filter);
-    sampler_desc.maxAnisotropy = desc->MaxAnisotropy;
-    sampler_desc.compareEnable = D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter);
-    sampler_desc.compareOp = sampler_desc.compareEnable ? vk_compare_op_from_d3d12(desc->ComparisonFunc) : 0;
-    sampler_desc.minLod = desc->MinLOD;
-    sampler_desc.maxLod = desc->MaxLOD;
-    sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-    sampler_desc.unnormalizedCoordinates = !!(desc->Flags & D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES);
-
-    if (sampler_desc.maxAnisotropy < 1.0f)
-        sampler_desc.anisotropyEnable = VK_FALSE;
-
-    if (sampler_desc.anisotropyEnable)
-        sampler_desc.maxAnisotropy = min(16.0f, sampler_desc.maxAnisotropy);
-
-    if (d3d12_sampler_needs_border_color(desc->AddressU, desc->AddressV, desc->AddressW))
-        sampler_desc.borderColor = vk_static_border_color_from_d3d12(desc->BorderColor);
-
-    if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE &&
-            device->device_info.vulkan_1_2_features.samplerFilterMinmax)
-        vk_prepend_struct(&sampler_desc, &reduction_desc);
+    d3d12_setup_static_sampler_info(device, desc, &sampler_desc, &reduction_desc);
 
     if (vkd3d_atomic_uint32_load_explicit(&device->sampler_map.live_object_count, vkd3d_memory_order_relaxed) <
         device->device_info.properties2.properties.limits.maxSamplerAllocationCount)
