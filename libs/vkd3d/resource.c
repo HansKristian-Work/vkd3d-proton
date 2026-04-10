@@ -7212,6 +7212,157 @@ VkDeviceAddress vkd3d_get_acceleration_structure_device_address(struct d3d12_dev
     return VK_CALL(vkGetAccelerationStructureDeviceAddressKHR(device->vk_device, &address_info));
 }
 
+static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_device *device,
+        struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    const struct vkd3d_bindless_state *bindless = &device->bindless_state;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_descriptor_metadata_buffer_view view;
+    VkTexelBufferDescriptorInfoEXT texel_buffer_info;
+    VkResourceDescriptorInfoEXT desc_info;
+    struct d3d12_desc_split_embedded d;
+    VkDeviceAddressRangeEXT ssbo_range;
+    VkHostAddressRangeEXT desc_range;
+    bool can_emit_sibling_typed;
+    uint8_t stack_payload[256];
+    bool can_emit_sibling_raw;
+    bool emit_typed;
+    bool is_typed;
+    bool emit_raw;
+
+    if (!desc)
+    {
+        FIXME("Default buffer UAV not supported.\n");
+        return;
+    }
+
+    if (desc->ViewDimension != D3D12_UAV_DIMENSION_BUFFER)
+    {
+        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
+        return;
+    }
+
+    memset(&desc_info, 0, sizeof(desc_info));
+    desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+
+    d = d3d12_desc_decode_embedded_resource_va_with_metadata(desc_va,
+            device->bindless_state.packed_metadata_offset);
+
+    if (resource)
+    {
+        vkd3d_get_metadata_buffer_view_for_resource_heap(device, resource,
+                desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                desc->Buffer.StructureByteStride, (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0,
+                &view);
+    }
+    else
+    {
+        memset(&view, 0, sizeof(view));
+    }
+
+    is_typed = desc->Format && !(desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
+
+    can_emit_sibling_typed =
+        bindless->packed_raw_buffer_offset >= bindless->heap.storage_texel_buffer_size && !counter_resource;
+    can_emit_sibling_raw = bindless->packed_raw_buffer_offset >= bindless->heap.storage_texel_buffer_size;
+
+    if (!is_typed && !d3d12_resource_desc_supports_heap_raw_uav_ssbo(device, desc))
+    {
+        is_typed = true;
+        view.dxgi_format = DXGI_FORMAT_R32_UINT;
+    }
+
+    /* TODO: Check max range for typed? */
+    emit_typed = is_typed || can_emit_sibling_typed;
+    emit_raw = !is_typed || can_emit_sibling_raw;
+
+    /* With ReBAR in play, it's been suggested by at least one IHV that fusing the writes is a good thing. */
+    memset(stack_payload, 0, bindless->cbv_srv_uav_size);
+
+    if (emit_typed)
+    {
+        desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        if (resource)
+        {
+            memset(&texel_buffer_info, 0, sizeof(texel_buffer_info));
+            texel_buffer_info.sType = VK_STRUCTURE_TYPE_TEXEL_BUFFER_DESCRIPTOR_INFO_EXT;
+            texel_buffer_info.addressRange.address = view.va;
+            texel_buffer_info.addressRange.size = view.range;
+            texel_buffer_info.format = vkd3d_internal_get_vk_format(device, view.dxgi_format);
+            if (texel_buffer_info.format == VK_FORMAT_UNDEFINED)
+            {
+                if (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW)
+                {
+                    texel_buffer_info.format = VK_FORMAT_R32_UINT;
+                }
+                else
+                {
+                    texel_buffer_info.format = vkd3d_internal_get_vk_format(device,
+                        vkd3d_structured_uav_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                }
+            }
+            desc_info.data.pTexelBuffer = &texel_buffer_info;
+        }
+
+        desc_range.address = stack_payload;
+        desc_range.size = device->bindless_state.heap.storage_texel_buffer_size;
+        VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+    }
+
+    if (emit_raw)
+    {
+        desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+
+        if (resource)
+        {
+            ssbo_range.address = view.va;
+            ssbo_range.size = view.range;
+            desc_info.data.pAddressRange = &ssbo_range;
+        }
+        else
+        {
+            desc_info.data.pAddressRange = NULL;
+        }
+
+        desc_range.address = stack_payload + bindless->packed_raw_buffer_offset;
+        desc_range.size = device->device_info.descriptor_heap_properties.bufferDescriptorSize;
+        VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+    }
+
+    if (counter_resource && desc->Buffer.StructureByteStride != 0)
+    {
+        desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        desc_info.data.pTexelBuffer = &texel_buffer_info;
+
+        /* Could use SSBO here, but texel buffer is more convenient w.r.t. heap mappings and
+         * descriptor buffer path uses texel buffers too. */
+        memset(&texel_buffer_info, 0, sizeof(texel_buffer_info));
+        texel_buffer_info.sType = VK_STRUCTURE_TYPE_TEXEL_BUFFER_DESCRIPTOR_INFO_EXT;
+        texel_buffer_info.addressRange.address = counter_resource->res.va + desc->Buffer.CounterOffsetInBytes;
+        texel_buffer_info.addressRange.size = sizeof(uint32_t);
+        texel_buffer_info.format = VK_FORMAT_R32_UINT;
+        desc_range.address = stack_payload;
+        desc_range.size = device->device_info.descriptor_heap_properties.bufferDescriptorSize;
+
+        if (bindless->heap.uav_counter_embedded_offset == 0)
+        {
+            VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+        }
+        else
+        {
+            /* Ugly hackery. Place UAV counter BDA at end of payload. */
+            memcpy(stack_payload + bindless->heap.uav_counter_embedded_offset,
+                    &texel_buffer_info.addressRange.address, sizeof(VkDeviceAddress));
+        }
+    }
+
+    memcpy(d.payload, stack_payload, bindless->cbv_srv_uav_size);
+
+    if (d.metadata)
+        d.metadata->info.buffer = view;
+}
+
 static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_device *device,
         struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
@@ -7580,6 +7731,61 @@ static void vkd3d_descriptor_metadata_setup_image_view(struct vkd3d_descriptor_m
         meta->plane_slice = 0;
 }
 
+static void vkd3d_create_texture_uav_heap(vkd3d_cpu_descriptor_va_t desc_va,
+        struct d3d12_device *device, struct d3d12_resource *resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_texture_view_create_info create_info;
+    VkResourceDescriptorInfoEXT desc_info;
+    struct vkd3d_texture_view_desc info;
+    VkImageDescriptorInfoEXT image_info;
+    struct d3d12_desc_split_embedded d;
+    VkHostAddressRangeEXT desc_range;
+
+    d = d3d12_desc_decode_embedded_resource_va_with_metadata(desc_va,
+            device->bindless_state.packed_metadata_offset);
+
+    memset(&desc_info, 0, sizeof(desc_info));
+    desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
+    desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+
+    if (resource && vkd3d_setup_texture_uav_view(device, resource, desc, &info) &&
+        vkd3d_setup_texture_view(device, &info, &create_info))
+    {
+        desc_info.data.pImage = &image_info;
+        memset(&image_info, 0, sizeof(image_info));
+        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_DESCRIPTOR_INFO_EXT;
+        image_info.layout = VK_IMAGE_LAYOUT_GENERAL;
+        image_info.pView = &create_info.view_desc;
+
+        /* Setup metadata if the resource is used as clear UAV, and we have to do fallback views. */
+        if (d.metadata)
+        {
+            struct vkd3d_descriptor_metadata_image_view *image = &d.metadata->info.image;
+            vkd3d_descriptor_metadata_setup_image_view(&d.metadata->info.image,
+                create_info.view_desc.viewType, &create_info.view_desc.subresourceRange, resource, desc);
+            image->view = NULL;
+        }
+    }
+    else if (d.metadata)
+    {
+        memset(&d.metadata->info.image, 0, sizeof(d.metadata->info.image));
+    }
+
+    desc_range.address = d.payload;
+    desc_range.size = device->bindless_state.heap.storage_image_size;
+    VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
+
+    /* Clear out any sibling buffer descriptor if relevant (e.g. RDNA2). */
+    if (device->bindless_state.packed_raw_buffer_offset >= device->bindless_state.heap.storage_image_size &&
+        device->bindless_state.packed_raw_buffer_offset < device->bindless_state.packed_metadata_offset)
+    {
+        memset(d.payload + device->bindless_state.packed_raw_buffer_offset, 0,
+                device->device_info.descriptor_heap_properties.bufferDescriptorSize);
+    }
+}
+
 static void vkd3d_create_texture_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
@@ -7734,6 +7940,35 @@ static void vkd3d_create_texture_uav(vkd3d_cpu_descriptor_va_t desc_va,
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset,
             VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_IMAGE_BIT, d.view->qa_cookie);
+}
+
+void d3d12_desc_create_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_device *device,
+        struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
+{
+    bool is_buffer;
+
+    if (resource)
+    {
+        is_buffer = d3d12_resource_is_buffer(resource);
+    }
+    else if (desc)
+    {
+        is_buffer = desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER;
+    }
+    else
+    {
+        WARN("Description required for NULL UAV.\n");
+        return;
+    }
+
+    if (counter_resource && (!resource || !is_buffer))
+        FIXME("Ignoring counter resource %p.\n", counter_resource);
+
+    if (is_buffer)
+        vkd3d_create_buffer_uav_heap(desc_va, device, resource, counter_resource, desc);
+    else
+        vkd3d_create_texture_uav_heap(desc_va, device, resource, desc);
 }
 
 void d3d12_desc_create_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_device *device,
