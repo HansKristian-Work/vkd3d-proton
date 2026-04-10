@@ -1221,7 +1221,9 @@ enum
     VKD3D_SHADER_LOCAL_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET = 105,
     VKD3D_SHADER_LOCAL_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET = 106,
 
-    VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE = 200, /* Same as tables, but for shader records. */
+    /* Same as tables, but for shader records. Maximum number of these would be 4096 / sizeof(u64) = 512,
+     * so the numbering scheme is sound. */
+    VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE = 200,
 
     /* Bindings within GLOBAL_HEAP set */
     VKD3D_SHADER_GLOBAL_HEAP_BINDING = 0,
