@@ -3815,6 +3815,13 @@ static inline struct d3d12_command_signature *impl_from_ID3D12CommandSignature(I
     return CONTAINING_RECORD(iface, struct d3d12_command_signature, ID3D12CommandSignature_iface);
 }
 
+struct vkd3d_sampler_custom_border_color
+{
+    VkBorderColor border_color;
+    VkClearColorValue color;
+    uint32_t index;
+};
+
 /* Static samplers */
 struct vkd3d_sampler_state
 {
@@ -3824,7 +3831,18 @@ struct vkd3d_sampler_state
     VkDescriptorPool *vk_descriptor_pools;
     size_t vk_descriptor_pools_size;
     size_t vk_descriptor_pool_count;
+
+    struct vkd3d_sampler_custom_border_color *border_colors;
+    size_t border_color_bank_size;
+    size_t border_color_count;
+    bool noop_registration;
+    uint32_t noop_registration_index;
 };
+
+uint32_t vkd3d_sampler_state_register_custom_border_color(
+        struct d3d12_device *device,
+        struct vkd3d_sampler_state *state, VkBorderColor border_color,
+        const VkSamplerCustomBorderColorCreateInfoEXT *info);
 
 struct vkd3d_shader_debug_ring
 {
