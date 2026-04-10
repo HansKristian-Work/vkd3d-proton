@@ -1684,6 +1684,13 @@ HRESULT vkd3d_sampler_state_init(struct vkd3d_sampler_state *state,
         return hresult_from_errno(rc);
 
     hash_map_init(&state->map, &vkd3d_sampler_entry_hash, &vkd3d_sampler_entry_compare, sizeof(struct vkd3d_sampler_entry));
+
+    if (d3d12_device_use_descriptor_heap(device))
+    {
+        state->border_color_bank_size = min(4096, device->device_info.custom_border_color_properties.maxCustomBorderColorSamplers);
+        state->border_colors = vkd3d_calloc(state->border_color_bank_size, sizeof(*state->border_colors));
+    }
+
     return S_OK;
 }
 
@@ -1708,7 +1715,65 @@ void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
 
     hash_map_free(&state->map);
 
+    vkd3d_free(state->border_colors);
     pthread_mutex_destroy(&state->mutex);
+}
+
+uint32_t vkd3d_sampler_state_register_custom_border_color(
+        struct d3d12_device *device,
+        struct vkd3d_sampler_state *state, VkBorderColor border_color,
+        const VkSamplerCustomBorderColorCreateInfoEXT *info)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint32_t i;
+
+    pthread_mutex_lock(&state->mutex);
+
+    if (state->noop_registration)
+    {
+        i = state->noop_registration_index;
+        goto unlock;
+    }
+
+    for (i = 0; i < state->border_color_count; i++)
+    {
+        if (state->border_colors[i].border_color == border_color &&
+            memcmp(&state->border_colors[i].color, &info->customBorderColor, sizeof(VkClearColorValue)) == 0)
+        {
+            i = state->border_colors[i].index;
+            goto unlock;
+        }
+    }
+
+    if (state->border_color_count == state->border_color_bank_size)
+    {
+        i = UINT32_MAX;
+        goto unlock;
+    }
+
+    if (VK_CALL(vkRegisterCustomBorderColorEXT(device->vk_device, info, VK_FALSE, &i)) != VK_SUCCESS)
+    {
+        ERR("Failed to allocate custom border color index.\n");
+        i = UINT32_MAX;
+    }
+
+    /* Some drivers simply do not care about custom border colors and will just return the same value indefinitely.
+     * If we detect that drivers don't care, just skip the registration in the future. */
+    if (state->border_color_count == 1 && i == state->border_colors[0].index)
+    {
+        state->noop_registration = true;
+        state->noop_registration_index = i;
+        goto unlock;
+    }
+
+    state->border_colors[state->border_color_count].border_color = border_color;
+    state->border_colors[state->border_color_count].color = info->customBorderColor;
+    state->border_colors[state->border_color_count].index = i;
+    state->border_color_count++;
+
+unlock:
+    pthread_mutex_unlock(&state->mutex);
+    return i;
 }
 
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
