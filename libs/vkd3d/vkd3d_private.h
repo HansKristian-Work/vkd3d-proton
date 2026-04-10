@@ -1407,11 +1407,19 @@ struct vkd3d_descriptor_metadata_buffer_view
     VkDeviceAddress va;
 };
 
+/* Tightly pack this to fit in 16 bytes. */
 struct vkd3d_descriptor_metadata_image_view
 {
     uint8_t flags;
-    struct vkd3d_view *view;
+    uint8_t dxgi_format;
+    uint8_t mip_slice;
+    uint8_t vk_view_type : 4;
+    uint8_t plane_slice : 4;
+    uint16_t first_array_slice;
+    uint16_t array_size;
+    struct vkd3d_view *view; /* Only used in legacy paths. */
 };
+STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_image_view) <= 16);
 
 struct vkd3d_descriptor_metadata_view
 {
