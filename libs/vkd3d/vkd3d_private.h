@@ -1497,6 +1497,16 @@ bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
         const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler);
 
+struct d3d12_root_signature_static_sampler_vk_desc
+{
+    VkSamplerCreateInfo desc;
+    VkSamplerReductionModeCreateInfoEXT reduction;
+};
+
+void d3d12_setup_static_sampler_info(struct d3d12_device *device,
+        const D3D12_STATIC_SAMPLER_DESC1 *desc,
+        struct d3d12_root_signature_static_sampler_vk_desc *vk_desc);
+
 #define D3D12_DESC_ALIGNMENT 32
 struct d3d12_rtv_desc
 {
