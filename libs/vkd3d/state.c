@@ -679,6 +679,9 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
             continue;
 
+        /* Even heap path keeps the lowering to uints. The way CBVs work in DXIL won't interact too well
+         * with robustness most likely. */
+
         d3d12_root_signature_add_root_parameter_mapping(root_signature, i, push_constant_range->size);
         root_signature->root_constant_mask |= 1ull << i;
 
@@ -699,23 +702,20 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
     }
 
     /* Append one 32-bit push constant for each descriptor table offset */
-    if (root_signature->device->bindless_state.flags)
+    root_signature->descriptor_table_offset = push_constant_range->size;
+
+    for (i = 0; i < desc->NumParameters; ++i)
     {
-        root_signature->descriptor_table_offset = push_constant_range->size;
+        const D3D12_ROOT_PARAMETER1 *p = &desc->pParameters[i];
 
-        for (i = 0; i < desc->NumParameters; ++i)
-        {
-            const D3D12_ROOT_PARAMETER1 *p = &desc->pParameters[i];
+        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            continue;
 
-            if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-                continue;
+        d3d12_root_signature_add_root_parameter_mapping(root_signature, i, push_constant_range->size);
+        root_signature->descriptor_table_count += 1;
 
-            d3d12_root_signature_add_root_parameter_mapping(root_signature, i, push_constant_range->size);
-            root_signature->descriptor_table_count += 1;
-
-            push_constant_range->stageFlags |= vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
-            push_constant_range->size += sizeof(uint32_t);
-        }
+        push_constant_range->stageFlags |= vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
+        push_constant_range->size += sizeof(uint32_t);
     }
 
     return S_OK;
@@ -1661,9 +1661,11 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
             &push_constant_range)))
         return hr;
 
-    /* If we cannot contain the push constants, fall back to push UBO everywhere. */
-    if (push_constant_range.size > vk_device_properties->limits.maxPushConstantsSize)
-        d3d12_root_signature_add_common_flags(root_signature, VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK);
+    /* If we cannot contain the push constants, fall back to push UBO everywhere.
+     * This is a nonissue on heap, since it's pushDataSize and it's guaranteed to be at least 256. */
+    if (!d3d12_device_use_descriptor_heap(device))
+        if (push_constant_range.size > vk_device_properties->limits.maxPushConstantsSize)
+            d3d12_root_signature_add_common_flags(root_signature, VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK);
 
     d3d12_root_signature_init_extra_bindings(root_signature, &info);
 
