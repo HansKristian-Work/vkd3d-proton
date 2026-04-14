@@ -9798,8 +9798,8 @@ bool d3d12_device_supports_workgraphs(const struct d3d12_device *device)
 {
     /* Thread nodes currently need wave32 to function correctly since the API limits for thread nodes
      * match wave32 expectations (8 nodes per thread * 32 threads = 256 max nodes). */
-    return ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES) ||
-            vkd3d_debug_control_is_test_suite()) &&
+    return ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES) /* ||
+            vkd3d_debug_control_is_test_suite() */) &&
             device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence &&
             device->device_info.vulkan_1_2_features.vulkanMemoryModel &&
             device->device_info.vulkan_1_3_features.subgroupSizeControl &&
