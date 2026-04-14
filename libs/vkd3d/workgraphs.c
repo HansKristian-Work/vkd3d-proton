@@ -2586,7 +2586,7 @@ static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_lis
         VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 module->vk_pipeline_layout, 0, bindless_state->legacy.set_count,
                 bindless_state->legacy.vk_descriptor_buffer_indices,
-                list->descriptor_heap.buffers.vk_offsets));
+                list->descriptor_heap.buffers.db.vk_offsets));
     }
     else
     {
@@ -3448,7 +3448,7 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
-    d3d12_command_list_update_descriptor_buffers(list);
+    d3d12_command_list_update_global_descriptor_heap(list);
 
     d3d12_command_list_workgraph_barrier(list,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
