@@ -7687,7 +7687,17 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     }
 
     /* Set descriptor offsets */
-    if (push_stages)
+    if (d3d12_device_use_descriptor_heap(list->device))
+    {
+        VkPushDataInfoEXT info;
+        memset(&info, 0, sizeof(info));
+        info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        info.offset = root_signature->descriptor_table_offset;
+        info.data.address = table_offsets;
+        info.data.size = root_signature->descriptor_table_count * sizeof(uint32_t);
+        VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &info));
+    }
+    else if (push_stages)
     {
         VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                 layout, push_stages,
@@ -7885,16 +7895,34 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
         return;
     }
 
-    while (bindings->root_constant_dirty_mask)
+    if (d3d12_device_use_descriptor_heap(list->device))
     {
-        root_parameter_index = vkd3d_bitmask_iter64(&bindings->root_constant_dirty_mask);
-        root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
+        VkPushDataInfoEXT info;
+        memset(&info, 0, sizeof(info));
+        info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
 
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                layout, push_stages,
-                root_constant->constant_index * sizeof(uint32_t),
-                root_constant->constant_count * sizeof(uint32_t),
-                &bindings->root_constants[root_constant->constant_index]));
+        while (bindings->root_constant_dirty_mask)
+        {
+            root_parameter_index = vkd3d_bitmask_iter64(&bindings->root_constant_dirty_mask);
+            root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
+            info.data.address = &bindings->root_constants[root_constant->constant_index];
+            info.offset = root_constant->constant_index * sizeof(uint32_t);
+            info.data.size = root_constant->constant_count * sizeof(uint32_t);
+            VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &info));
+        }
+    }
+    else
+    {
+        while (bindings->root_constant_dirty_mask)
+        {
+            root_parameter_index = vkd3d_bitmask_iter64(&bindings->root_constant_dirty_mask);
+            root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
+            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                    layout, push_stages,
+                    root_constant->constant_index * sizeof(uint32_t),
+                    root_constant->constant_count * sizeof(uint32_t),
+                    &bindings->root_constants[root_constant->constant_index]));
+        }
     }
 }
 
@@ -8034,12 +8062,24 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
         descriptor_write_count += 1;
     }
-    else if (va_count && push_stages)
+    else if (va_count)
     {
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
-                layout, push_stages,
-                0, va_count * sizeof(*root_parameter_data.root_descriptor_vas),
-                root_parameter_data.root_descriptor_vas));
+        if (d3d12_device_use_descriptor_heap(list->device))
+        {
+            VkPushDataInfoEXT info;
+            memset(&info, 0, sizeof(info));
+            info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+            info.data.address = root_parameter_data.root_descriptor_vas;
+            info.data.size = va_count * sizeof(*root_parameter_data.root_descriptor_vas);
+            VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &info));
+        }
+        else if (push_stages)
+        {
+            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                    layout, push_stages,
+                    0, va_count * sizeof(*root_parameter_data.root_descriptor_vas),
+                    root_parameter_data.root_descriptor_vas));
+        }
     }
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA

@@ -1761,6 +1761,12 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     {
         if (FAILED(hr = d3d12_root_signature_init_global_mappings(root_signature, &info)))
             return hr;
+
+        /* Only relevant to be able to share some code between heap and legacy. */
+        root_signature->graphics.vk_push_stages = VK_SHADER_STAGE_ALL;
+        root_signature->mesh.vk_push_stages = VK_SHADER_STAGE_ALL;
+        root_signature->compute.vk_push_stages = VK_SHADER_STAGE_ALL;
+        root_signature->raygen.vk_push_stages = VK_SHADER_STAGE_ALL;
     }
     else
     {
