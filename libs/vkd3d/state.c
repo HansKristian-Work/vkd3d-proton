@@ -3291,6 +3291,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     struct vkd3d_queue_timeline_trace_cookie cookie;
     VkPipelineCreationFeedbackEXT feedbacks[1];
     VkComputePipelineCreateInfo pipeline_info;
+    VkPipelineCreateFlags2CreateInfo flags2;
     struct vkd3d_shader_spec_info spec_info;
     VkPipelineCreationFeedbackEXT feedback;
     struct vkd3d_shader_code *spirv_code;
@@ -3348,11 +3349,11 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
         feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO;
-        feedback_info.pNext = pipeline_info.pNext;
+        feedback_info.pNext = NULL;
         feedback_info.pPipelineStageCreationFeedbacks = feedbacks;
         feedback_info.pipelineStageCreationFeedbackCount = 1;
         feedback_info.pPipelineCreationFeedback = &feedback;
-        pipeline_info.pNext = &feedback_info;
+        vk_prepend_struct(&pipeline_info, &feedback_info);
     }
     else
         feedback_info.pipelineStageCreationFeedbackCount = 0;
@@ -3360,13 +3361,24 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     if (pipeline_info.stage.module == VK_NULL_HANDLE)
         pipeline_info.flags |= VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
 
-    if (d3d12_device_uses_descriptor_buffers(device))
-        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
-
     if (state->compute.code.meta.flags & VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS)
         pipeline_info.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
 
     cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
+
+    if (d3d12_device_use_descriptor_heap(device))
+    {
+        memset(&flags2, 0, sizeof(flags2));
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        vk_prepend_struct(&pipeline_info, &flags2);
+        flags2.flags = pipeline_info.flags;
+        pipeline_info.flags = 0;
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+    }
+    else if (d3d12_device_uses_descriptor_buffers(device))
+    {
+        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, &state->compute.vk_pipeline));
@@ -3408,6 +3420,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     if (vr == VK_PIPELINE_COMPILE_REQUIRED)
     {
         pipeline_info.flags &= ~VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
+        flags2.flags &= ~VK_PIPELINE_CREATE_2_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
 
         if (FAILED(hr = vkd3d_compile_shader_stage(state, device,
                 VK_SHADER_STAGE_COMPUTE_BIT, code, spirv_code, spirv_code_debug)))
@@ -4294,6 +4307,7 @@ VkPipeline vkd3d_vertex_input_pipeline_create(struct d3d12_device *device,
     VkGraphicsPipelineLibraryCreateInfoEXT library_create_info;
     struct vkd3d_vertex_input_pipeline_desc desc_copy = *desc;
     VkGraphicsPipelineCreateInfo create_info;
+    VkPipelineCreateFlags2CreateInfo flags2;
     VkPipeline vk_pipeline;
     VkResult vr;
 
@@ -4305,15 +4319,27 @@ VkPipeline vkd3d_vertex_input_pipeline_create(struct d3d12_device *device,
 
     memset(&create_info, 0, sizeof(create_info));
     create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    create_info.pNext = &library_create_info;
     create_info.flags = VK_PIPELINE_CREATE_LIBRARY_BIT_KHR | VK_PIPELINE_CREATE_RETAIN_LINK_TIME_OPTIMIZATION_INFO_BIT_EXT;
     create_info.pInputAssemblyState = &desc_copy.ia_info;
     create_info.pVertexInputState = &desc_copy.vi_info;
     create_info.pDynamicState = &desc_copy.dy_info;
     create_info.basePipelineIndex = -1;
 
-    if (d3d12_device_uses_descriptor_buffers(device))
+    vk_prepend_struct(&create_info, &library_create_info);
+
+    if (d3d12_device_use_descriptor_heap(device))
+    {
+        memset(&flags2, 0, sizeof(flags2));
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        vk_prepend_struct(&create_info, &flags2);
+        flags2.flags = create_info.flags;
+        create_info.flags = 0;
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+    }
+    else if (d3d12_device_uses_descriptor_buffers(device))
+    {
         create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
             VK_NULL_HANDLE, 1, &create_info, NULL, &vk_pipeline))))
@@ -4444,6 +4470,7 @@ VkPipeline vkd3d_fragment_output_pipeline_create(struct d3d12_device *device,
     struct vkd3d_fragment_output_pipeline_desc desc_copy = *desc;
     VkGraphicsPipelineLibraryCreateInfoEXT library_create_info;
     VkGraphicsPipelineCreateInfo create_info;
+    VkPipelineCreateFlags2CreateInfo flags2;
     VkPipeline vk_pipeline;
     VkResult vr;
 
@@ -4451,20 +4478,32 @@ VkPipeline vkd3d_fragment_output_pipeline_create(struct d3d12_device *device,
 
     memset(&library_create_info, 0, sizeof(library_create_info));
     library_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
-    library_create_info.pNext = &desc_copy.rt_info;
     library_create_info.flags = VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT;
 
     memset(&create_info, 0, sizeof(create_info));
     create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    create_info.pNext = &library_create_info;
     create_info.flags = VK_PIPELINE_CREATE_LIBRARY_BIT_KHR | VK_PIPELINE_CREATE_RETAIN_LINK_TIME_OPTIMIZATION_INFO_BIT_EXT;
     create_info.pColorBlendState = &desc_copy.cb_info;
     create_info.pMultisampleState = &desc_copy.ms_info;
     create_info.pDynamicState = &desc_copy.dy_info;
     create_info.basePipelineIndex = -1;
 
-    if (d3d12_device_uses_descriptor_buffers(device))
+    vk_prepend_struct(&create_info, &desc_copy.rt_info);
+    vk_prepend_struct(&create_info, &library_create_info);
+
+    if (d3d12_device_use_descriptor_heap(device))
+    {
+        memset(&flags2, 0, sizeof(flags2));
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        vk_prepend_struct(&create_info, &flags2);
+        flags2.flags = create_info.flags;
+        create_info.flags = 0;
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+    }
+    else if (d3d12_device_uses_descriptor_buffers(device))
+    {
         create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
             VK_NULL_HANDLE, 1, &create_info, NULL, &vk_pipeline))))
@@ -6458,6 +6497,7 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
     struct vkd3d_queue_timeline_trace_cookie cookie;
     VkPipelineLibraryCreateInfoKHR library_info;
     VkGraphicsPipelineCreateInfo create_info;
+    VkPipelineCreateFlags2CreateInfo flags2;
     VkPipeline vk_libraries[3];
     uint32_t library_count = 0;
     VkResult vr;
@@ -6485,13 +6525,11 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
 
     memset(&create_info, 0, sizeof(create_info));
     create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    create_info.pNext = &library_info;
     create_info.flags = graphics->library_create_flags;
     create_info.layout = graphics->pipeline_layout;
     create_info.basePipelineIndex = -1;
 
-    if (d3d12_device_uses_descriptor_buffers(state->device))
-        create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    vk_prepend_struct(&create_info, &library_info);
 
     if (graphics->disable_optimization)
         create_info.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
@@ -6503,6 +6541,19 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
         create_info.flags |= VK_PIPELINE_CREATE_LINK_TIME_OPTIMIZATION_BIT_EXT;
 
     cookie = vkd3d_queue_timeline_trace_register_pso_compile(&state->device->queue_timeline_trace);
+
+    if (d3d12_device_use_descriptor_heap(state->device))
+    {
+        memset(&flags2, 0, sizeof(flags2));
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        flags2.flags = create_info.flags | VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+        create_info.flags = 0;
+        vk_prepend_struct(&create_info, &flags2);
+    }
+    else if (d3d12_device_uses_descriptor_buffers(state->device))
+    {
+        create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     vr = VK_CALL(vkCreateGraphicsPipelines(state->device->vk_device,
             vk_cache, 1, &create_info, NULL, vk_pipeline));
@@ -6544,6 +6595,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
+    VkPipelineCreateFlags2CreateInfo flags2;
     VkPipelineCreationFeedbackEXT feedback;
     uint32_t stages_module_dup_mask = 0;
     VkPipeline vk_pipeline;
@@ -6593,7 +6645,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     memset(&pipeline_desc, 0, sizeof(pipeline_desc));
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_desc.pNext = &fragment_output_desc.rt_info;
     pipeline_desc.stageCount = graphics->stage_count;
     pipeline_desc.pStages = graphics->stages;
     pipeline_desc.pViewportState = &vp_desc;
@@ -6602,6 +6653,8 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.pDynamicState = &dynamic_create_info;
     pipeline_desc.layout = graphics->pipeline_layout;
     pipeline_desc.basePipelineIndex = -1;
+
+    vk_prepend_struct(&pipeline_desc, &fragment_output_desc.rt_info);
 
     if (d3d12_device_supports_variable_shading_rate_tier_2(device))
         pipeline_desc.flags |= VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
@@ -6633,11 +6686,10 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         TRACE("Compiling pipeline library for %p with flags %#x.\n", state, library_flags);
 
         library_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
-        /* Explicit cast to silence a constness warning, this seems to be a Vulkan header bug */
-        library_create_info.pNext = (void*)pipeline_desc.pNext;
+        library_create_info.pNext = NULL;
         library_create_info.flags = library_flags;
+        vk_prepend_struct(&pipeline_desc, &library_create_info);
 
-        pipeline_desc.pNext = &library_create_info;
         pipeline_desc.flags |= VK_PIPELINE_CREATE_LIBRARY_BIT_KHR |
                 VK_PIPELINE_CREATE_RETAIN_LINK_TIME_OPTIMIZATION_INFO_BIT_EXT;
 
@@ -6688,9 +6740,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         if (pipeline_desc.pStages[i].module == VK_NULL_HANDLE)
             pipeline_desc.flags |= VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
 
-    if (d3d12_device_uses_descriptor_buffers(device))
-        pipeline_desc.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
-
     if (graphics->disable_optimization)
         pipeline_desc.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
 
@@ -6699,16 +6748,30 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
         feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
-        feedback_info.pNext = pipeline_desc.pNext;
+        feedback_info.pNext = NULL;
         feedback_info.pPipelineStageCreationFeedbacks = feedbacks;
         feedback_info.pipelineStageCreationFeedbackCount = pipeline_desc.stageCount;
         feedback_info.pPipelineCreationFeedback = &feedback;
-        pipeline_desc.pNext = &feedback_info;
+        vk_prepend_struct(&pipeline_desc, &feedback_info);
     }
     else
         feedback_info.pipelineStageCreationFeedbackCount = 0;
 
     cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
+
+    if (d3d12_device_use_descriptor_heap(device))
+    {
+        memset(&flags2, 0, sizeof(flags2));
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        vk_prepend_struct(&pipeline_desc, &flags2);
+        flags2.flags = pipeline_desc.flags;
+        pipeline_desc.flags = 0;
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+    }
+    else if (d3d12_device_uses_descriptor_buffers(device))
+    {
+        pipeline_desc.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline));
 
@@ -6755,6 +6818,8 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         }
 
         pipeline_desc.flags &= ~VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
+        flags2.flags &= ~VK_PIPELINE_CREATE_2_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
+
         /* Internal modules are known to be non-null now. */
         pipeline_desc.pStages = state->graphics.stages;
 
