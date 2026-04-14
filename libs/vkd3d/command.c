@@ -5201,6 +5201,47 @@ static size_t get_query_heap_stride(D3D12_QUERY_HEAP_TYPE heap_type)
     return sizeof(uint64_t);
 }
 
+void d3d12_command_list_meta_push_data(struct d3d12_command_list *list,
+        VkCommandBuffer vk_command_buffer,
+        VkPipelineLayout vk_pipeline_layout, VkShaderStageFlags stages,
+        uint32_t size, const void *data)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    if (vk_pipeline_layout != VK_NULL_HANDLE)
+    {
+        VK_CALL(vkCmdPushConstants(vk_command_buffer,
+                vk_pipeline_layout,
+                stages, 0, size, data));
+
+        if (d3d12_device_use_descriptor_heap(list->device) && list->cmd.vk_command_buffer == vk_command_buffer)
+            d3d12_command_list_invalidate_descriptor_heap(list);
+    }
+    else
+    {
+        VkPushDataInfoEXT push;
+        memset(&push, 0, sizeof(push));
+        push.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+        push.data.address = data;
+        push.data.size = size;
+        VK_CALL(vkCmdPushDataEXT(vk_command_buffer, &push));
+    }
+
+    if (list->cmd.vk_command_buffer == vk_command_buffer)
+    {
+        if (stages & VK_SHADER_STAGE_COMPUTE_BIT)
+        {
+            d3d12_command_list_invalidate_root_parameters(list,
+                &list->compute_bindings, true, &list->graphics_bindings);
+        }
+        else
+        {
+            d3d12_command_list_invalidate_root_parameters(list,
+                &list->graphics_bindings, true, &list->compute_bindings);
+        }
+    }
+}
+
 static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list *list)
 {
     /* TODO allocate arrays from command allocator in case
@@ -5472,9 +5513,9 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
 
         entry_offset += d->virtual_query_count;
 
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+        d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
                 gather_pipeline.vk_pipeline_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+                VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
 
         workgroup_count = vkd3d_compute_workgroup_count(d->unique_query_count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
         VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, workgroup_count, 1, 1));
@@ -5491,7 +5532,6 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     result = true;
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
 
     VKD3D_BREADCRUMB_COMMAND(GATHER_VIRTUAL_QUERY);
 
@@ -6150,6 +6190,12 @@ void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *li
         struct d3d12_device *device = bindings->root_signature->device;
         bindings->legacy_descriptor_set_dirty_mask = (1ull << device->bindless_state.legacy.set_count) - 1;
     }
+}
+
+void d3d12_command_list_invalidate_descriptor_heap(struct d3d12_command_list *list)
+{
+    list->descriptor_heap.buffers.global_heap_dirty = true;
+    WARN("Invalidating descriptor heap due to meta command which is incompatible with heaps.\n");
 }
 
 static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d12_command_list *list,
@@ -8774,7 +8820,6 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
     if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
     {
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     }
     else
     {
@@ -8790,9 +8835,9 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
 
     VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             pipeline_info.vk_pipeline));
-    VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer,
+    d3d12_command_list_meta_push_data(list, vk_patch_cmd_buffer,
             pipeline_info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            0, sizeof(args), &args));
+            sizeof(args), &args);
 
     VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer,
             vkd3d_compute_workgroup_count(max_commands, vkd3d_meta_get_multi_dispatch_indirect_workgroup_size()),
@@ -8850,9 +8895,9 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
 
     VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             pipeline_info.vk_pipeline));
-    VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer,
+    d3d12_command_list_meta_push_data(list, vk_patch_cmd_buffer,
             pipeline_info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            0, sizeof(args), &args));
+            sizeof(args), &args);
     VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, 1, 1, 1));
 
     if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
@@ -8872,7 +8917,6 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     }
     else
         list->cmd.indirect_meta->need_compute_to_indirect_barrier = true;
@@ -9772,7 +9816,6 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         }
 
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, &list->compute_bindings);
         d3d12_command_list_update_global_descriptor_heap(list);
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
@@ -9888,15 +9931,17 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             {
                 push_args.bit_mask = 1u << i;
                 VK_CALL(vkCmdSetStencilWriteMask(list->cmd.vk_command_buffer, VK_STENCIL_FACE_FRONT_AND_BACK, push_args.bit_mask));
-                VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_pipeline_layout,
-                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
+                d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                        pipeline_info.vk_pipeline_layout,
+                        VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(push_args), &push_args);
                 VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
             }
         }
         else
         {
-            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_pipeline_layout,
-                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
+            d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                    pipeline_info.vk_pipeline_layout,
+                    VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(push_args), &push_args);
             VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
         }
 
@@ -11539,7 +11584,6 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
     else if (path == VKD3D_RESOLVE_IMAGE_PATH_COMPUTE_PIPELINE)
     {
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
         d3d12_command_list_update_global_descriptor_heap(list);
 
         vk_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
@@ -11634,8 +11678,9 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
             compute_args.extent.width = region->extent.width;
             compute_args.extent.height = region->extent.height;
 
-            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, resolve_pipeline_info.vk_pipeline_layout,
-                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(compute_args), &compute_args));
+            d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                    resolve_pipeline_info.vk_pipeline_layout,
+                    VK_SHADER_STAGE_COMPUTE_BIT, sizeof(compute_args), &compute_args);
 
             VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer,
                     vkd3d_compute_workgroup_count(region->extent.width, 8),
@@ -11652,7 +11697,6 @@ cleanup_compute:
     else
     {
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, &list->compute_bindings);
         d3d12_command_list_update_global_descriptor_heap(list);
 
         vk_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
@@ -11815,15 +11859,17 @@ cleanup_compute:
                     {
                         resolve_args.bit_mask = 1u << j;
                         VK_CALL(vkCmdSetStencilWriteMask(list->cmd.vk_command_buffer, VK_STENCIL_FACE_FRONT_AND_BACK, resolve_args.bit_mask));
-                        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, resolve_pipeline_info.vk_pipeline_layout,
-                                VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(resolve_args), &resolve_args));
+                        d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                                resolve_pipeline_info.vk_pipeline_layout,
+                                VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(resolve_args), &resolve_args);
                         VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
                     }
                 }
                 else
                 {
-                    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, resolve_pipeline_info.vk_pipeline_layout,
-                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(resolve_args), &resolve_args));
+                    d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                            resolve_pipeline_info.vk_pipeline_layout,
+                            VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(resolve_args), &resolve_args);
                     VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
                 }
             }
@@ -14800,7 +14846,6 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_debug_mark_begin_region(list, "ClearUAV");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     d3d12_command_list_update_global_descriptor_heap(list);
 
     sampler_feedback_clear = d3d12_resource_desc_is_sampler_feedback(&resource->desc);
@@ -14944,9 +14989,9 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
             clear_args.extent.width = curr_rect.right - clear_args.offset.x;
             clear_args.extent.height = curr_rect.bottom - clear_args.offset.y;
 
-            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+            d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
                     pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                    0, sizeof(clear_args), &clear_args));
+                    sizeof(clear_args), &clear_args);
 
             VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer,
                     min(workgroup_count.width - j, max_workgroup_count),
@@ -14995,7 +15040,6 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     d3d12_command_list_debug_mark_begin_region(list, "ClearUAVWithCopy");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     d3d12_command_list_update_global_descriptor_heap(list);
 
     assert(!args->view && !args->use_heap);
@@ -15075,9 +15119,9 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     clear_args.extent.width = element_count;
     clear_args.extent.height = 1;
 
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+    d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
             pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-            0, sizeof(clear_args), &clear_args));
+            sizeof(clear_args), &clear_args);
 
     VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer,
             vkd3d_compute_workgroup_count(element_count, workgroup_size.width), 1, 1));
@@ -16070,7 +16114,6 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
     VkDependencyInfo dep_info;
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -16100,9 +16143,9 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
     args.src_va = src_va;
     args.query_count = count;
 
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+    d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
             query_ops->vk_resolve_pipeline_layout,
-            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+            VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
 
     workgroup_count = vkd3d_compute_workgroup_count(count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
     VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, workgroup_count, 1, 1));
@@ -16232,8 +16275,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
             /* If we cannot hoist the predication work. */
             d3d12_command_list_end_current_render_pass(list, true);
             d3d12_command_list_invalidate_current_pipeline(list, true);
-            d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true,
-                    &list->graphics_bindings);
         }
 
         resolve_args.src_va = resource->res.va + aligned_buffer_offset;
@@ -16242,8 +16283,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
 
         VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 predicate_ops->vk_resolve_pipeline));
-        VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer, predicate_ops->vk_resolve_pipeline_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(resolve_args), &resolve_args));
+        d3d12_command_list_meta_push_data(list, vk_patch_cmd_buffer,
+                predicate_ops->vk_resolve_pipeline_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, sizeof(resolve_args), &resolve_args);
         VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, 1, 1, 1));
 
         memset(&vk_barrier, 0, sizeof(vk_barrier));
@@ -16792,8 +16834,9 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         else
             list->cmd.indirect_meta->need_compute_to_indirect_barrier = true;
 
-        VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer, signature->state_template.dgc.pipeline.vk_pipeline_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(patch_args), &patch_args));
+        d3d12_command_list_meta_push_data(list, vk_patch_cmd_buffer,
+                signature->state_template.dgc.pipeline.vk_pipeline_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, sizeof(patch_args), &patch_args);
         VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 signature->state_template.dgc.pipeline.vk_pipeline));
 
@@ -17483,7 +17526,6 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_update_global_descriptor_heap(list);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     d3d12_command_list_debug_mark_begin_region(list, "SamplerFeedbackEncode");
 
     /* Fixup subresource indices. */
@@ -17584,8 +17626,9 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
                 pipeline_info.vk_pipeline));
         VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+        d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                pipeline_info.vk_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
 
         extent.width = vkd3d_compute_workgroup_count(extent.width,
                 vkd3d_meta_get_sampler_feedback_workgroup_size().width);
@@ -17742,8 +17785,9 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
                     pipeline_info.vk_pipeline));
             VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                     pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
-            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_layout,
-                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+            d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                    pipeline_info.vk_layout,
+                    VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
 
             extent.width = vkd3d_compute_workgroup_count(args.resolve_width,
                     vkd3d_meta_get_sampler_feedback_workgroup_size().width);
@@ -17831,10 +17875,6 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_update_global_descriptor_heap(list);
     d3d12_command_list_debug_mark_begin_region(list, "SamplerFeedbackDecode");
-    if (dst->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
-    else
-        d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, &list->compute_bindings);
 
     /* Fixup subresource indices. */
     if (src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
@@ -17959,8 +17999,9 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
                 pipeline_info.vk_pipeline));
         VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+        d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                pipeline_info.vk_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
 
         extent.width = vkd3d_compute_workgroup_count(extent.width,
                 vkd3d_meta_get_sampler_feedback_workgroup_size().width);
@@ -18168,8 +18209,9 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             VK_CALL(vkCmdSetScissor(list->cmd.vk_command_buffer, 0, 1, &rendering_info.renderArea));
             VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     pipeline_info.vk_layout, 0, 1, vk_descriptor_writes));
-            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_layout,
-                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(args), &args));
+            d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+                    pipeline_info.vk_layout,
+                    VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(args), &args);
             VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, dst_image_view_desc.layer_count, 0, 0));
             VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
 
