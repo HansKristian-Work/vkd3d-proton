@@ -3447,8 +3447,13 @@ void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *l
 void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, bool invalidate_legacy_descriptor_sets,
         struct vkd3d_pipeline_bindings *sibling_push_domain);
+void d3d12_command_list_invalidate_descriptor_heap(struct d3d12_command_list *list);
 void d3d12_command_list_update_global_descriptor_heap(struct d3d12_command_list *list);
 void d3d12_command_list_flush_dgc_batch(struct d3d12_command_list *list);
+void d3d12_command_list_meta_push_data(struct d3d12_command_list *list,
+        VkCommandBuffer vk_command_buffer,
+        VkPipelineLayout vk_pipeline_layout, VkShaderStageFlags stages,
+        uint32_t size, const void *data);
 
 union vkd3d_root_parameter_data
 {
