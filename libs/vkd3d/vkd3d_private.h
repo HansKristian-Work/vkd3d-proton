@@ -2784,7 +2784,7 @@ struct vkd3d_pipeline_bindings
     uint32_t dirty_flags; /* vkd3d_pipeline_dirty_flags */
 
     uint32_t descriptor_tables[D3D12_MAX_ROOT_COST];
-    uint64_t descriptor_heap_dirty_mask;
+    uint64_t legacy_descriptor_set_dirty_mask;
 
     /* Needed when VK_KHR_push_descriptor is not available. */
     struct vkd3d_root_descriptor_info root_descriptors[D3D12_MAX_ROOT_COST];
@@ -3445,7 +3445,7 @@ void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list);
 
 void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader);
 void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
+        struct vkd3d_pipeline_bindings *bindings, bool invalidate_legacy_descriptor_sets,
         struct vkd3d_pipeline_bindings *sibling_push_domain);
 void d3d12_command_list_update_global_descriptor_heap(struct d3d12_command_list *list);
 void d3d12_command_list_flush_dgc_batch(struct d3d12_command_list *list);
