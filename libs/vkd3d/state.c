@@ -1633,6 +1633,10 @@ static HRESULT d3d12_root_signature_init_global_mappings(struct d3d12_root_signa
         }
     }
 
+    root_signature->heap.mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+    root_signature->heap.mapping_info.mappingCount = root_signature->heap.mappings_count;
+    root_signature->heap.mapping_info.pMappings = root_signature->heap.mappings;
+
     return S_OK;
 }
 
@@ -2962,13 +2966,13 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
 static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, struct d3d12_device *device,
         VkPipelineShaderStageCreateInfo *stage_desc, VkShaderStageFlagBits stage,
         VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *required_subgroup_size_info,
-        const VkPipelineShaderStageModuleIdentifierCreateInfoEXT *identifier_create_info,
+        VkPipelineShaderStageModuleIdentifierCreateInfoEXT *identifier_create_info,
         const struct vkd3d_shader_code *spirv_code)
 {
     bool override_subgroup_size = false;
 
     stage_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stage_desc->pNext = NULL;
+    stage_desc->pNext = d3d12_device_use_descriptor_heap(device) ? &state->root_signature->heap.mapping_info : NULL;
     stage_desc->flags = 0;
     stage_desc->stage = stage;
     stage_desc->pName = "main";
@@ -2979,7 +2983,7 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
         return E_INVALIDARG;
 
     if (!spirv_code->size && identifier_create_info && identifier_create_info->identifierSize)
-        stage_desc->pNext = identifier_create_info;
+        vk_prepend_struct(stage_desc, identifier_create_info);
 
     if ((spirv_code->meta.flags & VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS) ||
             spirv_code->meta.cs_wave_size_min)
@@ -2990,7 +2994,7 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
         if (required_subgroup_size_info)
         {
             required_subgroup_size_info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO;
-            required_subgroup_size_info->pNext = (void*)stage_desc->pNext;
+            required_subgroup_size_info->pNext = NULL;
 
             /* [WaveSize(min,max,preferred)] in SM 6.8, or [WaveSize(N)] in SM 6.6. */
             if (spirv_code->meta.cs_wave_size_preferred &&
@@ -3047,11 +3051,13 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
         {
             /* If min == max, we can still support WaveSize in a dummy kind of way. */
             if (device->device_info.vulkan_1_3_properties.requiredSubgroupSizeStages & stage)
-                stage_desc->pNext = required_subgroup_size_info;
+                vk_prepend_struct(stage_desc, required_subgroup_size_info);
 
             stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT;
         }
     }
+
+    assert(state->root_signature->heap.mapping_info.pNext == NULL);
 
     if (spirv_code->size)
         return d3d12_pipeline_state_create_shader_module(device, &stage_desc->module, spirv_code);
