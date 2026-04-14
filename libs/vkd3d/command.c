@@ -6122,7 +6122,7 @@ static void d3d12_command_list_invalidate_push_constants(struct vkd3d_pipeline_b
 }
 
 void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
+        struct vkd3d_pipeline_bindings *bindings, bool invalidate_legacy_descriptor_sets,
         struct vkd3d_pipeline_bindings *sibling_push_domain)
 {
     /* For scenarios where we're emitting push constants to one bind point in meta shaders,
@@ -6144,10 +6144,11 @@ void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *li
 
     d3d12_command_list_invalidate_push_constants(bindings);
 
-    if (invalidate_descriptor_heaps)
+    /* This is relevant if the pipeline layout changes, but it's irrelevant for EXT_descriptor_heap. */
+    if (invalidate_legacy_descriptor_sets)
     {
         struct d3d12_device *device = bindings->root_signature->device;
-        bindings->descriptor_heap_dirty_mask = (1ull << device->bindless_state.legacy.set_count) - 1;
+        bindings->legacy_descriptor_set_dirty_mask = (1ull << device->bindless_state.legacy.set_count) - 1;
     }
 }
 
@@ -7737,7 +7738,14 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
     const struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
-    if (!bindings->descriptor_heap_dirty_mask)
+    if (d3d12_device_use_descriptor_heap(list->device))
+    {
+        /* We don't bind legacy sets. */
+        d3d12_command_list_update_global_descriptor_heap(list);
+        return;
+    }
+
+    if (!bindings->legacy_descriptor_set_dirty_mask)
         return;
 
     if (d3d12_device_uses_descriptor_buffers(list->device))
@@ -7745,20 +7753,20 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
         d3d12_command_list_update_global_descriptor_heap(list);
 
         /* Prefer binding everything in one go. There is no risk of null descriptor sets here. */
-        if (bindings->descriptor_heap_dirty_mask)
+        if (bindings->legacy_descriptor_set_dirty_mask)
         {
             VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, vk_bind_point,
                     layout, 0, bindless_state->legacy.set_count,
                     bindless_state->legacy.vk_descriptor_buffer_indices,
                     list->descriptor_heap.buffers.db.vk_offsets));
-            bindings->descriptor_heap_dirty_mask = 0;
+            bindings->legacy_descriptor_set_dirty_mask = 0;
         }
     }
     else
     {
-        while (bindings->descriptor_heap_dirty_mask)
+        while (bindings->legacy_descriptor_set_dirty_mask)
         {
-            unsigned int heap_index = vkd3d_bitmask_iter64(&bindings->descriptor_heap_dirty_mask);
+            unsigned int heap_index = vkd3d_bitmask_iter64(&bindings->legacy_descriptor_set_dirty_mask);
 
             if (list->descriptor_heap.sets.vk_sets[heap_index])
             {
@@ -8068,8 +8076,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 
     vk_bind_point = vk_bind_point_from_pipeline_type(list->active_pipeline_type);
 
-    if (bindings->descriptor_heap_dirty_mask)
-        d3d12_command_list_update_descriptor_heaps(list, bindings, vk_bind_point, layout);
+    d3d12_command_list_update_descriptor_heaps(list, bindings, vk_bind_point, layout);
 
     if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET)
         d3d12_command_list_update_static_samplers(list, bindings, vk_bind_point, layout);
@@ -13304,7 +13311,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteBundle(d3d12_command_lis
 
 static void vkd3d_pipeline_bindings_set_dirty_sets(struct vkd3d_pipeline_bindings *bindings, uint64_t dirty_mask)
 {
-    bindings->descriptor_heap_dirty_mask = dirty_mask;
+    bindings->legacy_descriptor_set_dirty_mask = dirty_mask;
     bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
 }
 
