@@ -24889,6 +24889,7 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
     struct vkd3d_patch_command *patch_commands = NULL;
     VkIndirectCommandsLayoutTokenEXT *tokens = NULL;
     VkIndirectCommandsIndexBufferTokenEXT ib_token;
+    VkIndirectCommandsTokenTypeEXT push_data_token;
     uint32_t required_stride_alignment = 0;
     VkIndirectCommandsLayoutTokenEXT token;
     uint32_t generic_u32_copy_count;
@@ -24954,6 +24955,9 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
     };
 
     bind_point_layout = d3d12_root_signature_get_layout(root_signature, signature->pipeline_type);
+    push_data_token = d3d12_device_use_descriptor_heap(device) ?
+            VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_DATA_EXT :
+            VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
 
     for (i = 0; i < desc->NumArgumentDescs; i++)
     {
@@ -24991,7 +24995,7 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
 
                 if (argument_desc->Type == D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT)
                 {
-                    token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
+                    token.type = push_data_token;
 
                     required_alignment = sizeof(uint32_t);
                     stream_stride = align(stream_stride, required_alignment);
@@ -25003,7 +25007,10 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
                 }
                 else
                 {
-                    token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_SEQUENCE_INDEX_EXT;
+                    token.type = d3d12_device_use_descriptor_heap(device) ?
+                        VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_DATA_SEQUENCE_INDEX_EXT :
+                        VK_INDIRECT_COMMANDS_TOKEN_TYPE_SEQUENCE_INDEX_EXT;
+
                     token.offset = 0; /* ignored */
                     pc_token->updateRange.size = sizeof(uint32_t);
 
@@ -25034,7 +25041,7 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
                     goto end;
                 }
 
-                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
+                token.type = push_data_token;
                 assert(pc_token_count < ARRAY_SIZE(pc_tokens));
                 pc_token = &pc_tokens[pc_token_count++];
                 token.data.pPushConstant = pc_token;
