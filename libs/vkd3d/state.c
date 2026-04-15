@@ -872,6 +872,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
     unsigned int i, j, t, range_count;
     uint32_t range_descriptor_offset;
     bool local_root_signature;
+    bool heap;
 
     local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
@@ -880,6 +881,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
         d3d12_root_signature_init_cbv_srv_uav_heap_bindings(root_signature, context);
     if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED)
         d3d12_root_signature_init_sampler_heap_bindings(root_signature, context);
+
+    heap = d3d12_device_use_descriptor_heap(root_signature->device);
 
     for (i = 0, t = 0; i < desc->NumParameters; ++i)
     {
@@ -904,8 +907,60 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
         table->binding_count = 0;
         table->first_binding = &root_signature->bindings[context->binding_index];
 
-        /* TODO: Add mappings for proper tables. For now, keep manual lowering.
-         * The lowering path is necessary for descriptor heap robustness down the line. */
+        /* TODO: Add local root signature support. */
+        if (heap && !local_root_signature)
+        {
+            VkDescriptorSetAndBindingMappingEXT *vk_mapping;
+
+            vkd3d_array_reserve((void **) &root_signature->heap.mappings,
+                    &root_signature->heap.mappings_size,
+                    root_signature->heap.mappings_count + 3,
+                    sizeof(*root_signature->heap.mappings));
+
+            /* Sampler mappings. */
+            vk_mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+            memset(vk_mapping, 0, sizeof(*vk_mapping));
+            vk_mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            vk_mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_SAMPLER_BIT_EXT;
+            vk_mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_PUSH_INDEX_EXT;
+            vk_mapping->descriptorSet = VKD3D_SHADER_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE;
+            vk_mapping->descriptorSet += table->table_index;
+            vk_mapping->firstBinding = 0;
+            vk_mapping->bindingCount = UINT32_MAX;
+            vk_mapping->sourceData.pushIndex.heapArrayStride = bindless_state->sampler_size;
+            vk_mapping->sourceData.pushIndex.heapIndexStride = bindless_state->sampler_size;
+            vk_mapping->sourceData.pushIndex.heapOffset = 0;
+            vk_mapping->sourceData.pushIndex.pushOffset =
+                    root_signature->descriptor_table_offset + table->table_index * sizeof(uint32_t);
+
+            /* Image mappings */
+            vk_mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+            memset(vk_mapping, 0, sizeof(*vk_mapping));
+            vk_mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+            vk_mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_SAMPLED_IMAGE_BIT_EXT |
+                    VK_SPIRV_RESOURCE_TYPE_READ_ONLY_IMAGE_BIT_EXT |
+                    VK_SPIRV_RESOURCE_TYPE_READ_WRITE_IMAGE_BIT_EXT;
+            vk_mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_PUSH_INDEX_EXT;
+            vk_mapping->descriptorSet = VKD3D_SHADER_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE;
+            vk_mapping->descriptorSet += table->table_index;
+            vk_mapping->firstBinding = 0;
+            vk_mapping->bindingCount = UINT32_MAX;
+            vk_mapping->sourceData.pushIndex.heapArrayStride = bindless_state->cbv_srv_uav_size;
+            vk_mapping->sourceData.pushIndex.heapIndexStride = bindless_state->cbv_srv_uav_size;
+            vk_mapping->sourceData.pushIndex.heapOffset = bindless_state->heap.redzone_size;
+            vk_mapping->sourceData.pushIndex.pushOffset =
+                    root_signature->descriptor_table_offset + table->table_index * sizeof(uint32_t);
+
+            /* Raw buffer mappings */
+            vk_mapping = &root_signature->heap.mappings[root_signature->heap.mappings_count++];
+            *vk_mapping = root_signature->heap.mappings[root_signature->heap.mappings_count - 2];
+            vk_mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT |
+                    VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT |
+                    VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT;
+            if (d3d12_device_supports_ray_tracing_tier_1_0(root_signature->device))
+                vk_mapping->resourceMask |= VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
+            vk_mapping->sourceData.pushIndex.heapOffset += bindless_state->packed_raw_buffer_offset;
+        }
 
         for (j = 0; j < range_count; ++j)
         {
