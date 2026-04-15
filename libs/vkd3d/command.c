@@ -6182,6 +6182,14 @@ void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *li
     if (bindings->root_signature->hoist_info.num_desc)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
 
+    if (list->descriptor_heap.buffers.resource.heap &&
+        bindings->root_signature->heap.redzone_style == VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_INLINE)
+    {
+        /* This is called on SetDescriptorHeap, so it won't matter if we call SetDescriptorHeaps or SetRootSignature
+         * first. */
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_INLINE_REDZONE;
+    }
+
     d3d12_command_list_invalidate_push_constants(bindings);
 
     /* This is relevant if the pipeline layout changes, but it's irrelevant for EXT_descriptor_heap. */
@@ -7643,6 +7651,32 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     return true;
 }
 
+static void d3d12_command_list_update_inline_redzone(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkPushDataInfoEXT info;
+
+    struct Push
+    {
+        VkDeviceAddress va;
+        uint32_t count;
+    } push;
+
+    assert(list->descriptor_heap.buffers.resource.heap);
+    push.va = list->descriptor_heap.buffers.resource.va + list->device->bindless_state.heap.redzone_size;
+    push.count = list->descriptor_heap.buffers.resource.heap->desc.NumDescriptors;
+
+    memset(&info, 0, sizeof(info));
+    info.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    info.offset = bindings->root_signature->heap.redzone_inline_heap_offset;
+    info.data.address = &push;
+    info.data.size = offsetof(struct Push, count) + sizeof(uint32_t); /* Don't include padding. */
+    VK_CALL(vkCmdPushDataEXT(list->cmd.vk_command_buffer, &info));
+
+    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_INLINE_REDZONE;
+}
+
 static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, VkPipelineLayout layout, VkShaderStageFlags push_stages)
 {
@@ -8194,6 +8228,9 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 
         if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS)
             d3d12_command_list_update_descriptor_table_offsets(list, bindings, layout, push_stages);
+
+        if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_INLINE_REDZONE)
+            d3d12_command_list_update_inline_redzone(list, bindings);
     }
 }
 
