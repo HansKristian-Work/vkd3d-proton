@@ -878,7 +878,7 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
         const struct dxil_spv_option_physical_address_descriptor_indexing helper =
                 { { DXIL_SPV_OPTION_PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING },
                     shader_interface_info->descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress),
-                    0 };
+                    shader_interface_info->raw_uav_counter_offset / sizeof(VkDeviceAddress) };
 
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
