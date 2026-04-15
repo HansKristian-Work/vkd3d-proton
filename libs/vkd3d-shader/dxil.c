@@ -313,6 +313,14 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
     resource_flags = dxil_resource_flags_from_kind(d3d_binding->kind, false);
     use_ssbo = resource_flags_ssbo != resource_flags;
 
+    /* For heap, we have the option to dynamically fall back to texel buffers. */
+    if ((shader_interface_info->flags & VKD3D_SHADER_INTERFACE_HEAP_LOWERING) &&
+        d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_STRUCTURED_BUFFER &&
+        d3d_binding->alignment < shader_interface_info->min_ssbo_alignment)
+    {
+        use_ssbo = false;
+    }
+
     if (use_ssbo && dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
             d3d_binding, &vk_binding->buffer_binding, resource_flags_ssbo))
     {
@@ -458,6 +466,14 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
     resource_flags_ssbo = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, true);
     resource_flags = dxil_resource_flags_from_kind(d3d_binding->d3d_binding.kind, false);
     use_ssbo = resource_flags != resource_flags_ssbo;
+
+    /* For heap, we have the option to dynamically fall back to texel buffers. */
+    if ((shader_interface_info->flags & VKD3D_SHADER_INTERFACE_HEAP_LOWERING) &&
+        d3d_binding->d3d_binding.kind == DXIL_SPV_RESOURCE_KIND_STRUCTURED_BUFFER &&
+        d3d_binding->d3d_binding.alignment < shader_interface_info->min_ssbo_alignment)
+    {
+        use_ssbo = false;
+    }
 
     if (use_ssbo)
     {
