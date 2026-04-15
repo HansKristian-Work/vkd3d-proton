@@ -3468,6 +3468,8 @@ void d3d12_command_list_meta_push_data(struct d3d12_command_list *list,
         VkPipelineLayout vk_pipeline_layout, VkShaderStageFlags stages,
         uint32_t size, const void *data);
 
+#define VKD3D_DESCRIPTOR_HEAP_META_PUSH_DATA_OFFSET 64
+
 union vkd3d_root_parameter_data
 {
     uint32_t root_constants[D3D12_MAX_ROOT_COST];
@@ -5066,16 +5068,20 @@ struct vkd3d_meta_ops
 {
     struct d3d12_device *device;
     struct vkd3d_meta_ops_common common;
-    struct vkd3d_clear_uav_ops clear_uav;
-    struct vkd3d_copy_image_ops copy_image;
-    struct vkd3d_resolve_image_ops resolve_image;
+    struct vkd3d_clear_uav_ops clear_uav_heap;
+    struct vkd3d_clear_uav_ops clear_uav_legacy;
+    struct vkd3d_copy_image_ops copy_image_heap;
+    struct vkd3d_copy_image_ops copy_image_legacy;
+    struct vkd3d_resolve_image_ops resolve_image_heap;
+    struct vkd3d_resolve_image_ops resolve_image_legacy;
     struct vkd3d_swapchain_ops swapchain;
     struct vkd3d_query_ops query;
     struct vkd3d_predicate_ops predicate;
     struct vkd3d_execute_indirect_ops execute_indirect;
     struct vkd3d_multi_dispatch_indirect_ops multi_dispatch_indirect;
     struct vkd3d_dstorage_ops dstorage;
-    struct vkd3d_sampler_feedback_resolve_ops sampler_feedback;
+    struct vkd3d_sampler_feedback_resolve_ops sampler_feedback_heap;
+    struct vkd3d_sampler_feedback_resolve_ops sampler_feedback_legacy;
     struct vkd3d_workgraph_indirect_ops workgraph;
 };
 
@@ -5083,9 +5089,9 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
 
 struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
-        bool as_uint, bool raw);
+        bool as_uint, bool raw, bool heap);
 struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_image_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
-        VkImageViewType image_view_type, bool as_uint);
+        VkImageViewType image_view_type, bool as_uint, bool heap);
 VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_type);
 
 static inline VkExtent3D vkd3d_meta_get_clear_buffer_uav_workgroup_size()
@@ -5095,13 +5101,13 @@ static inline VkExtent3D vkd3d_meta_get_clear_buffer_uav_workgroup_size()
 }
 
 HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_info *info);
+        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_info *info, bool heap);
 VkImageViewType vkd3d_meta_get_copy_image_view_type(D3D12_RESOURCE_DIMENSION dim);
 const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format,
         VkImageAspectFlags dst_aspect, VkImageAspectFlags src_aspect);
 HRESULT vkd3d_meta_get_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_resolve_image_pipeline_key *key, struct vkd3d_resolve_image_info *info);
+        const struct vkd3d_resolve_image_pipeline_key *key, struct vkd3d_resolve_image_info *info, bool heap);
 HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_info *info);
 
@@ -5123,7 +5129,7 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
         uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info);
 
 void vkd3d_meta_get_sampler_feedback_resolve_pipeline(struct vkd3d_meta_ops *meta_ops,
-        enum vkd3d_sampler_feedback_resolve_type type, struct vkd3d_sampler_feedback_resolve_info *info);
+        enum vkd3d_sampler_feedback_resolve_type type, struct vkd3d_sampler_feedback_resolve_info *info, bool heap);
 
 static inline VkExtent3D vkd3d_meta_get_sampler_feedback_workgroup_size(void)
 {
