@@ -2140,6 +2140,8 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
         flags |= VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER;
     if (d3d12_device_use_descriptor_heap(root_signature->device))
         flags |= VKD3D_SHADER_INTERFACE_HEAP_LOWERING;
+    if (root_signature->heap.redzone_style == VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_INLINE)
+        flags |= VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV;
 
     return flags;
 }
