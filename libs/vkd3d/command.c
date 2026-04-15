@@ -11480,10 +11480,10 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
     VkDescriptorImageInfo vk_src_image_info, vk_dst_image_info;
     struct vkd3d_resolve_image_info resolve_pipeline_info;
     struct vkd3d_resolve_image_compute_args compute_args;
+    struct vkd3d_view *dst_view = NULL, *src_view = NULL;
     struct vkd3d_resolve_image_args resolve_args;
     VkWriteDescriptorSet vk_descriptor_writes[2];
     VkRenderingAttachmentInfo attachment_info;
-    struct vkd3d_view *dst_view, *src_view;
     const struct vkd3d_format *vk_format;
     VkResolveImageInfo2 resolve_info;
     VkRenderingInfo rendering_info;
@@ -11529,18 +11529,11 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
         resolve_pipeline_key.compute.mode = mode;
         resolve_pipeline_key.compute.srgb = dst_view_desc.format != vk_format;
 
-        if (FAILED(vkd3d_meta_get_resolve_image_pipeline(
-            &list->device->meta_ops, &resolve_pipeline_key, &resolve_pipeline_info, false)))
-        {
-            ERR("Failed to get resolve pipeline.\n");
-            return;
-        }
-
-        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, resolve_pipeline_info.vk_pipeline));
-
         for (i = 0; i < region_count; i++)
         {
             const VkImageResolve2 *region = &regions[i];
+            uint32_t src_index, dst_index;
+            bool use_heap;
 
             dst_view_desc.miplevel_idx = region->dstSubresource.mipLevel;
             dst_view_desc.miplevel_count = 1;
@@ -11554,45 +11547,68 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
             src_view_desc.layer_count = region->srcSubresource.layerCount;
             src_view_desc.aspect_mask = region->srcSubresource.aspectMask;
 
-            if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view) ||
-                    !vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+            src_index = d3d12_command_list_allocate_meta_image_view(list, &src_view_desc,
+                d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+            dst_index = d3d12_command_list_allocate_meta_image_view(list, &dst_view_desc, VK_IMAGE_LAYOUT_GENERAL);
+            use_heap = src_index != UINT32_MAX && dst_index != UINT32_MAX;
+
+            if (FAILED(vkd3d_meta_get_resolve_image_pipeline(
+                &list->device->meta_ops, &resolve_pipeline_key, &resolve_pipeline_info, use_heap)))
             {
-                ERR("Failed to create image views.\n");
-                goto cleanup_compute;
+                ERR("Failed to get resolve pipeline.\n");
+                return;
             }
 
-            if (!d3d12_command_allocator_add_view(list->allocator, dst_view) ||
-                    !d3d12_command_allocator_add_view(list->allocator, src_view))
+            VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, resolve_pipeline_info.vk_pipeline));
+
+            if (use_heap)
             {
-                ERR("Failed to add views.\n");
-                goto cleanup_compute;
+                d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 0, src_index);
+                d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 1, dst_index);
             }
+            else
+            {
+                if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view) ||
+                        !vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+                {
+                    ERR("Failed to create image views.\n");
+                    goto cleanup_compute;
+                }
 
-            memset(&vk_src_image_info, 0, sizeof(vk_src_image_info));
-            vk_src_image_info.imageView = src_view->vk_image_view;
-            vk_src_image_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                if (!d3d12_command_allocator_add_view(list->allocator, dst_view) ||
+                        !d3d12_command_allocator_add_view(list->allocator, src_view))
+                {
+                    ERR("Failed to add views.\n");
+                    goto cleanup_compute;
+                }
 
-            memset(&vk_dst_image_info, 0, sizeof(vk_dst_image_info));
-            vk_dst_image_info.imageView = dst_view->vk_image_view;
-            vk_dst_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                memset(&vk_src_image_info, 0, sizeof(vk_src_image_info));
+                vk_src_image_info.imageView = src_view->vk_image_view;
+                vk_src_image_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-            memset(&vk_descriptor_writes, 0, sizeof(vk_descriptor_writes));
-            vk_descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            vk_descriptor_writes[0].dstBinding = 0;
-            vk_descriptor_writes[0].dstArrayElement = 0;
-            vk_descriptor_writes[0].descriptorCount = 1;
-            vk_descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            vk_descriptor_writes[0].pImageInfo = &vk_src_image_info;
+                memset(&vk_dst_image_info, 0, sizeof(vk_dst_image_info));
+                vk_dst_image_info.imageView = dst_view->vk_image_view;
+                vk_dst_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            vk_descriptor_writes[1].dstBinding = 1;
-            vk_descriptor_writes[1].dstArrayElement = 0;
-            vk_descriptor_writes[1].descriptorCount = 1;
-            vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            vk_descriptor_writes[1].pImageInfo = &vk_dst_image_info;
+                memset(&vk_descriptor_writes, 0, sizeof(vk_descriptor_writes));
+                vk_descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                vk_descriptor_writes[0].dstBinding = 0;
+                vk_descriptor_writes[0].dstArrayElement = 0;
+                vk_descriptor_writes[0].descriptorCount = 1;
+                vk_descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                vk_descriptor_writes[0].pImageInfo = &vk_src_image_info;
 
-            VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            resolve_pipeline_info.vk_pipeline_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
+                vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                vk_descriptor_writes[1].dstBinding = 1;
+                vk_descriptor_writes[1].dstArrayElement = 0;
+                vk_descriptor_writes[1].descriptorCount = 1;
+                vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                vk_descriptor_writes[1].pImageInfo = &vk_dst_image_info;
+
+                VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        resolve_pipeline_info.vk_pipeline_layout, 0,
+                        ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
+            }
 
             compute_args.src_offset.x = region->srcOffset.x;
             compute_args.src_offset.y = region->srcOffset.y;
@@ -11657,6 +11673,8 @@ cleanup_compute:
         for (i = 0; i < region_count; i++)
         {
             const VkImageResolve2 *region = &regions[i];
+            uint32_t src_index;
+            bool use_heap;
 
             rendering_info.renderArea.offset.x = region->dstOffset.x;
             rendering_info.renderArea.offset.y = region->dstOffset.y;
@@ -11694,26 +11712,34 @@ cleanup_compute:
             {
                 src_view_desc.aspect_mask = vk_format->vk_aspect_mask;
                 src_view_desc.image_usage = dst_view_desc.image_usage;
+                src_index = UINT32_MAX;
             }
             else
             {
                 src_view_desc.aspect_mask = region->srcSubresource.aspectMask;
                 src_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
                 src_view_desc.allowed_swizzle = true;
+                src_index = d3d12_command_list_allocate_meta_image_view(list, &src_view_desc,
+                        d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
             }
 
             if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view) ||
-                    !vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+                !d3d12_command_allocator_add_view(list->allocator, dst_view))
             {
                 ERR("Failed to create image views.\n");
                 goto cleanup_graphics;
             }
 
-            if (!d3d12_command_allocator_add_view(list->allocator, dst_view) ||
-                    !d3d12_command_allocator_add_view(list->allocator, src_view))
+            use_heap = src_index != UINT32_MAX;
+
+            if (!use_heap)
             {
-                ERR("Failed to add views.\n");
-                goto cleanup_graphics;
+                if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view) ||
+                    !d3d12_command_allocator_add_view(list->allocator, src_view))
+                {
+                    ERR("Failed to create image views.\n");
+                    goto cleanup_graphics;
+                }
             }
 
             if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
@@ -11732,7 +11758,7 @@ cleanup_compute:
                 resolve_pipeline_key.graphics.mode = mode;
 
                 if (FAILED(vkd3d_meta_get_resolve_image_pipeline(
-                    &list->device->meta_ops, &resolve_pipeline_key, &resolve_pipeline_info, false)))
+                    &list->device->meta_ops, &resolve_pipeline_key, &resolve_pipeline_info, use_heap)))
                 {
                     ERR("Failed to get resolve pipeline.\n");
                     return;
@@ -11759,23 +11785,31 @@ cleanup_compute:
                 resolve_args.offset.x = region->srcOffset.x - region->dstOffset.x;
                 resolve_args.offset.y = region->srcOffset.y - region->dstOffset.y;
 
-                memset(&vk_src_image_info, 0, sizeof(vk_src_image_info));
-                vk_src_image_info.imageView = src_view->vk_image_view;
-                vk_src_image_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                if (use_heap)
+                {
+                    d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 0, src_index);
+                }
+                else
+                {
+                    memset(&vk_src_image_info, 0, sizeof(vk_src_image_info));
+                    vk_src_image_info.imageView = src_view->vk_image_view;
+                    vk_src_image_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-                memset(&vk_descriptor_writes, 0, sizeof(vk_descriptor_writes));
-                vk_descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                vk_descriptor_writes[0].dstBinding = 0;
-                vk_descriptor_writes[0].dstArrayElement = 0;
-                vk_descriptor_writes[0].descriptorCount = 1;
-                vk_descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-                vk_descriptor_writes[0].pImageInfo = &vk_src_image_info;
+                    memset(&vk_descriptor_writes, 0, sizeof(vk_descriptor_writes));
+                    vk_descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    vk_descriptor_writes[0].dstBinding = 0;
+                    vk_descriptor_writes[0].dstArrayElement = 0;
+                    vk_descriptor_writes[0].descriptorCount = 1;
+                    vk_descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                    vk_descriptor_writes[0].pImageInfo = &vk_src_image_info;
+
+                    VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            resolve_pipeline_info.vk_pipeline_layout, 0, 1, &vk_descriptor_writes[0]));
+                }
 
                 VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, resolve_pipeline_info.vk_pipeline));
                 VK_CALL(vkCmdSetViewport(list->cmd.vk_command_buffer, 0, 1, &viewport));
                 VK_CALL(vkCmdSetScissor(list->cmd.vk_command_buffer, 0, 1, &rendering_info.renderArea));
-                VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        resolve_pipeline_info.vk_pipeline_layout, 0, 1, &vk_descriptor_writes[0]));
 
                 if (resolve_pipeline_info.needs_stencil_mask)
                 {
