@@ -2889,6 +2889,7 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
             state->graphics.cached_desc.xfb_info : NULL;
     shader_interface->descriptor_size_cbv_srv_uav = d3d12_device_get_descriptor_handle_increment_size(
             device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    shader_interface->raw_uav_counter_offset = device->bindless_state.heap.uav_counter_embedded_offset;
     shader_interface->descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
             device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
