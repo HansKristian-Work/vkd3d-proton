@@ -1323,6 +1323,34 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
         }
     }
 
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_HEAP_LOWERING)
+    {
+        /* We use special sauce for meta descriptors in heap. */
+        if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV)
+        {
+            /* Redirect these through PUSH_DATA CBV. */
+            dxil_spv_converter_set_meta_descriptor(converter,
+                DXIL_SPV_META_DESCRIPTOR_RESOURCE_DESCRIPTOR_HEAP_SIZE,
+                DXIL_SPV_META_DESCRIPTOR_KIND_UBO_CONTAINING_CONSTANT,
+                VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET,
+                VKD3D_SHADER_GLOBAL_HEAP_SIZE_BINDING);
+
+            dxil_spv_converter_set_meta_descriptor(converter,
+                DXIL_SPV_META_DESCRIPTOR_RAW_DESCRIPTOR_HEAP_VIEW,
+                DXIL_SPV_META_DESCRIPTOR_KIND_UBO_CONTAINING_BDA,
+                VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET,
+                VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING);
+        }
+        else
+        {
+            dxil_spv_converter_set_meta_descriptor(converter,
+                DXIL_SPV_META_DESCRIPTOR_RAW_DESCRIPTOR_HEAP_VIEW,
+                DXIL_SPV_META_DESCRIPTOR_KIND_READONLY_SSBO,
+                VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET,
+                VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING);
+        }
+    }
+
     return VKD3D_OK;
 }
 
