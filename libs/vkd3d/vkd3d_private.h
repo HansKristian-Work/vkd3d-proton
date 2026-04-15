@@ -5973,7 +5973,10 @@ static inline bool d3d12_device_use_ssbo_raw_buffer(struct d3d12_device *device)
 
 static inline VkDeviceSize d3d12_device_get_ssbo_alignment(struct d3d12_device *device)
 {
-    return device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment;
+    if (d3d12_device_use_descriptor_heap(device))
+        return device->bindless_state.heap.min_ssbo_alignment;
+    else
+        return device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment;
 }
 
 static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *device)
