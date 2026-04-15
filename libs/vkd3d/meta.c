@@ -51,8 +51,12 @@ static VkResult vkd3d_meta_create_descriptor_set_layout(struct d3d12_device *dev
     set_layout_info.bindingCount = binding_count;
     set_layout_info.pBindings = bindings;
 
-    if (d3d12_device_uses_descriptor_buffers(device) && descriptor_buffer_compatible)
+    if (!d3d12_device_use_descriptor_heap(device) &&
+        d3d12_device_uses_descriptor_buffers(device) &&
+        descriptor_buffer_compatible)
+    {
         set_layout_info.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     return VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_layout_info, NULL, set_layout));
 }
@@ -81,7 +85,7 @@ static VkResult vkd3d_meta_create_sampler(struct d3d12_device *device, VkFilter 
 
 static VkResult vkd3d_meta_create_pipeline_layout(struct d3d12_device *device,
         uint32_t set_layout_count, const VkDescriptorSetLayout *set_layouts,
-        uint32_t push_constant_range_count, const VkPushConstantRange *push_constant_ranges,
+        const VkPushConstantRange *push_constant_range,
         VkPipelineLayout *pipeline_layout)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -92,8 +96,18 @@ static VkResult vkd3d_meta_create_pipeline_layout(struct d3d12_device *device,
     pipeline_layout_info.flags = 0;
     pipeline_layout_info.setLayoutCount = set_layout_count;
     pipeline_layout_info.pSetLayouts = set_layouts;
-    pipeline_layout_info.pushConstantRangeCount = push_constant_range_count;
-    pipeline_layout_info.pPushConstantRanges = push_constant_ranges;
+    pipeline_layout_info.pushConstantRangeCount = push_constant_range ? 1 : 0;
+    pipeline_layout_info.pPushConstantRanges = push_constant_range;
+
+    assert(!push_constant_range ||
+        (push_constant_range->offset + push_constant_range->size <= VKD3D_DESCRIPTOR_HEAP_META_PUSH_DATA_OFFSET));
+
+    if (set_layout_count == 0 && d3d12_device_use_descriptor_heap(device))
+    {
+        /* Don't need a pipeline layout if we're only using pure push data. */
+        *pipeline_layout = VK_NULL_HANDLE;
+        return VK_SUCCESS;
+    }
 
     return VK_CALL(vkCreatePipelineLayout(device->vk_device, &pipeline_layout_info, NULL, pipeline_layout));
 }
@@ -118,8 +132,12 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
         VkPipeline *pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkShaderDescriptorSetAndBindingMappingInfoEXT mapping_info;
     struct vkd3d_queue_timeline_trace_cookie cookie;
+    VkDescriptorSetAndBindingMappingEXT mapping[4];
     VkComputePipelineCreateInfo pipeline_info;
+    VkPipelineCreateFlags2CreateInfo flags2;
+    VkSamplerCreateInfo nearest_sampler;
     VkShaderModule module;
     VkResult vr;
 
@@ -136,13 +154,79 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
-    if (d3d12_device_uses_descriptor_buffers(device) && descriptor_buffer_compatible)
+    if (!d3d12_device_use_descriptor_heap(device) &&
+        d3d12_device_uses_descriptor_buffers(device) &&
+        descriptor_buffer_compatible)
+    {
         pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     vkd3d_meta_make_shader_stage(&pipeline_info.stage,
             VK_SHADER_STAGE_COMPUTE_BIT, module, "main", specialization_info);
 
     pipeline_info.stage.pNext = required_size;
+
+    if (layout == VK_NULL_HANDLE)
+    {
+        memset(&flags2, 0, sizeof(flags2));
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        flags2.flags = pipeline_info.flags | VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+        pipeline_info.flags = 0;
+        vk_prepend_struct(&pipeline_info, &flags2);
+
+        /* At most we use a trivial mapping with one meta descriptor at set = 0, binding = 0. */
+        memset(&mapping_info, 0, sizeof(mapping_info));
+        memset(mapping, 0, sizeof(mapping));
+
+        mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+        mapping_info.pNext = pipeline_info.stage.pNext;
+        pipeline_info.stage.pNext = &mapping_info;
+
+        mapping_info.pMappings = mapping;
+        mapping_info.mappingCount = ARRAY_SIZE(mapping);
+
+        mapping[0].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        mapping[0].source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_PUSH_INDEX_EXT;
+        mapping[0].descriptorSet = 0;
+        mapping[0].firstBinding = 0;
+        mapping[0].bindingCount = 1;
+        mapping[0].resourceMask = VK_SPIRV_RESOURCE_TYPE_SAMPLED_IMAGE_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_IMAGE_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_READ_ONLY_IMAGE_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_SAMPLER_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_COMBINED_SAMPLED_IMAGE_BIT_EXT;
+        mapping[0].sourceData.pushIndex.heapOffset = 0; /* We account for any red-zone ourselves. */
+        mapping[0].sourceData.pushIndex.pushOffset = VKD3D_DESCRIPTOR_HEAP_META_PUSH_DATA_OFFSET;
+        mapping[0].sourceData.pushIndex.heapArrayStride = device->bindless_state.cbv_srv_uav_size;
+        mapping[0].sourceData.pushIndex.heapIndexStride = device->bindless_state.cbv_srv_uav_size;
+
+        mapping[1] = mapping[0];
+        mapping[1].resourceMask = VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT |
+                                  VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT;
+        mapping[1].sourceData.pushIndex.heapOffset = device->bindless_state.packed_raw_buffer_offset;
+
+        /* Some meta shaders use up to 3 descriptors. Just reserve more push registers
+         * since we cannot allocate meta descriptors linearly. */
+        mapping[2] = mapping[0];
+        mapping[2].sourceData.pushIndex.pushOffset += sizeof(uint32_t);
+        mapping[2].firstBinding += 1;
+
+        mapping[3] = mapping[2];
+        mapping[3].sourceData.pushIndex.pushOffset += sizeof(uint32_t);
+        mapping[3].firstBinding += 1;
+
+        memset(&nearest_sampler, 0, sizeof(nearest_sampler));
+        nearest_sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        nearest_sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearest_sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearest_sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearest_sampler.minFilter = VK_FILTER_NEAREST;
+        nearest_sampler.magFilter = VK_FILTER_NEAREST;
+        nearest_sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        mapping[0].sourceData.pushIndex.pEmbeddedSampler = &nearest_sampler;
+        mapping[2].sourceData.pushIndex.pEmbeddedSampler = &nearest_sampler;
+        mapping[3].sourceData.pushIndex.pEmbeddedSampler = &nearest_sampler;
+    }
 
     cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, pipeline));
@@ -159,12 +243,14 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
         const VkSpecializationInfo *spec_info, bool descriptor_buffer_compatible, VkPipeline *vk_pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
+    VkShaderDescriptorSetAndBindingMappingInfoEXT mapping_info;
     VkPipelineColorBlendAttachmentState blend_attachment;
     VkPipelineShaderStageCreateInfo shader_stages[3];
     struct vkd3d_queue_timeline_trace_cookie cookie;
     VkPipelineInputAssemblyStateCreateInfo ia_state;
     VkPipelineRasterizationStateCreateInfo rs_state;
     VkPipelineRenderingCreateInfoKHR rendering_info;
+    VkDescriptorSetAndBindingMappingEXT mapping[3];
     VkPipelineVertexInputStateCreateInfo vi_state;
     VkPipelineMultisampleStateCreateInfo ms_state;
     VkPipelineColorBlendStateCreateInfo cb_state;
@@ -172,6 +258,8 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     VkPipelineDynamicStateCreateInfo dyn_state;
     VkGraphicsPipelineCreateInfo pipeline_info;
     const uint32_t sample_mask = 0xFFFFFFFF;
+    VkPipelineCreateFlags2CreateInfo flags2;
+    VkSamplerCreateInfo nearest_sampler;
     VkResult vr;
 
     static const VkDynamicState common_dynamic_states[] =
@@ -281,8 +369,12 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
-    if (d3d12_device_uses_descriptor_buffers(meta_ops->device) && descriptor_buffer_compatible)
+    if (!d3d12_device_use_descriptor_heap(meta_ops->device) &&
+        d3d12_device_uses_descriptor_buffers(meta_ops->device) &&
+        descriptor_buffer_compatible)
+    {
         pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
             VK_SHADER_STAGE_VERTEX_BIT,
@@ -299,6 +391,57 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     {
         vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
                 VK_SHADER_STAGE_FRAGMENT_BIT, fs_module, "main", spec_info);
+    }
+
+    if (layout == VK_NULL_HANDLE)
+    {
+        memset(&flags2, 0, sizeof(flags2));
+        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+        flags2.flags = pipeline_info.flags | VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+        pipeline_info.flags = 0;
+        vk_prepend_struct(&pipeline_info, &flags2);
+
+        /* At most we use a trivial mapping with one meta descriptor at set = 0, binding = 0. */
+        memset(&mapping_info, 0, sizeof(mapping_info));
+        memset(mapping, 0, sizeof(mapping));
+
+        mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+        mapping_info.pNext = shader_stages[pipeline_info.stageCount - 1].pNext;
+        shader_stages[pipeline_info.stageCount - 1].pNext = &mapping_info;
+
+        mapping_info.pMappings = mapping;
+        mapping_info.mappingCount = ARRAY_SIZE(mapping);
+
+        mapping[0].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+        mapping[0].source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_PUSH_INDEX_EXT;
+        mapping[0].descriptorSet = 0;
+        mapping[0].firstBinding = 0;
+        mapping[0].bindingCount = 1;
+        mapping[0].resourceMask = VK_SPIRV_RESOURCE_TYPE_ALL_EXT;
+        mapping[0].sourceData.pushIndex.heapOffset = 0; /* We account for any red-zone ourselves. */
+        mapping[0].sourceData.pushIndex.pushOffset = VKD3D_DESCRIPTOR_HEAP_META_PUSH_DATA_OFFSET;
+        mapping[0].sourceData.pushIndex.heapArrayStride = meta_ops->device->bindless_state.cbv_srv_uav_size;
+        mapping[0].sourceData.pushIndex.heapIndexStride = meta_ops->device->bindless_state.cbv_srv_uav_size;
+
+        mapping[1] = mapping[0];
+        mapping[1].sourceData.pushIndex.pushOffset += sizeof(uint32_t);
+        mapping[1].firstBinding += 1;
+
+        mapping[2] = mapping[1];
+        mapping[2].sourceData.pushIndex.pushOffset += sizeof(uint32_t);
+        mapping[2].firstBinding += 1;
+
+        memset(&nearest_sampler, 0, sizeof(nearest_sampler));
+        nearest_sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        nearest_sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearest_sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearest_sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        nearest_sampler.minFilter = VK_FILTER_NEAREST;
+        nearest_sampler.magFilter = VK_FILTER_NEAREST;
+        nearest_sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        mapping[0].sourceData.pushIndex.pEmbeddedSampler = &nearest_sampler;
+        mapping[1].sourceData.pushIndex.pEmbeddedSampler = &nearest_sampler;
+        mapping[2].sourceData.pushIndex.pEmbeddedSampler = &nearest_sampler;
     }
 
     cookie = vkd3d_queue_timeline_trace_register_pso_compile(&meta_ops->device->queue_timeline_trace);
@@ -343,12 +486,12 @@ static void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_u
 }
 
 static HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
-        struct d3d12_device *device)
+        struct d3d12_device *device, bool use_heap)
 {
     VkDescriptorSetLayoutBinding set_binding;
     VkPushConstantRange push_constant_range;
+    VkResult vr = VK_SUCCESS;
     unsigned int i;
-    VkResult vr;
 
     struct {
       VkDescriptorSetLayout *set_layout;
@@ -426,7 +569,8 @@ static HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_u
     {
         set_binding.descriptorType = set_layouts[i].descriptor_type;
 
-        vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, true, set_layouts[i].set_layout);
+        if (!use_heap)
+            vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, true, set_layouts[i].set_layout);
 
         if (vr < 0)
         {
@@ -434,8 +578,8 @@ static HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_u
             goto fail;
         }
 
-        vr = vkd3d_meta_create_pipeline_layout(device, 1, set_layouts[i].set_layout,
-                1, &push_constant_range, set_layouts[i].pipeline_layout);
+        vr = vkd3d_meta_create_pipeline_layout(device, use_heap ? 0 : 1, set_layouts[i].set_layout,
+                &push_constant_range, set_layouts[i].pipeline_layout);
 
         if (vr < 0)
         {
@@ -461,9 +605,9 @@ fail:
 }
 
 struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
-        bool as_uint, bool raw)
+        bool as_uint, bool raw, bool heap)
 {
-    struct vkd3d_clear_uav_ops *meta_clear_uav_ops = &meta_ops->clear_uav;
+    struct vkd3d_clear_uav_ops *meta_clear_uav_ops = heap ? &meta_ops->clear_uav_heap : &meta_ops->clear_uav_legacy;
     struct vkd3d_clear_uav_pipeline info;
 
     const struct vkd3d_clear_uav_pipelines *pipelines = (as_uint || raw)
@@ -477,9 +621,9 @@ struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct 
 }
 
 struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_image_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
-        VkImageViewType image_view_type, bool as_uint)
+        VkImageViewType image_view_type, bool as_uint, bool heap)
 {
-    struct vkd3d_clear_uav_ops *meta_clear_uav_ops = &meta_ops->clear_uav;
+    struct vkd3d_clear_uav_ops *meta_clear_uav_ops = heap ? &meta_ops->clear_uav_heap : &meta_ops->clear_uav_legacy;
     struct vkd3d_clear_uav_pipeline info;
 
     const struct vkd3d_clear_uav_pipelines *pipelines = as_uint
@@ -569,7 +713,7 @@ static void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_
 }
 
 static HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_ops,
-        struct d3d12_device *device)
+        struct d3d12_device *device, bool use_heap)
 {
     VkDescriptorSetLayoutBinding set_binding;
     VkPushConstantRange push_constant_range;
@@ -584,24 +728,27 @@ static HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_
         return hresult_from_errno(rc);
     }
 
-    set_binding.binding = 0;
-    set_binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    set_binding.descriptorCount = 1;
-    set_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    set_binding.pImmutableSamplers = NULL;
-
-    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, true, &meta_copy_image_ops->vk_set_layout)) < 0)
+    if (!use_heap)
     {
-        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
-        goto fail;
+        set_binding.binding = 0;
+        set_binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        set_binding.descriptorCount = 1;
+        set_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        set_binding.pImmutableSamplers = NULL;
+
+        if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, true, &meta_copy_image_ops->vk_set_layout)) < 0)
+        {
+            ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+            goto fail;
+        }
     }
 
     push_constant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     push_constant_range.offset = 0;
     push_constant_range.size = sizeof(struct vkd3d_copy_image_args);
 
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_copy_image_ops->vk_set_layout,
-            1, &push_constant_range, &meta_copy_image_ops->vk_pipeline_layout)))
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, use_heap ? 0 : 1, &meta_copy_image_ops->vk_set_layout,
+            &push_constant_range, &meta_copy_image_ops->vk_pipeline_layout)))
     {
         ERR("Failed to create pipeline layout, vr %d.\n", vr);
         goto fail;
@@ -664,9 +811,9 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
 }
 
 static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_pipeline *pipeline)
+        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_pipeline *pipeline, bool heap)
 {
-    struct vkd3d_copy_image_ops *meta_copy_image_ops = &meta_ops->copy_image;
+    struct vkd3d_copy_image_ops *meta_copy_image_ops = heap ? &meta_ops->copy_image_heap : &meta_ops->copy_image_legacy;
     VkPipelineDepthStencilStateCreateInfo ds_state;
     unsigned int dynamic_state_count;
     VkSpecializationInfo spec_info;
@@ -782,9 +929,9 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
 }
 
 HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_info *info)
+        const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_info *info, bool heap)
 {
-    struct vkd3d_copy_image_ops *meta_copy_image_ops = &meta_ops->copy_image;
+    struct vkd3d_copy_image_ops *meta_copy_image_ops = heap ? &meta_ops->copy_image_heap : &meta_ops->copy_image_legacy;
     struct vkd3d_copy_image_pipeline *pipeline;
     HRESULT hr;
     size_t i;
@@ -822,7 +969,7 @@ HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
 
     pipeline = &meta_copy_image_ops->pipelines[meta_copy_image_ops->pipeline_count++];
 
-    if (FAILED(hr = vkd3d_meta_create_copy_image_pipeline(meta_ops, key, pipeline)))
+    if (FAILED(hr = vkd3d_meta_create_copy_image_pipeline(meta_ops, key, pipeline, heap)))
     {
         pthread_mutex_unlock(&meta_copy_image_ops->mutex);
         return hr;
@@ -906,7 +1053,8 @@ static void vkd3d_resolve_image_ops_cleanup(struct vkd3d_resolve_image_ops *meta
     vkd3d_free(meta_resolve_image_ops->pipelines);
 }
 
-static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta_resolve_image_ops, struct d3d12_device *device)
+static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta_resolve_image_ops,
+        struct d3d12_device *device, bool use_heap)
 {
     VkDescriptorSetLayoutBinding set_bindings[2];
     VkPushConstantRange push_constant_range;
@@ -922,40 +1070,43 @@ static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta
         return hresult_from_errno(rc);
     }
 
-    memset(set_bindings, 0, sizeof(set_bindings));
-
-    for (i = 0; i < ARRAY_SIZE(set_bindings); i++)
+    if (!use_heap)
     {
-        set_bindings[i].binding = i;
-        set_bindings[i].descriptorCount = 1;
-    }
+        memset(set_bindings, 0, sizeof(set_bindings));
 
-    set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    set_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        for (i = 0; i < ARRAY_SIZE(set_bindings); i++)
+        {
+            set_bindings[i].binding = i;
+            set_bindings[i].descriptorCount = 1;
+        }
 
-    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, set_bindings, true, &meta_resolve_image_ops->vk_graphics_set_layout)) < 0)
-    {
-        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
-        goto fail;
-    }
+        set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        set_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    set_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    set_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    set_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, set_bindings, true, &meta_resolve_image_ops->vk_graphics_set_layout)) < 0)
+        {
+            ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+            goto fail;
+        }
 
-    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, ARRAY_SIZE(set_bindings), set_bindings, true, &meta_resolve_image_ops->vk_compute_set_layout)) < 0)
-    {
-        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
-        goto fail;
+        set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        set_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        set_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        set_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        if ((vr = vkd3d_meta_create_descriptor_set_layout(device, ARRAY_SIZE(set_bindings), set_bindings, true, &meta_resolve_image_ops->vk_compute_set_layout)) < 0)
+        {
+            ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+            goto fail;
+        }
     }
 
     push_constant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     push_constant_range.offset = 0;
     push_constant_range.size = sizeof(struct vkd3d_resolve_image_args);
 
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_resolve_image_ops->vk_graphics_set_layout,
-            1, &push_constant_range, &meta_resolve_image_ops->vk_graphics_pipeline_layout)))
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, use_heap ? 0 : 1, &meta_resolve_image_ops->vk_graphics_set_layout,
+            &push_constant_range, &meta_resolve_image_ops->vk_graphics_pipeline_layout)))
     {
         ERR("Failed to create pipeline layout, vr %d.\n", vr);
         goto fail;
@@ -965,8 +1116,8 @@ static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta
     push_constant_range.offset = 0;
     push_constant_range.size = sizeof(struct vkd3d_resolve_image_compute_args);
 
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_resolve_image_ops->vk_compute_set_layout,
-            1, &push_constant_range, &meta_resolve_image_ops->vk_compute_pipeline_layout)))
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, use_heap ? 0 : 1, &meta_resolve_image_ops->vk_compute_set_layout,
+            &push_constant_range, &meta_resolve_image_ops->vk_compute_pipeline_layout)))
     {
         ERR("Failed to create pipeline layout, vr %d.\n", vr);
         goto fail;
@@ -1027,9 +1178,11 @@ fail:
 }
 
 static HRESULT vkd3d_meta_create_resolve_image_graphics_pipeline(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_resolve_image_graphics_pipeline_key *key, struct vkd3d_resolve_image_pipeline *pipeline)
+        const struct vkd3d_resolve_image_graphics_pipeline_key *key, struct vkd3d_resolve_image_pipeline *pipeline,
+        bool heap)
 {
-    struct vkd3d_resolve_image_ops *meta_resolve_image_ops = &meta_ops->resolve_image;
+    struct vkd3d_resolve_image_ops *meta_resolve_image_ops =
+        heap ? &meta_ops->resolve_image_heap : &meta_ops->resolve_image_legacy;
     VkPipelineDepthStencilStateCreateInfo ds_state;
     unsigned int dynamic_state_count;
     VkSpecializationInfo spec_info;
@@ -1135,9 +1288,11 @@ static HRESULT vkd3d_meta_create_resolve_image_graphics_pipeline(struct vkd3d_me
 }
 
 static HRESULT vkd3d_meta_create_resolve_image_compute_pipeline(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_resolve_image_compute_pipeline_key *key, struct vkd3d_resolve_image_pipeline *pipeline)
+        const struct vkd3d_resolve_image_compute_pipeline_key *key, struct vkd3d_resolve_image_pipeline *pipeline,
+        bool heap)
 {
-    struct vkd3d_resolve_image_ops *meta_resolve_image_ops = &meta_ops->resolve_image;
+    struct vkd3d_resolve_image_ops *meta_resolve_image_ops =
+        heap ? &meta_ops->resolve_image_heap : &meta_ops->resolve_image_legacy;
     VkSpecializationInfo spec_info;
     const void *cs_code;
     size_t cs_size;
@@ -1197,9 +1352,11 @@ static HRESULT vkd3d_meta_create_resolve_image_compute_pipeline(struct vkd3d_met
 }
 
 HRESULT vkd3d_meta_get_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_resolve_image_pipeline_key *key, struct vkd3d_resolve_image_info *info)
+        const struct vkd3d_resolve_image_pipeline_key *key, struct vkd3d_resolve_image_info *info,
+        bool heap)
 {
-    struct vkd3d_resolve_image_ops *meta_resolve_image_ops = &meta_ops->resolve_image;
+    struct vkd3d_resolve_image_ops *meta_resolve_image_ops =
+        heap ? &meta_ops->resolve_image_heap : &meta_ops->resolve_image_legacy;
     struct vkd3d_resolve_image_pipeline *pipeline;
     HRESULT hr;
     size_t i;
@@ -1247,9 +1404,9 @@ HRESULT vkd3d_meta_get_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
     pipeline = &meta_resolve_image_ops->pipelines[meta_resolve_image_ops->pipeline_count];
 
     if (key->path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE)
-        hr = vkd3d_meta_create_resolve_image_graphics_pipeline(meta_ops, &key->graphics, pipeline);
+        hr = vkd3d_meta_create_resolve_image_graphics_pipeline(meta_ops, &key->graphics, pipeline, heap);
     else
-        hr = vkd3d_meta_create_resolve_image_compute_pipeline(meta_ops, &key->compute, pipeline);
+        hr = vkd3d_meta_create_resolve_image_compute_pipeline(meta_ops, &key->compute, pipeline, heap);
 
     if (FAILED(hr))
     {
@@ -1360,7 +1517,7 @@ static HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapcha
         }
 
         if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_swapchain_ops->vk_set_layouts[i],
-                0, NULL, &meta_swapchain_ops->vk_pipeline_layouts[i])))
+                NULL, &meta_swapchain_ops->vk_pipeline_layouts[i])))
         {
             ERR("Failed to create pipeline layout, vr %d.\n", vr);
             goto fail;
@@ -1465,7 +1622,7 @@ static HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
     push_constant_range.size = sizeof(struct vkd3d_query_gather_args);
 
     if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL,
-            1, &push_constant_range, &meta_query_ops->vk_gather_pipeline_layout)) < 0)
+            &push_constant_range, &meta_query_ops->vk_gather_pipeline_layout)) < 0)
         goto fail;
 
     spec_info.mapEntryCount = 1;
@@ -1488,7 +1645,7 @@ static HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
     push_constant_range.size = sizeof(struct vkd3d_query_resolve_args);
 
     if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL,
-            1, &push_constant_range, &meta_query_ops->vk_resolve_pipeline_layout)) < 0)
+            &push_constant_range, &meta_query_ops->vk_resolve_pipeline_layout)) < 0)
         goto fail;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_binary_queries), cs_resolve_binary_queries,
@@ -1546,7 +1703,7 @@ static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
     push_constant_range.offset = 0;
     push_constant_range.size = sizeof(struct vkd3d_multi_dispatch_indirect_args);
 
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1,
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL,
             &push_constant_range, &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout)) < 0)
         goto fail;
 
@@ -1611,12 +1768,12 @@ static HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predica
     push_constant_range.offset = 0;
     push_constant_range.size = sizeof(struct vkd3d_predicate_command_args);
 
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1,
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL,
             &push_constant_range, &meta_predicate_ops->vk_command_pipeline_layout)) < 0)
         return hresult_from_vk_result(vr);
 
     push_constant_range.size = sizeof(struct vkd3d_predicate_resolve_args);
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1,
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL,
             &push_constant_range, &meta_predicate_ops->vk_resolve_pipeline_layout)) < 0)
         return hresult_from_vk_result(vr);
 
@@ -1679,7 +1836,7 @@ static HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops
     push_constant_range.size = sizeof(struct vkd3d_execute_indirect_args);
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1,
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL,
             &push_constant_range, &meta_indirect_ops->vk_pipeline_layout)) < 0)
     {
         pthread_mutex_destroy(&meta_indirect_ops->mutex);
@@ -1823,7 +1980,7 @@ static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, 
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     push_range.size = sizeof(struct vkd3d_dstorage_decompress_args);
 
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1, &push_range,
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, &push_range,
             &dstorage_ops->vk_dstorage_layout)))
         return hresult_from_vk_result(vr);
 
@@ -1885,7 +2042,7 @@ static void vkd3d_dstorage_ops_cleanup(struct vkd3d_dstorage_ops *dstorage_ops, 
 }
 
 static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_resolve_ops *sampler_feedback_ops,
-        struct d3d12_device *device)
+        struct d3d12_device *device, bool use_heap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutBinding decode_bindings[2];
@@ -1943,72 +2100,75 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
         },
     };
 
-    memset(decode_bindings, 0, sizeof(decode_bindings));
-    memset(encode_bindings, 0, sizeof(encode_bindings));
+    if (!use_heap)
+    {
+        memset(decode_bindings, 0, sizeof(decode_bindings));
+        memset(encode_bindings, 0, sizeof(encode_bindings));
 
-    if ((vr = vkd3d_meta_create_sampler(device, VK_FILTER_NEAREST, &vk_sampler)))
-        return hresult_from_vk_result(vr);
+        if ((vr = vkd3d_meta_create_sampler(device, VK_FILTER_NEAREST, &vk_sampler)))
+            return hresult_from_vk_result(vr);
 
-    decode_bindings[0].binding = 0;
-    decode_bindings[0].descriptorCount = 1;
-    decode_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-    decode_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        decode_bindings[0].binding = 0;
+        decode_bindings[0].descriptorCount = 1;
+        decode_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        decode_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    decode_bindings[1].binding = 1;
-    decode_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-    decode_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    decode_bindings[1].descriptorCount = 1;
-    decode_bindings[1].pImmutableSamplers = &vk_sampler;
+        decode_bindings[1].binding = 1;
+        decode_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+        decode_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        decode_bindings[1].descriptorCount = 1;
+        decode_bindings[1].pImmutableSamplers = &vk_sampler;
 
-    encode_bindings[0].binding = 0;
-    encode_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    encode_bindings[0].descriptorCount = 1;
-    encode_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        encode_bindings[0].binding = 0;
+        encode_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        encode_bindings[0].descriptorCount = 1;
+        encode_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
-    encode_bindings[1].binding = 1;
-    encode_bindings[1].descriptorCount = 1;
-    encode_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    encode_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    encode_bindings[1].pImmutableSamplers = &vk_sampler;
+        encode_bindings[1].binding = 1;
+        encode_bindings[1].descriptorCount = 1;
+        encode_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        encode_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        encode_bindings[1].pImmutableSamplers = &vk_sampler;
 
-    encode_bindings[2].binding = 2;
-    encode_bindings[2].descriptorCount = 1;
-    encode_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    encode_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+        encode_bindings[2].binding = 2;
+        encode_bindings[2].descriptorCount = 1;
+        encode_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        encode_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
 
-    if ((vr = vkd3d_meta_create_descriptor_set_layout(device,
-            ARRAY_SIZE(decode_bindings), decode_bindings,
-            true, &sampler_feedback_ops->vk_decode_set_layout)))
-        return hresult_from_vk_result(vr);
+        if ((vr = vkd3d_meta_create_descriptor_set_layout(device,
+                ARRAY_SIZE(decode_bindings), decode_bindings,
+                true, &sampler_feedback_ops->vk_decode_set_layout)))
+            return hresult_from_vk_result(vr);
 
-    if ((vr = vkd3d_meta_create_descriptor_set_layout(device,
-            ARRAY_SIZE(encode_bindings), encode_bindings,
-            true, &sampler_feedback_ops->vk_encode_set_layout)))
-        return hresult_from_vk_result(vr);
+        if ((vr = vkd3d_meta_create_descriptor_set_layout(device,
+                ARRAY_SIZE(encode_bindings), encode_bindings,
+                true, &sampler_feedback_ops->vk_encode_set_layout)))
+            return hresult_from_vk_result(vr);
+    }
 
     push_range.offset = 0;
 
     push_range.size = sizeof(struct vkd3d_sampler_feedback_resolve_encode_args);
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     if ((vr = vkd3d_meta_create_pipeline_layout(device,
-            1, &sampler_feedback_ops->vk_encode_set_layout,
-            1, &push_range,
+            use_heap ? 0 : 1, &sampler_feedback_ops->vk_encode_set_layout,
+            &push_range,
             &sampler_feedback_ops->vk_compute_encode_layout)))
         return hresult_from_vk_result(vr);
 
     push_range.size = sizeof(struct vkd3d_sampler_feedback_resolve_decode_args);
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     if ((vr = vkd3d_meta_create_pipeline_layout(device,
-            1, &sampler_feedback_ops->vk_decode_set_layout,
-            1, &push_range,
+            use_heap ? 0 : 1, &sampler_feedback_ops->vk_decode_set_layout,
+            &push_range,
             &sampler_feedback_ops->vk_compute_decode_layout)))
         return hresult_from_vk_result(vr);
 
     push_range.size = sizeof(struct vkd3d_sampler_feedback_resolve_decode_args);
     push_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     if ((vr = vkd3d_meta_create_pipeline_layout(device,
-            1, &sampler_feedback_ops->vk_decode_set_layout,
-            1, &push_range,
+            use_heap ? 0 : 1, &sampler_feedback_ops->vk_decode_set_layout,
+            &push_range,
             &sampler_feedback_ops->vk_graphics_decode_layout)))
         return hresult_from_vk_result(vr);
 
@@ -2066,25 +2226,25 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
 
     push_range.size = sizeof(struct vkd3d_workgraph_workgroups_args);
     if ((vr = vkd3d_meta_create_pipeline_layout(device,
-            0, NULL, 1, &push_range,
+            0, NULL, &push_range,
             &workgraph_ops->vk_workgroup_layout)))
         return hresult_from_vk_result(vr);
 
     push_range.size = sizeof(struct vkd3d_workgraph_payload_offsets_args);
     if ((vr = vkd3d_meta_create_pipeline_layout(device,
-            0, NULL, 1, &push_range,
+            0, NULL, &push_range,
             &workgraph_ops->vk_payload_offset_layout)))
         return hresult_from_vk_result(vr);
 
     push_range.size = sizeof(struct vkd3d_workgraph_complete_compaction_args);
     if ((vr = vkd3d_meta_create_pipeline_layout(device,
-            0, NULL, 1, &push_range,
+            0, NULL, &push_range,
             &workgraph_ops->vk_complete_compaction_layout)))
         return hresult_from_vk_result(vr);
 
     push_range.size = sizeof(struct vkd3d_workgraph_setup_gpu_input_args);
     if ((vr = vkd3d_meta_create_pipeline_layout(device,
-            0, NULL, 1, &push_range,
+            0, NULL, &push_range,
             &workgraph_ops->vk_setup_gpu_input_layout)))
         return hresult_from_vk_result(vr);
 
@@ -2142,23 +2302,26 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
 }
 
 void vkd3d_meta_get_sampler_feedback_resolve_pipeline(struct vkd3d_meta_ops *meta_ops,
-        enum vkd3d_sampler_feedback_resolve_type type, struct vkd3d_sampler_feedback_resolve_info *info)
+        enum vkd3d_sampler_feedback_resolve_type type, struct vkd3d_sampler_feedback_resolve_info *info, bool heap)
 {
-    info->vk_pipeline = meta_ops->sampler_feedback.vk_pipelines[type];
+    struct vkd3d_sampler_feedback_resolve_ops *ops =
+        heap ? &meta_ops->sampler_feedback_heap : &meta_ops->sampler_feedback_legacy;
+
+    info->vk_pipeline = ops->vk_pipelines[type];
 
     switch (type)
     {
         case VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE:
         case VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE:
-            info->vk_layout = meta_ops->sampler_feedback.vk_graphics_decode_layout;
+            info->vk_layout = ops->vk_graphics_decode_layout;
             break;
 
         case VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER:
-            info->vk_layout = meta_ops->sampler_feedback.vk_compute_decode_layout;
+            info->vk_layout = ops->vk_compute_decode_layout;
             break;
 
         default:
-            info->vk_layout = meta_ops->sampler_feedback.vk_compute_encode_layout;
+            info->vk_layout = ops->vk_compute_encode_layout;
             break;
     }
 }
@@ -2235,14 +2398,26 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_meta_ops_common_init(&meta_ops->common, device)))
         goto fail_common;
 
-    if (FAILED(hr = vkd3d_clear_uav_ops_init(&meta_ops->clear_uav, device)))
-        goto fail_clear_uav_ops;
+    if (d3d12_device_use_descriptor_heap(device))
+        if (FAILED(hr = vkd3d_clear_uav_ops_init(&meta_ops->clear_uav_heap, device, true)))
+            goto fail_clear_uav_ops_heap;
 
-    if (FAILED(hr = vkd3d_copy_image_ops_init(&meta_ops->copy_image, device)))
-        goto fail_copy_image_ops;
+    if (FAILED(hr = vkd3d_clear_uav_ops_init(&meta_ops->clear_uav_legacy, device, false)))
+        goto fail_clear_uav_ops_legacy;
 
-    if (FAILED(hr = vkd3d_resolve_image_ops_init(&meta_ops->resolve_image, device)))
-        goto fail_resolve_image_ops;
+    if (d3d12_device_use_descriptor_heap(device))
+        if (FAILED(hr = vkd3d_copy_image_ops_init(&meta_ops->copy_image_heap, device, true)))
+            goto fail_copy_image_heap_ops;
+
+    if (FAILED(hr = vkd3d_copy_image_ops_init(&meta_ops->copy_image_legacy, device, false)))
+        goto fail_copy_image_legacy_ops;
+
+    if (d3d12_device_use_descriptor_heap(device))
+        if (FAILED(hr = vkd3d_resolve_image_ops_init(&meta_ops->resolve_image_heap, device, true)))
+            goto fail_resolve_image_heap_ops;
+
+    if (FAILED(hr = vkd3d_resolve_image_ops_init(&meta_ops->resolve_image_legacy, device, false)))
+        goto fail_resolve_image_legacy_ops;
 
     if (FAILED(hr = vkd3d_swapchain_ops_init(&meta_ops->swapchain, device)))
         goto fail_swapchain_ops;
@@ -2262,8 +2437,12 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_dstorage_ops_init(&meta_ops->dstorage, device)))
         goto fail_dstorage_ops;
 
-    if (FAILED(hr = vkd3d_sampler_feedback_ops_init(&meta_ops->sampler_feedback, device)))
-        goto fail_sampler_feedback;
+    if (d3d12_device_use_descriptor_heap(device))
+        if (FAILED(hr = vkd3d_sampler_feedback_ops_init(&meta_ops->sampler_feedback_heap, device, true)))
+            goto fail_sampler_feedback_heap;
+
+    if (FAILED(hr = vkd3d_sampler_feedback_ops_init(&meta_ops->sampler_feedback_legacy, device, false)))
+        goto fail_sampler_feedback_legacy;
 
     if (FAILED(hr = vkd3d_workgraph_ops_init(&meta_ops->workgraph, device)))
         goto fail_workgraphs;
@@ -2271,8 +2450,10 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     return S_OK;
 
 fail_workgraphs:
-    vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback, device);
-fail_sampler_feedback:
+    vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback_legacy, device);
+fail_sampler_feedback_legacy:
+    vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback_heap, device);
+fail_sampler_feedback_heap:
     vkd3d_dstorage_ops_cleanup(&meta_ops->dstorage, device);
 fail_dstorage_ops:
     vkd3d_multi_dispatch_indirect_ops_cleanup(&meta_ops->multi_dispatch_indirect, device);
@@ -2285,12 +2466,18 @@ fail_predicate_ops:
 fail_query_ops:
     vkd3d_swapchain_ops_cleanup(&meta_ops->swapchain, device);
 fail_swapchain_ops:
-    vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image, device);
-fail_resolve_image_ops:
-    vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image, device);
-fail_copy_image_ops:
-    vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav, device);
-fail_clear_uav_ops:
+    vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image_legacy, device);
+fail_resolve_image_legacy_ops:
+    vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image_heap, device);
+fail_resolve_image_heap_ops:
+    vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image_legacy, device);
+fail_copy_image_legacy_ops:
+    vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image_heap, device);
+fail_copy_image_heap_ops:
+    vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav_legacy, device);
+fail_clear_uav_ops_legacy:
+    vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav_heap, device);
+fail_clear_uav_ops_heap:
     vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
 fail_common:
     return hr;
@@ -2299,16 +2486,20 @@ fail_common:
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
     vkd3d_workgraph_ops_cleanup(&meta_ops->workgraph, device);
-    vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback, device);
+    vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback_heap, device);
+    vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback_legacy, device);
     vkd3d_dstorage_ops_cleanup(&meta_ops->dstorage, device);
     vkd3d_multi_dispatch_indirect_ops_cleanup(&meta_ops->multi_dispatch_indirect, device);
     vkd3d_execute_indirect_ops_cleanup(&meta_ops->execute_indirect, device);
     vkd3d_predicate_ops_cleanup(&meta_ops->predicate, device);
     vkd3d_query_ops_cleanup(&meta_ops->query, device);
     vkd3d_swapchain_ops_cleanup(&meta_ops->swapchain, device);
-    vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image, device);
-    vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image, device);
-    vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav, device);
+    vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image_heap, device);
+    vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image_legacy, device);
+    vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image_heap, device);
+    vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image_legacy, device);
+    vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav_heap, device);
+    vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav_legacy, device);
     vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
     return S_OK;
 }
