@@ -144,6 +144,7 @@ struct vkd3d_dxil_remap_userdata
     const struct vkd3d_shader_interface_local_info *shader_interface_local_info;
     vkd3d_shader_quirks_t quirks;
     unsigned int num_root_descriptors;
+    bool skip_heap_lowering;
 };
 
 struct vkd3d_dxil_remap_info
@@ -155,6 +156,7 @@ struct vkd3d_dxil_remap_info
     unsigned int descriptor_table_offset_words;
     unsigned int min_ssbo_alignment;
     vkd3d_shader_quirks_t quirks;
+    bool skip_heap_lowering;
 };
 
 static dxil_spv_bool dxil_remap_inner(
@@ -226,6 +228,7 @@ static dxil_spv_bool dxil_remap_inner(
                      * potentially better optimization for drivers. */
                     if ((remap->shader_interface_flags & VKD3D_SHADER_INTERFACE_HEAP_LOWERING) &&
                         !(remap->quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
+                        !remap->skip_heap_lowering &&
                         !(binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA))
                     {
                         vk_binding->bindless.use_heap = DXIL_SPV_FALSE;
@@ -299,6 +302,7 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
     remap_info.shader_interface_flags = shader_interface_info->flags;
     remap_info.min_ssbo_alignment = shader_interface_info->min_ssbo_alignment;
     remap_info.quirks = remap->quirks;
+    remap_info.skip_heap_lowering = remap->skip_heap_lowering;
 
     if (!dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags))
     {
@@ -481,6 +485,7 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
     const struct vkd3d_shader_interface_info *shader_interface_info;
     const struct vkd3d_dxil_remap_userdata *remap = userdata;
     unsigned int resource_flags, resource_flags_ssbo;
+    struct vkd3d_dxil_remap_userdata tmp_remap;
     bool use_ssbo;
 
     shader_interface_info = remap->shader_interface_info;
@@ -494,6 +499,14 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
         d3d_binding->d3d_binding.alignment < shader_interface_info->min_ssbo_alignment)
     {
         use_ssbo = false;
+    }
+
+    /* We'll need to use explicit heap lowering here since we cannot mix and match these in dxil-spirv. */
+    if (d3d_binding->has_counter && shader_interface_info->raw_uav_counter_offset)
+    {
+        tmp_remap = *remap;
+        tmp_remap.skip_heap_lowering = true;
+        remap = &tmp_remap;
     }
 
     if (use_ssbo)
@@ -1431,6 +1444,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     remap_userdata.shader_interface_local_info = NULL;
     remap_userdata.num_root_descriptors = num_root_descriptors;
     remap_userdata.quirks = quirks;
+    remap_userdata.skip_heap_lowering = false;
 
     dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
     dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);
@@ -1753,6 +1767,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     remap_userdata.shader_interface_local_info = shader_interface_local_info;
     remap_userdata.num_root_descriptors = num_root_descriptors;
     remap_userdata.quirks = quirks;
+    remap_userdata.skip_heap_lowering = false;
 
     dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
     dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);
