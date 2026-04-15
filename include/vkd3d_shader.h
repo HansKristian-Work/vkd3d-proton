@@ -320,6 +320,7 @@ struct vkd3d_shader_interface_info
 
     /* Used for either VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER or local root signatures. */
     uint32_t descriptor_size_cbv_srv_uav;
+    uint32_t raw_uav_counter_offset;
     uint32_t descriptor_size_sampler;
 
     /* Purely for debug. Only non-NULL when running with EXTENDED_DEBUG_UTILS. */
