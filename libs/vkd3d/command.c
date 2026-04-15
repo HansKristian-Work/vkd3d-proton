@@ -7958,6 +7958,13 @@ void d3d12_command_list_update_global_descriptor_heap(struct d3d12_command_list 
     list->descriptor_heap.buffers.global_heap_dirty = false;
 }
 
+/* Only updates for legacy paths. Heap path will gracefully pick whichever model is active. */
+static void d3d12_command_list_update_global_descriptor_buffer_meta(struct d3d12_command_list *list)
+{
+    if (!d3d12_device_use_descriptor_heap(list->device))
+        d3d12_command_list_update_global_descriptor_heap(list);
+}
+
 static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, VkPipelineBindPoint vk_bind_point,
         VkPipelineLayout layout)
@@ -9990,7 +9997,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         }
 
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_update_global_descriptor_heap(list);
+        d3d12_command_list_update_global_descriptor_buffer_meta(list);
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
         dst_view_desc.image = dst_resource->res.vk_image;
@@ -11758,7 +11765,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
     else if (path == VKD3D_RESOLVE_IMAGE_PATH_COMPUTE_PIPELINE)
     {
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_update_global_descriptor_heap(list);
+        d3d12_command_list_update_global_descriptor_buffer_meta(list);
 
         vk_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
 
@@ -11872,7 +11879,7 @@ cleanup_compute:
     else
     {
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_update_global_descriptor_heap(list);
+        d3d12_command_list_update_global_descriptor_buffer_meta(list);
 
         vk_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
 
@@ -15022,7 +15029,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_debug_mark_begin_region(list, "ClearUAV");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_update_global_descriptor_heap(list);
+    d3d12_command_list_update_global_descriptor_buffer_meta(list);
 
     sampler_feedback_clear = d3d12_resource_desc_is_sampler_feedback(&resource->desc);
 
@@ -15233,7 +15240,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     d3d12_command_list_debug_mark_begin_region(list, "ClearUAVWithCopy");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_update_global_descriptor_heap(list);
+    d3d12_command_list_update_global_descriptor_buffer_meta(list);
 
     assert(!args->view && !args->use_heap);
     assert(d3d12_resource_is_texture(resource));
@@ -17769,7 +17776,7 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
         return;
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_update_global_descriptor_heap(list);
+    d3d12_command_list_update_global_descriptor_buffer_meta(list);
     d3d12_command_list_debug_mark_begin_region(list, "SamplerFeedbackEncode");
 
     /* Fixup subresource indices. */
@@ -18117,7 +18124,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         return;
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_update_global_descriptor_heap(list);
+    d3d12_command_list_update_global_descriptor_buffer_meta(list);
     d3d12_command_list_debug_mark_begin_region(list, "SamplerFeedbackDecode");
 
     /* Fixup subresource indices. */
