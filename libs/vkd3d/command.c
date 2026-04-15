@@ -15049,18 +15049,14 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
     if (d3d12_resource_is_texture(resource))
     {
-        /* TODO: This will change in heap. */
-        assert(args->view);
-
-        image_info.sampler = VK_NULL_HANDLE;
-        image_info.imageView = args->view->vk_image_view;
-        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write_set.pImageInfo = &image_info;
-
-        if (args->view)
+        if (!args->use_heap)
         {
+            assert(args->view);
+            image_info.sampler = VK_NULL_HANDLE;
+            image_info.imageView = args->view->vk_image_view;
+            image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write_set.pImageInfo = &image_info;
             view_extent = d3d12_resource_get_view_subresource_extent(resource, args->view);
         }
         else
@@ -15095,7 +15091,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
         pipeline = vkd3d_meta_get_clear_image_uav_pipeline(
                 &list->device->meta_ops, args->u.image.vk_view_type,
-                format->type == VKD3D_FORMAT_TYPE_UINT, false);
+                format->type == VKD3D_FORMAT_TYPE_UINT, args->use_heap);
         workgroup_size = vkd3d_meta_get_clear_image_uav_workgroup_size(args->u.image.vk_view_type);
     }
     else
@@ -15104,28 +15100,40 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
         if (args->view)
         {
+            /* Legacy path. */
             VkDeviceSize byte_count = args->view->format->byte_count;
+            assert(!args->use_heap);
             full_rect.right = args->view->info.buffer.size / byte_count;
 
             write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
             write_set.pTexelBufferView = &args->view->vk_buffer_view;
         }
+        else if (format)
+        {
+            VkDeviceSize byte_count = format->byte_count;
+            assert(args->use_heap);
+            full_rect.right = args->u.buffer.range / byte_count;
+        }
         else
         {
+            /* Plain SSBO clear. StructuredBuffers are not allowed, but RAW is (since it has R32_TYPELESS). */
             full_rect.right = args->u.buffer.range / sizeof(uint32_t);
 
-            write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write_set.pBufferInfo = &buffer_info;
-            /* resource heap offset is already in descriptor */
-            buffer_info.buffer = resource->res.vk_buffer;
-            buffer_info.offset = resource->mem.offset + (args->u.buffer.va - resource->res.va);
-            buffer_info.range = args->u.buffer.range;
+            if (!args->use_heap)
+            {
+                write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write_set.pBufferInfo = &buffer_info;
+                /* resource heap offset is already in descriptor */
+                buffer_info.buffer = resource->res.vk_buffer;
+                buffer_info.offset = resource->mem.offset + (args->u.buffer.va - resource->res.va);
+                buffer_info.range = args->u.buffer.range;
+            }
         }
 
         layer_count = 1;
         pipeline = vkd3d_meta_get_clear_buffer_uav_pipeline(&list->device->meta_ops,
-                !args->view || format->type == VKD3D_FORMAT_TYPE_UINT,
-                !args->view, false);
+                !format || format->type == VKD3D_FORMAT_TYPE_UINT,
+                format == NULL, args->use_heap);
         workgroup_size = vkd3d_meta_get_clear_buffer_uav_workgroup_size();
     }
 
@@ -15134,8 +15142,16 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
     VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
             VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
-    VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-            pipeline.vk_pipeline_layout, 0, 1, &write_set));
+
+    if (args->use_heap)
+    {
+        d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 0, args->heap_index);
+    }
+    else
+    {
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                pipeline.vk_pipeline_layout, 0, 1, &write_set));
+    }
 
     for (i = 0; i < rect_count || !i; i++)
     {
@@ -15210,6 +15226,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     VkMemoryBarrier2 barrier;
     VkExtent3D view_extent;
     uint32_t element_count;
+    uint32_t heap_index;
 
     d3d12_command_list_track_resource_usage(list, resource, true);
     d3d12_command_list_end_current_render_pass(list, false);
@@ -15262,32 +15279,40 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
         return;
     }
 
-    pipeline = vkd3d_meta_get_clear_buffer_uav_pipeline(&list->device->meta_ops, true, false, false);
+    heap_index = d3d12_command_list_allocate_meta_buffer_view(list, scratch.va, scratch_buffer_size, format->vk_format);
+
+    pipeline = vkd3d_meta_get_clear_buffer_uav_pipeline(&list->device->meta_ops, true, false,
+        heap_index != UINT32_MAX);
     workgroup_size = vkd3d_meta_get_clear_buffer_uav_workgroup_size();
 
-    if (!vkd3d_create_vk_buffer_view(list->device, scratch.buffer, format, scratch.offset, scratch_buffer_size, &vk_buffer_view))
+    if (heap_index != UINT32_MAX)
     {
-        ERR("Failed to create buffer view for UAV clear.\n");
-        return;
+        d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 0, heap_index);
     }
-
-    if (!(d3d12_command_allocator_add_buffer_view(list->allocator, vk_buffer_view)))
+    else
     {
-        ERR("Failed to add buffer view.\n");
-        VK_CALL(vkDestroyBufferView(list->device->vk_device, vk_buffer_view, NULL));
-        return;
+        if (!vkd3d_create_vk_buffer_view(list->device, scratch.buffer, format, scratch.offset, scratch_buffer_size, &vk_buffer_view))
+        {
+            ERR("Failed to create buffer view for UAV clear.\n");
+            return;
+        }
+
+        if (!(d3d12_command_allocator_add_buffer_view(list->allocator, vk_buffer_view)))
+        {
+            ERR("Failed to add buffer view.\n");
+            VK_CALL(vkDestroyBufferView(list->device->vk_device, vk_buffer_view, NULL));
+            return;
+        }
+
+        memset(&write_set, 0, sizeof(write_set));
+        write_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_set.descriptorCount = 1;
+        write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        write_set.pTexelBufferView = &vk_buffer_view;
+
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                pipeline.vk_pipeline_layout, 0, 1, &write_set));
     }
-
-    memset(&write_set, 0, sizeof(write_set));
-    write_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write_set.descriptorCount = 1;
-    write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-    write_set.pTexelBufferView = &vk_buffer_view;
-
-    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
-            VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
-    VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-            pipeline.vk_pipeline_layout, 0, 1, &write_set));
 
     clear_args.clear_color = *clear_value;
     clear_args.offset.x = 0;
@@ -15298,6 +15323,9 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
             pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             sizeof(clear_args), &clear_args);
+
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
 
     VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer,
             vkd3d_compute_workgroup_count(element_count, workgroup_size.width), 1, 1));
@@ -15624,6 +15652,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     if (!vkd3d_clear_uav_info_from_metadata(&args, metadata.view))
         return;
 
+    /* This is illegal D3D12, but we need to robust against it. */
+    if (!list->descriptor_heap.buffers.resource.heap)
+        WARN("ClearUAVUint called without active heap.\n");
+
     if (d3d12_resource_is_texture(resource_impl) && !(args.u.image.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
     {
         WARN("Image clear mismatch.\n");
@@ -15665,9 +15697,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         }
 
         args.clear_dxgi_format = uint_format->dxgi_format;
-        if (!vkd3d_clear_uav_synthesize_buffer_view(list, resource_impl, &args, uint_format, &inline_view))
-            return;
-        args.view = inline_view;
+
+        args.heap_index = d3d12_command_list_allocate_meta_buffer_view(list,
+                args.u.buffer.va, args.u.buffer.range, uint_format->vk_format);
+        args.use_heap = args.heap_index != UINT32_MAX;
+
+        /* We cannot allocate space in the heap, have to fallback to legacy :'( */
+        if (!args.use_heap)
+        {
+            if (!vkd3d_clear_uav_synthesize_buffer_view(list, resource_impl, &args, uint_format, &inline_view))
+                return;
+            args.view = inline_view;
+        }
     }
     else if (d3d12_resource_is_texture(resource_impl) && clear_format->type != VKD3D_FORMAT_TYPE_UINT)
     {
@@ -15716,13 +15757,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             struct vkd3d_texture_view_desc view_desc;
             vkd3d_texture_view_desc_convert_from_metadata(resource_impl, clear_format, &view_desc, &args.u.image);
 
-            if (!vkd3d_create_texture_view(list->device, &view_desc, &inline_view))
-            {
-                ERR("Failed to create image view.\n");
-                return;
-            }
+            args.heap_index = d3d12_command_list_allocate_meta_image_view(list, &view_desc, VK_IMAGE_LAYOUT_GENERAL);
+            args.use_heap = args.heap_index != UINT32_MAX;
 
-            args.view = inline_view;
+            if (!args.use_heap)
+            {
+                if (!vkd3d_create_texture_view(list->device, &view_desc, &inline_view))
+                {
+                    ERR("Failed to create image view.\n");
+                    return;
+                }
+
+                args.view = inline_view;
+            }
         }
     }
 
@@ -15761,6 +15808,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     if (!resource_impl || !metadata.view)
         return;
 
+    /* This is illegal D3D12, but we need to robust against it. */
+    if (!list->descriptor_heap.buffers.resource.heap)
+        WARN("ClearUAVFloat called without active heap.\n");
+
     if (!vkd3d_clear_uav_info_from_metadata(&args, metadata.view))
         return;
 
@@ -15795,20 +15846,37 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
             struct vkd3d_texture_view_desc view_desc;
             vkd3d_texture_view_desc_convert_from_metadata(resource_impl, clear_format, &view_desc, &args.u.image);
 
-            if (!vkd3d_create_texture_view(list->device, &view_desc, &inline_view))
-            {
-                ERR("Failed to create image view.\n");
-                return;
-            }
+            /* It's not legal D3D12 for apps to hit this, but native drivers always seem to just use the CPU descriptor
+             * and push the descriptor somehow. Since we have to anticipate broken games in the wild, we cannot trust
+             * the bound GPU heap. */
+            args.heap_index = d3d12_command_list_allocate_meta_image_view(list, &view_desc, VK_IMAGE_LAYOUT_GENERAL);
+            args.use_heap = args.heap_index != UINT32_MAX;
 
-            args.view = inline_view;
+            if (!args.use_heap)
+            {
+                if (!vkd3d_create_texture_view(list->device, &view_desc, &inline_view))
+                {
+                    ERR("Failed to create image view.\n");
+                    return;
+                }
+
+                args.view  = inline_view;
+            }
         }
     }
     else
     {
-        if (!vkd3d_clear_uav_synthesize_buffer_view(list, resource_impl, &args, clear_format, &inline_view))
-            return;
-        args.view = inline_view;
+        args.heap_index = d3d12_command_list_allocate_meta_buffer_view(list,
+                args.u.buffer.va, args.u.buffer.range, clear_format->vk_format);
+        args.use_heap = args.heap_index != UINT32_MAX;
+
+        /* We cannot allocate space in the heap, have to fallback to legacy :'( */
+        if (!args.use_heap)
+        {
+            if (!vkd3d_clear_uav_synthesize_buffer_view(list, resource_impl, &args, clear_format, &inline_view))
+                return;
+            args.view = inline_view;
+        }
     }
 
     d3d12_command_list_clear_uav(list, resource_impl, &args, &color, rect_count, rects);
