@@ -142,15 +142,19 @@ struct vkd3d_dxil_remap_userdata
 {
     const struct vkd3d_shader_interface_info *shader_interface_info;
     const struct vkd3d_shader_interface_local_info *shader_interface_local_info;
+    vkd3d_shader_quirks_t quirks;
     unsigned int num_root_descriptors;
 };
 
 struct vkd3d_dxil_remap_info
 {
     const struct vkd3d_shader_resource_binding *bindings;
+    unsigned int shader_interface_flags;
     unsigned int binding_count;
     unsigned int num_root_descriptors;
     unsigned int descriptor_table_offset_words;
+    unsigned int min_ssbo_alignment;
+    vkd3d_shader_quirks_t quirks;
 };
 
 static dxil_spv_bool dxil_remap_inner(
@@ -178,8 +182,28 @@ static dxil_spv_bool dxil_remap_inner(
 
             if (vkd3d_shader_binding_is_root_descriptor(binding))
             {
-                vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS;
-                vk_binding->root_constant_index = root_descriptor_index;
+                if ((remap->shader_interface_flags & VKD3D_SHADER_INTERFACE_HEAP_LOWERING) &&
+                    (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV ||
+                        d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE ||
+                        remap->min_ssbo_alignment <= d3d_binding->alignment))
+                {
+                    if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE)
+                        vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_IDENTITY;
+                    else if (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV)
+                        vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_UBO;
+                    else
+                        vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+
+                    vk_binding->set = binding->binding.set;
+                    vk_binding->binding = binding->binding.binding;
+                }
+                else
+                {
+                    /* In some cases we cannot use SSBOs due to alignment requirements.
+                     * Just fallback to good old BDA. */
+                    vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS;
+                    vk_binding->root_constant_index = root_descriptor_index;
+                }
             }
             else if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
             {
@@ -251,6 +275,9 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
     remap_info.binding_count = shader_interface_info->binding_count;
     remap_info.descriptor_table_offset_words = shader_interface_info->descriptor_tables.offset / sizeof(uint32_t);
     remap_info.num_root_descriptors = remap->num_root_descriptors;
+    remap_info.shader_interface_flags = shader_interface_info->flags;
+    remap_info.min_ssbo_alignment = shader_interface_info->min_ssbo_alignment;
+    remap_info.quirks = remap->quirks;
 
     if (!dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags))
     {
@@ -289,7 +316,9 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
     if (use_ssbo && dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
             d3d_binding, &vk_binding->buffer_binding, resource_flags_ssbo))
     {
-        vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+        if (vk_binding->buffer_binding.descriptor_type != DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS)
+            vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+
         if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
         {
             vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
@@ -435,7 +464,9 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
         if (dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
                 &vk_binding->buffer_binding, resource_flags_ssbo))
         {
-            vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+            if (vk_binding->buffer_binding.descriptor_type != DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS)
+                vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+
             if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
             {
                 vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
@@ -1373,6 +1404,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = NULL;
     remap_userdata.num_root_descriptors = num_root_descriptors;
+    remap_userdata.quirks = quirks;
 
     dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
     dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);
@@ -1694,6 +1726,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = shader_interface_local_info;
     remap_userdata.num_root_descriptors = num_root_descriptors;
+    remap_userdata.quirks = quirks;
 
     dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
     dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);

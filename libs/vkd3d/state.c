@@ -1044,7 +1044,6 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         const VkPushConstantRange *push_constant_range, struct vkd3d_descriptor_set_context *context,
         VkDescriptorSetLayout *vk_set_layout)
 {
-    bool local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
     bool heap = d3d12_device_use_descriptor_heap(root_signature->device);
     VkDescriptorSetLayoutBinding *vk_binding, *vk_binding_info = NULL;
     VkDescriptorSetAndBindingMappingEXT *vk_mapping;
@@ -1054,7 +1053,6 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     uint32_t raw_va_root_descriptor_count = 0;
     unsigned int hoisted_parameter_index;
     const D3D12_DESCRIPTOR_RANGE1 *range;
-    uint32_t local_root_size = 0;
     unsigned int i, j, k;
     HRESULT hr = S_OK;
     uint32_t or_flags;
@@ -1077,9 +1075,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
     if (heap)
     {
-        context->vk_set = local_root_signature
-                ? VKD3D_SHADER_LOCAL_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET
-                : VKD3D_SHADER_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET;
+        context->vk_set = VKD3D_SHADER_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET;
+        context->vk_binding = 0;
     }
 
     hoisted_parameter_index = desc->NumParameters;
@@ -1089,7 +1086,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         const D3D12_ROOT_PARAMETER1 *p = &desc->pParameters[i];
         bool raw_va;
 
-        if (!local_root_signature && p->ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        if (p->ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
         {
             unsigned int range_descriptor_offset = 0;
             for (k = 0; k < p->DescriptorTable.NumDescriptorRanges && info->hoist_descriptor_count; k++)
@@ -1145,14 +1142,9 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
                 && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_SRV
                 && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_UAV)
         {
-            if (p->ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-                local_root_size = align(local_root_size + sizeof(VkDeviceAddress), sizeof(VkDeviceAddress));
-            else
-                local_root_size += p->Constants.Num32BitValues * sizeof(uint32_t);
             continue;
         }
 
-        local_root_size = align(local_root_size, sizeof(VkDeviceAddress));
         raw_va = d3d12_root_signature_parameter_is_raw_va(root_signature, p->ParameterType);
 
         if (!raw_va)
@@ -1189,6 +1181,10 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
         if (heap)
         {
+            binding->binding.binding = raw_va_root_descriptor_count;
+            if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_CBV)
+                binding->flags |= VKD3D_SHADER_BINDING_FLAG_RAW_SSBO;
+
             vkd3d_array_reserve((void **)&root_signature->heap.mappings, &root_signature->heap.mappings_size,
                     root_signature->heap.mappings_count + 1,
                     sizeof(*root_signature->heap.mappings));
@@ -1200,17 +1196,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
             vk_mapping->descriptorSet = context->vk_set;
             vk_mapping->firstBinding = raw_va_root_descriptor_count;
             vk_mapping->bindingCount = 1;
-
-            if (local_root_signature)
-            {
-                vk_mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_SHADER_RECORD_ADDRESS_EXT;
-                vk_mapping->sourceData.shaderRecordAddressOffset = local_root_size;
-            }
-            else
-            {
-                vk_mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_ADDRESS_EXT;
-                vk_mapping->sourceData.pushAddressOffset = raw_va_root_descriptor_count * sizeof(VkDeviceAddress);
-            }
+            vk_mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_PUSH_ADDRESS_EXT;
+            vk_mapping->sourceData.pushAddressOffset = raw_va_root_descriptor_count * sizeof(VkDeviceAddress);
         }
 
         param = &root_signature->parameters[i];
@@ -1224,8 +1211,6 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
             raw_va_root_descriptor_count += 1;
         else
             context->vk_binding += 1;
-
-        local_root_size += sizeof(VkDeviceAddress);
     }
 
     if (or_flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
@@ -2098,6 +2083,8 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
         flags |= VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER;
     if (d3d12_device_use_embedded_mutable_descriptors(root_signature->device))
         flags |= VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER;
+    if (d3d12_device_use_descriptor_heap(root_signature->device))
+        flags |= VKD3D_SHADER_INTERFACE_HEAP_LOWERING;
 
     return flags;
 }
