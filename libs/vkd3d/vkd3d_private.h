@@ -3468,6 +3468,8 @@ void d3d12_command_list_meta_push_data(struct d3d12_command_list *list,
         VkCommandBuffer vk_command_buffer,
         VkPipelineLayout vk_pipeline_layout, VkShaderStageFlags stages,
         uint32_t size, const void *data);
+void d3d12_command_list_meta_push_descriptor_index(struct d3d12_command_list *list,
+        VkCommandBuffer vk_command_buffer, uint32_t binding, uint32_t heap_index);
 
 #define VKD3D_DESCRIPTOR_HEAP_META_PUSH_DATA_OFFSET 64
 

@@ -5360,6 +5360,25 @@ void d3d12_command_list_meta_push_data(struct d3d12_command_list *list,
     }
 }
 
+void d3d12_command_list_meta_push_descriptor_index(struct d3d12_command_list *list,
+        VkCommandBuffer vk_command_buffer, uint32_t binding, uint32_t heap_index)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkPushDataInfoEXT push;
+    memset(&push, 0, sizeof(push));
+    push.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
+    push.data.address = &heap_index;
+    push.data.size = sizeof(heap_index);
+    push.offset = VKD3D_DESCRIPTOR_HEAP_META_PUSH_DATA_OFFSET + binding * sizeof(uint32_t);
+
+    /* We don't go through meta heap path if the currently bound heap is invalid. */
+    assert(!list->descriptor_heap.buffers.global_heap_dirty);
+
+    /* Don't bother invalidating root parameters, that's done in push_data
+     * and we never do push_descriptor_index in complete isolation. */
+    VK_CALL(vkCmdPushDataEXT(vk_command_buffer, &push));
+}
+
 static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list *list)
 {
     /* TODO allocate arrays from command allocator in case
