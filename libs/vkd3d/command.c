@@ -7139,16 +7139,49 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
                 list->rt_state->pipelines[i].global_root_signature,
                 list->compute_bindings.root_signature))
         {
-            /* We might have degenerate variants. */
+            /* We might have degenerate variants with no compiled pipeline.
+             * Skip them and continue searching for a valid one. */
             if (list->rt_state->pipelines[i].pipeline)
+            {
                 list->rt_state_variant = &list->rt_state->pipelines[i];
-            break;
+                break;
+            }
         }
     }
 
     if (!list->rt_state_variant)
     {
-        WARN("Global root signature compatible with the RTPSO.\n");
+        /* Some applications (e.g. RT64) call DispatchRays without explicitly calling
+         * SetComputeRootSignature, relying on the RTPSO's embedded global root signature.
+         * Native D3D12 drivers handle this implicitly. When the bound root signature is
+         * NULL or empty, fall back to the first variant with a valid pipeline and
+         * implicitly bind its global root signature for correct descriptor layout. */
+        if (!list->compute_bindings.root_signature ||
+                list->compute_bindings.root_signature->layout_compatibility_hash == 0)
+        {
+            for (i = 0; i < list->rt_state->pipelines_count; i++)
+            {
+                if (list->rt_state->pipelines[i].pipeline)
+                {
+                    WARN("No compute root signature bound for DispatchRays, "
+                            "falling back to RTPSO variant %u.\n", i);
+                    list->rt_state_variant = &list->rt_state->pipelines[i];
+
+                    list->compute_bindings.root_signature = list->rt_state_variant->global_root_signature;
+                    if (list->rt_state_variant->global_root_signature)
+                        list->compute_bindings.static_sampler_set =
+                                list->rt_state_variant->global_root_signature->vk_sampler_set;
+                    d3d12_command_list_invalidate_root_parameters(list,
+                            &list->compute_bindings, true, NULL);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!list->rt_state_variant)
+    {
+        WARN("Global root signature not compatible with the RTPSO.\n");
         return false;
     }
 
