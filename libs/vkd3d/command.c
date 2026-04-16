@@ -17886,8 +17886,8 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
 
     if (src->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
-        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
-                VKD3D_SAMPLER_FEEDBACK_RESOLVE_BUFFER_TO_MIN_MIP, &pipeline_info, false);
+        uint32_t src_index = UINT32_MAX, dst_index = UINT32_MAX;
+        bool use_heap;
 
         dst_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 
@@ -17903,18 +17903,37 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
         src_buffer_view_desc.offset = src->mem.offset;
         src_buffer_view_desc.buffer = src->res.vk_buffer;
 
-        if (!vkd3d_create_buffer_view(list->device, &src_buffer_view_desc, &src_view))
-            goto cleanup;
-        if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view))
-            goto cleanup;
+        dst_index = d3d12_command_list_allocate_meta_image_view(list, &dst_view_desc, VK_IMAGE_LAYOUT_GENERAL);
+        src_index = d3d12_command_list_allocate_meta_buffer_view(list,
+            src->res.va, src_buffer_view_desc.size, VK_FORMAT_R8_UINT);
 
-        vk_image_info[0].imageView = dst_view->vk_image_view;
+        use_heap = src_index != UINT32_MAX && dst_index != UINT32_MAX;
 
-        vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-        vk_descriptor_writes[1].dstBinding = 2;
-        vk_descriptor_writes[1].pTexelBufferView = &src_view->vk_buffer_view;
-        vk_descriptor_writes[1].descriptorCount = 1;
+        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
+                VKD3D_SAMPLER_FEEDBACK_RESOLVE_BUFFER_TO_MIN_MIP, &pipeline_info, use_heap);
+
+        if (use_heap)
+        {
+            d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 0, dst_index);
+            d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 2, src_index);
+        }
+        else
+        {
+            if (!vkd3d_create_buffer_view(list->device, &src_buffer_view_desc, &src_view))
+                goto cleanup;
+            if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view))
+                goto cleanup;
+
+            vk_image_info[0].imageView = dst_view->vk_image_view;
+
+            vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            vk_descriptor_writes[1].dstBinding = 2;
+            vk_descriptor_writes[1].pTexelBufferView = &src_view->vk_buffer_view;
+            vk_descriptor_writes[1].descriptorCount = 1;
+            VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
+        }
 
         /* MinMip does not support rect semantics, so go ahead. */
 
@@ -17923,11 +17942,10 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
 
         VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 pipeline_info.vk_pipeline));
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
+
         d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
-                pipeline_info.vk_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
+                pipeline_info.vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                sizeof(args), &args);
 
         extent.width = vkd3d_compute_workgroup_count(extent.width,
                 vkd3d_meta_get_sampler_feedback_workgroup_size().width);
@@ -17947,10 +17965,8 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
     }
     else
     {
-        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
-                dst->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ?
-                        VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIN_MIP :
-                        VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIP_USED, &pipeline_info, false);
+        uint32_t src_index = UINT32_MAX, dst_index = UINT32_MAX;
+        bool use_heap;
 
         memset(&src_image_view_desc, 0, sizeof(src_image_view_desc));
         src_image_view_desc.image = src->res.vk_image;
@@ -18021,21 +18037,45 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
         dep_info.pImageMemoryBarriers = &vk_image_barrier;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-        if (!vkd3d_create_texture_view(list->device, &src_image_view_desc, &src_view))
-            goto cleanup;
-        if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view))
-            goto cleanup;
+        dst_index = d3d12_command_list_allocate_meta_image_view(list, &dst_view_desc, VK_IMAGE_LAYOUT_GENERAL);
+        src_index = d3d12_command_list_allocate_meta_image_view(list, &src_image_view_desc,
+                d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+        use_heap = src_index != UINT32_MAX && dst_index != UINT32_MAX;
 
-        vk_image_info[0].imageView = dst_view->vk_image_view;
-        vk_image_info[1].imageView = src_view->vk_image_view;
-        vk_image_info[1].sampler = VK_NULL_HANDLE;
-        vk_image_info[1].imageLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
+                dst->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ?
+                VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIN_MIP :
+                VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIP_USED, &pipeline_info, use_heap);
 
-        vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        vk_descriptor_writes[1].dstBinding = 1;
-        vk_descriptor_writes[1].pImageInfo = &vk_image_info[1];
-        vk_descriptor_writes[1].descriptorCount = 1;
+        if (use_heap)
+        {
+            d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 0, dst_index);
+            d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 1, src_index);
+        }
+        else
+        {
+            if (!vkd3d_create_texture_view(list->device, &src_image_view_desc, &src_view))
+                goto cleanup;
+            if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view))
+                goto cleanup;
+
+            vk_image_info[0].imageView = dst_view->vk_image_view;
+            vk_image_info[1].imageView = src_view->vk_image_view;
+            vk_image_info[1].sampler = VK_NULL_HANDLE;
+            vk_image_info[1].imageLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            vk_descriptor_writes[1].dstBinding = 1;
+            vk_descriptor_writes[1].pImageInfo = &vk_image_info[1];
+            vk_descriptor_writes[1].descriptorCount = 1;
+
+            VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
+        }
+
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                pipeline_info.vk_pipeline));
 
         if (dst->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
         {
@@ -18080,13 +18120,9 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
             args.resolve_width = transcoded_width;
             args.resolve_height = transcoded_height;
 
-            VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    pipeline_info.vk_pipeline));
-            VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
             d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
-                    pipeline_info.vk_layout,
-                    VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
+                    pipeline_info.vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                    sizeof(args), &args);
 
             extent.width = vkd3d_compute_workgroup_count(args.resolve_width,
                     vkd3d_meta_get_sampler_feedback_workgroup_size().width);
@@ -18123,8 +18159,10 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 
-    d3d12_command_allocator_add_view(list->allocator, src_view);
-    d3d12_command_allocator_add_view(list->allocator, dst_view);
+    if (src_view)
+        d3d12_command_allocator_add_view(list->allocator, src_view);
+    if (dst_view)
+        d3d12_command_allocator_add_view(list->allocator, dst_view);
 
     /* Resolve does not count as a placed initialization,
      * so don't try to be clever here and compute writes_full_subresource.
@@ -18239,12 +18277,12 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
     if (dst->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
+        uint32_t src_index = UINT32_MAX, dst_index = UINT32_MAX;
+        bool use_heap;
+
         vk_image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         vk_image_barrier[0].subresourceRange.layerCount = src_view_desc.layer_count;
         vk_image_barrier[0].subresourceRange.levelCount = src_view_desc.miplevel_count;
-
-        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
-                VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER, &pipeline_info, false);
 
         src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
 
@@ -18260,18 +18298,37 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         dst_buffer_view_desc.offset = dst->mem.offset;
         dst_buffer_view_desc.buffer = dst->res.vk_buffer;
 
-        if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
-            goto cleanup;
-        if (!vkd3d_create_buffer_view(list->device, &dst_buffer_view_desc, &dst_view))
-            goto cleanup;
+        src_index = d3d12_command_list_allocate_meta_image_view(list,
+                &src_view_desc, d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+        dst_index = d3d12_command_list_allocate_meta_buffer_view(list,
+                dst->res.va, dst_buffer_view_desc.size, VK_FORMAT_R8_UINT);
+        use_heap = src_index != UINT32_MAX && dst_index != UINT32_MAX;
 
-        vk_image_info.imageView = src_view->vk_image_view;
+        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
+                VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER, &pipeline_info, use_heap);
 
-        vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-        vk_descriptor_writes[1].dstBinding = 0;
-        vk_descriptor_writes[1].pTexelBufferView = &dst_view->vk_buffer_view;
-        vk_descriptor_writes[1].descriptorCount = 1;
+        if (use_heap)
+        {
+            d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 0, dst_index);
+            d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 1, src_index);
+        }
+        else
+        {
+            if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+                goto cleanup;
+            if (!vkd3d_create_buffer_view(list->device, &dst_buffer_view_desc, &dst_view))
+                goto cleanup;
+
+            vk_image_info.imageView = src_view->vk_image_view;
+
+            vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+            vk_descriptor_writes[1].dstBinding = 0;
+            vk_descriptor_writes[1].pTexelBufferView = &dst_view->vk_buffer_view;
+            vk_descriptor_writes[1].descriptorCount = 1;
+            VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
+        }
 
         args.resolve_width = extent.width;
         args.resolve_height = extent.height;
@@ -18296,11 +18353,10 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
         VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 pipeline_info.vk_pipeline));
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
+
         d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
-                pipeline_info.vk_layout,
-                VK_SHADER_STAGE_COMPUTE_BIT, sizeof(args), &args);
+                pipeline_info.vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                sizeof(args), &args);
 
         extent.width = vkd3d_compute_workgroup_count(extent.width,
                 vkd3d_meta_get_sampler_feedback_workgroup_size().width);
@@ -18321,17 +18377,14 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         vk_image_barrier[0].dstAccessMask = 0;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-        d3d12_command_allocator_add_view(list->allocator, src_view);
-        d3d12_command_allocator_add_view(list->allocator, dst_view);
+        if (src_view)
+            d3d12_command_allocator_add_view(list->allocator, src_view);
+        if (dst_view)
+            d3d12_command_allocator_add_view(list->allocator, dst_view);
     }
     else
     {
         vk_image_barrier[0].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-
-        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
-                src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ?
-                        VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE :
-                        VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE, &pipeline_info, false);
 
         memset(&dst_image_view_desc, 0, sizeof(dst_image_view_desc));
         dst_image_view_desc.image = dst->res.vk_image;
@@ -18447,6 +18500,9 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
         for (i = 0; i < num_mip_iterations; i++)
         {
+            uint32_t src_index = UINT32_MAX;
+            bool use_heap;
+
             if (dst_view)
             {
                 vkd3d_view_decref(dst_view, list->device);
@@ -18459,10 +18515,30 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
                 src_view = NULL;
             }
 
-            if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
-                goto cleanup;
+            src_index = d3d12_command_list_allocate_meta_image_view(list, &src_view_desc,
+                    d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+            use_heap = src_index != UINT32_MAX;
+
+            vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
+                    src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ?
+                    VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE :
+                    VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE, &pipeline_info, use_heap);
+
             if (!vkd3d_create_texture_view(list->device, &dst_image_view_desc, &dst_view))
                 goto cleanup;
+
+            if (use_heap)
+            {
+                d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 1, src_index);
+            }
+            else
+            {
+                if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+                    goto cleanup;
+                vk_image_info.imageView = src_view->vk_image_view;
+                VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        pipeline_info.vk_layout, 0, 1, vk_descriptor_writes));
+            }
 
             /* Transcoded output doesn't have to cover everything. Cover minimum. */
             extent = d3d12_resource_desc_get_subresource_extent(&dst->desc, dst->format, dst_image_view_desc.miplevel_idx);
@@ -18499,25 +18575,26 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             viewport.width = (float)rendering_info.renderArea.extent.width;
             viewport.height = (float)rendering_info.renderArea.extent.height;
 
-            vk_image_info.imageView = src_view->vk_image_view;
-
             VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &rendering_info));
             VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     pipeline_info.vk_pipeline));
             VK_CALL(vkCmdSetViewport(list->cmd.vk_command_buffer, 0, 1, &viewport));
             VK_CALL(vkCmdSetScissor(list->cmd.vk_command_buffer, 0, 1, &rendering_info.renderArea));
-            VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    pipeline_info.vk_layout, 0, 1, vk_descriptor_writes));
+
             d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
-                    pipeline_info.vk_layout,
-                    VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(args), &args);
+                    pipeline_info.vk_layout, VK_SHADER_STAGE_FRAGMENT_BIT,
+                    sizeof(args), &args);
+
             VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, dst_image_view_desc.layer_count, 0, 0));
             VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
 
             dst_image_view_desc.miplevel_idx++;
             args.mip_level++;
-            d3d12_command_allocator_add_view(list->allocator, src_view);
-            d3d12_command_allocator_add_view(list->allocator, dst_view);
+
+            if (src_view)
+                d3d12_command_allocator_add_view(list->allocator, src_view);
+            if (dst_view)
+                d3d12_command_allocator_add_view(list->allocator, dst_view);
         }
 
         vk_image_barrier[0].srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
