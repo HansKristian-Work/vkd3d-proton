@@ -302,7 +302,6 @@ decl_test(test_buffers_oob_behavior_vectorized_structured_16bit);
 decl_test(test_typed_buffers_many_objects_dxbc);
 decl_test(test_typed_buffers_many_objects_dxil);
 decl_test(test_create_pipeline_with_null_root_signature);
-decl_test(test_undefined_descriptor_heap_mismatch_types);
 decl_test(test_undefined_read_typed_buffer_as_untyped_simple_dxbc);
 decl_test(test_undefined_read_typed_buffer_as_untyped_simple_dxil);
 decl_test(test_undefined_structured_raw_alias_dxbc);
