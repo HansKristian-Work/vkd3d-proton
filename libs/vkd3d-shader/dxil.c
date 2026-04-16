@@ -157,6 +157,7 @@ struct vkd3d_dxil_remap_info
     unsigned int min_ssbo_alignment;
     vkd3d_shader_quirks_t quirks;
     bool skip_heap_lowering;
+    bool local_root_signature;
 };
 
 static dxil_spv_bool dxil_remap_inner(
@@ -232,7 +233,11 @@ static dxil_spv_bool dxil_remap_inner(
                         !(binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA))
                     {
                         vk_binding->bindless.use_heap = DXIL_SPV_FALSE;
-                        vk_binding->set = VKD3D_SHADER_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE + binding->descriptor_table;
+                        if (remap->local_root_signature)
+                            vk_binding->set = VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE;
+                        else
+                            vk_binding->set = VKD3D_SHADER_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE;
+                        vk_binding->set += binding->descriptor_table;
                         vk_binding->binding = vk_binding->bindless.heap_root_offset;
                     }
                     else
@@ -303,6 +308,7 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
     remap_info.min_ssbo_alignment = shader_interface_info->min_ssbo_alignment;
     remap_info.quirks = remap->quirks;
     remap_info.skip_heap_lowering = remap->skip_heap_lowering;
+    remap_info.local_root_signature = false;
 
     if (!dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags))
     {
@@ -316,8 +322,16 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
             /* Not relevant. */
             remap_info.descriptor_table_offset_words = 0;
             remap_info.num_root_descriptors = 0;
-            /* TODO: Remove this. */
-            remap_info.skip_heap_lowering = true;
+            remap_info.local_root_signature = true;
+
+            /* For local table UAVs, we have to be conservative since we globally
+             * opted into legacy-style remapping. */
+            if (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV &&
+                shader_interface_info->raw_uav_counter_offset != 0)
+            {
+                remap_info.skip_heap_lowering = true;
+            }
+
             return dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags);
         }
         else
@@ -1636,8 +1650,10 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
+    bool root_desc_heap_lowering;
     vkd3d_shader_quirks_t quirks;
     unsigned int i, j, max_size;
+    bool table_heap_lowering;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
     void *code;
@@ -1705,6 +1721,12 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         if (vkd3d_shader_binding_is_root_descriptor(&shader_interface_info->bindings[i]))
             num_root_descriptors++;
 
+    table_heap_lowering =
+            !!(shader_interface_info->flags & VKD3D_SHADER_INTERFACE_HEAP_LOWERING) &&
+            !(quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS);
+    root_desc_heap_lowering =
+            !!(shader_interface_info->flags & VKD3D_SHADER_INTERFACE_HEAP_LOWERING);
+
     /* Push local root parameters. We cannot rely on callbacks here
      * since the local root signature has a physical layout in ShaderRecordKHR
      * which needs to be precisely specified up front. */
@@ -1714,6 +1736,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         switch (root_parameter->parameter_type)
         {
             case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                /* Always lower to shader record buffer for these. Concerns about OOB behavior on root CBVs. */
                 record_constant_buffer =
                         &shader_interface_local_info->shader_record_constant_buffers[root_parameter->constant.constant_index];
                 dxil_spv_converter_add_local_root_constants(converter,
@@ -1722,6 +1745,9 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            {
+                bool has_entry = false;
+
                 if (dxil_spv_converter_begin_local_root_descriptor_table(converter) != DXIL_SPV_SUCCESS)
                 {
                     ret = VKD3D_ERROR_INVALID_ARGUMENT;
@@ -1732,6 +1758,20 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                 {
                     dxil_spv_resource_class resource_class;
                     resource_binding = &root_parameter->descriptor_table.first_binding[j];
+
+                    if (resource_binding->type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV)
+                    {
+                        /* For bindless UAV counters we risk having to force lowering.
+                         * If that lowering means raw VA shenanigans, we have to force shader record
+                         * table path for all UAVs just in case. */
+                        if (table_heap_lowering && shader_interface_info->raw_uav_counter_offset == 0)
+                            continue;
+                    }
+                    else
+                    {
+                        if (table_heap_lowering)
+                            continue;
+                    }
 
                     switch (resource_binding->type)
                     {
@@ -1760,6 +1800,15 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                             resource_class,
                             resource_binding->register_space, resource_binding->register_index,
                             resource_binding->register_count, resource_binding->descriptor_offset);
+
+                    has_entry = true;
+                }
+
+                if (!has_entry)
+                {
+                    /* Dummy parameters to make dxil-spirv happy. These are mapped with proper API elsewhere. */
+                    dxil_spv_converter_add_local_root_descriptor_table(converter,
+                            DXIL_SPV_RESOURCE_CLASS_UAV, UINT32_MAX, 0, 0, 0);
                 }
 
                 if (dxil_spv_converter_end_local_root_descriptor_table(converter) != DXIL_SPV_SUCCESS)
@@ -1768,23 +1817,51 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                     goto end;
                 }
                 break;
+            }
 
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
-                dxil_spv_converter_add_local_root_descriptor(converter,
-                        DXIL_SPV_RESOURCE_CLASS_CBV, root_parameter->descriptor.binding->register_space,
-                        root_parameter->descriptor.binding->register_index);
+                if (root_desc_heap_lowering)
+                {
+                    /* Dummy parameters to make dxil-spirv happy. These are mapped with proper API elsewhere. */
+                    dxil_spv_converter_add_local_root_descriptor(converter,
+                            DXIL_SPV_RESOURCE_CLASS_SAMPLER, UINT32_MAX, UINT32_MAX);
+                }
+                else
+                {
+                    dxil_spv_converter_add_local_root_descriptor(converter,
+                            DXIL_SPV_RESOURCE_CLASS_CBV, root_parameter->descriptor.binding->register_space,
+                            root_parameter->descriptor.binding->register_index);
+                }
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
-                dxil_spv_converter_add_local_root_descriptor(converter,
-                        DXIL_SPV_RESOURCE_CLASS_SRV, root_parameter->descriptor.binding->register_space,
-                        root_parameter->descriptor.binding->register_index);
+                if (root_desc_heap_lowering && shader_interface_info->min_ssbo_alignment == 1)
+                {
+                    /* If we risk having to fallback to raw BDA due to alignment rules, we just force BDA path. */
+                    dxil_spv_converter_add_local_root_descriptor(converter,
+                            DXIL_SPV_RESOURCE_CLASS_SAMPLER, UINT32_MAX, UINT32_MAX);
+                }
+                else
+                {
+                    dxil_spv_converter_add_local_root_descriptor(converter,
+                            DXIL_SPV_RESOURCE_CLASS_SRV, root_parameter->descriptor.binding->register_space,
+                            root_parameter->descriptor.binding->register_index);
+                }
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                dxil_spv_converter_add_local_root_descriptor(converter,
-                        DXIL_SPV_RESOURCE_CLASS_UAV, root_parameter->descriptor.binding->register_space,
-                        root_parameter->descriptor.binding->register_index);
+                if (root_desc_heap_lowering && shader_interface_info->min_ssbo_alignment == 1)
+                {
+                    /* If we risk having to fallback to raw BDA due to alignment rules, we just force BDA path. */
+                    dxil_spv_converter_add_local_root_descriptor(converter,
+                            DXIL_SPV_RESOURCE_CLASS_SAMPLER, UINT32_MAX, UINT32_MAX);
+                }
+                else
+                {
+                    dxil_spv_converter_add_local_root_descriptor(converter,
+                            DXIL_SPV_RESOURCE_CLASS_UAV, root_parameter->descriptor.binding->register_space,
+                            root_parameter->descriptor.binding->register_index);
+                }
                 break;
 
             default:
