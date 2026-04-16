@@ -2491,9 +2491,10 @@ static void test_raytracing_local_rs_static_sampler_inner(bool use_libraries)
         rt_pso_factory_add_global_root_signature(&factory, global_rs);
         rt_pso_factory_add_dxil_library(&factory, get_static_sampler_rt_lib(), ARRAY_SIZE(export_descs), export_descs);
         rt_pso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
-        /* Currently, we expect this to fail on vkd3d-proton since the local sampler sets definitions diverge
+        /* With heap, we expect this to fail on vkd3d-proton since the local sampler sets definitions diverge
          * in the different collections. */
-        todo ok(!!rt_pso, "Failed to compile RTPSO.\n");
+        todo_if(!is_vk_device_extension_supported(context.context.device, "VK_EXT_descriptor_heap"))
+        ok(!!rt_pso, "Failed to compile RTPSO.\n");
         for (i = 0; i < 2; i++)
             ID3D12StateObject_Release(collections[i]);
 
