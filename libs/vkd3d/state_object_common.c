@@ -217,4 +217,25 @@ const struct d3d12_state_object_association *d3d12_state_object_find_association
     return association;
 }
 
+struct vkd3d_fused_root_signature_mappings *d3d12_state_object_fuse_root_signature_mappings(
+    struct d3d12_root_signature *global, struct d3d12_root_signature *local)
+{
+    /* Need a fused mapping table. */
+    uint32_t num_mappings = global->heap.mapping_info.mappingCount + local->heap.mapping_info.mappingCount;
+    struct vkd3d_fused_root_signature_mappings *fused;
 
+    fused = vkd3d_calloc(1, offsetof(struct vkd3d_fused_root_signature_mappings, mappings) +
+            num_mappings * sizeof(VkDescriptorSetAndBindingMappingEXT));
+    fused->mapping_info.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+    fused->mapping_info.mappingCount = num_mappings;
+    fused->mapping_info.pMappings = fused->mappings;
+
+    memcpy(fused->mappings, global->heap.mapping_info.pMappings,
+            global->heap.mapping_info.mappingCount * sizeof(*fused->mappings));
+
+    memcpy(fused->mappings + global->heap.mapping_info.mappingCount,
+            local->heap.mapping_info.pMappings,
+            local->heap.mapping_info.mappingCount * sizeof(*fused->mappings));
+
+    return fused;
+}
