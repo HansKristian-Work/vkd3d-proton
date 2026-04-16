@@ -316,6 +316,8 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
             /* Not relevant. */
             remap_info.descriptor_table_offset_words = 0;
             remap_info.num_root_descriptors = 0;
+            /* TODO: Remove this. */
+            remap_info.skip_heap_lowering = true;
             return dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags);
         }
         else
