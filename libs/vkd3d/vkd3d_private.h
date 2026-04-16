@@ -6248,6 +6248,15 @@ HRESULT d3d12_rt_state_object_add(struct d3d12_device *device, const D3D12_STATE
         struct d3d12_rt_state_object *parent,
         struct d3d12_rt_state_object **object);
 
+struct vkd3d_fused_root_signature_mappings
+{
+    VkShaderDescriptorSetAndBindingMappingInfoEXT mapping_info;
+    VkDescriptorSetAndBindingMappingEXT mappings[];
+};
+
+struct vkd3d_fused_root_signature_mappings *d3d12_state_object_fuse_root_signature_mappings(
+        struct d3d12_root_signature *global, struct d3d12_root_signature *local);
+
 static inline struct d3d12_rt_state_object *rt_impl_from_ID3D12StateObject(ID3D12StateObject *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_rt_state_object, ID3D12StateObject_iface);
