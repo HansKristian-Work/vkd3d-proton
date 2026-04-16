@@ -10452,6 +10452,15 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
         key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.supports_universal_structured_ssbo);
         key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.uav_counter_embedded_offset);
         key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.min_ssbo_alignment);
+
+        /* We only get to know this very late after we've checked quirk override files and workaround setup. */
+        if (!d3d12_descriptor_heap_require_padding_descriptors(device) &&
+                !device->bindless_state.heap.uav_counter_embedded_offset)
+        {
+            INFO("Disabling heap redzone.\n");
+            device->bindless_state.heap.redzone_size = 0;
+        }
+
         key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.redzone_size);
     }
     else
