@@ -10197,7 +10197,8 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
 
 bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *device)
 {
-    uint32_t quirks;
+    vkd3d_shader_quirks_t aux_quirks;
+    vkd3d_shader_quirks_t quirks;
     unsigned int i;
 
     if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
@@ -10208,6 +10209,9 @@ bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *devi
     quirks = device->workarounds.quirks.default_quirks | device->workarounds.quirks.global_quirks;
     for (i = 0; i < device->workarounds.quirks.num_entry_points; i++)
         quirks |= device->workarounds.quirks.entry_points[i].quirks;
+
+    vkd3d_shader_get_revision(&aux_quirks);
+    quirks |= aux_quirks;
     return !!(quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS);
 }
 
