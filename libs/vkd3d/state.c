@@ -8108,6 +8108,11 @@ static HRESULT vkd3d_bindless_state_init_heap(struct vkd3d_bindless_state *bindl
     bindless_state->flags |= VKD3D_BINDLESS_MUTABLE_EMBEDDED | VKD3D_BINDLESS_HEAP | VKD3D_BINDLESS_RAW_SSBO |
             VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV | VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV;
 
+    INFO("VK_EXT_descriptor_heap enabled (%zu / %zu size, raw uav counter %s).\n",
+        bindless_state->cbv_srv_uav_size,
+        bindless_state->sampler_size,
+        (bindless_state->heap.uav_counter_embedded_offset ? "on" : "off"));
+
     return S_OK;
 }
 
