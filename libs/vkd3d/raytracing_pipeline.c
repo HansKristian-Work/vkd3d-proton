@@ -1899,11 +1899,16 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     VkPipelineLibraryCreateInfoKHR library_info;
     size_t local_static_sampler_bindings_count;
     size_t local_static_sampler_bindings_size;
+    VkPipelineCreateFlags2CreateInfo flags2;
     VkPipelineShaderStageCreateInfo *stage;
     uint32_t pgroup_offset, pstage_offset;
     unsigned int num_groups_to_export;
+    size_t scratch_allocs_count = 0;
+    size_t scratch_allocs_size = 0;
     struct vkd3d_shader_code spirv;
     struct vkd3d_shader_code dxil;
+    void **scratch_allocs = NULL;
+    bool creating_library;
     size_t i, j;
     VkResult vr;
     HRESULT hr;
@@ -1936,6 +1941,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
 
     shader_interface_info.descriptor_size_cbv_srv_uav = d3d12_device_get_descriptor_handle_increment_size(
             object->device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    shader_interface_info.raw_uav_counter_offset = object->device->bindless_state.heap.uav_counter_embedded_offset;
     shader_interface_info.descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
             object->device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
@@ -2028,7 +2034,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
             shader_interface_local_info.shader_record_constant_buffers = local_signature->root_constants;
             shader_interface_local_info.shader_record_buffer_count = local_signature->root_constant_count;
 
-            if (local_signature->static_sampler_count)
+            if (!d3d12_device_use_descriptor_heap(object->device) && local_signature->static_sampler_count)
             {
                 /* If we have static samplers, we need to add additional bindings. */
                 shader_interface_local_info.binding_count = local_signature->binding_count + local_signature->static_sampler_count;
@@ -2047,6 +2053,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
             }
             else
             {
+                /* Heap already bakes in static sampler binding information at root signature time. */
                 shader_interface_local_info.bindings = local_signature->bindings;
                 shader_interface_local_info.binding_count = local_signature->binding_count;
             }
@@ -2129,6 +2136,35 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
         stage->module = VK_NULL_HANDLE;
         stage->pName = "main";
         stage->pSpecializationInfo = NULL;
+
+        if (d3d12_device_use_descriptor_heap(object->device))
+        {
+            /* Need mapping structs. This is rather rare, so don't refactor a bunch of stuff
+             * to support inline append these mappings. */
+            struct d3d12_root_signature *empty_rs = NULL;
+            if (!per_entry_global_signature && local_signature)
+                if (FAILED(d3d12_root_signature_create_empty(object->device, &empty_rs)))
+                    return E_OUTOFMEMORY;
+
+            if (local_signature)
+            {
+                /* Need a fused mapping table. */
+                struct vkd3d_fused_root_signature_mappings *fused =
+                        d3d12_state_object_fuse_root_signature_mappings(
+                            empty_rs ? empty_rs : per_entry_global_signature, local_signature);
+                vk_prepend_struct(stage, &fused->mapping_info);
+                vkd3d_array_reserve((void **)&scratch_allocs, &scratch_allocs_size,
+                    scratch_allocs_count + 1, sizeof(*scratch_allocs));
+                scratch_allocs[scratch_allocs_count++] = fused;
+            }
+            else if (per_entry_global_signature)
+            {
+                stage->pNext = &per_entry_global_signature->heap.mapping_info;
+            }
+
+            if (empty_rs)
+                ID3D12RootSignature_Release(&empty_rs->ID3D12RootSignature_iface);
+        }
 
         memset(&dxil, 0, sizeof(dxil));
         memset(&spirv, 0, sizeof(spirv));
@@ -2372,7 +2408,8 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
         pstage_offset += collection_variant->stages_count;
     }
 
-    if (local_static_sampler_bindings_count)
+    /* Descriptor heaps deal with local root signature samplers entirely through mappings. */
+    if (!d3d12_device_use_descriptor_heap(object->device) && local_static_sampler_bindings_count)
     {
         uint64_t hash = hash_fnv1_init();
         hash = hash_fnv1_iterate_u32(hash, local_static_sampler_bindings_count);
@@ -2438,6 +2475,8 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
             continue;
 
         collection_variant = &child->pipelines[collection_variant_index];
+
+        /* All of this is irrelevant in descriptor heap since it's all layout-less. */
 
         if (collection_variant->local_static_sampler.pipeline_layout && !variant->local_static_sampler.pipeline_layout)
         {
@@ -2527,21 +2566,34 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     dynamic_state.dynamicStateCount = 1;
     dynamic_state.pDynamicStates = dynamic_states;
 
-    if (d3d12_device_uses_descriptor_buffers(object->device))
+    memset(&flags2, 0, sizeof(flags2));
+    flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+    creating_library = !!(pipeline_create_info.flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR);
+
+    if (d3d12_device_use_descriptor_heap(object->device))
+    {
+        flags2.flags = pipeline_create_info.flags | VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+        pipeline_create_info.flags = 0;
+        vk_prepend_struct(&pipeline_create_info, &flags2);
+    }
+    else if (d3d12_device_uses_descriptor_buffers(object->device))
+    {
         pipeline_create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    }
 
     TRACE("Calling vkCreateRayTracingPipelinesKHR.\n");
 
     vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
             VK_NULL_HANDLE, 1, &pipeline_create_info, NULL,
-            (pipeline_create_info.flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR) ?
-                    &variant->pipeline_library : &variant->pipeline));
+            creating_library ? &variant->pipeline_library : &variant->pipeline));
 
     if (vr == VK_SUCCESS && (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS) &&
             object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
     {
         /* It is valid to inherit pipeline libraries into other pipeline libraries. */
         pipeline_create_info.flags &= ~VK_PIPELINE_CREATE_LIBRARY_BIT_KHR;
+        flags2.flags &= ~VK_PIPELINE_CREATE_2_LIBRARY_BIT_KHR;
+
         pipeline_create_info.pStages = NULL;
         pipeline_create_info.pGroups = NULL;
         pipeline_create_info.stageCount = 0;
@@ -2553,6 +2605,10 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
         vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
                 VK_NULL_HANDLE, 1, &pipeline_create_info, NULL, &variant->pipeline));
     }
+
+    for (i = 0; i < scratch_allocs_count; i++)
+        vkd3d_free(scratch_allocs[i]);
+    vkd3d_free(scratch_allocs);
 
     TRACE("Completed vkCreateRayTracingPipelinesKHR.\n");
 
