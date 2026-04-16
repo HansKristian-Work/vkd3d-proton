@@ -4742,6 +4742,7 @@ void test_undefined_descriptor_heap_mismatch_types(void)
     ID3D12Resource *buf;
     float float_value;
     unsigned int i, j;
+    bool heap;
 
 #include "shaders/descriptors/headers/undefined_descriptor_heap_mismatch_types_srv_raw.h"
 #include "shaders/descriptors/headers/undefined_descriptor_heap_mismatch_types_srv_tex.h"
@@ -4900,6 +4901,8 @@ void test_undefined_descriptor_heap_mismatch_types(void)
              is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap")) &&
             ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) == 32;
 
+    heap = is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap");
+
     for (j = 0; j < TYPE_COUNT; j++)
     {
         for (i = 0; i < TYPE_COUNT; i++)
@@ -4943,6 +4946,12 @@ void test_undefined_descriptor_heap_mismatch_types(void)
                 else if ((access_type == SRV_RAW_BUFFER || access_type == UAV_RAW_BUFFER) && descriptor_type == CBV)
                 {
                     skip("Skipping CBV accessed as raw buffer on NVIDIA since it will hang GPU.\n");
+                    continue;
+                }
+
+                if (heap && access_type != descriptor_type && (access_type == CBV || descriptor_type == CBV))
+                {
+                    skip("Skipping CBV mismatch since it will hang GPU.\n");
                     continue;
                 }
             }
