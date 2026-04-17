@@ -10275,15 +10275,15 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
         key = hash_fnv1_iterate_u32(key, device->bindless_state.descriptor_buffer_sampler_size);
     }
 
-    key = hash_fnv1_iterate_u32(key, quirk_info->global_quirks);
-    key = hash_fnv1_iterate_u32(key, quirk_info->default_quirks);
+    key = hash_fnv1_iterate_u64(key, quirk_info->global_quirks);
+    key = hash_fnv1_iterate_u64(key, quirk_info->default_quirks);
     key = hash_fnv1_iterate_u32(key, quirk_info->num_entry_points);
     /* If apps attempt to use the same shader cache with different executables, we might end up with different
      * quirk tables due to app workarounds, so hash that too. */
     for (i = 0; i < quirk_info->num_entry_points; i++)
     {
         key = hash_fnv1_iterate_u64(key, quirk_info->entry_points[i].shader_hash);
-        key = hash_fnv1_iterate_u32(key, quirk_info->entry_points[i].quirks);
+        key = hash_fnv1_iterate_u64(key, quirk_info->entry_points[i].quirks);
         key = hash_fnv1_iterate_string(key, quirk_info->entry_points[i].entry ? quirk_info->entry_points[i].entry : "");
     }
 
