@@ -386,5 +386,89 @@ void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map)
     vkd3d_va_map_cleanup_tree(&va_map->va_tree);
     pthread_mutex_destroy(&va_map->mutex);
     vkd3d_free(va_map->small_entries);
+    vkd3d_free(va_map->resource_mappings);
+    vkd3d_free(va_map->sampler_mappings);
 }
 
+void vkd3d_va_map_insert_descriptor_heap(struct vkd3d_va_map *va_map,
+        uintptr_t va, size_t range, D3D12_DESCRIPTOR_HEAP_TYPE type)
+{
+    struct vkd3d_descriptor_heap_mapping *mapping;
+    pthread_mutex_lock(&va_map->mutex);
+
+    if (type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    {
+        vkd3d_array_reserve((void **)&va_map->resource_mappings, &va_map->resource_mappings_size,
+            va_map->resource_mappings_count + 1, sizeof(*va_map->resource_mappings));
+        mapping = &va_map->resource_mappings[va_map->resource_mappings_count++];
+    }
+    else
+    {
+        vkd3d_array_reserve((void **)&va_map->sampler_mappings, &va_map->sampler_mappings_size,
+            va_map->sampler_mappings_count + 1, sizeof(*va_map->sampler_mappings));
+        mapping = &va_map->sampler_mappings[va_map->sampler_mappings_count++];
+    }
+
+    mapping->va = va;
+    mapping->range = range;
+
+    pthread_mutex_unlock(&va_map->mutex);
+}
+
+void vkd3d_va_map_remove_descriptor_heap(struct vkd3d_va_map *va_map,
+        uintptr_t va, D3D12_DESCRIPTOR_HEAP_TYPE type)
+{
+    size_t i;
+
+    pthread_mutex_lock(&va_map->mutex);
+
+    if (type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    {
+        for (i = 0; i < va_map->resource_mappings_count; i++)
+        {
+            if (va_map->resource_mappings[i].va == va)
+            {
+                va_map->resource_mappings[i] = va_map->resource_mappings[--va_map->resource_mappings_count];
+                break;
+            }
+        }
+    }
+    else
+    {
+        for (i = 0; i < va_map->sampler_mappings_count; i++)
+        {
+            if (va_map->sampler_mappings[i].va == va)
+            {
+                va_map->sampler_mappings[i] = va_map->sampler_mappings[--va_map->sampler_mappings_count];
+                break;
+            }
+        }
+    }
+
+    pthread_mutex_unlock(&va_map->mutex);
+}
+
+size_t vkd3d_va_map_query_descriptor_heap_offset(struct vkd3d_va_map *va_map,
+        uintptr_t va, D3D12_DESCRIPTOR_HEAP_TYPE type)
+{
+    const struct vkd3d_descriptor_heap_mapping *mappings = type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV
+            ? va_map->resource_mappings : va_map->sampler_mappings;
+    size_t count = type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV
+            ? va_map->resource_mappings_count : va_map->sampler_mappings_count;
+    size_t ret = SIZE_MAX;
+    size_t i;
+
+    pthread_mutex_lock(&va_map->mutex);
+
+    for (i = 0; i < count; i++)
+    {
+        if (va >= mappings[i].va && va < mappings[i].va + mappings[i].range)
+        {
+            ret = va - mappings[i].va;
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&va_map->mutex);
+    return ret;
+}
