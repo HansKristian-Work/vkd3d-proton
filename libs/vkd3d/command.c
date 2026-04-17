@@ -7116,6 +7116,9 @@ static bool d3d12_command_list_update_compute_pipeline(struct d3d12_command_list
     return true;
 }
 
+static void d3d12_command_list_set_root_signature(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings, const struct d3d12_root_signature *root_signature);
+
 static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -7155,7 +7158,13 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
          * SetComputeRootSignature, relying on the RTPSO's embedded global root signature.
          * Native D3D12 drivers handle this implicitly. When the bound root signature is
          * NULL or empty, fall back to the first variant with a valid pipeline and
-         * implicitly bind its global root signature for correct descriptor layout. */
+         * implicitly bind its global root signature for correct descriptor layout.
+         *
+         * An RTPSO can have multiple incompatible global root signatures in it,
+         * so we can't really just pick a default in all cases,
+         * but if we're in this path the application is already broken,
+         * so just do what workarounds the buggy app.
+         */
         if (!list->compute_bindings.root_signature ||
                 list->compute_bindings.root_signature->layout_compatibility_hash == 0)
         {
@@ -7166,13 +7175,8 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
                     WARN("No compute root signature bound for DispatchRays, "
                             "falling back to RTPSO variant %u.\n", i);
                     list->rt_state_variant = &list->rt_state->pipelines[i];
-
-                    list->compute_bindings.root_signature = list->rt_state_variant->global_root_signature;
-                    if (list->rt_state_variant->global_root_signature)
-                        list->compute_bindings.static_sampler_set =
-                                list->rt_state_variant->global_root_signature->vk_sampler_set;
-                    d3d12_command_list_invalidate_root_parameters(list,
-                            &list->compute_bindings, true, NULL);
+                    d3d12_command_list_set_root_signature(list,
+                            &list->compute_bindings, list->rt_state_variant->global_root_signature);
                     break;
                 }
             }
