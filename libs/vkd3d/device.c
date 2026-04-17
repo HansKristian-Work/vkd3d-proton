@@ -1296,7 +1296,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"defer_resource_destruction", VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION},
     {"prefer_thin_uav_tiling", VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING},
     {"no_nvx", VKD3D_CONFIG_FLAG_NO_NVX},
-    {"i_want_broken_descriptor_heap", VKD3D_CONFIG_FLAG_DESCRIPTOR_HEAP},
+    {"descriptor_heap", VKD3D_CONFIG_FLAG_DESCRIPTOR_HEAP},
 };
 
 static void vkd3d_config_flags_init_once(void)
