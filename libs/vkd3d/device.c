@@ -3861,7 +3861,8 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
          * Use large 1D texture support as a sentinel for RDNA4.
          * RDNA3 reports 16k. */
         if (device->device_info.properties2.properties.limits.maxImageDimension1D >= 32768 &&
-            !vkd3d_debug_control_is_test_suite())
+            !vkd3d_debug_control_is_test_suite() &&
+            device->device_info.properties2.properties.driverVersion < VK_MAKE_VERSION(26, 1, 0))
         {
             INFO("Nooping SV_ShadingRate on RDNA4 due to unknown HW quirk causing hangs.\n");
             device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE;
