@@ -1049,6 +1049,8 @@ struct vkd3d_shader_node_input_push_signature
     VkDeviceAddress local_root_signature_bda;
     uint32_t node_payload_output_offset;
     uint32_t node_remaining_recursion_levels;
+    /* Used by heap path. */
+    VkDeviceAddress root_parameter_bda;
 };
 
 struct vkd3d_shader_node_input_data
