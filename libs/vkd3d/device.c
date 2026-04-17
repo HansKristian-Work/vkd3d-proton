@@ -6181,6 +6181,8 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView_default(d3d1
     d3d12_desc_create_srv(descriptor.ptr, device, impl_from_ID3D12Resource(resource), desc);
 }
 
+VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
+
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_heap(d3d12_device_iface *iface,
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
@@ -6194,7 +6196,33 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_heap(d3d12_
             device, d3d12_resource_,
             impl_from_ID3D12Resource(counter_resource), desc);
 
-    /* TODO: Plumb d3d12_uav_info through later. */
+    /* d3d12_uav_info stores the pointer to data from previous call to d3d12_device_vkd3d_ext_CaptureUAVInfo().
+     * Below code will update the data. */
+    if (d3d12_uav_info)
+    {
+        /* Buffer VAs are updated in vkd3d_create_buffer_uav_heap since we cannot rely on metadata. */
+
+        if (!desc || desc->ViewDimension != D3D12_UAV_DIMENSION_BUFFER)
+        {
+            d3d12_uav_info->surfaceHandle = d3d12_device_find_shader_visible_descriptor_heap_offset(device, descriptor.ptr,
+                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+            if (d3d12_uav_info->surfaceHandle == UINT32_MAX)
+            {
+                /* Older DLSS DLLs call this on a CPU descriptor heap.
+                 * It's meaningless to report a heap index for these, but those DLLs expect
+                 * the index we return to at least be valid. Just return a dummy index that points
+                 * to the last redzone descriptor. We apparently have to return 0 here for it to work. */
+                d3d12_uav_info->surfaceHandle = 0;
+            }
+
+            /* Is this even used? */
+            d3d12_uav_info->gpuVAStart = 0;
+            d3d12_uav_info->gpuVASize = 0;
+        }
+
+        d3d12_uav_info = NULL;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_embedded(d3d12_device_iface *iface,
@@ -6212,8 +6240,6 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_embedded(d3
 
     /* Unknown at this time if we can support magic d3d12_uav_info with embedded mutable. */
 }
-
-VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_default(d3d12_device_iface *iface,
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
