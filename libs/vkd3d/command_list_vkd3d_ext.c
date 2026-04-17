@@ -86,6 +86,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShaderE
            iface, handle, block_x, block_y, block_z, smem_size, params, param_size, raw_params, raw_params_count);
 
     d3d12_command_list_flush_dgc_batch(command_list);
+    d3d12_command_list_update_global_descriptor_heap(command_list);
 
     if (!handle || !params || !param_size)
         return E_INVALIDARG;
