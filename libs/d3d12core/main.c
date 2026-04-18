@@ -25,6 +25,7 @@
 #ifdef _WIN32
 #include <stdio.h>
 #include "vkd3d_win32.h"
+#include "dxcore_interface.h"
 #endif
 #include "vkd3d_sonames.h"
 #include "vkd3d.h"
@@ -371,6 +372,7 @@ static bool load_modules(void)
 /* TODO: We need to attempt to dlopen() native DXVK DXGI. */
 static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
 {
+    IDXCoreAdapter *dxcore_adapter = NULL;
     IDXGIFactory4 *factory = NULL;
     HRESULT hr;
 
@@ -388,6 +390,39 @@ static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
             goto done;
         }
     }
+    else if (SUCCEEDED(hr = IUnknown_QueryInterface(adapter, &IID_IDXCoreAdapter, (void **)&dxcore_adapter)))
+    {
+        DXGI_ADAPTER_DESC desc;
+        unsigned int i;
+        LUID luid;
+
+        if (FAILED(hr = IDXCoreAdapter_GetProperty(dxcore_adapter, InstanceLuid, sizeof(luid), &luid)))
+        {
+            WARN("Failed to get InstanceLuid property from dxcore adapter, hr %#x.\n", hr);
+            goto done;
+        }
+        if (FAILED(hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory)))
+        {
+            WARN("Failed to create DXGI factory, hr %#x.\n", hr);
+            goto done;
+        }
+        for (i = 0; SUCCEEDED(IDXGIFactory4_EnumAdapters(factory, i, dxgi_adapter)); ++i)
+        {
+            if (FAILED(hr = IDXGIAdapter_GetDesc(*dxgi_adapter, &desc)))
+            {
+                IDXGIAdapter_Release(*dxgi_adapter);
+                *dxgi_adapter = NULL;
+                goto done;
+            }
+            if (!memcmp(&luid, &desc.AdapterLuid, sizeof(luid)))
+                goto done;
+            IDXGIAdapter_Release(*dxgi_adapter);
+        }
+        ERR("Adapter with luid %#lx:%#lx not found.\n", luid.HighPart, luid.LowPart);
+        hr = E_FAIL;
+        *dxgi_adapter = NULL;
+        goto done;
+    }
     else
     {
         if (FAILED(hr = IUnknown_QueryInterface(adapter, &IID_IDXGIAdapter, (void **)dxgi_adapter)))
@@ -400,6 +435,8 @@ static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
 done:
     if (factory)
         IDXGIFactory4_Release(factory);
+    if (dxcore_adapter)
+        IDXCoreAdapter_Release(dxcore_adapter);
 
     return hr;
 }
