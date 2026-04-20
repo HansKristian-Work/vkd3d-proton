@@ -3450,12 +3450,20 @@ struct d3d12_bundle *d3d12_bundle_from_iface(ID3D12GraphicsCommandList *iface);
 
 #define VKD3D_QUEUE_INACTIVE_THRESHOLD_NS (1000000000ull) /* 1s */
 
+struct vkd3d_queue_pending_fence_submission
+{
+    VkFence vk_fence;
+    uint64_t timeline;
+    bool existing_waiter; /* vkWaitForFences is not concurrent in Vulkan. */
+};
+
 struct vkd3d_queue
 {
     /* Access to VkQueue must be externally synchronized. */
     pthread_mutex_t mutex;
 
     VkQueue vk_queue;
+    struct d3d12_device *device;
 
     VkCommandPool barrier_pool;
     VkCommandBuffer barrier_command_buffer;
@@ -3475,6 +3483,19 @@ struct vkd3d_queue
     VkSemaphoreSubmitInfo *wait_semaphores;
     size_t wait_semaphores_size;
     uint32_t wait_count;
+
+    pthread_mutex_t fence_mutex;
+    pthread_cond_t fence_cond;
+
+    struct vkd3d_queue_pending_fence_submission *submissions;
+    size_t submissions_size;
+    size_t submissions_count;
+
+    VkFence *vk_fences;
+    size_t fences_size;
+    size_t fences_count;
+
+    uint64_t cpu_observed_timeline_value;
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue);
@@ -3485,6 +3506,22 @@ void vkd3d_queue_drain(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_release(struct vkd3d_queue *queue);
 void vkd3d_queue_add_wait(struct vkd3d_queue *queue, VkSemaphore semaphore, uint64_t value);
+
+/* For the current submission_timeline_count, returns a VkFence that should be signaled
+ * in the same QueueSubmit that signals submission_timeline_count.
+ * This may be VK_NULL_HANDLE, in which case we either have duplicate submits on the same timeline (should not happen),
+ * or we have disabled that code path for a specific driver.
+ * Must be called with vkd3d_queue_acquire lock held.
+ */
+VkFence vkd3d_queue_get_signal_fence_proxy_locked(struct vkd3d_queue *queue);
+
+/* If we're waiting on submission_timeline, it needs to call this helper instead.
+ * It is only intended to be used by the fence worker thread.
+ * Concurrent waiters could happen when multiple logical queues are used on the same vkd3d_queue.
+ * If a VkFence is associated with the timeline, it will wait on that fence instead.
+ * Must not be called with a timeline value that has not been registered yet.
+ */
+VkResult vkd3d_queue_wait_submission_timeline(struct vkd3d_queue *queue, uint64_t timeline, uint64_t timeout);
 
 enum vkd3d_submission_type
 {
