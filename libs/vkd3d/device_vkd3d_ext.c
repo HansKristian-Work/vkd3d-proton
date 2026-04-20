@@ -861,20 +861,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
         WARN("FrameID is 0. Not a valid present ID.\n");
         return S_OK;
     }
-    else if (frameID >= (UINT64_MAX >> 1) / VKD3D_LOW_LATENCY_FRAME_ID_STRIDE)
-    {
-        /* Don't allow the frame ID to be set to the upper half of present ID space.
-         * We risk that swapchain runs out of IDs to increment if we allow application to set a present ID
-         * that is close enough to UINT64_MAX. */
-        WARN("FrameID %"PRIu64" is unexpectedly large. Effective present ID risks overflow. Ignoring.\n", frameID);
-        return S_OK;
-    }
 
     /* Skip ahead. If application does not set frame counter, we'll still internally increment over time to fill in the gap.
      * If application starts to use the frame IDs appropriately again, we'll catch up almost instantly,
      * where low_latency_frame_id should overtake internal present ID counter.
      * Frame marker needs to be device level monotonic. */
-    internal_frame_id = frameID * VKD3D_LOW_LATENCY_FRAME_ID_STRIDE;
+    internal_frame_id = frameID;
 
     switch (vk_marker)
     {

@@ -2692,7 +2692,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (chain->wait_thread.supports_present_wait && !chain->present.present_id_valid && pacing_should_wait)
     {
         /* Ensure present ID is increasing monotonically. */
-        chain->present.present_id = max(chain->present.present_id+1, present_count);
+        chain->present.present_id = max(chain->present.present_id + 1, present_count);
 
         present_id.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
         present_id.pNext = NULL;
@@ -2704,8 +2704,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     else
         use_present_id = false;
 
-    if (chain->queue->device->vk_info.NV_low_latency2
-        && chain->request.low_latency_frame_id)
+    if (chain->queue->device->vk_info.NV_low_latency2 && chain->request.low_latency_frame_id)
     {
         dxgi_vk_swap_chain_set_latency_marker(chain, chain->request.low_latency_frame_id,
                 VK_LATENCY_MARKER_OUT_OF_BAND_PRESENT_START_NV, false);
@@ -2717,8 +2716,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     VKD3D_REGION_END(queue_present);
     vkd3d_queue_release(chain->queue->vkd3d_queue);
 
-    if (chain->queue->device->vk_info.NV_low_latency2
-        && chain->request.low_latency_frame_id)
+    if (chain->queue->device->vk_info.NV_low_latency2 && chain->request.low_latency_frame_id)
     {
         dxgi_vk_swap_chain_set_latency_marker(chain, chain->request.low_latency_frame_id,
                 VK_LATENCY_MARKER_OUT_OF_BAND_PRESENT_END_NV, false);
@@ -3474,21 +3472,13 @@ void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12
             {
                 D3D12_FRAME_REPORT *report;
 
-                /* If the frame ID isn't a natural aligned value,
-                 * we assume it's a frame that the application never submitted a marker for.
-                 * Non-aligned IDs appear when the monotonicity guard in the present path
-                 * bumps a stale or duplicate low_latency_frame_id (e.g. after a Wayland
-                 * compositor workspace switch stalls presents, or when DLSS Frame Generation
-                 * presents interpolated frames without setting new latency markers).
-                 * Skip these entries rather than discarding all reports, since Streamline's
-                 * sl.dlss_g module checks latency reports to verify Reflex is active and
-                 * will disable Frame Generation if all reports are zeroed. */
-                if (frame_reports[i].presentID % VKD3D_LOW_LATENCY_FRAME_ID_STRIDE != 0 || frame_reports[i].presentID == 0)
+                /* Skip entries with no presentID. This may not actually be necessary. */
+                if (frame_reports[i].presentID == 0)
                     continue;
 
                 report = &latency_results->frame_reports[i];
 
-                report->frameID = frame_reports[i].presentID / VKD3D_LOW_LATENCY_FRAME_ID_STRIDE;
+                report->frameID = frame_reports[i].presentID;
                 report->inputSampleTime = frame_reports[i].inputSampleTimeUs;
                 report->simStartTime = frame_reports[i].simStartTimeUs;
                 report->simEndTime = frame_reports[i].simEndTimeUs;

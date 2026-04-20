@@ -5169,7 +5169,6 @@ struct vkd3d_device_swapchain_info
     };
 };
 
-#define VKD3D_LOW_LATENCY_FRAME_ID_STRIDE 10000
 struct vkd3d_device_frame_markers
 {
     UINT64 render;
