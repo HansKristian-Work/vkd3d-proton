@@ -1704,7 +1704,7 @@ static D3D12_VARIABLE_SHADING_RATE_TIER d3d12_device_determine_variable_shading_
         if (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY &&
             device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
             device->device_info.vulkan_1_3_properties.minSubgroupSize == 32)
-            return D3D12_VARIABLE_SHADING_RATE_TIER_1;
+            return D3D12_VARIABLE_SHADING_RATE_TIER_2;
         else
             return D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
     }
