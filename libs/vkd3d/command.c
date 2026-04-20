@@ -16142,9 +16142,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
          * At most we can hoist the query reset to init_command_buffer. */
         if (d3d12_device_inline_query_resets(list->device))
         {
-            d3d12_command_list_end_current_render_pass(list, true);
             if (d3d12_command_list_track_inline_query_reset(list, query_heap->vk_query_pool, index))
+            {
+                d3d12_command_list_end_current_render_pass(list, true);
                 VK_CALL(vkCmdResetQueryPool(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, 1));
+            }
         }
         else if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
         {
