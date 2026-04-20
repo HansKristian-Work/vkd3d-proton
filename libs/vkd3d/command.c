@@ -6960,6 +6960,25 @@ static void d3d12_command_list_init_default_descriptor_buffers(struct d3d12_comm
     }
 }
 
+static inline bool d3d12_device_inline_query_resets(const struct d3d12_device *device)
+{
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS)
+        return false;
+
+    return device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY;
+}
+
+static bool d3d12_command_list_track_inline_query_reset(struct d3d12_command_list *list,
+                                                        VkQueryPool vk_pool, uint32_t index)
+{
+    size_t pos;
+
+    if (d3d12_command_list_find_query(list, vk_pool, index, &pos))
+        return false;
+
+    d3d12_command_list_insert_query_range(list, &pos, vk_pool, index, 1, 0);
+    return true;
+}
 static void d3d12_command_list_reset_rtv_resolves(struct d3d12_command_list *list)
 {
     list->rtv_resolve_count = 0;
@@ -16064,7 +16083,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 
         /* We're using the query heap directly, so we must reset it on the GPU.
          * At most we can hoist the query reset to init_command_buffer. */
-        if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
+        if (d3d12_device_inline_query_resets(list->device))
+        {
+            if (d3d12_command_list_track_inline_query_reset(list, query_heap->vk_query_pool, index))
+                VK_CALL(vkCmdResetQueryPool(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, 1));
+        }
+        else if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
             VK_CALL(vkCmdResetQueryPool(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, 1));
 
         if (d3d12_query_type_is_indexed(type))
@@ -16116,7 +16140,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
     {
         /* We're using the query heap directly, so we must reset it on the GPU.
          * At most we can hoist the query reset to init_command_buffer. */
-        if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
+        if (d3d12_device_inline_query_resets(list->device))
+        {
+            d3d12_command_list_end_current_render_pass(list, true);
+            if (d3d12_command_list_track_inline_query_reset(list, query_heap->vk_query_pool, index))
+                VK_CALL(vkCmdResetQueryPool(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, 1));
+        }
+        else if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
         {
             d3d12_command_list_end_current_render_pass(list, true);
             VK_CALL(vkCmdResetQueryPool(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, 1));
