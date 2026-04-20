@@ -399,11 +399,21 @@ static VkFence vkd3d_queue_get_or_create_fence_locked(struct vkd3d_queue *queue)
     return vk_fence;
 }
 
+static bool d3d12_device_has_slow_cpu_timeline_semaphores(struct d3d12_device *device)
+{
+    return device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+        !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS);
+}
+
 VkFence vkd3d_queue_get_signal_fence_proxy_locked(struct vkd3d_queue *queue)
 {
     struct vkd3d_queue_pending_fence_submission *submission;
     VkFence vk_fence = VK_NULL_HANDLE;
     size_t i;
+
+    /* Just use normal path. */
+    if (!d3d12_device_has_slow_cpu_timeline_semaphores(queue->device))
+        return VK_NULL_HANDLE;
 
     pthread_mutex_lock(&queue->fence_mutex);
 
@@ -814,10 +824,15 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
         if (vkd3d_config_flags & (VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_FAULT))
             timeout = 5000000000ull;
 
-        if (fence->fence_info.vk_semaphore == queue->vkd3d_queue->submission_timeline)
+        if (d3d12_device_has_slow_cpu_timeline_semaphores(device) &&
+            fence->fence_info.vk_semaphore == queue->vkd3d_queue->submission_timeline)
+        {
             vr = vkd3d_queue_wait_submission_timeline(queue->vkd3d_queue, fence->fence_info.vk_semaphore_value, timeout);
+        }
         else
+        {
             vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, timeout));
+        }
 
         if (vr != VK_SUCCESS)
         {
