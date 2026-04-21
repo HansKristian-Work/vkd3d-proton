@@ -22404,6 +22404,11 @@ static bool d3d12_command_queue_needs_cpu_waits_locked(struct d3d12_command_queu
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT)
         return false;
 
+    /* If we risk massive stalls due to broken timeline semaphores,
+     * it's better to just go ahead. */
+    if (d3d12_device_has_slow_cpu_timeline_semaphores(command_queue->device))
+        return false;
+
     current_time_ns = vkd3d_get_current_time_ns();
 
     for (i = 0; i < command_queue->vkd3d_queue->command_queue_count; i++)
@@ -23299,6 +23304,10 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
         return false;
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT)
+        return false;
+
+    /* Anything that requires spamming CPU waits of timeline semaphores should be banned. */
+    if (d3d12_device_has_slow_cpu_timeline_semaphores(command_queue->device))
         return false;
 
     /* Cannot meaningfully stagger submits if we're doing suspend resume style render passes. */
