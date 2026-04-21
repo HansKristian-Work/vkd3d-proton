@@ -1098,16 +1098,44 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
     request->dxgi_hdr_metadata = chain->user.dxgi_hdr_metadata;
     request->modifies_hdr_metadata = chain->user.modifies_hdr_metadata;
     request->begin_frame_time_ns = chain->user.begin_frame_time_ns;
-    request->low_latency_frame_id = vkd3d_atomic_uint64_load_explicit(
-            &chain->queue->device->frame_markers.present, vkd3d_memory_order_acquire);
-
-    if (chain->debug_latency && request->low_latency_frame_id)
-        INFO("Presenting with low latency frame ID: %"PRIu64".\n", request->low_latency_frame_id);
+    request->low_latency_frame_id = 0;
 
     chain->user.modifies_hdr_metadata = false;
 
     if (chain->queue->device->vk_info.NV_low_latency2)
     {
+        struct vkd3d_device_frame_markers *markers = &chain->queue->device->frame_markers;
+
+        /* When DLSS Frame Generation is enabled each DXGI Present will be
+         * called between OUT_OF_BAND_PRESENT START and END markers. We'll
+         * deliver these markers on our background present thread surrounding the
+         * corresponding vkQueuePresentKHR call, so that the presentation can
+         * be mapped to the correct low_latency_frame_id. We can have multiple
+         * presents mapping to the same id. */
+        request->low_latency_frame_id = vkd3d_atomic_uint64_load_explicit(
+                &markers->out_of_band_present, vkd3d_memory_order_acquire);
+        if (!request->low_latency_frame_id)
+        {
+            /* If NVIDIA Reflex is active with frame gen off, the DXGI Present should
+             * be surrounded by PRESENT markers. We'll deliver OUT_OF_BAND_PRESENT
+             * markers with a matching frame id on our background present thread,
+             * again so that the vkQueuePresentKHR call can be mapped to
+             * the correct low_latency_frame_id.
+             *
+             * We also sanitize the input to ensure we don't send multiple presents
+             * mapping to the same id in this frame gen off case. */
+            uint64_t current_present_marker_id = vkd3d_atomic_uint64_load_explicit(
+                    &markers->present, vkd3d_memory_order_acquire);
+
+            spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
+            if (current_present_marker_id > markers->consumed_present_id)
+            {
+                request->low_latency_frame_id = current_present_marker_id;
+                markers->consumed_present_id = request->low_latency_frame_id;
+            }
+            spinlock_release(&chain->queue->device->low_latency_swapchain_spinlock);
+        }
+
         pthread_mutex_lock(&chain->present.low_latency_state_update_lock);
         request->requested_low_latency_state = chain->requested_low_latency_state;
         request->low_latency_update_requested = chain->low_latency_update_requested;
@@ -1117,6 +1145,9 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
     }
     else if (chain->queue->device->device_info.anti_lag_amd.antiLag)
     {
+        request->low_latency_frame_id = vkd3d_atomic_uint64_load_explicit(
+                &chain->queue->device->frame_markers.present, vkd3d_memory_order_acquire);
+
         spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
         request->requested_anti_lag_state.mode = chain->queue->device->swapchain_info.mode;
         request->requested_anti_lag_state.max_fps = chain->queue->device->swapchain_info.max_fps;
@@ -1129,6 +1160,9 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
         request->low_latency_update_requested = false;
         low_latency_enable = false;
     }
+
+    if (chain->debug_latency && request->low_latency_frame_id)
+        INFO("Presenting with low latency frame ID: %"PRIu64".\n", request->low_latency_frame_id);
 
     /* Need to process this task in queue thread to deal with wait-before-signal.
      * All interesting works happens in the callback. */
@@ -2566,7 +2600,6 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     VkSwapchainPresentFenceInfoEXT present_fence_info;
     VkSwapchainPresentModeInfoEXT present_mode_info;
     VkPresentInfoKHR present_info;
-    uint64_t minimum_present_id;
     VkPresentIdKHR present_id;
     uint32_t swapchain_index;
     bool pacing_should_wait;
@@ -2650,8 +2683,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
         }
     }
 
-    pacing_should_wait = present_mode_pacing_should_wait(chain->present.selected_present_mode) ||
-        chain->present.low_latency_state.mode;
+    pacing_should_wait = present_mode_pacing_should_wait(chain->present.selected_present_mode);
 
     /* Only bother with present-wait path for capped swapchains like FIFO and FIFO Relaxed.
      * Uncapped swapchains will pump their frame latency handles through the fallback path of blit command being done.
@@ -2659,30 +2691,8 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
      * This would unnecessarily stall our progress. */
     if (chain->wait_thread.supports_present_wait && !chain->present.present_id_valid && pacing_should_wait)
     {
-        minimum_present_id = chain->present.present_id + 1;
-        if (chain->present.low_latency_state.mode)
-            chain->present.present_id = chain->request.low_latency_frame_id;
-        else
-            chain->present.present_id = present_count;
-
-        /* Ensure present ID is increasing monotonically.
-         * If application is exceptionally weird, i.e. does not set markers at all,
-         * low latency will not work as intended. */
-        chain->present.present_id = max(chain->present.present_id, minimum_present_id);
-
-        /* We've now reached the point where any further submissions to any queue cannot affect this frame.
-         * wait-before-signal is already resolved. Use a globally monotonic counter for low-latency swapchains. */
-        if (chain->present.low_latency_state.mode)
-        {
-            struct vkd3d_device_frame_markers *markers = &chain->queue->device->frame_markers;
-            spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
-            chain->present.present_id = max(chain->present.present_id, markers->consumed_present_id + 1);
-            markers->consumed_present_id = chain->present.present_id;
-            spinlock_release(&chain->queue->device->low_latency_swapchain_spinlock);
-        }
-
-        if (chain->debug_latency)
-            INFO("Presenting with frame ID: %"PRIu64".\n", chain->present.present_id);
+        /* Ensure present ID is increasing monotonically. */
+        chain->present.present_id = max(chain->present.present_id + 1, present_count);
 
         present_id.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
         present_id.pNext = NULL;
@@ -2694,11 +2704,24 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     else
         use_present_id = false;
 
+    if (chain->queue->device->vk_info.NV_low_latency2 && chain->request.low_latency_frame_id)
+    {
+        dxgi_vk_swap_chain_set_latency_marker(chain, chain->request.low_latency_frame_id,
+                VK_LATENCY_MARKER_OUT_OF_BAND_PRESENT_START_NV, false);
+    }
+
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
     VKD3D_REGION_BEGIN(queue_present);
     vr = VK_CALL(vkQueuePresentKHR(vk_queue, &present_info));
     VKD3D_REGION_END(queue_present);
     vkd3d_queue_release(chain->queue->vkd3d_queue);
+
+    if (chain->queue->device->vk_info.NV_low_latency2 && chain->request.low_latency_frame_id)
+    {
+        dxgi_vk_swap_chain_set_latency_marker(chain, chain->request.low_latency_frame_id,
+                VK_LATENCY_MARKER_OUT_OF_BAND_PRESENT_END_NV, false);
+    }
+
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     if (vr == VK_SUCCESS && vk_result != VK_SUCCESS)
@@ -3380,10 +3403,22 @@ void dxgi_vk_swap_chain_set_latency_sleep_mode(struct dxgi_vk_swap_chain *chain,
     pthread_mutex_unlock(&chain->present.low_latency_state_update_lock);
 }
 
-void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain *chain, uint64_t frameID, VkLatencyMarkerNV marker)
+void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain *chain,
+        uint64_t frameID, VkLatencyMarkerNV marker, bool from_app)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkSetLatencyMarkerInfoNV latency_marker_info;
+
+    if (from_app && (marker == VK_LATENCY_MARKER_OUT_OF_BAND_PRESENT_START_NV
+                     || marker == VK_LATENCY_MARKER_OUT_OF_BAND_PRESENT_END_NV))
+    {
+        /* Record the frame ID for OUT_OF_BAND_PRESENT markers. We'll send
+         * these markers later on our background present thread. */
+        vkd3d_atomic_uint64_store_explicit(&chain->queue->device->frame_markers.out_of_band_present,
+                marker == VK_LATENCY_MARKER_OUT_OF_BAND_PRESENT_START_NV ? frameID : 0,
+                vkd3d_memory_order_release);
+        return;
+    }
 
     memset(&latency_marker_info, 0, sizeof(latency_marker_info));
     latency_marker_info.sType = VK_STRUCTURE_TYPE_SET_LATENCY_MARKER_INFO_NV;
@@ -3437,21 +3472,13 @@ void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12
             {
                 D3D12_FRAME_REPORT *report;
 
-                /* If the frame ID isn't a natural aligned value,
-                 * we assume it's a frame that the application never submitted a marker for.
-                 * Non-aligned IDs appear when the monotonicity guard in the present path
-                 * bumps a stale or duplicate low_latency_frame_id (e.g. after a Wayland
-                 * compositor workspace switch stalls presents, or when DLSS Frame Generation
-                 * presents interpolated frames without setting new latency markers).
-                 * Skip these entries rather than discarding all reports, since Streamline's
-                 * sl.dlss_g module checks latency reports to verify Reflex is active and
-                 * will disable Frame Generation if all reports are zeroed. */
-                if (frame_reports[i].presentID % VKD3D_LOW_LATENCY_FRAME_ID_STRIDE != 0 || frame_reports[i].presentID == 0)
+                /* Skip entries with no presentID. This may not actually be necessary. */
+                if (frame_reports[i].presentID == 0)
                     continue;
 
                 report = &latency_results->frame_reports[i];
 
-                report->frameID = frame_reports[i].presentID / VKD3D_LOW_LATENCY_FRAME_ID_STRIDE;
+                report->frameID = frame_reports[i].presentID;
                 report->inputSampleTime = frame_reports[i].inputSampleTimeUs;
                 report->simStartTime = frame_reports[i].simStartTimeUs;
                 report->simEndTime = frame_reports[i].simEndTimeUs;
