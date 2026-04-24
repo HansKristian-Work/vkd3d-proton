@@ -574,6 +574,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS = 1 << 3,
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
     VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
+    VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING = 1 << 6,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -718,7 +719,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * Game advertises being able to run on RDNA1, but when we don't expose some RDNA2+ features,
      * it just exits on startup. It seems to rely on unstable barycentrics, which we can implement on older AMD,
      * and VRS can be nooped. */
-    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", 0, 0, VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY },
+    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", 0, 0,
+        VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY | VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -9374,6 +9376,7 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
     /* Tilers can take good advantage of multiview, just expose it for them even if we're not quite compliant. */
     if (vkd3d_debug_control_is_test_suite() ||
         device->workarounds.tiler_suspend_resume ||
+        (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING) ||
         (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES))
     {
         /* Currently only partially implemented.
