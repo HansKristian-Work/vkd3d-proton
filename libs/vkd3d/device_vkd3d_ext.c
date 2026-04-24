@@ -398,7 +398,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaIndependentDescri
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12DeviceExt2Vtbl d3d12_device_vkd3d_ext_vtbl =
+static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SupportsAGSExtension(
+        d3d12_device_vkd3d_ext_iface *iface, D3D12_AGS_EXTENSION agsExtension)
+{
+    TRACE("iface %p, agsExtension %u\n", iface, agsExtension);
+
+    switch (agsExtension)
+    {
+        case D3D12_AGS_EXTENSION_INTRINSICS_19:
+            /* DrawIndex and AtomicU64. For Crimson Desert. */
+            return true;
+
+        default:
+            /* Most of these are trivial if need be, but don't do that work unless needed. */
+            return false;
+    }
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetAGSUAVSlot(d3d12_device_vkd3d_ext_iface *iface, UINT uavSlot)
+{
+    /* Possible to implement, just goofy. */
+    FIXME("iface %p, uavSlot %u stub!\n", iface, uavSlot);
+    return E_NOTIMPL;
+}
+
+CONST_VTBL struct ID3D12DeviceExt3Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_vkd3d_ext_QueryInterface,
@@ -423,8 +447,11 @@ CONST_VTBL struct ID3D12DeviceExt2Vtbl d3d12_device_vkd3d_ext_vtbl =
     d3d12_device_vkd3d_ext_CreateCubinComputeShaderExV2,
     d3d12_device_vkd3d_ext_GetCudaMergedTextureSamplerObject,
     d3d12_device_vkd3d_ext_GetCudaIndependentDescriptorObject,
-};
 
+    /* ID3D12DeviceExt3 methods */
+    d3d12_device_vkd3d_ext_SupportsAGSExtension,
+    d3d12_device_vkd3d_ext_SetAGSUAVSlot,
+};
 
 static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(d3d12_dxvk_interop_device_iface *iface)
 {

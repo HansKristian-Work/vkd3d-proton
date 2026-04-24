@@ -139,6 +139,18 @@ interface ID3D12DeviceExt2 : ID3D12DeviceExt1
     HRESULT GetCudaIndependentDescriptorObject(D3D12_GET_CUDA_INDEPENDENT_DESCRIPTOR_OBJECT_PARAMS *params);
 }
 
+[
+    uuid(3aefa75c-c9f3-4b7f-a180-5df695d083bf),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceExt3 : ID3D12DeviceExt2
+{
+    BOOL SupportsAGSExtension(D3D12_AGS_EXTENSION agsExtension);
+    HRESULT SetAGSUAVSlot(UINT uavSlot);
+}
+
 /* 1:1 implementation of ffx_antilag2_dx12.h */
 struct AmdAntiLagAPIData_v1
 {

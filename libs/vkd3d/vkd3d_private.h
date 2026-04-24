@@ -5216,7 +5216,7 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
 struct vkd3d_timestamp_profiler;
 
 /* ID3D12DeviceExt */
-typedef ID3D12DeviceExt2 d3d12_device_vkd3d_ext_iface;
+typedef ID3D12DeviceExt3 d3d12_device_vkd3d_ext_iface;
 
 /* ID3D12DXVKInteropDevice */
 typedef ID3D12DXVKInteropDevice3 d3d12_dxvk_interop_device_iface;
