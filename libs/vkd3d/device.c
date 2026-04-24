@@ -3722,7 +3722,9 @@ static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
     (void)device;
 
 #ifdef _WIN64
-    if (device->device_info.properties2.properties.vendorID == 0x1002)
+    /* Don't try to load the native amdxc64.dll, that will only crash since AMD's driver will
+     * assume certain things about their own ID3D12Device implementation. */
+    if (GetModuleHandleA("winevulkan.dll") && device->device_info.properties2.properties.vendorID == 0x1002)
     {
         device->vendor_hacks.amdxc64 = LoadLibraryA("amdxc64.dll");
         if (device->vendor_hacks.amdxc64)
