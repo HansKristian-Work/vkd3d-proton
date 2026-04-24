@@ -4011,6 +4011,292 @@ void test_view_instancing(void)
     destroy_test_context(&context);
 }
 
+void test_view_instancing_indirect_state(void)
+{
+    D3D12_INDIRECT_ARGUMENT_DESC command_args[2];
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7;
+    D3D12_COMMAND_SIGNATURE_DESC command_desc;
+    ID3D12GraphicsCommandList1 *command_list1;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_FEATURE_DATA_SHADER_MODEL model;
+    struct test_context_desc context_desc;
+    ID3D12CommandSignature *command_sig;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct depth_stencil_resource ds;
+    struct resource_readback rb;
+    D3D12_ROOT_PARAMETER rs_arg;
+    struct test_context context;
+    ID3D12Resource *arg_buffer;
+    unsigned int i;
+    ID3D12Device2 *device2;
+    HRESULT hr;
+
+    FLOAT clear_value[] = { 65535.0f, 0.0f, 0.0f, 0.0f };
+
+    static const struct
+    {
+        float cookie;
+        uint32_t vertex_count;
+        uint32_t instance_count;
+        uint32_t vertex_offset;
+        uint32_t instance_offset;
+    } indirect_draw_data[] = {
+        { 100.0f, 4, 2, 0, 0 },
+        { 300.0f, 4, 2, 0, 0 },
+    };
+
+#include "shaders/pso/headers/vs_view_id.h"
+#include "shaders/pso/headers/ps_view_id.h"
+
+    static const union d3d12_shader_bytecode_subobject ps_view_id_passthrough_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_view_id_code_dxil, sizeof(ps_view_id_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject vs_view_id_passthrough_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_view_id_code_dxil, sizeof(vs_view_id_code_dxil) } }};
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    }};
+
+    static const union d3d12_input_layout_subobject input_layout_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
+        { NULL, 0 },
+    } };
+
+    static const union d3d12_primitive_topology_subobject primitive_topology_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+    }};
+
+    static const union d3d12_rasterizer_subobject rasterizer_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            TRUE, 0, 0.0f, 0.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    }};
+
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+        { 1, 0 },
+    }};
+
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+        0xFFFFFFFFu
+    }};
+
+    static const union d3d12_render_target_formats_subobject render_target_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_R32G32B32A32_FLOAT }, 1 },
+    }};
+
+    static const union d3d12_depth_stencil_format_subobject depth_format_subobject =
+    {
+        {
+            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT, DXGI_FORMAT_D32_FLOAT
+        },
+    };
+
+    static const union d3d12_depth_stencil_subobject depth_subobject =
+    {
+        {
+            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
+          { TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_ALWAYS, }
+        },
+    };
+
+    static const D3D12_VIEW_INSTANCE_LOCATION view_instance_locations_simple[] =
+    {
+        { 0, 0 }, { 0, 1 },
+    };
+
+    static const union d3d12_view_instancing_subobject view_instancing_simple_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
+        { ARRAY_SIZE(view_instance_locations_simple), view_instance_locations_simple, 0 }
+    }};
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_shader_bytecode_subobject vs;
+        union d3d12_shader_bytecode_subobject ps;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_sample_desc_subobject sample_desc;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_render_target_formats_subobject render_targets;
+        union d3d12_depth_stencil_format_subobject depth_format;
+        union d3d12_depth_stencil_subobject depth;
+        union d3d12_view_instancing_subobject view_instancing;
+    } pso_vs_ps_desc;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    context_desc.rt_width = 16;
+    context_desc.rt_height = 16;
+    context_desc.rt_array_size = 2u;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    model.HighestShaderModel = D3D_SHADER_MODEL_6_1;
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model))) ||
+        model.HighestShaderModel < D3D_SHADER_MODEL_6_1)
+    {
+        skip("Shader model 6.1 is not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&options, 0, sizeof(options));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    memset(&options3, 0, sizeof(options3));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3));
+    memset(&options7, 0, sizeof(options7));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
+
+    if (!options3.ViewInstancingTier)
+    {
+        skip("View instancing not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_arg, 0, sizeof(rs_arg));
+    rs_arg.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_arg.Constants.Num32BitValues = 1;
+    rs_arg.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_arg;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    init_depth_stencil(&ds, context.device, 16, 16, 2, 1, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_UNKNOWN, NULL);
+
+    /* Device2 is guaranteed to be provided if the feature is exposed, don't try to be robust here. */
+    hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void**)&device2);
+    ok(hr == S_OK, "ID3D12Device2 not supported.\n");
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList1, (void**)&command_list1);
+    ok(hr == S_OK, "ID3D12GraphicsCommandList1 not supported.\n");
+
+    /* Test basic multiviww behaviour with view index => layer index */
+    memset(&pso_vs_ps_desc, 0, sizeof(pso_vs_ps_desc));
+    pso_vs_ps_desc.root_signature = root_signature_subobject;
+    pso_vs_ps_desc.root_signature.root_signature = context.root_signature;
+    pso_vs_ps_desc.input_layout = input_layout_subobject;
+    pso_vs_ps_desc.primitive_topology = primitive_topology_subobject;
+    pso_vs_ps_desc.vs = vs_view_id_passthrough_subobject;
+    pso_vs_ps_desc.ps = ps_view_id_passthrough_subobject;
+    pso_vs_ps_desc.rasterizer = rasterizer_subobject;
+    pso_vs_ps_desc.sample_mask = sample_mask_subobject;
+    pso_vs_ps_desc.sample_desc = sample_desc_subobject;
+    pso_vs_ps_desc.render_targets = render_target_subobject;
+    pso_vs_ps_desc.depth_format = depth_format_subobject;
+    pso_vs_ps_desc.depth = depth_subobject;
+    pso_vs_ps_desc.view_instancing = view_instancing_simple_subobject;
+
+    hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &context.pipeline_state);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    /* Test ExecuteIndirect */
+    arg_buffer = create_upload_buffer(context.device, sizeof(indirect_draw_data), indirect_draw_data);
+
+    memset(&command_desc, 0, sizeof(command_desc));
+    memset(command_args, 0, sizeof(command_args));
+    command_desc.ByteStride = sizeof(indirect_draw_data[0]);
+    command_desc.NumArgumentDescs = ARRAY_SIZE(command_args);
+    command_desc.pArgumentDescs = command_args;
+    command_args[0].Constant.Num32BitValuesToSet = 1;
+    command_args[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+    command_args[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    hr = ID3D12Device_CreateCommandSignature(context.device, &command_desc, context.root_signature,
+            &IID_ID3D12CommandSignature, (void **)&command_sig);
+    ok(SUCCEEDED(hr), "Failed to create command signature.\n");
+
+    /* View masking is disabled in PSO and must be ignored */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1,
+            &context.rtv, TRUE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH,
+            1.0f, 0, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList1_SetViewInstanceMask(command_list1, 0);
+
+    vkd3d_mute_validation_message("11062", "Intentionally testing multiview + DGC which is out of current VK spec.");
+    ID3D12GraphicsCommandList_ExecuteIndirect(context.list, command_sig, 2, arg_buffer,
+            0, NULL, 0);
+    vkd3d_unmute_validation_message("11062");
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(view_instance_locations_simple); i++)
+    {
+        uint32_t x, y;
+        vkd3d_test_set_context("layer %u, color", i);
+
+        get_texture_readback_with_command_list(context.render_target, i, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+        for (y = 0; y < 16; y++)
+        {
+            for (x = 0; x < 16; x++)
+            {
+                const struct vec4 *value = get_readback_vec4(&rb, x, y);
+                struct vec4 expected = { 0 };
+
+                expected.x = ((y / 8) ^ i) & 1 ? 300.0f : 100.0f;
+                expected.y = (float)i;
+                expected.z = x >= 8 ? 1.0f : 0.0f;
+
+                ok(compare_vec4(value, &expected, 0), "%u, %u: expected (%f, %f, %f, %f) got (%f, %f, %f, %f).\n",
+                    x, y, expected.x, expected.y, expected.z, expected.w, value->x, value->y, value->z, value->w);
+            }
+        }
+        release_resource_readback(&rb);
+
+        vkd3d_test_set_context("layer %u, depth", i);
+        get_texture_readback_with_command_list(ds.texture, i, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+        for (y = 0; y < 16; y++)
+        {
+            for (x = 0; x < 16; x++)
+            {
+                float value = get_readback_float(&rb, x, y);
+                float expected;
+                expected = ((x >= 8 ? 1.0f : 0.0f) + 2.0f * (float)i) / 4.0f;
+                ok(value == expected, "%u, %u: expected %f got %f.\n", x, y, expected, value);
+            }
+        }
+        release_resource_readback(&rb);
+    }
+
+    destroy_depth_stencil(&ds);
+    ID3D12Resource_Release(arg_buffer);
+    ID3D12CommandSignature_Release(command_sig);
+    ID3D12GraphicsCommandList1_Release(command_list1);
+    ID3D12Device2_Release(device2);
+    destroy_test_context(&context);
+}
+
 void test_shader_io_mismatch(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
