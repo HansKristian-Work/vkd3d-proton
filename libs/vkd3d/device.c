@@ -568,15 +568,16 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
 enum vkd3d_application_feature_override
 {
     VKD3D_APPLICATION_FEATURE_OVERRIDE_NONE = 0,
-    VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
-    VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
-    VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX,
-    VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS,
-    VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG,
-    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY,
+    VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK = 1 << 0,
+    VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 = 1 << 1,
+    VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX = 1 << 2,
+    VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS = 1 << 3,
+    VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
+    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
+typedef uint32_t vkd3d_application_feature_override_flags;
 uint64_t vkd3d_config_flags;
 struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info_template;
 
@@ -586,7 +587,7 @@ struct vkd3d_instance_application_meta
     const char *name;
     uint64_t global_flags_add;
     uint64_t global_flags_remove;
-    enum vkd3d_application_feature_override override;
+    vkd3d_application_feature_override_flags override;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
@@ -1701,7 +1702,7 @@ static D3D12_VARIABLE_SHADING_RATE_TIER d3d12_device_determine_variable_shading_
 {
     if (!d3d12_device_supports_variable_shading_rate_tier_1(device))
     {
-        if (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY &&
+        if ((vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY) &&
             device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
             device->device_info.vulkan_1_3_properties.minSubgroupSize == 32)
             return D3D12_VARIABLE_SHADING_RATE_TIER_2;
@@ -1814,7 +1815,7 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
      * Unfortunately, we don't know of a robust way to detect UE5, so have to apply this globally.
      * Similarly, Intel Arc does not expose barycentrics, but does expose mesh shaders ...
      * Unclear if that will ever be resolved. */
-    if (vkd3d_application_feature_override != VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS &&
+    if (!(vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS) &&
             !device->vk_info.KHR_fragment_shader_barycentric && device->vk_info.EXT_mesh_shader)
     {
         WARN("Mesh shaders are supported, but not barycentrics. Disabling mesh shaders as a global UE5 workaround.\n");
@@ -3751,7 +3752,7 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
     device->workarounds.quirks = vkd3d_shader_quirk_info_template;
 
     /* If we're faking VRS tier 1, we need to just nop out everything about primitive shading rate. */
-    if (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY &&
+    if ((vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY) &&
         device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
         device->device_info.vulkan_1_3_properties.minSubgroupSize == 32 &&
         !d3d12_device_supports_variable_shading_rate_tier_1(device))
@@ -9405,7 +9406,7 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
 
     options3->BarycentricsSupported =
             device->device_info.barycentric_features_khr.fragmentShaderBarycentric ||
-            (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY &&
+            ((vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY) &&
                 device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
                 device->vk_info.AMD_shader_explicit_vertex_parameter &&
                 device->device_info.vulkan_1_3_properties.minSubgroupSize == 32);
@@ -9941,38 +9942,36 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
 {
     /* Some games rely on certain features to be exposed before they let the primary feature
      * be exposed. */
-    switch (vkd3d_application_feature_override)
+    if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK)
     {
-        case VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK:
-            /* For games which automatically enable RT even on Deck, leading to very poor performance by default. */
-            if (d3d12_device_is_steam_deck(device) && !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DXR))
-            {
-                INFO("Disabling automatic enablement of DXR on Deck.\n");
-                device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
-            }
-            break;
+        /* For games which automatically enable RT even on Deck, leading to very poor performance by default. */
+        if (d3d12_device_is_steam_deck(device) && !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DXR))
+        {
+            INFO("Disabling automatic enablement of DXR on Deck.\n");
+            device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+        }
+    }
 
-        case VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0:
-            if (device->d3d12_caps.options5.RaytracingTier > D3D12_RAYTRACING_TIER_1_0)
-            {
-                INFO("Limiting reported DXR tier to 1.0.\n");
-                device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_1_0;
-            }
-            break;
+    if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0)
+    {
+        if (device->d3d12_caps.options5.RaytracingTier > D3D12_RAYTRACING_TIER_1_0)
+        {
+            INFO("Limiting reported DXR tier to 1.0.\n");
+            device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_1_0;
+        }
+    }
 
-        case VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX:
-            INFO("Disabling NV reflex.\n");
-            device->vk_info.NV_low_latency2 = false;
-            break;
+    if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX)
+    {
+        INFO("Disabling NV reflex.\n");
+        device->vk_info.NV_low_latency2 = false;
+    }
 
-        case VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG:
-            INFO("Disabling AMD anti-lag.\n");
-            device->vk_info.AMD_anti_lag = false;
-            device->device_info.anti_lag_amd.antiLag = VK_FALSE;
-            break;
-
-        default:
-            break;
+    if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG)
+    {
+        INFO("Disabling AMD anti-lag.\n");
+        device->vk_info.AMD_anti_lag = false;
+        device->device_info.anti_lag_amd.antiLag = VK_FALSE;
     }
 }
 
