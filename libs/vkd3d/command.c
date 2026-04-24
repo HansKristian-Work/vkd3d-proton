@@ -6048,7 +6048,7 @@ static void d3d12_command_list_flush_clears_for_rendering(struct d3d12_command_l
         if (!d3d12_command_list_resource_overlaps_attachment(list, discard->resource, &discard->subresources))
         {
             if (dst < src)
-                list->deferred_discards[src] = list->deferred_discards[dst];
+                list->deferred_discards[dst] = list->deferred_discards[src];
 
             dst++;
         }
