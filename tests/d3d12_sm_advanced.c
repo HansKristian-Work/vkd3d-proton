@@ -5028,6 +5028,32 @@ static float randomize_fp8_float(void)
     return fp8_to_float(randomize_fp8_range(0x30, 0x3f, false));
 }
 
+static bool device_supports_wmma_fp8(ID3D12Device *device)
+{
+    ID3D12DeviceExt3 *ext3;
+    bool supported;
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12DeviceExt3, (void **)&ext3)))
+        return false;
+
+    supported = ID3D12DeviceExt3_SupportsAGSExtension(ext3, D3D12_AGS_EXTENSION_WMMA_FP8);
+    ID3D12DeviceExt3_Release(ext3);
+    return supported;
+}
+
+static bool device_supports_wmma_fp8_native(ID3D12Device *device)
+{
+    ID3D12DeviceExt3 *ext3;
+    bool supported;
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12DeviceExt3, (void **)&ext3)))
+        return false;
+
+    supported = ID3D12DeviceExt3_SupportsAGSExtension(ext3, D3D12_AGS_EXTENSION_WMMA_FP8_NATIVE);
+    ID3D12DeviceExt3_Release(ext3);
+    return supported;
+}
+
 void test_wmma_matmul(void)
 {
     uint8_t input_data[16 * 16 * 2 * sizeof(uint16_t) + 16 * 16 * sizeof(uint32_t)];
@@ -5086,6 +5112,13 @@ void test_wmma_matmul(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -5266,9 +5299,9 @@ void test_wmma_multi_matmul(void)
         return;
     }
 
-    if (is_nvidia_device(context.device))
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
     {
-        skip("This test relies on AMD implementation details.\n");
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -5371,7 +5404,7 @@ void test_wmma_multi_matmul(void)
     }
 
     /* Slight imprecisions in the FP16 work might lead to some errors on RDNA3. */
-    emul_slack = is_vk_device_extension_supported(context.device, "VK_EXT_shader_float8") ? 0 : 8;
+    emul_slack = is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8_native(context.device) ? 8 : 0;
 
     for (j = 0; j < 16; j++)
     {
@@ -5413,6 +5446,13 @@ void test_wmma_fp8_fp32_conversions(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -5486,6 +5526,13 @@ void test_wmma_fp32_fp8_conversions(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -5574,6 +5621,13 @@ void test_wmma_fp32_fp8_special_conversions(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -5673,6 +5727,7 @@ void test_wmma_matrix_length(void)
     struct resource_readback rb;
     struct test_context context;
     ID3D12Resource *output;
+    bool emulated_wmma;
     unsigned int i;
 
 #include "shaders/sm_advanced/headers/cs_wmma_matrix_length.h"
@@ -5684,6 +5739,13 @@ void test_wmma_matrix_length(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -5722,6 +5784,8 @@ void test_wmma_matrix_length(void)
     transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
 
+    emulated_wmma = is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8_native(context.device);
+
     /* For Wave32 and 16x16, there must be 8 elements per lane.
      * Somewhat surprisingly, it seems like FP8 has 2 elements? Maybe it's tightly packed u32.
      * RDNA3 pads A and B to double size. */
@@ -5730,7 +5794,7 @@ void test_wmma_matrix_length(void)
         static const uint32_t expected_rdna3[] = { 16, 16, 8, 4, 4, 16, 16, 8, 4, 4 };
         static const uint32_t expected[] = { 8, 8, 8, 2, 2, 8, 8, 8, 2, 2 };
         ok(expected[i] == get_readback_uint(&rb, i, 0, 0) ||
-                expected_rdna3[i] == get_readback_uint(&rb, i, 0, 0),
+                (emulated_wmma && expected_rdna3[i] == get_readback_uint(&rb, i, 0, 0)),
                 "%u: Expected %u, got %u\n", i, expected[i], get_readback_uint(&rb, i, 0, 0));
     }
 
@@ -5770,6 +5834,13 @@ void test_wmma_extract_insert(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -5865,6 +5936,13 @@ void test_wmma_lds_transpose(void)
         return;
     }
 
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     memset(rs_param, 0, sizeof(rs_param));
     memset(&rs_desc, 0, sizeof(rs_desc));
     rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -5944,6 +6022,13 @@ void test_wmma_lds_layout(void)
         return;
     }
 
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     memset(rs_param, 0, sizeof(rs_param));
     memset(&rs_desc, 0, sizeof(rs_desc));
     rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -6017,6 +6102,13 @@ void test_wmma_copy_transpose(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -6124,6 +6216,13 @@ void test_wmma_alloca(void)
         return;
     }
 
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     memset(rs_param, 0, sizeof(rs_param));
     memset(&rs_desc, 0, sizeof(rs_desc));
     rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -6205,6 +6304,13 @@ void test_wmma_layout_assumptions(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -6291,6 +6397,13 @@ void test_wmma_special_conversions(void)
         return;
     }
 
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
     memset(rs_param, 0, sizeof(rs_param));
     memset(&rs_desc, 0, sizeof(rs_desc));
     rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -6364,6 +6477,13 @@ void test_wmma_element_wise(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
@@ -6485,6 +6605,13 @@ void test_ags_float8_conversion(void)
     {
         skip("WMMA tests can only work on AMD due to AGS.\n");
         /* Technically we have to check for RDNA4 too, but on Windows, this is mostly just an exploratory test. */
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (is_vkd3d_proton_device(context.device) && !device_supports_wmma_fp8(context.device))
+    {
+        skip("Underlying hardware does not support WMMA FP8 from AGS. Bailing.\n");
         destroy_test_context(&context);
         return;
     }
