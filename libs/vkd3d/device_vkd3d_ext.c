@@ -401,12 +401,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaIndependentDescri
 static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SupportsAGSExtension(
         d3d12_device_vkd3d_ext_iface *iface, D3D12_AGS_EXTENSION agsExtension)
 {
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     TRACE("iface %p, agsExtension %u\n", iface, agsExtension);
 
     switch (agsExtension)
     {
         case D3D12_AGS_EXTENSION_INTRINSICS_19:
             /* DrawIndex and AtomicU64. For Crimson Desert. */
+            return true;
+
+        case D3D12_AGS_EXTENSION_WMMA_FP8_NATIVE:
+            return device->device_info.shader_float8_features.shaderFloat8CooperativeMatrix == VK_TRUE;
+
+        case D3D12_AGS_EXTENSION_WMMA_FP8:
+            if (!device->device_info.cooperative_matrix_features.cooperativeMatrix)
+                return false;
+
+#ifndef VKD3D_ENABLE_EXTENDED_EMULATION
+            if (!device->device_info.shader_float8_features.shaderFloat8CooperativeMatrix)
+                return false;
+#endif
             return true;
 
         default:

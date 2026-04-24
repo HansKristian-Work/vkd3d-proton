@@ -150,7 +150,16 @@ typedef enum D3D12_AGS_EXTENSION
     D3D12_AGS_EXTENSION_FLOAT_CONVERSION,
     D3D12_AGS_EXTENSION_READ_LANE_AT,
     D3D12_AGS_EXTENSION_RAY_HIT_TOKEN,
-    D3D12_AGS_EXTENSION_SHADER_TOKEN
+    D3D12_AGS_EXTENSION_SHADER_TOKEN,
+
+    /* Not part of the existing header, but useful regardless.
+     * May include emulation path if enabled in build.
+	 * Shift this out of range to make sure we don't trample of any reserved bits
+	 * since it's convenient to keep the bitfield ordering for simple ABI compat. */
+    D3D12_AGS_EXTENSION_WMMA_FP8 = 100,
+
+    /* Supported only if FP8 is supported natively by hardware. */
+    D3D12_AGS_EXTENSION_WMMA_FP8_NATIVE
 } D3D12_AGS_EXTENSION;
 
 #endif  // __VKD3D_VK_INCLUDES_H
