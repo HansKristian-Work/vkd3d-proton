@@ -20409,6 +20409,7 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
+    union vkd3d_opacity_micromap micromap;
     VkMicromapBuildInfoEXT *build_info;
     VkMicromapUsageEXT *usage_infos;
     uint32_t usage_info_count;
@@ -20431,11 +20432,13 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
         return;
     }
 
+    micromap.ext = VK_NULL_HANDLE;
     if (desc->DestAccelerationStructureData)
     {
-        build_info->dstMicromap =
+        micromap.ext =
                 vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData);
+                        list->device, desc->DestAccelerationStructureData).ext;
+        build_info->dstMicromap = micromap.ext;
         if (build_info->dstMicromap == VK_NULL_HANDLE)
         {
             ERR("Failed to place destMicromap. Dropping call.\n");
@@ -20499,7 +20502,7 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
 
         vkd3d_opacity_micromap_emit_immediate_postbuild_info(list,
                 num_postbuild_info_descs, postbuild_info_descs,
-                build_info->dstMicromap);
+                micromap);
     }
 
     VKD3D_BREADCRUMB_COMMAND(BUILD_OMM);
@@ -20749,8 +20752,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    union vkd3d_opacity_micromap src_omm;
     VkAccelerationStructureKHR src_as;
-    VkMicromapEXT src_omm;
 
     TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
           iface, dst_data, src_data, mode);
@@ -20783,7 +20786,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
             VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
             return;
         }
-        else if (src_omm != VK_NULL_HANDLE)
+        else if (src_omm.any_handle != (uint64_t)VK_NULL_HANDLE)
         {
             vkd3d_opacity_micromap_copy(list, dst_data, src_omm, mode);
             VKD3D_BREADCRUMB_AUX64(dst_data);

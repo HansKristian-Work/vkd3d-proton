@@ -308,7 +308,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                     {
                         omm->micromap = vkd3d_va_map_place_opacity_micromap(
                                 &device->memory_allocator.va_map, device,
-                                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
+                                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray).ext;
 
                         if (omm->micromap == VK_NULL_HANDLE)
                             ERR("Failed to place OMM at VA 0x%"PRIx64".\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
@@ -474,7 +474,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
-    VkMicromapEXT vk_opacity_micromap;
+    union vkd3d_opacity_micromap vk_opacity_micromap;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
     VkDeviceSize stride;
@@ -509,7 +509,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
                 vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
                 continue;
             }
-            else if (vk_opacity_micromap != VK_NULL_HANDLE)
+            else if (vk_opacity_micromap.any_handle != (uint64_t)VK_NULL_HANDLE)
             {
                 vkd3d_opacity_micromap_write_postbuild_info(list, desc, i * stride, vk_opacity_micromap);
                 continue;
