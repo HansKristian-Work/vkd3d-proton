@@ -373,17 +373,24 @@ struct vkd3d_va_map
     size_t small_entries_count;
 };
 
+union vkd3d_opacity_micromap
+{
+    uint64_t any_handle; /* Used to check if any union member is VK_NULL_HANDLE */
+    VkMicromapEXT ext;
+    VkAccelerationStructureKHR khr;
+};
+
 void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct vkd3d_unique_resource *resource);
 void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_resource *resource);
 const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_map, VkDeviceAddress va);
 void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va,
         VkAccelerationStructureKHR *acceleration_structure,
-        VkMicromapEXT *micromap);
+        union vkd3d_opacity_micromap *micromap);
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va);
-VkMicromapEXT vkd3d_va_map_place_opacity_micromap(struct vkd3d_va_map *va_map,
+union vkd3d_opacity_micromap vkd3d_va_map_place_opacity_micromap(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
@@ -1296,7 +1303,7 @@ struct vkd3d_view
         VkImageView vk_image_view;
         VkSampler vk_sampler;
         VkAccelerationStructureKHR vk_acceleration_structure;
-        VkMicromapEXT vk_micromap;
+        union vkd3d_opacity_micromap vk_micromap;
     };
     const struct vkd3d_format *format;
     union
@@ -6888,14 +6895,14 @@ void vkd3d_opacity_micromap_write_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkDeviceSize desc_offset,
-        VkMicromapEXT vk_opacity_micromap);
+        union vkd3d_opacity_micromap vk_opacity_micromap);
 void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        VkMicromapEXT vk_opacity_micromap);
+        union vkd3d_opacity_micromap vk_opacity_micromap);
 void vkd3d_opacity_micromap_copy(
         struct d3d12_command_list *list,
-        D3D12_GPU_VIRTUAL_ADDRESS dst, VkMicromapEXT src_omm,
+        D3D12_GPU_VIRTUAL_ADDRESS dst, union vkd3d_opacity_micromap src_omm,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
 
 typedef enum D3D11_USAGE
