@@ -3097,6 +3097,12 @@ union vkd3d_omm_build_info
     VkAccelerationStructureGeometryMicromapDataKHR *khr;
 };
 
+union vkd3d_omm_triangles_info
+{
+    VkAccelerationStructureTrianglesOpacityMicromapEXT *ext;
+    VkAccelerationStructureTrianglesOpacityMicromapKHR *khr;
+};
+
 union vkd3d_omm_usage_info
 {
     VkMicromapUsageEXT *ext;
@@ -3115,8 +3121,8 @@ struct d3d12_rtas_batch_state
     size_t geometry_info_count;
     size_t geometry_info_size;
 
-    VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos;
-    size_t omm_info_size;
+    union vkd3d_omm_triangles_info omm_triangles_infos;
+    size_t omm_triangles_info_size;
 
     VkAccelerationStructureBuildRangeInfoKHR *range_infos;
     size_t range_info_size;
@@ -6883,7 +6889,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
         VkAccelerationStructureGeometryKHR *geometry_infos,
-        VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos,
+        union vkd3d_omm_triangles_info omm_triangles_infos,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
         uint32_t *primitive_counts);
 void vkd3d_acceleration_structure_emit_postbuild_info(
@@ -6922,6 +6928,11 @@ void vkd3d_opacity_micromap_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, union vkd3d_opacity_micromap src_omm,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
+bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *device,
+        const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        union vkd3d_omm_triangles_info omm_triangles_infos,
+        uint32_t omm_info_index);
 
 typedef enum D3D11_USAGE
 {
