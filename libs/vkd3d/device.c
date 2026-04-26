@@ -10977,6 +10977,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     device->adapter_luid = create_info->adapter_luid;
     device->removed_reason = S_OK;
+    vkd3d_atomic_uint32_store_explicit(
+            &device->vendor_hacks.global_ray_tracing_pipeline_create_flags, 0,
+            vkd3d_memory_order_relaxed);
 
     device->vk_device = VK_NULL_HANDLE;
 
