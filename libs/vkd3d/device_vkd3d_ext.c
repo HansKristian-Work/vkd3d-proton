@@ -425,6 +425,41 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx(d3d
     return S_OK;
 }
 
+static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlagsNVAPI(d3d12_device_vkd3d_ext_iface *iface,
+        D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAG pipeline_state_flags)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    VKD3D_UNUSED VkPipelineCreateFlags ray_tracing_pipeline_create_flags;
+    bool enable_opacity_micromap;
+
+    TRACE("iface %p, pipeline_state_flags %d.\n", iface, pipeline_state_flags);
+
+    enable_opacity_micromap = (pipeline_state_flags & D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_ENABLE_OMM_SUPPORT) != 0;
+
+    if (enable_opacity_micromap)
+    {
+        if (!device->device_info.supports_opacity_micromap)
+        {
+            ERR("Opacity micromap is not supported.\n");
+            return FALSE;
+        }
+
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint32_or(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) |
+                VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+    }
+    else
+    {
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint32_and(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                ~VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) &
+                ~VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+    }
+
+    TRACE("flags #%x.\n", ray_tracing_pipeline_create_flags);
+
+    return TRUE;
+}
+
 static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SupportsCubin64bit(d3d12_device_vkd3d_ext_iface *iface)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
@@ -761,7 +796,7 @@ CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl =
     d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace,
 
     /* ID3D12DeviceExt5 methods */
-    NULL,
+    d3d12_device_vkd3d_ext_SetCreatePipelineStateFlagsNVAPI,
 };
 
 static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(d3d12_dxvk_interop_device_iface *iface)

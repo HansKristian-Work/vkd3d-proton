@@ -2539,6 +2539,10 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     if (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS)
         flags2.flags |= VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
 
+    pipeline_create_info.flags |=
+            vkd3d_atomic_uint32_load_explicit(&object->device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                    vkd3d_memory_order_relaxed);
+
     library_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
     library_info.pNext = NULL;
     library_info.libraryCount = data->vk_libraries_count;
