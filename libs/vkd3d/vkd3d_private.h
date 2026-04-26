@@ -3091,6 +3091,18 @@ struct d3d12_wbi_batch_state
     size_t batch_len;
 };
 
+union vkd3d_omm_build_info
+{
+    VkMicromapBuildInfoEXT *ext;
+    VkAccelerationStructureGeometryMicromapDataKHR *khr;
+};
+
+union vkd3d_omm_usage_info
+{
+    VkMicromapUsageEXT *ext;
+    VkMicromapUsageKHR *khr;
+};
+
 struct d3d12_rtas_batch_state
 {
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE build_type;
@@ -3112,11 +3124,11 @@ struct d3d12_rtas_batch_state
     const VkAccelerationStructureBuildRangeInfoKHR **range_ptrs;
     size_t range_ptr_size;
 
-    VkMicromapBuildInfoEXT *omm_build_infos;
+    union vkd3d_omm_build_info omm_build_infos;
     size_t omm_build_info_count;
     size_t omm_build_info_size;
 
-    VkMicromapUsageEXT *omm_usage_infos;
+    union vkd3d_omm_usage_info omm_usage_infos;
     size_t omm_usage_info_count;
     size_t omm_usage_info_size;
 };
@@ -6887,10 +6899,16 @@ void vkd3d_acceleration_structure_copy(
         D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_as,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
 
-bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
+bool vkd3d_opacity_micromap_convert_inputs_ext(const struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
         VkMicromapBuildInfoEXT *build_info,
         VkMicromapUsageEXT *usages);
+bool vkd3d_opacity_micromap_convert_inputs_khr(const struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+        VkAccelerationStructureBuildGeometryInfoKHR *build_info,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        VkAccelerationStructureGeometryMicromapDataKHR *geometry_micromap_data,
+        VkMicromapUsageKHR *usages);
 void vkd3d_opacity_micromap_write_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,

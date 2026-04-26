@@ -21,7 +21,7 @@
 
 #define RT_TRACE TRACE
 
-static VkBuildMicromapFlagsEXT d3d12_build_flags_to_vk(
+static VkBuildMicromapFlagsEXT d3d12_build_flags_to_vk_ext(
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
 {
     VkBuildMicromapFlagsEXT vk_flags = 0;
@@ -32,6 +32,39 @@ static VkBuildMicromapFlagsEXT d3d12_build_flags_to_vk(
         vk_flags |= VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
     if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD)
         vk_flags |= VK_BUILD_MICROMAP_PREFER_FAST_BUILD_BIT_EXT;
+
+    /* MINIMIZE_MEMORY dropped - No such EXT flag. No translation concern, worst case,
+     * excessive memory utilization. */
+
+    /* ALLOW_UPDATE intentionally dropped - VK_EXT_opacity_micromap has no
+     * UPDATE mode (VkBuildMicromapModeEXT only defines BUILD_EXT); micromaps
+     * cannot be incrementally updated, only rebuilt. */
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE)
+        FIXME_ONCE("ALLOW_UPDATE on opacity micromap build is unsupported by Vulkan; ignoring.\n");
+
+    return vk_flags;
+}
+
+static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk_khr(
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
+{
+    VkBuildAccelerationStructureFlagsKHR vk_flags = 0;
+
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD)
+        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+
+    /* MINIMIZE_MEMORY dropped - VUID-11562 doesn't list LOW_MEMORY_BIT_KHR among
+     * the allowed bits for OPACITY_MICROMAP_KHR builds. No translation concern,
+     * worst case, excessive memory utilization. */
+
+    /* ALLOW_UPDATE intentionally dropped per VUID-VkAccelerationStructureBuildGeometryInfoKHR-flags-11562
+     * (OPACITY_MICROMAP_KHR builds may not include ALLOW_UPDATE). */
+    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE)
+        FIXME_ONCE("ALLOW_UPDATE on opacity micromap build is unsupported by Vulkan; ignoring.\n");
 
     return vk_flags;
 }
@@ -66,25 +99,13 @@ VKD3D_UNUSED static char const* debug_omm_format(
         (uint32_t)format);
 }
 
-bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
-        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
-        VkMicromapBuildInfoEXT *build_info,
+static uint32_t vkd3d_opacity_micromap_convert_inputs_usages_ext(
+        const D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC *desc,
         VkMicromapUsageEXT *usages)
 {
-    const D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC *desc = inputs->pOpacityMicromapArrayDesc;
     const D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY *histogram_entry;
     VkMicromapUsageEXT *usage;
     unsigned int i;
-
-    RT_TRACE("Converting inputs.\n");
-    RT_TRACE("=====================\n");
-
-    memset(build_info, 0, sizeof(*build_info));
-    build_info->sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
-    build_info->type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
-    build_info->flags = d3d12_build_flags_to_vk(inputs->Flags);
-    build_info->mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
-    build_info->usageCountsCount = desc->NumOmmHistogramEntries;
 
     for (i = 0; i < desc->NumOmmHistogramEntries; i++)
     {
@@ -101,11 +122,96 @@ bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
         RT_TRACE("  Subdivision level: %u\n", histogram_entry->SubdivisionLevel);
         RT_TRACE("  Format: %s\n", debug_omm_format(histogram_entry->Format));
     }
+    return desc->NumOmmHistogramEntries;
+}
 
+static uint32_t vkd3d_opacity_micromap_convert_inputs_usages_khr(
+        const D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC *desc,
+        VkMicromapUsageKHR *usages)
+{
+    const D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY *histogram_entry;
+    VkMicromapUsageKHR *usage;
+    unsigned int i;
+
+    for (i = 0; i < desc->NumOmmHistogramEntries; i++)
+    {
+        RT_TRACE(" Histogram entry %u:\n", i);
+
+        histogram_entry = &desc->pOmmHistogram[i];
+        usage = &usages[i];
+
+        usage->count = histogram_entry->Count;
+        usage->subdivisionLevel = histogram_entry->SubdivisionLevel;
+        usage->format = d3d12_format_to_vk(histogram_entry->Format);
+
+        RT_TRACE("  Count: %u\n", histogram_entry->Count);
+        RT_TRACE("  Subdivision level: %u\n", histogram_entry->SubdivisionLevel);
+        RT_TRACE("  Format: %s\n", debug_omm_format(histogram_entry->Format));
+    }
+    return desc->NumOmmHistogramEntries;
+}
+
+bool vkd3d_opacity_micromap_convert_inputs_ext(const struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+        VkMicromapBuildInfoEXT *build_info,
+        VkMicromapUsageEXT *usages)
+{
+    const D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC *desc = inputs->pOpacityMicromapArrayDesc;
+
+    RT_TRACE("Converting inputs.\n");
+    RT_TRACE("=====================\n");
+
+    memset(build_info, 0, sizeof(*build_info));
+    build_info->sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
+    build_info->type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+    build_info->flags = d3d12_build_flags_to_vk_ext(inputs->Flags);
+    build_info->mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
+    build_info->usageCountsCount = vkd3d_opacity_micromap_convert_inputs_usages_ext(desc, usages);
     build_info->pUsageCounts = usages;
     build_info->data.deviceAddress = desc->InputBuffer;
     build_info->triangleArray.deviceAddress = desc->PerOmmDescs.StartAddress;
     build_info->triangleArrayStride = desc->PerOmmDescs.StrideInBytes;
+
+    RT_TRACE(" IBO VA: %"PRIx64"\n", desc->InputBuffer);
+    RT_TRACE(" Triangles VA: %"PRIx64"\n", desc->PerOmmDescs.StartAddress);
+    RT_TRACE(" Triangles stride: %"PRIu64" bytes\n", desc->PerOmmDescs.StrideInBytes);
+
+    RT_TRACE("=====================\n");
+    return true;
+}
+
+bool vkd3d_opacity_micromap_convert_inputs_khr(const struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+        VkAccelerationStructureBuildGeometryInfoKHR *build_info,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        VkAccelerationStructureGeometryMicromapDataKHR *geometry_micromap_data,
+        VkMicromapUsageKHR *usages)
+{
+    const D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC *desc = inputs->pOpacityMicromapArrayDesc;
+
+    RT_TRACE("Converting inputs.\n");
+    RT_TRACE("=====================\n");
+
+    memset(build_info, 0, sizeof(*build_info));
+    build_info->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+    build_info->type = VK_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_KHR;
+    build_info->flags = d3d12_build_flags_to_vk_khr(inputs->Flags);
+    build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    build_info->geometryCount = 1;
+    build_info->pGeometries = geometry_info;
+
+    memset(geometry_info, 0, sizeof(*geometry_info));
+    geometry_info->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+    geometry_info->geometryType = VK_GEOMETRY_TYPE_MICROMAP_KHR;
+    geometry_info->pNext = geometry_micromap_data;
+
+    memset(geometry_micromap_data, 0, sizeof(*geometry_micromap_data));
+    geometry_micromap_data->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_MICROMAP_DATA_KHR;
+    geometry_micromap_data->usageCountsCount = vkd3d_opacity_micromap_convert_inputs_usages_khr(desc, usages);
+    geometry_micromap_data->pUsageCounts = usages;
+    geometry_micromap_data->data = desc->InputBuffer;
+    geometry_micromap_data->triangleArray = desc->PerOmmDescs.StartAddress;
+    geometry_micromap_data->triangleArrayStride = desc->PerOmmDescs.StrideInBytes;
 
     RT_TRACE(" IBO VA: %"PRIx64"\n", desc->InputBuffer);
     RT_TRACE(" Triangles VA: %"PRIx64"\n", desc->PerOmmDescs.StartAddress);
