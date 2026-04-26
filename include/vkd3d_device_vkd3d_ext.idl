@@ -18,6 +18,12 @@
 import "vkd3d_d3d12.idl";
 import "vkd3d_vk_includes.h";
 
+typedef enum D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAG
+{
+    D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_NONE = 0x0,
+    D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_ENABLE_OMM_SUPPORT = 0x1
+} D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAG;
+
 [
     uuid(11ea7a1a-0f6a-49bf-b612-3e30f8e201dd),
     object,
@@ -162,6 +168,18 @@ interface ID3D12DeviceExt4 : ID3D12DeviceExt3
     BOOL IsNvShaderExtnOpCodeSupported(UINT32 op_code);
     HRESULT SetNvShaderExtnSlotSpace(UINT32 uav_slot, UINT32 uav_space, BOOL local_thread);
 }
+
+[
+    uuid(e51323f6-3541-4ddf-894d-8a8c70e3e427),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceExt5 : ID3D12DeviceExt4
+{
+    BOOL SetCreatePipelineStateFlagsNVAPI(D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAG pipeline_state_flags);
+}
+
 
 /* 1:1 implementation of ffx_antilag2_dx12.h */
 struct AmdAntiLagAPIData_v1
