@@ -3085,6 +3085,8 @@ struct d3d12_rtas_batch_state
 {
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE build_type;
 
+    bool fixup_needed;
+
     VkAccelerationStructureBuildGeometryInfoKHR *build_infos;
     size_t build_info_count;
     size_t build_info_size;

@@ -90,6 +90,18 @@ static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
 
 static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *list);
 
+static bool d3d12_array_reserve_realloced(void **elements, size_t *capacity,
+        size_t element_count, size_t element_size, bool *any_reallocs)
+{
+    void *old_elements = *elements;
+    /* TODO: Consider if vkd3d_array_reserve's default of 4 is good */
+    if (!vkd3d_array_reserve(elements, capacity, element_count, element_size))
+        return false;
+    if (old_elements != *elements)
+        *any_reallocs = true;
+    return true;
+}
+
 static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSemaphore *vk_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -20225,8 +20237,9 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
         return false;
     }
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
-            rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->geometry_infos)))
+    if (!d3d12_array_reserve_realloced((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
+            rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->geometry_infos),
+            &rtas_batch->fixup_needed))
     {
         ERR("Failed to allocate geometry info array.\n");
         return false;
@@ -20234,8 +20247,9 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
 
     if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
     {
-        if (!vkd3d_array_reserve((void **)&rtas_batch->omm_triangles_infos, &rtas_batch->omm_triangles_info_size,
-                rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->omm_triangles_infos)))
+        if (!d3d12_array_reserve_realloced((void **)&rtas_batch->omm_triangles_infos, &rtas_batch->omm_triangles_info_size,
+                rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->omm_triangles_infos),
+                &rtas_batch->fixup_needed))
         {
             ERR("Failed to allocate opacity micromap info array.\n");
             return false;
@@ -20278,22 +20292,25 @@ static bool d3d12_command_list_allocate_omm_build_info(struct d3d12_command_list
         return false;
     }
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
-            rtas_batch->geometry_info_count + 1, sizeof(*rtas_batch->geometry_infos)))
+    if (!d3d12_array_reserve_realloced((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
+            rtas_batch->geometry_info_count + 1, sizeof(*rtas_batch->geometry_infos),
+            &rtas_batch->fixup_needed))
     {
         ERR("Failed to allocate geometry info array.\n");
         return false;
     }
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->omm_build_infos, &rtas_batch->omm_build_info_size,
-            rtas_batch->omm_build_info_count + 1, sizeof(*rtas_batch->omm_build_infos)))
+    if (!d3d12_array_reserve_realloced((void **)&rtas_batch->omm_build_infos, &rtas_batch->omm_build_info_size,
+            rtas_batch->omm_build_info_count + 1, sizeof(*rtas_batch->omm_build_infos),
+            &rtas_batch->fixup_needed))
     {
         ERR("Failed to allocate omm build info array.\n");
         return false;
     }
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->omm_usage_infos, &rtas_batch->omm_usage_info_size,
-            rtas_batch->omm_usage_info_count + usage_count, sizeof(*rtas_batch->omm_usage_infos)))
+    if (!d3d12_array_reserve_realloced((void **)&rtas_batch->omm_usage_infos, &rtas_batch->omm_usage_info_size,
+            rtas_batch->omm_usage_info_count + usage_count, sizeof(*rtas_batch->omm_usage_infos),
+            &rtas_batch->fixup_needed))
     {
         ERR("Failed to allocate usage array.\n");
         return false;
@@ -20343,7 +20360,26 @@ static void d3d12_command_list_fixup_rtas_batch(struct d3d12_command_list *list)
         return;
     }
 
-    /* Assign geometry and range pointers */
+    /* Assign range pointers */
+    geometry_index = 0;
+    for (i = 0; i < rtas_batch->build_info_count; i++)
+    {
+        uint32_t geometry_count = rtas_batch->build_infos[i].geometryCount;
+        assert(geometry_index + geometry_count <= rtas_batch->geometry_info_count);
+
+        if (rtas_batch->geometry_infos[geometry_index].geometryType == VK_GEOMETRY_TYPE_MICROMAP_KHR)
+            rtas_batch->range_ptrs[i] = NULL;
+        else
+            rtas_batch->range_ptrs[i] = &rtas_batch->range_infos[geometry_index];
+
+        geometry_index += geometry_count;
+    }
+
+    if (!rtas_batch->fixup_needed)
+        return;
+    rtas_batch->fixup_needed = false;
+
+    /* Assign geometry */
     geometry_index = 0;
 
     for (i = 0; i < rtas_batch->build_info_count; i++)
@@ -20352,10 +20388,6 @@ static void d3d12_command_list_fixup_rtas_batch(struct d3d12_command_list *list)
         assert(geometry_index + geometry_count <= rtas_batch->geometry_info_count);
 
         rtas_batch->build_infos[i].pGeometries = &rtas_batch->geometry_infos[geometry_index];
-        if (rtas_batch->geometry_infos[geometry_index].geometryType == VK_GEOMETRY_TYPE_MICROMAP_KHR)
-            rtas_batch->range_ptrs[i] = NULL;
-        else
-            rtas_batch->range_ptrs[i] = &rtas_batch->range_infos[geometry_index];
 
         geometry_index += geometry_count;
     }

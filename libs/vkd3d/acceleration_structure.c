@@ -181,6 +181,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         }
 
         build_info->geometryCount = 1;
+        build_info->pGeometries = geometry_infos;
         RT_TRACE("  ArrayOfPointers: %u.\n",
                 desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS ? 1 : 0);
         RT_TRACE("  NumDescs: %u.\n", desc->NumDescs);
@@ -198,6 +199,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
             memset(primitive_counts, 0, sizeof(*primitive_counts) * desc->NumDescs);
 
         build_info->geometryCount = desc->NumDescs;
+        build_info->pGeometries = geometry_infos;
 
         for (i = 0; i < desc->NumDescs; i++)
         {
