@@ -2549,9 +2549,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
-    /* TODO: Until KHR is fully plumbed in, we will only support EXT */
-    info->opacity_micromap_features_khr.micromap = VK_FALSE;
-
     /* Prefer KHR_opacity_micromap over EXT_opacity_micromap, and only load one. */
     info->using_khr_opacity_micromap = info->opacity_micromap_features_khr.micromap;
 
