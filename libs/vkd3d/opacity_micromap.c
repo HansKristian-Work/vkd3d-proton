@@ -268,27 +268,54 @@ void vkd3d_opacity_micromap_write_postbuild_info(
     vk_buffer = resource->vk_buffer;
     offset = desc->DestBuffer - resource->va;
     offset += desc_offset;
+    stride = sizeof(uint64_t);
 
-    switch (desc->InfoType)
+    if (list->device->device_info.using_khr_opacity_micromap)
     {
-        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE:
-            vk_query_type = VK_QUERY_TYPE_MICROMAP_COMPACTED_SIZE_EXT;
-            type_index = VKD3D_QUERY_TYPE_INDEX_OMM_COMPACTED_SIZE;
-            stride = sizeof(uint64_t);
-            break;
-        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION:
-            vk_query_type = VK_QUERY_TYPE_MICROMAP_SERIALIZATION_SIZE_EXT;
-            type_index = VKD3D_QUERY_TYPE_INDEX_OMM_SERIALIZE_SIZE;
-            stride = sizeof(uint64_t);
-            break;
-        default:
-            FIXME("Unsupported InfoType %u.\n", desc->InfoType);
-            /* TODO: CURRENT_SIZE is something we cannot query in Vulkan, so
-                * we'll need to keep around a buffer to handle this.
-                * For now, just clear to 0. */
-            VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset,
-                    sizeof(uint64_t), 0));
-            return;
+        switch (desc->InfoType)
+        {
+            case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE:
+                vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+                type_index = VKD3D_QUERY_TYPE_INDEX_RT_COMPACTED_SIZE;
+                break;
+            case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE:
+                vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR;
+                type_index = VKD3D_QUERY_TYPE_INDEX_RT_CURRENT_SIZE;
+                break;
+            case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION:
+                vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
+                type_index = VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE;
+                break;
+            default:
+                FIXME("Unsupported InfoType %u.\n", desc->InfoType);
+                VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset,
+                        sizeof(uint64_t), 0));
+                return;
+        }
+    }
+    else
+    {
+        switch (desc->InfoType)
+        {
+            case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE:
+                vk_query_type = VK_QUERY_TYPE_MICROMAP_COMPACTED_SIZE_EXT;
+                type_index = VKD3D_QUERY_TYPE_INDEX_OMM_COMPACTED_SIZE;
+                break;
+            case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION:
+                vk_query_type = VK_QUERY_TYPE_MICROMAP_SERIALIZATION_SIZE_EXT;
+                type_index = VKD3D_QUERY_TYPE_INDEX_OMM_SERIALIZE_SIZE;
+                break;
+            case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE:
+                /* TODO: CURRENT_SIZE is something we cannot query in Vulkan, so
+                 * we'll need to keep around a buffer to handle this.
+                 * For now, just clear to 0. */
+                /* fall through */
+            default:
+                FIXME("Unsupported InfoType %u.\n", desc->InfoType);
+                VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset,
+                        sizeof(uint64_t), 0));
+                return;
+        }
     }
 
     if (!d3d12_command_allocator_allocate_query_from_type_index(list->allocator,
@@ -298,8 +325,16 @@ void vkd3d_opacity_micromap_write_postbuild_info(
         return;
     }
 
-    VK_CALL(vkCmdWriteMicromapsPropertiesEXT(list->cmd.vk_command_buffer,
-            1, &vk_opacity_micromap.ext, vk_query_type, vk_query_pool, vk_query_index));
+    if (list->device->device_info.using_khr_opacity_micromap)
+    {
+        VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->cmd.vk_command_buffer,
+                1, &vk_opacity_micromap.khr, vk_query_type, vk_query_pool, vk_query_index));
+    }
+    else
+    {
+        VK_CALL(vkCmdWriteMicromapsPropertiesEXT(list->cmd.vk_command_buffer,
+                1, &vk_opacity_micromap.ext, vk_query_type, vk_query_pool, vk_query_index));
+    }
     VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
             vk_query_pool, vk_query_index, 1,
             vk_buffer, offset, stride,
@@ -328,10 +363,20 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
     memset(&barrier, 0, sizeof(barrier));
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
-    /* The query accesses MICROMAP_READ_BIT in BUILD_BIT stage. */
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT | VK_PIPELINE_STAGE_2_COPY_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+    if (list->device->device_info.using_khr_opacity_micromap)
+    {
+        barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    }
+    else
+    {
+        barrier.srcAccessMask = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
+        /* The query accesses MICROMAP_READ_BIT in BUILD_BIT stage. */
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT | VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    }
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
