@@ -432,3 +432,116 @@ void vkd3d_opacity_micromap_copy(
     if (convert_copy_mode(mode, &info.mode))
         VK_CALL(vkCmdCopyMicromapEXT(list->cmd.vk_command_buffer, &info));
 }
+
+static bool vkd3d_acceleration_structure_convert_opacity_micromap_index_type(DXGI_FORMAT format, VkIndexType *result)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_UNKNOWN:
+            *result = VK_INDEX_TYPE_NONE_KHR;
+            return true;
+        case DXGI_FORMAT_R32_UINT:
+            *result = VK_INDEX_TYPE_UINT32;
+            return true;
+        case DXGI_FORMAT_R16_UINT:
+            *result = VK_INDEX_TYPE_UINT16;
+            return true;
+        case DXGI_FORMAT_R8_UINT:
+            FIXME_ONCE("Using UINT8 as OMM index format is technically out of spec.\n");
+            *result = VK_INDEX_TYPE_UINT8;
+            return true;
+        default:
+            ERR("Unsupported OMM index format #%x.\n", format);
+            return false;
+    }
+}
+
+static bool vkd3d_acceleration_structure_convert_opacity_micromap_ext(struct d3d12_device *device,
+        const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_triangles_info)
+{
+    /* This pointer may be invalidated later when batching.
+     * Patch this in late right before the batch is committed.
+     * For prebuild info, we need the pointers right away however. */
+    vk_prepend_struct(&geometry_info->geometry.triangles, omm_triangles_info);
+    omm_triangles_info->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT;
+    omm_triangles_info->pNext = NULL;
+
+    if (!vkd3d_acceleration_structure_convert_opacity_micromap_index_type(
+            geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat, &omm_triangles_info->indexType))
+    {
+        return false;
+    }
+    omm_triangles_info->indexBuffer.deviceAddress = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress;
+    omm_triangles_info->indexStride = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StrideInBytes;
+    omm_triangles_info->baseTriangle = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation;
+
+    if (geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray)
+    {
+        omm_triangles_info->micromap = vkd3d_va_map_place_opacity_micromap(
+                &device->memory_allocator.va_map, device,
+                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray).ext;
+
+        if (omm_triangles_info->micromap == VK_NULL_HANDLE)
+            ERR("Failed to place OMM at VA 0x%"PRIx64".\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
+    }
+
+    return true;
+}
+
+static bool vkd3d_acceleration_structure_convert_opacity_micromap_khr(struct d3d12_device *device,
+        const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_info)
+{
+    vk_prepend_struct(&geometry_info->geometry.triangles, omm_triangles_info);
+    omm_triangles_info->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_KHR;
+    omm_triangles_info->pNext = NULL;
+
+    if (!vkd3d_acceleration_structure_convert_opacity_micromap_index_type(
+            geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat, &omm_triangles_info->indexType))
+    {
+        return false;
+    }
+    omm_triangles_info->indexBuffer = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress;
+    omm_triangles_info->indexStride = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StrideInBytes;
+    omm_triangles_info->baseTriangle = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation;
+
+    if (geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray)
+    {
+        omm_triangles_info->micromap = vkd3d_va_map_place_opacity_micromap(
+                &device->memory_allocator.va_map, device,
+                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray).khr;
+
+        if (omm_triangles_info->micromap == VK_NULL_HANDLE)
+            ERR("Failed to place OMM at VA 0x%"PRIx64".\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
+    }
+    return true;
+}
+
+bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *device,
+        const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        union vkd3d_omm_triangles_info omm_triangles_infos,
+        uint32_t omm_info_index)
+{
+    bool result;
+    if (device->device_info.using_khr_opacity_micromap)
+        result = vkd3d_acceleration_structure_convert_opacity_micromap_khr(device,
+                geom_desc, geometry_info, &omm_triangles_infos.khr[omm_info_index]);
+    else
+        result = vkd3d_acceleration_structure_convert_opacity_micromap_ext(device,
+                geom_desc, geometry_info, &omm_triangles_infos.ext[omm_info_index]);
+
+    if (result)
+    {
+        RT_TRACE("  OMM Index type: %s\n", debug_dxgi_format(geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat));
+        RT_TRACE("  OMM IBO VA: %"PRIx64"\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress);
+        RT_TRACE("  OMM Index stride: %"PRIu64" bytes\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StrideInBytes);
+        RT_TRACE("  OMM Base: %u\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation);
+        RT_TRACE("  OMM Micromap VA: %"PRIx64"\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
+    }
+
+    return result;
+}
