@@ -360,6 +360,38 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx(d3d
     return S_OK;
 }
 
+static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetOpacityMicromapOverrideNVAPI(d3d12_device_vkd3d_ext_iface *iface,
+        BOOL enable_opacity_micromap)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    VKD3D_UNUSED VkPipelineCreateFlags ray_tracing_pipeline_create_flags;
+
+    TRACE("iface %p, enable_opacity_micromap %d.\n", iface, enable_opacity_micromap);
+
+    if (enable_opacity_micromap)
+    {
+        if (!device->device_info.supports_opacity_micromap)
+        {
+            ERR("Opacity micromap is not supported.\n");
+            return FALSE;
+        }
+
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint32_or(&device->global_ray_tracing_pipeline_create_flags,
+                VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) |
+                VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+    }
+    else
+    {
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint32_and(&device->global_ray_tracing_pipeline_create_flags,
+                ~VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) &
+                ~VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+    }
+
+    TRACE("flags #%x.\n", ray_tracing_pipeline_create_flags);
+
+    return TRUE;
+}
+
 static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SupportsCubin64bit(d3d12_device_vkd3d_ext_iface *iface)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
@@ -635,7 +667,7 @@ CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl =
     d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace,
 
     /* ID3D12DeviceExt5 methods */
-    NULL,
+    d3d12_device_vkd3d_ext_SetOpacityMicromapOverrideNVAPI,
     NULL,
 };
 

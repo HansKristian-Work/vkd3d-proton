@@ -5731,6 +5731,11 @@ struct d3d12_device
     LUID adapter_luid;
     D3DKMT_HANDLE kmt_local;
 
+    /* Set by SetCreatePipelineStateOptions (NVAPI). NVAPI has no per-pipeline OMM opt-in
+     * (unlike DXR 1.2's ALLOW_OPACITY_MICROMAPS flag), so this global is OR'd into every
+     * RT pipeline creation to implement the device-wide enable/disable semantic. */
+    VkPipelineCreateFlags global_ray_tracing_pipeline_create_flags;
+
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
     struct d3d12_caps d3d12_caps;
