@@ -2934,6 +2934,11 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("  VkPhysicalDeviceLineRasterizationFeaturesEXT:\n");
     TRACE("    rectangularLines: %u\n", info->line_rasterization_features.rectangularLines);
     TRACE("    smoothLines: %u\n", info->line_rasterization_features.smoothLines);
+
+    TRACE("  VkPhysicalDeviceOpacityMicromapFeaturesEXT:\n");
+    TRACE("    micromap: %#x\n", info->opacity_micromap_features.micromap);
+    TRACE("    micromapCaptureReplay: %#x\n", info->opacity_micromap_features.micromapCaptureReplay);
+    TRACE("    micromapHostCommands: %#x\n", info->opacity_micromap_features.micromapHostCommands);
 }
 
 static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
