@@ -8346,7 +8346,7 @@ static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(str
     else
         usages = usages_stack;
 
-    if (!vkd3d_opacity_micromap_convert_inputs_khr(device, desc, &build_info, &geometry_info,
+    if (!vkd3d_opacity_micromap_convert_inputs(device, desc, &build_info, &geometry_info,
             &geometry_micromap_data, usages))
     {
         ERR("Failed to convert inputs.\n");
