@@ -167,7 +167,7 @@ void vkd3d_opacity_micromap_write_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkDeviceSize desc_offset,
-        union vkd3d_opacity_micromap vk_opacity_micromap)
+        VkAccelerationStructureKHR vk_opacity_micromap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_unique_resource *resource;
@@ -220,7 +220,7 @@ void vkd3d_opacity_micromap_write_postbuild_info(
     }
 
     VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->cmd.vk_command_buffer,
-            1, &vk_opacity_micromap.khr, vk_query_type, vk_query_pool, vk_query_index));
+            1, &vk_opacity_micromap, vk_query_type, vk_query_pool, vk_query_index));
     VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
             vk_query_pool, vk_query_index, 1,
             vk_buffer, offset, stride,
@@ -236,7 +236,7 @@ void vkd3d_opacity_micromap_write_postbuild_info(
 void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        union vkd3d_opacity_micromap vk_opacity_micromap)
+        VkAccelerationStructureKHR vk_opacity_micromap)
 {
     /* In D3D12 we are supposed to be able to emit without an explicit barrier,
      * but we need to emit them for Vulkan. */
@@ -286,15 +286,15 @@ static bool convert_copy_mode(
 
 void vkd3d_opacity_micromap_copy(
         struct d3d12_command_list *list,
-        D3D12_GPU_VIRTUAL_ADDRESS dst, union vkd3d_opacity_micromap src_omm,
+        D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_omm,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkCopyAccelerationStructureInfoKHR info_khr;
-    union vkd3d_opacity_micromap dst_omm;
+    VkAccelerationStructureKHR dst_omm;
 
     dst_omm = vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map, list->device, dst);
-    if (dst_omm.any_handle == (uint64_t)VK_NULL_HANDLE)
+    if (dst_omm == VK_NULL_HANDLE)
     {
         ERR("Invalid dst address #%"PRIx64" for OMM copy.\n", dst);
         return;
@@ -305,8 +305,8 @@ void vkd3d_opacity_micromap_copy(
         return;
 
     info_khr.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
-    info_khr.dst = dst_omm.khr;
-    info_khr.src = src_omm.khr;
+    info_khr.dst = dst_omm;
+    info_khr.src = src_omm;
     VK_CALL(vkCmdCopyAccelerationStructureKHR(list->cmd.vk_command_buffer, &info_khr));
 }
 
@@ -355,7 +355,7 @@ bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *
     {
         omm_triangles_info->micromap = vkd3d_va_map_place_opacity_micromap(
                 &device->memory_allocator.va_map, device,
-                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray).khr;
+                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
 
         if (omm_triangles_info->micromap == VK_NULL_HANDLE)
             ERR("Failed to place OMM at VA 0x%"PRIx64".\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
