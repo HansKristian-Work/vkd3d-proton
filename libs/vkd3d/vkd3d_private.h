@@ -5321,9 +5321,7 @@ struct vkd3d_physical_device_info
 
     VkPhysicalDeviceFeatures2 features2;
 
-    /* Logical OR of the KHR and EXT opacity-micromap support flags. */
     bool supports_opacity_micromap;
-    bool using_khr_opacity_micromap; /* Discriminator KHR / EXT being used. */
 
     /* others, for extensions that have no feature bits */
     uint32_t time_domains;  /* vkd3d_time_domain_flag */
