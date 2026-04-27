@@ -45,18 +45,18 @@ static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk(
     return vk_flags;
 }
 
-static VkOpacityMicromapFormatEXT d3d12_format_to_vk(
+static VkOpacityMicromapFormatKHR d3d12_format_to_vk(
         D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT format)
 {
     switch (format)
     {
         case D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_2_STATE:
-            return VK_OPACITY_MICROMAP_FORMAT_2_STATE_EXT;
+            return VK_OPACITY_MICROMAP_FORMAT_2_STATE_KHR;
         case D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_4_STATE:
-            return VK_OPACITY_MICROMAP_FORMAT_4_STATE_EXT;
+            return VK_OPACITY_MICROMAP_FORMAT_4_STATE_KHR;
         default:
             FIXME("Unrecognized format #%x.\n", format);
-            return (VkOpacityMicromapFormatEXT)format;
+            return (VkOpacityMicromapFormatKHR)format;
     }
 }
 
