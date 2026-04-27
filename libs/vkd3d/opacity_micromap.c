@@ -391,25 +391,7 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
     vkd3d_opacity_micromap_end_barrier(list);
 }
 
-static bool convert_copy_mode_ext(
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode,
-        VkCopyMicromapModeEXT *vk_mode)
-{
-    switch (mode)
-    {
-        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE:
-            *vk_mode = VK_COPY_MICROMAP_MODE_CLONE_EXT;
-            return true;
-        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT:
-            *vk_mode = VK_COPY_MICROMAP_MODE_COMPACT_EXT;
-            return true;
-        default:
-            FIXME("Unsupported OMM copy mode #%x.\n", mode);
-            return false;
-    }
-}
-
-static bool convert_copy_mode_khr(
+static bool convert_copy_mode(
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode,
         VkCopyAccelerationStructureModeKHR *vk_mode)
 {
@@ -433,9 +415,8 @@ void vkd3d_opacity_micromap_copy(
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkCopyAccelerationStructureInfoKHR info_khr;
+    VkCopyAccelerationStructureInfoKHR info;
     union vkd3d_opacity_micromap dst_omm;
-    VkCopyMicromapInfoEXT info_ext;
 
     dst_omm = vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map, list->device, dst);
     if (dst_omm.any_handle == (uint64_t)VK_NULL_HANDLE)
@@ -443,30 +424,15 @@ void vkd3d_opacity_micromap_copy(
         ERR("Invalid dst address #%"PRIx64" for OMM copy.\n", dst);
         return;
     }
-    if (list->device->device_info.using_khr_opacity_micromap)
-    {
-        memset(&info_khr, 0, sizeof(info_khr));
+    memset(&info, 0, sizeof(info));
 
-        if (!convert_copy_mode_khr(mode, &info_khr.mode))
-            return;
+    if (!convert_copy_mode(mode, &info.mode))
+        return;
 
-        info_khr.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
-        info_khr.dst = dst_omm.khr;
-        info_khr.src = src_omm.khr;
-        VK_CALL(vkCmdCopyAccelerationStructureKHR(list->cmd.vk_command_buffer, &info_khr));
-    }
-    else
-    {
-        memset(&info_ext, 0, sizeof(info_ext));
-
-        if (!convert_copy_mode_ext(mode, &info_ext.mode))
-            return;
-
-        info_ext.sType = VK_STRUCTURE_TYPE_COPY_MICROMAP_INFO_EXT;
-        info_ext.dst = dst_omm.ext;
-        info_ext.src = src_omm.ext;
-        VK_CALL(vkCmdCopyMicromapEXT(list->cmd.vk_command_buffer, &info_ext));
-    }
+    info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
+    info.dst = dst_omm.khr;
+    info.src = src_omm.khr;
+    VK_CALL(vkCmdCopyAccelerationStructureKHR(list->cmd.vk_command_buffer, &info));
 }
 
 static bool vkd3d_acceleration_structure_convert_opacity_micromap_index_type(DXGI_FORMAT format, VkIndexType *result)
