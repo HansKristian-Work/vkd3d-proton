@@ -191,7 +191,6 @@ struct vkd3d_vulkan_info
     bool EXT_device_address_binding_report;
     bool EXT_depth_bias_control;
     bool EXT_zero_initialize_device_memory;
-    bool EXT_opacity_micromap;
     bool EXT_shader_float8;
     bool EXT_present_timing;
     bool EXT_descriptor_heap;
