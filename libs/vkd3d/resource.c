@@ -1564,9 +1564,7 @@ struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
             break;
 
         case VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE:
-            success = rtas_is_omm
-                ? vkd3d_create_opacity_micromap_view(device, &key->u.buffer, &view)
-                : vkd3d_create_acceleration_structure_view(device, &key->u.buffer, &view);
+            success = vkd3d_create_acceleration_structure_view(device, &key->u.buffer, &view, rtas_is_omm);
             break;
 
         default:
@@ -5151,7 +5149,7 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device, const struct vkd3d_bu
 }
 
 bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const struct vkd3d_buffer_view_desc *desc,
-        struct vkd3d_view **view)
+        struct vkd3d_view **view, bool rtas_is_micromap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
@@ -5225,43 +5223,7 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
     object->format = desc->format;
     object->info.buffer.offset = desc->offset;
     object->info.buffer.size = desc->size;
-    object->info.buffer.rtas_is_micromap = false;
-    *view = object;
-    return true;
-}
-
-bool vkd3d_create_opacity_micromap_view(struct d3d12_device *device, const struct vkd3d_buffer_view_desc *desc,
-        struct vkd3d_view **view)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkAccelerationStructureCreateInfo2KHR create_info;
-    VkAccelerationStructureKHR vk_acceleration_structure;
-    struct vkd3d_view *object;
-    VkResult vr;
-
-    memset(&create_info, 0, sizeof(create_info));
-
-    create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_2_KHR;
-    create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR;
-    create_info.addressRange.address = vkd3d_get_buffer_device_address(device, desc->buffer) + desc->offset;
-    create_info.addressRange.size = desc->size;
-
-    vr = VK_CALL(vkCreateAccelerationStructure2KHR(device->vk_device, &create_info, NULL, &vk_acceleration_structure));
-
-    if (vr != VK_SUCCESS)
-        return false;
-
-    if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE)))
-    {
-        VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, vk_acceleration_structure, NULL));
-        return false;
-    }
-
-    object->vk_acceleration_structure = vk_acceleration_structure;
-    object->format = desc->format;
-    object->info.buffer.offset = desc->offset;
-    object->info.buffer.size = desc->size;
-    object->info.buffer.rtas_is_micromap = true;
+    object->info.buffer.rtas_is_micromap = rtas_is_micromap;
     *view = object;
     return true;
 }

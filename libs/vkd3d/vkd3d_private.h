@@ -1373,9 +1373,7 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device,
 bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view);
 bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device,
-        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view);
-bool vkd3d_create_opacity_micromap_view(struct d3d12_device *device,
-        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view);
+        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view, bool rtas_is_micromap);
 bool vkd3d_create_texture_view(struct d3d12_device *device,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view);
 
