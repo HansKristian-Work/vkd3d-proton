@@ -21,34 +21,7 @@
 
 #define RT_TRACE TRACE
 
-static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk_ext(
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
-{
-    VkBuildAccelerationStructureFlagsKHR vk_flags = 0;
-
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_MINIMIZE_MEMORY)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_LOW_MEMORY_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_OMM_LINKAGE_UPDATE)
-    {
-        /* D3D12 spec isn't clear on what is allowed to be updated and when */
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_OPACITY_MICROMAP_UPDATE_BIT_EXT |
-                VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_OPACITY_MICROMAP_DATA_UPDATE_BIT_EXT;
-    }
-    if (flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_DISABLE_OMMS)
-        vk_flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_DISABLE_OPACITY_MICROMAPS_BIT_EXT;
-
-    return vk_flags;
-}
-
-static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk_khr(
+static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk(
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
 {
     VkBuildAccelerationStructureFlagsKHR vk_flags = 0;
@@ -171,9 +144,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         RT_TRACE("Bottom level build.\n");
     }
 
-    build_info->flags = device->device_info.using_khr_opacity_micromap ?
-        d3d12_build_flags_to_vk_khr(desc->Flags) :
-        d3d12_build_flags_to_vk_ext(desc->Flags);
+    build_info->flags = d3d12_build_flags_to_vk(desc->Flags);
 
     if (desc->Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
     {
@@ -188,16 +159,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         /* There is risk of desc->NumDescs being != 1, although it should not happen. */
         memset(geometry_infos, 0, sizeof(*geometry_infos));
         /* Safety since we check for sentinel when completing batch. */
-        if (device->device_info.using_khr_opacity_micromap)
-        {
-            if (omm_triangles_infos.khr)
-                memset(omm_triangles_infos.khr, 0, sizeof(*omm_triangles_infos.khr));
-        }
-        else
-        {
-            if (omm_triangles_infos.ext)
-                memset(omm_triangles_infos.ext, 0, sizeof(*omm_triangles_infos.ext));
-        }
+        if (omm_triangles_infos.khr)
+            memset(omm_triangles_infos.khr, 0, sizeof(*omm_triangles_infos.khr));
         geometry_infos[0].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
         geometry_infos[0].geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
         geometry_infos[0].geometry.instances.sType =
@@ -229,17 +192,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
 
         /* Don't hoist this memset since top-level geometries forces NumDescs == 1 assumption. */
         memset(geometry_infos, 0, sizeof(*geometry_infos) * desc->NumDescs);
-        if (device->device_info.using_khr_opacity_micromap)
-        {
-            if (omm_triangles_infos.khr)
-                memset(omm_triangles_infos.khr, 0, sizeof(*omm_triangles_infos.khr) * desc->NumDescs);
-        }
-        else
-        {
-            if (omm_triangles_infos.ext)
-                memset(omm_triangles_infos.ext, 0, sizeof(*omm_triangles_infos.ext) * desc->NumDescs);
-        }
-
+        if (omm_triangles_infos.khr)
+            memset(omm_triangles_infos.khr, 0, sizeof(*omm_triangles_infos.khr) * desc->NumDescs);
         if (primitive_counts)
             memset(primitive_counts, 0, sizeof(*primitive_counts) * desc->NumDescs);
 
@@ -316,7 +270,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                             geom_desc->OmmTriangles.pTriangles, &geometry_infos[i], &primitive_count);
 
                     if (!vkd3d_acceleration_structure_convert_opacity_micromap(device,
-                            geom_desc, &geometry_infos[i], omm_triangles_infos, i))
+                            geom_desc, &geometry_infos[i], &omm_triangles_infos.khr[i]))
                     {
                         return false;
                     }
