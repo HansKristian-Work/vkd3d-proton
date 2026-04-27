@@ -2523,9 +2523,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
     /* Prefer KHR_opacity_micromap over EXT_opacity_micromap, and only load one. */
-    info->using_khr_opacity_micromap = info->opacity_micromap_features_khr.micromap;
-
-    info->supports_opacity_micromap = info->using_khr_opacity_micromap;
+    info->supports_opacity_micromap = info->opacity_micromap_features_khr.micromap;
 
     /* if nonzero, this is a layered implementation */
     if (real_driver_props.driverID)
