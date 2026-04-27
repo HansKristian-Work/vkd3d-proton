@@ -8333,19 +8333,13 @@ static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(str
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
 {
-    VkAccelerationStructureGeometryMicromapDataKHR geometry_micromap_data_khr;
+    VkAccelerationStructureGeometryMicromapDataKHR geometry_micromap_data;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkAccelerationStructureBuildGeometryInfoKHR build_info_khr;
-    union
-    {
-        VkMicromapUsageEXT ext[VKD3D_BUILD_INFO_STACK_COUNT];
-        VkMicromapUsageKHR khr[VKD3D_BUILD_INFO_STACK_COUNT];
-    } usages_stack;
-    VkAccelerationStructureBuildSizesInfoKHR size_info_khr;
-    VkAccelerationStructureGeometryKHR geometry_info_khr;
-    VkMicromapBuildSizesInfoEXT size_info_ext;
-    VkMicromapBuildInfoEXT build_info_ext;
-    union vkd3d_omm_usage_info usages;
+    VkMicromapUsageKHR usages_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureBuildGeometryInfoKHR build_info;
+    VkAccelerationStructureBuildSizesInfoKHR size_info;
+    VkAccelerationStructureGeometryKHR geometry_info;
+    VkMicromapUsageKHR *usages;
     uint32_t usages_count;
 
     if (!d3d12_device_supports_ray_tracing_tier_1_2(device))
@@ -8358,58 +8352,26 @@ static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(str
     usages_count = desc->pOpacityMicromapArrayDesc->NumOmmHistogramEntries;
 
     if (usages_count > VKD3D_BUILD_INFO_STACK_COUNT)
-    {
-        if (device->device_info.using_khr_opacity_micromap)
-            usages.khr = vkd3d_malloc(usages_count * sizeof(*usages.khr));
-        else
-            usages.ext = vkd3d_malloc(usages_count * sizeof(*usages.ext));
-    }
+        usages = vkd3d_malloc(usages_count * sizeof(*usages));
     else
+        usages = usages_stack;
+
+    if (!vkd3d_opacity_micromap_convert_inputs_khr(device, desc, &build_info, &geometry_info,
+            &geometry_micromap_data, usages))
     {
-        if (device->device_info.using_khr_opacity_micromap)
-            usages.khr = usages_stack.khr;
-        else
-            usages.ext = usages_stack.ext;
+        ERR("Failed to convert inputs.\n");
+        memset(info, 0, sizeof(*info));
+        goto cleanup;
     }
 
-    if (device->device_info.using_khr_opacity_micromap)
-    {
-        if (!vkd3d_opacity_micromap_convert_inputs_khr(device, desc, &build_info_khr, &geometry_info_khr,
-                &geometry_micromap_data_khr, usages.khr))
-        {
-            ERR("Failed to convert inputs.\n");
-            memset(info, 0, sizeof(*info));
-            goto cleanup;
-        }
+    memset(&size_info, 0, sizeof(size_info));
+    size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 
-        memset(&size_info_khr, 0, sizeof(size_info_khr));
-        size_info_khr.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+    VK_CALL(vkGetAccelerationStructureBuildSizesKHR(device->vk_device,
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info, NULL, &size_info));
 
-        VK_CALL(vkGetAccelerationStructureBuildSizesKHR(device->vk_device,
-                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info_khr, NULL, &size_info_khr));
-
-        info->ResultDataMaxSizeInBytes = size_info_khr.accelerationStructureSize;
-        info->ScratchDataSizeInBytes = size_info_khr.buildScratchSize;
-    }
-    else
-    {
-        if (!vkd3d_opacity_micromap_convert_inputs_ext(device, desc, &build_info_ext, usages.ext))
-        {
-            ERR("Failed to convert inputs.\n");
-            memset(info, 0, sizeof(*info));
-            goto cleanup;
-        }
-
-        memset(&size_info_ext, 0, sizeof(size_info_ext));
-        size_info_ext.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
-
-        VK_CALL(vkGetMicromapBuildSizesEXT(device->vk_device,
-                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info_ext, &size_info_ext));
-
-        info->ResultDataMaxSizeInBytes = size_info_ext.micromapSize;
-        info->ScratchDataSizeInBytes = size_info_ext.buildScratchSize;
-    }
-
+    info->ResultDataMaxSizeInBytes = size_info.accelerationStructureSize;
+    info->ScratchDataSizeInBytes = size_info.buildScratchSize;
     info->UpdateScratchDataSizeInBytes = 0;
 
     TRACE("ResultDataMaxSizeInBytes: %"PRIu64".\n", (uint64_t)info->ResultDataMaxSizeInBytes);
@@ -8418,12 +8380,7 @@ static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(str
 cleanup:
 
     if (usages_count > VKD3D_BUILD_INFO_STACK_COUNT)
-    {
-        if (device->device_info.using_khr_opacity_micromap)
-            vkd3d_free(usages.khr);
-        else
-            vkd3d_free(usages.ext);
-    }
+        vkd3d_free(usages);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
