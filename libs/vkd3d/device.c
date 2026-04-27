@@ -134,7 +134,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(EXT_DEVICE_ADDRESS_BINDING_REPORT, EXT_device_address_binding_report, VKD3D_CONFIG_FLAG_STATIC(FAULT)),
     VK_EXTENSION(EXT_DEPTH_BIAS_CONTROL, EXT_depth_bias_control),
     VK_EXTENSION(EXT_ZERO_INITIALIZE_DEVICE_MEMORY, EXT_zero_initialize_device_memory),
-    VK_EXTENSION_COND(EXT_OPACITY_MICROMAP, EXT_opacity_micromap, VKD3D_CONFIG_FLAG_STATIC(DXR_1_2)),
     VK_EXTENSION(EXT_SHADER_FLOAT8, EXT_shader_float8),
     VK_EXTENSION_COND(EXT_DESCRIPTOR_HEAP, EXT_descriptor_heap, VKD3D_CONFIG_FLAG_STATIC(DESCRIPTOR_HEAP)),
     /* AMD extensions */
@@ -2473,12 +2472,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->opacity_micromap_features_khr);
     }
 
-    if (vulkan_info->EXT_opacity_micromap)
-    {
-        info->opacity_micromap_features_ext.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, &info->opacity_micromap_features_ext);
-    }
-
     if (vulkan_info->EXT_shader_float8)
     {
         info->shader_float8_features.sType =
@@ -2552,10 +2545,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     /* Prefer KHR_opacity_micromap over EXT_opacity_micromap, and only load one. */
     info->using_khr_opacity_micromap = info->opacity_micromap_features_khr.micromap;
 
-    if (info->using_khr_opacity_micromap)
-        info->opacity_micromap_features_ext.micromap = VK_FALSE;
-
-    info->supports_opacity_micromap = info->using_khr_opacity_micromap || info->opacity_micromap_features_ext.micromap;
+    info->supports_opacity_micromap = info->using_khr_opacity_micromap;
 
     /* if nonzero, this is a layered implementation */
     if (real_driver_props.driverID)
@@ -2969,12 +2959,6 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("  VkPhysicalDeviceLineRasterizationFeaturesEXT:\n");
     TRACE("    rectangularLines: %u\n", info->line_rasterization_features.rectangularLines);
     TRACE("    smoothLines: %u\n", info->line_rasterization_features.smoothLines);
-
-    TRACE("  VkPhysicalDeviceOpacityMicromapFeaturesEXT:\n");
-
-    TRACE("    micromap: %#x\n", info->opacity_micromap_features_ext.micromap);
-    TRACE("    micromapCaptureReplay: %#x\n", info->opacity_micromap_features_ext.micromapCaptureReplay);
-    TRACE("    micromapHostCommands: %#x\n", info->opacity_micromap_features_ext.micromapHostCommands);
 
     TRACE("  VkPhysicalDeviceOpacityMicromapFeaturesKHR:\n");
     TRACE("    micromap: %#x\n", info->opacity_micromap_features_khr.micromap);
