@@ -6770,7 +6770,8 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
     }
 
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt)
-            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1))
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt2))
     {
         d3d12_command_list_vkd3d_ext_AddRef(&command_list->ID3D12GraphicsCommandListExt_iface);
         *object = &command_list->ID3D12GraphicsCommandListExt_iface;
