@@ -6924,11 +6924,7 @@ void vkd3d_acceleration_structure_copy(
         D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_as,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
 
-bool vkd3d_opacity_micromap_convert_inputs_ext(const struct d3d12_device *device,
-        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
-        VkMicromapBuildInfoEXT *build_info,
-        VkMicromapUsageEXT *usages);
-bool vkd3d_opacity_micromap_convert_inputs_khr(const struct d3d12_device *device,
+bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
         VkAccelerationStructureGeometryKHR *geometry_info,
