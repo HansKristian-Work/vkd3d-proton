@@ -1848,6 +1848,21 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
             device->device_info.swapchain_maintenance1_features.swapchainMaintenance1 = VK_FALSE;
             device->vk_info.EXT_swapchain_maintenance1 = false;
         }
+
+        if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+            info->properties2.properties.driverVersion <= VKD3D_DRIVER_VERSION_MAKE_NV(595, 0, 0))
+        {
+            WARN("Disabling present_id2, wait2 and timing on pre-595 NV drivers.\n");
+            device->device_info.swapchain_maintenance1_features.swapchainMaintenance1 = VK_FALSE;
+            device->vk_info.EXT_present_timing = false;
+            device->vk_info.KHR_present_id2 = false;
+            device->vk_info.KHR_present_wait2 = false;
+            device->device_info.present_id2_features.presentId2 = VK_FALSE;
+            device->device_info.present_wait2_features.presentWait2 = VK_FALSE;
+            device->device_info.present_timing_features.presentTiming = VK_FALSE;
+            device->device_info.present_timing_features.presentAtAbsoluteTime = VK_FALSE;
+            device->device_info.present_timing_features.presentAtRelativeTime = VK_FALSE;
+        }
     }
 }
 
