@@ -240,14 +240,6 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         /* This is always allowed. Used for vertex/index buffer inputs to RTAS build. */
         buffer_info.usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
                 VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
-
-        if (device->device_info.opacity_micromap_features_ext.micromap)
-        {
-            if (heap_type == D3D12_HEAP_TYPE_DEFAULT || !is_cpu_accessible_heap(heap_properties))
-                buffer_info.usage |= VK_BUFFER_USAGE_MICROMAP_STORAGE_BIT_EXT;
-
-            buffer_info.usage |= VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT;
-        }
     }
 
     if (heap_type == D3D12_HEAP_TYPE_UPLOAD)
@@ -10892,13 +10884,6 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
                 VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
                 VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
                 VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
-
-        if (device->device_info.opacity_micromap_features_ext.micromap)
-        {
-            buffer_info.usage |=
-                    VK_BUFFER_USAGE_MICROMAP_STORAGE_BIT_EXT |
-                    VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT;
-        }
     }
 
     VK_CALL(vkGetDeviceBufferMemoryRequirements(device->vk_device, &buffer_requirement_info, &memory_requirements));
