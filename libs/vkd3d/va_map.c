@@ -268,7 +268,7 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
     if (!view_map)
         return;
 
-    key.view_type = VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE_OR_OPACITY_MICROMAP;
+    key.view_type = VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE;
     key.u.buffer.buffer = resource->vk_buffer;
     key.u.buffer.offset = va - resource->va;
     key.u.buffer.size = resource->size - key.u.buffer.offset;
@@ -280,7 +280,7 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         return;
 
     if (view->info.buffer.rtas_is_micromap)
-        *micromap = view->vk_micromap;
+        *micromap = view->vk_acceleration_structure;
     else
         *acceleration_structure = view->vk_acceleration_structure;
 }
@@ -330,7 +330,7 @@ static void vkd3d_va_map_try_place_rtas(struct vkd3d_va_map *va_map,
         }
     }
 
-    key.view_type = VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE_OR_OPACITY_MICROMAP;
+    key.view_type = VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE;
     key.u.buffer.buffer = resource->vk_buffer;
     key.u.buffer.offset = va - resource->va;
     key.u.buffer.size = resource->size - key.u.buffer.offset;
@@ -342,7 +342,7 @@ static void vkd3d_va_map_try_place_rtas(struct vkd3d_va_map *va_map,
         return;
 
     if (view->info.buffer.rtas_is_micromap)
-        *micromap = view->vk_micromap;
+        *micromap = view->vk_acceleration_structure;
     else
         *acceleration_structure = view->vk_acceleration_structure;
 }

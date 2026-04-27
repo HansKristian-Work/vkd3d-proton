@@ -1300,7 +1300,7 @@ enum vkd3d_view_type
     VKD3D_VIEW_TYPE_BUFFER,
     VKD3D_VIEW_TYPE_IMAGE,
     VKD3D_VIEW_TYPE_SAMPLER,
-    VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE_OR_OPACITY_MICROMAP
+    VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE
 };
 
 struct vkd3d_view
@@ -1315,7 +1315,6 @@ struct vkd3d_view
         VkImageView vk_image_view;
         VkSampler vk_sampler;
         VkAccelerationStructureKHR vk_acceleration_structure;
-        VkAccelerationStructureKHR vk_micromap;
     };
     const struct vkd3d_format *format;
     union
