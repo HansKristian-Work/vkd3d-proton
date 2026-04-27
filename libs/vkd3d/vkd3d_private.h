@@ -6952,8 +6952,7 @@ void vkd3d_opacity_micromap_copy(
 bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *device,
         const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc,
         VkAccelerationStructureGeometryKHR *geometry_info,
-        union vkd3d_omm_triangles_info omm_triangles_infos,
-        uint32_t omm_info_index);
+        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_info);
 
 typedef enum D3D11_USAGE
 {

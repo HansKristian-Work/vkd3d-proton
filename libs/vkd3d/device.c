@@ -8443,11 +8443,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
-    union
-    {
-        VkAccelerationStructureTrianglesOpacityMicromapEXT ext[VKD3D_BUILD_INFO_STACK_COUNT];
-        VkAccelerationStructureTrianglesOpacityMicromapKHR khr[VKD3D_BUILD_INFO_STACK_COUNT];
-    } omm_triangles_infos_stack;
+    VkAccelerationStructureTrianglesOpacityMicromapKHR omm_triangles_infos_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     uint32_t primitive_counts_stack[VKD3D_BUILD_INFO_STACK_COUNT];
@@ -8476,22 +8472,13 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(desc);
     primitive_counts = primitive_counts_stack;
     geometries = geometries_stack;
+    omm_triangles_infos.khr = omm_triangles_infos_stack;
 
     if (geometry_count > VKD3D_BUILD_INFO_STACK_COUNT)
     {
         primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
         geometries = vkd3d_malloc(geometry_count * sizeof(*geometries));
-        if (device->device_info.using_khr_opacity_micromap)
-            omm_triangles_infos.khr = vkd3d_malloc(geometry_count * sizeof(*omm_triangles_infos.khr));
-        else
-            omm_triangles_infos.ext = vkd3d_malloc(geometry_count * sizeof(*omm_triangles_infos.ext));
-    }
-    else
-    {
-        if (device->device_info.using_khr_opacity_micromap)
-            omm_triangles_infos.khr = omm_triangles_infos_stack.khr;
-        else
-            omm_triangles_infos.ext = omm_triangles_infos_stack.ext;
+        omm_triangles_infos.khr = vkd3d_malloc(geometry_count * sizeof(*omm_triangles_infos.khr));
     }
 
     if (!vkd3d_acceleration_structure_convert_inputs(device,
@@ -8525,10 +8512,7 @@ cleanup:
     {
         vkd3d_free(primitive_counts);
         vkd3d_free(geometries);
-        if (device->device_info.using_khr_opacity_micromap)
-            vkd3d_free(omm_triangles_infos.khr);
-        else
-            vkd3d_free(omm_triangles_infos.ext);
+        vkd3d_free(omm_triangles_infos.khr);
     }
 }
 
