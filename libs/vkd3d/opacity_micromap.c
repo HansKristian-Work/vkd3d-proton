@@ -293,7 +293,8 @@ void vkd3d_opacity_micromap_copy(
     VkCopyAccelerationStructureInfoKHR info_khr;
     VkAccelerationStructureKHR dst_omm;
 
-    dst_omm = vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map, list->device, dst);
+    dst_omm = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, dst,
+            true);
     if (dst_omm == VK_NULL_HANDLE)
     {
         ERR("Invalid dst address #%"PRIx64" for OMM copy.\n", dst);
@@ -353,9 +354,9 @@ bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *
 
     if (geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray)
     {
-        omm_triangles_info->micromap = vkd3d_va_map_place_opacity_micromap(
+        omm_triangles_info->micromap = vkd3d_va_map_place_acceleration_structure(
                 &device->memory_allocator.va_map, device,
-                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
+                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray, true);
 
         if (omm_triangles_info->micromap == VK_NULL_HANDLE)
             ERR("Failed to place OMM at VA 0x%"PRIx64".\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);

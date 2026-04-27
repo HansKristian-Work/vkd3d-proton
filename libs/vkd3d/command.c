@@ -20497,8 +20497,8 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
     micromap = VK_NULL_HANDLE;
     if (desc->DestAccelerationStructureData)
     {
-        micromap = vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData);
+        micromap = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
+                        list->device, desc->DestAccelerationStructureData, true);
         build_info->dstAccelerationStructure = micromap;
         if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
@@ -20602,7 +20602,7 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     {
         build_info->dstAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData);
+                        list->device, desc->DestAccelerationStructureData, false);
         if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place destAccelerationStructure. Dropping call.\n");
@@ -20615,7 +20615,7 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     {
         build_info->srcAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->SourceAccelerationStructureData);
+                        list->device, desc->SourceAccelerationStructureData, false);
         if (build_info->srcAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place srcAccelerationStructure. Dropping call.\n");
@@ -20807,8 +20807,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    VkAccelerationStructureKHR src_omm;
     VkAccelerationStructureKHR src_as;
+    bool is_micromap;
 
     TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
           iface, dst_data, src_data, mode);
@@ -20830,24 +20830,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
     {
         vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
-                list->device, src_data, &src_as, &src_omm);
+                list->device, src_data, &src_as, &is_micromap);
 
         if (src_as != VK_NULL_HANDLE)
         {
-            vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode);
+            if (is_micromap)
+                vkd3d_opacity_micromap_copy(list, dst_data, src_as, mode);
+            else
+                vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode);
             VKD3D_BREADCRUMB_AUX64(dst_data);
             VKD3D_BREADCRUMB_AUX64(src_data);
             VKD3D_BREADCRUMB_AUX32(mode);
-            VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
-            return;
-        }
-        else if (src_omm != VK_NULL_HANDLE)
-        {
-            vkd3d_opacity_micromap_copy(list, dst_data, src_omm, mode);
-            VKD3D_BREADCRUMB_AUX64(dst_data);
-            VKD3D_BREADCRUMB_AUX64(src_data);
-            VKD3D_BREADCRUMB_AUX32(mode);
-            VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
+            if (is_micromap)
+                VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
+            else
+                VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
             return;
         }
         else
@@ -20855,7 +20852,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     }
 
     src_as = vkd3d_va_map_place_acceleration_structure(
-            &list->device->memory_allocator.va_map, list->device, src_data);
+            &list->device->memory_allocator.va_map, list->device, src_data, false);
 
     if (src_as != VK_NULL_HANDLE)
     {
