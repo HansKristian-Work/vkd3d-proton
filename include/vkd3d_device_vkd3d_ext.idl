@@ -151,6 +151,18 @@ interface ID3D12DeviceExt3 : ID3D12DeviceExt2
     HRESULT SetAGSUAVSlot(UINT uavSlot);
 }
 
+[
+    uuid(a91b5617-a06a-4d6f-b437-03ebbef91415),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceExt4 : ID3D12DeviceExt3
+{
+    BOOL IsNvShaderExtnOpCodeSupported(UINT32 op_code);
+    HRESULT SetNvShaderExtnSlotSpace(UINT32 uav_slot, UINT32 uav_space, BOOL local_thread);
+}
+
 /* 1:1 implementation of ffx_antilag2_dx12.h */
 struct AmdAntiLagAPIData_v1
 {
