@@ -250,7 +250,7 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
 void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va,
         VkAccelerationStructureKHR *acceleration_structure,
-        VkAccelerationStructureKHR *micromap)
+        bool *is_micromap)
 {
     const struct vkd3d_unique_resource *resource;
     struct vkd3d_view_map *view_map;
@@ -258,7 +258,7 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
     struct vkd3d_view_key key;
 
     *acceleration_structure = VK_NULL_HANDLE;
-    *micromap = VK_NULL_HANDLE;
+    *is_micromap = false;
 
     resource = vkd3d_va_map_deref(va_map, va);
     if (!resource || !resource->va)
@@ -279,29 +279,25 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
     if (!view)
         return;
 
-    if (view->info.buffer.rtas_is_micromap)
-        *micromap = view->vk_acceleration_structure;
-    else
-        *acceleration_structure = view->vk_acceleration_structure;
+    *acceleration_structure = view->vk_acceleration_structure;
+    *is_micromap =
+            (bool)vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_is_micromap, vkd3d_memory_order_relaxed);
 }
 
-static void vkd3d_va_map_try_place_rtas(struct vkd3d_va_map *va_map,
-        struct d3d12_device *device, VkDeviceAddress va, bool rtas_is_omm,
-        VkAccelerationStructureKHR *acceleration_structure,
-        VkAccelerationStructureKHR *micromap)
+VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device,
+        VkDeviceAddress va, bool rtas_is_omm)
 {
     struct vkd3d_unique_resource *resource;
     struct vkd3d_view_map *old_view_map;
     struct vkd3d_view_map *view_map;
-    const struct vkd3d_view *view;
     struct vkd3d_view_key key;
-
-    *acceleration_structure = VK_NULL_HANDLE;
-    *micromap = VK_NULL_HANDLE;
+    bool was_rtas_is_micromap;
+    struct vkd3d_view *view;
 
     resource = vkd3d_va_map_deref_mutable(va_map, va);
     if (!resource || !resource->va)
-        return;
+        return VK_NULL_HANDLE;
 
     view_map = vkd3d_atomic_ptr_load_explicit(&resource->view_map, vkd3d_memory_order_acquire);
     if (!view_map)
@@ -310,12 +306,12 @@ static void vkd3d_va_map_try_place_rtas(struct vkd3d_va_map *va_map,
          * CAS in a pointer. */
         view_map = vkd3d_malloc(sizeof(*view_map));
         if (!view_map)
-            return;
+            return VK_NULL_HANDLE;
 
         if (FAILED(vkd3d_view_map_init(view_map)))
         {
             vkd3d_free(view_map);
-            return;
+            return VK_NULL_HANDLE;
         }
 
         /* Need to release in case other RTASes are placed at the same time, so they observe
@@ -339,42 +335,19 @@ static void vkd3d_va_map_try_place_rtas(struct vkd3d_va_map *va_map,
 
     view = vkd3d_view_map_create_view2(view_map, device, &key, rtas_is_omm);
     if (!view)
-        return;
+        return VK_NULL_HANDLE;
 
-    if (view->info.buffer.rtas_is_micromap)
-        *micromap = view->vk_acceleration_structure;
-    else
-        *acceleration_structure = view->vk_acceleration_structure;
-}
+    was_rtas_is_micromap =
+            (bool)vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_is_micromap, vkd3d_memory_order_relaxed);
+    if (rtas_is_omm != was_rtas_is_micromap)
+        FIXME("Attempted to place %s on VA #%"PRIx64" previously used by %s.\n",
+                rtas_is_omm ? "OMM" : "RTAS", va,
+                was_rtas_is_micromap ? "OMM" : "RTAS");
 
-VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
-        struct d3d12_device *device,
-        VkDeviceAddress va)
-{
-    VkAccelerationStructureKHR acceleration_structure;
-    VkAccelerationStructureKHR micromap;
+    vkd3d_atomic_uint32_store_explicit(&view->info.buffer.rtas_is_micromap, rtas_is_omm ? 1 : 0,
+            vkd3d_memory_order_relaxed);
 
-    vkd3d_va_map_try_place_rtas(va_map, device, va, false, &acceleration_structure, &micromap);
-
-    if (micromap != VK_NULL_HANDLE)
-        FIXME("Attempted to place RTAS on VA #%"PRIx64" previously used by OMM.\n", va);
-
-    return acceleration_structure;
-}
-
-VkAccelerationStructureKHR vkd3d_va_map_place_opacity_micromap(struct vkd3d_va_map *va_map,
-        struct d3d12_device *device,
-        VkDeviceAddress va)
-{
-    VkAccelerationStructureKHR acceleration_structure;
-    VkAccelerationStructureKHR micromap;
-
-    vkd3d_va_map_try_place_rtas(va_map, device, va, true, &acceleration_structure, &micromap);
-
-    if (acceleration_structure)
-        FIXME("Attempted to place OMM on VA #%"PRIx64" previously used by RTAS.\n", va);
-
-    return micromap;
+    return view->vk_acceleration_structure;
 }
 
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map)

@@ -430,7 +430,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
-    VkAccelerationStructureKHR vk_opacity_micromap;
+    bool is_micromap;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
     VkDeviceSize stride;
@@ -458,16 +458,14 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
         if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
         {
             vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
-                    list->device, addresses[i], &vk_acceleration_structure, &vk_opacity_micromap);
+                    list->device, addresses[i], &vk_acceleration_structure, &is_micromap);
 
             if (vk_acceleration_structure != VK_NULL_HANDLE)
             {
-                vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
-                continue;
-            }
-            else if (vk_opacity_micromap != VK_NULL_HANDLE)
-            {
-                vkd3d_opacity_micromap_write_postbuild_info(list, desc, i * stride, vk_opacity_micromap);
+                if (is_micromap)
+                    vkd3d_opacity_micromap_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
+                else
+                    vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
                 continue;
             }
             else
@@ -475,7 +473,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
         }
 
         vk_acceleration_structure = vkd3d_va_map_place_acceleration_structure(
-                &list->device->memory_allocator.va_map, list->device, addresses[i]);
+                &list->device->memory_allocator.va_map, list->device, addresses[i], false);
         if (vk_acceleration_structure != VK_NULL_HANDLE)
             vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
         else
@@ -550,7 +548,7 @@ void vkd3d_acceleration_structure_copy(
     VkCopyAccelerationStructureInfoKHR info;
     VkAccelerationStructureKHR dst_as;
 
-    dst_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, dst);
+    dst_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, dst, false);
     if (dst_as == VK_NULL_HANDLE)
     {
         ERR("Invalid dst address #%"PRIx64" for RTAS copy.\n", dst);

@@ -5143,7 +5143,7 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device, const struct vkd3d_bu
     object->format = desc->format;
     object->info.buffer.offset = desc->offset;
     object->info.buffer.size = desc->size;
-    object->info.buffer.rtas_is_micromap = false;
+    object->info.buffer.rtas_is_micromap = 0; /* Pre-publish, no atomic store required */
     *view = object;
     return true;
 }
@@ -5223,7 +5223,7 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
     object->format = desc->format;
     object->info.buffer.offset = desc->offset;
     object->info.buffer.size = desc->size;
-    object->info.buffer.rtas_is_micromap = rtas_is_micromap;
+    object->info.buffer.rtas_is_micromap = rtas_is_micromap; /* Pre-publish, no atomic store required */
     *view = object;
     return true;
 }
