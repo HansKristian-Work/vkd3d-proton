@@ -8437,7 +8437,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     uint32_t primitive_counts_stack[VKD3D_BUILD_INFO_STACK_COUNT];
-    union vkd3d_omm_triangles_info omm_triangles_infos;
+    VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos;
     VkAccelerationStructureBuildGeometryInfoKHR build_info;
     VkAccelerationStructureBuildSizesInfoKHR size_info;
     VkAccelerationStructureGeometryKHR *geometries;
@@ -8462,13 +8462,13 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(desc);
     primitive_counts = primitive_counts_stack;
     geometries = geometries_stack;
-    omm_triangles_infos.khr = omm_triangles_infos_stack;
+    omm_triangles_infos = omm_triangles_infos_stack;
 
     if (geometry_count > VKD3D_BUILD_INFO_STACK_COUNT)
     {
         primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
         geometries = vkd3d_malloc(geometry_count * sizeof(*geometries));
-        omm_triangles_infos.khr = vkd3d_malloc(geometry_count * sizeof(*omm_triangles_infos.khr));
+        omm_triangles_infos = vkd3d_malloc(geometry_count * sizeof(*omm_triangles_infos));
     }
 
     if (!vkd3d_acceleration_structure_convert_inputs(device,
@@ -8502,7 +8502,7 @@ cleanup:
     {
         vkd3d_free(primitive_counts);
         vkd3d_free(geometries);
-        vkd3d_free(omm_triangles_infos.khr);
+        vkd3d_free(omm_triangles_infos);
     }
 }
 
