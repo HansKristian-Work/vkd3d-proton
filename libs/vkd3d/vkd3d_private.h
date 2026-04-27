@@ -392,13 +392,10 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
 void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va,
         VkAccelerationStructureKHR *acceleration_structure,
-        VkAccelerationStructureKHR *micromap);
+        bool *is_micromap);
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
-        VkDeviceAddress va);
-VkAccelerationStructureKHR vkd3d_va_map_place_opacity_micromap(struct vkd3d_va_map *va_map,
-        struct d3d12_device *device,
-        VkDeviceAddress va);
+        VkDeviceAddress va, bool rtas_is_omm);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_insert_descriptor_heap(struct vkd3d_va_map *va_map,
@@ -1323,7 +1320,7 @@ struct vkd3d_view
         {
             VkDeviceSize offset;
             VkDeviceSize size;
-            bool rtas_is_micromap; /* not hashed */
+            uint32_t rtas_is_micromap; /* not hashed; accessed atomically */
         } buffer;
         struct
         {
