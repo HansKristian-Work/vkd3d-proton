@@ -6890,7 +6890,8 @@ void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
 void vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_as,
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode,
+        bool rtas_is_omm);
 
 bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
@@ -6907,10 +6908,6 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkAccelerationStructureKHR vk_opacity_micromap);
-void vkd3d_opacity_micromap_copy(
-        struct d3d12_command_list *list,
-        D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_omm,
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
 bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *device,
         const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc,
         VkAccelerationStructureGeometryKHR *geometry_info,
