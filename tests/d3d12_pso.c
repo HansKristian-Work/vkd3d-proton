@@ -3995,6 +3995,7 @@ void test_view_instancing(void)
 
             reset_command_list(context.list, context.allocator);
         }
+        vkd3d_test_set_context(NULL);
 
         ID3D12PipelineState_Release(pso);
 
@@ -4149,6 +4150,14 @@ void test_view_instancing_indirect_state(void)
     context_desc.rt_array_size = 2u;
     if (!init_test_context(&context, &context_desc))
         return;
+
+    if (is_vkd3d_proton_device(context.device) &&
+        !is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        skip("DGC not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     model.HighestShaderModel = D3D_SHADER_MODEL_6_1;
     if (FAILED(hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model))) ||
