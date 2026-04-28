@@ -11383,17 +11383,22 @@ static void d3d12_get_resolve_barrier_for_dst_resource(struct d3d12_resource *re
     }
     else
     {
-        if (resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
-        {
+        bool is_depth = !!(resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
+        if (is_depth)
             resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-            resolve_stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-            resolve_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        else
+            resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+        if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT || !is_depth)
+        {
+            /* Depth attachment resolves always happen in COLOR_ATTACHMENT / COLOR_ATTACHMENT_WRITE. */
+            resolve_stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            resolve_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         }
         else
         {
-            resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-            resolve_stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-            resolve_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            resolve_stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            resolve_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         }
     }
 
