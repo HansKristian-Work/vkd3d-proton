@@ -20844,10 +20844,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 
         if (src_as != VK_NULL_HANDLE)
         {
-            if (is_micromap)
-                vkd3d_opacity_micromap_copy(list, dst_data, src_as, mode);
-            else
-                vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode);
+            vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, is_micromap);
             VKD3D_BREADCRUMB_AUX64(dst_data);
             VKD3D_BREADCRUMB_AUX64(src_data);
             VKD3D_BREADCRUMB_AUX32(mode);
@@ -20866,7 +20863,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 
     if (src_as != VK_NULL_HANDLE)
     {
-        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode);
+        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, false);
         VKD3D_BREADCRUMB_AUX64(dst_data);
         VKD3D_BREADCRUMB_AUX64(src_data);
         VKD3D_BREADCRUMB_AUX32(mode);
