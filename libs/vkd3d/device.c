@@ -3759,6 +3759,10 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
 
 static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
 {
+    int rc = vkd3d_nv_shader_init(device);
+    if (rc)
+        ERR("Failed to init NvShader, rc %d.\n", rc);
+
     /* We don't do anything with this library directly, but various AMD provided dlls
      * like FSR and AntiLag check if amdxc64.dll is loaded, then attempt
      * calling into it. On Proton, this DLL is purely a shim intended to forward calls
@@ -3767,8 +3771,6 @@ static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
      * but the logical thing to do is to load the DLL when the d3d12 device is created,
      * since this is literally the name of the d3d12 driver on Windows.
      * Don't bother with 32-bit since 32-bit d3d12 is not really a thing. */
-    (void)device;
-
 #ifdef _WIN64
     /* Don't try to load the native amdxc64.dll, that will only crash since AMD's driver will
      * assume certain things about their own ID3D12Device implementation. */
@@ -3783,6 +3785,8 @@ static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
 
 static void d3d12_device_cleanup_vendor_hacks(struct d3d12_device *device)
 {
+    vkd3d_nv_shader_cleanup(device);
+
 #ifdef _WIN64
     if (device->vendor_hacks.amdxc64)
         FreeLibrary(device->vendor_hacks.amdxc64);
@@ -4730,8 +4734,6 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 
     vkd3d_free((void *)device->vk_info.extension_names);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
-    hash_map_free(&device->nv_shader_extns);
-    rwlock_destroy(&device->nv_shader_lock);
     rwlock_destroy(&device->fragment_output_lock);
     rwlock_destroy(&device->vertex_input_lock);
     pthread_mutex_destroy(&device->mutex);
@@ -10531,7 +10533,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     device->adapter_luid = create_info->adapter_luid;
     device->removed_reason = S_OK;
-    device->has_nv_shader_extns = false;
 
     device->vk_device = VK_NULL_HANDLE;
 
@@ -10562,14 +10563,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         goto out_free_vertex_input_lock;
     }
 
-    if ((rc = rwlock_init(&device->nv_shader_lock)))
-    {
-        hr = hresult_from_errno(rc);
-        goto out_free_fragment_output_lock;
-    }
-
     if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
-        goto out_free_nv_shader_lock;
+        goto out_free_fragment_output_lock;
 
     if (FAILED(hr = vkd3d_private_store_init(&device->private_store)))
         goto out_free_vk_resources;
@@ -10648,11 +10643,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
             vkd3d_fragment_output_pipeline_desc_compare,
             sizeof(struct vkd3d_fragment_output_pipeline));
 
-    hash_map_init(&device->nv_shader_extns,
-            vkd3d_nv_shader_extn_entry_hash,
-            vkd3d_nv_shader_extn_entry_compare,
-            sizeof(struct vkd3d_nv_shader_extn_entry));
-
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
 
@@ -10719,8 +10709,6 @@ out_free_vk_resources:
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
 out_free_instance:
     vkd3d_instance_decref(device->vkd3d_instance);
-out_free_nv_shader_lock:
-    rwlock_destroy(&device->nv_shader_lock);
 out_free_fragment_output_lock:
     rwlock_destroy(&device->fragment_output_lock);
 out_free_vertex_input_lock:

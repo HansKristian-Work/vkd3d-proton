@@ -5493,8 +5493,18 @@ struct vkd3d_nv_shader_extn_entry
     struct vkd3d_nv_shader_extn extn;
 };
 
+struct vkd3d_nv_shader
+{
+    struct hash_map map;
+    rwlock_t lock;
+    bool initialized;
+    bool enabled;
+};
+
 uint32_t vkd3d_nv_shader_extn_entry_hash(const void *key);
 bool vkd3d_nv_shader_extn_entry_compare(const void *key, const struct hash_map_entry *entry);
+int vkd3d_nv_shader_init(struct d3d12_device *device);
+void vkd3d_nv_shader_cleanup(struct d3d12_device *device);
 struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device *device);
 
 struct d3d12_device
@@ -5534,10 +5544,6 @@ struct d3d12_device
     IUnknown *parent;
     LUID adapter_luid;
     D3DKMT_HANDLE kmt_local;
-
-    bool has_nv_shader_extns;
-    struct hash_map nv_shader_extns;
-    rwlock_t nv_shader_lock;
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
@@ -5609,12 +5615,13 @@ struct d3d12_device
         bool tiler_suspend_resume_relax_load_store_op;
     } workarounds;
 
-#ifdef _WIN64
     struct
     {
+#ifdef _WIN64
         HMODULE amdxc64;
-    } vendor_hacks;
 #endif
+        struct vkd3d_nv_shader nv_shader;
+    } vendor_hacks;
 
     bool independent_device;
 };
