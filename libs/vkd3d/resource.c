@@ -5217,7 +5217,12 @@ static DXGI_FORMAT vkd3d_structured_srv_to_texel_buffer_dxgi_format(unsigned int
 
     /* It's a bit unclear what happens with strides 2 and 6.
      * This basically never comes up in practice, so just pick something safe-ish. */
-    return DXGI_FORMAT_R16_UINT;
+    if ((stride & 1) == 0)
+        return DXGI_FORMAT_R16_UINT;
+
+    /* A structured stride of 1 is not useful, and texel buffer aliasing is basically
+     * broken on native drivers. Do not try to emit a descriptor in this case. */
+    return DXGI_FORMAT_UNKNOWN;
 }
 
 static DXGI_FORMAT vkd3d_structured_uav_to_texel_buffer_dxgi_format(unsigned int stride)
@@ -5230,8 +5235,11 @@ static DXGI_FORMAT vkd3d_structured_uav_to_texel_buffer_dxgi_format(unsigned int
      * Just keep it simple here. */
     if ((stride & 3) == 0)
         return DXGI_FORMAT_R32_UINT;
-    else
+
+    if ((stride & 1) == 0)
         return DXGI_FORMAT_R16_UINT;
+
+    return DXGI_FORMAT_UNKNOWN;
 }
 
 static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
@@ -6134,6 +6142,12 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
         {
             addr_info.format = vkd3d_internal_get_vk_format(device,
                     vkd3d_structured_srv_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+
+            if (!addr_info.format)
+            {
+                addr_info.address = 0u;
+                addr_info.range = VK_WHOLE_SIZE;
+            }
         }
     }
     VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
@@ -6328,6 +6342,12 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
                 {
                     addr_info.format = vkd3d_internal_get_vk_format(device,
                             vkd3d_structured_srv_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+
+                    if (!addr_info.format)
+                    {
+                        addr_info.address = 0u;
+                        addr_info.range = VK_WHOLE_SIZE;
+                    }
                 }
             }
             payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
@@ -6917,6 +6937,12 @@ static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, 
             {
                 addr_info.format = vkd3d_internal_get_vk_format(device,
                         vkd3d_structured_uav_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+
+                if (!addr_info.format)
+                {
+                    addr_info.address = 0u;
+                    addr_info.range = VK_WHOLE_SIZE;
+                }
             }
         }
     }
@@ -7086,6 +7112,12 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
                 {
                     addr_info.format = vkd3d_internal_get_vk_format(device,
                             vkd3d_structured_uav_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+
+                    if (!addr_info.format)
+                    {
+                        addr_info.address = 0u;
+                        addr_info.range = VK_WHOLE_SIZE;
+                    }
                 }
             }
 
