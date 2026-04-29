@@ -2672,6 +2672,8 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
         struct d3d12_device *device, VkShaderStageFlagBits stage,
         struct vkd3d_shader_compile_arguments *compile_arguments)
 {
+    struct vkd3d_nv_shader_extn nv_shader_extn = d3d12_device_get_nv_shader_extn(device);
+
     memset(compile_arguments, 0, sizeof(*compile_arguments));
     compile_arguments->target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     compile_arguments->target_extension_count = device->vk_info.shader_extension_count;
@@ -2690,6 +2692,9 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
 
     compile_arguments->parameter_count = state->graphics.cached_desc.shader_parameters_count;
     compile_arguments->parameters = state->graphics.cached_desc.shader_parameters;
+
+    compile_arguments->nv_shader_extn_uav_slot = nv_shader_extn.uav_slot;
+    compile_arguments->nv_shader_extn_uav_space = nv_shader_extn.uav_space;
 
     if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
     {

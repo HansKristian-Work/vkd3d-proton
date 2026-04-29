@@ -152,6 +152,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_VERSION(NV_LOW_LATENCY_2, NV_low_latency2, 2),
     VK_EXTENSION(NV_RAW_ACCESS_CHAINS, NV_raw_access_chains),
     VK_EXTENSION(NV_COOPERATIVE_MATRIX_2, NV_cooperative_matrix2),
+    VK_EXTENSION_DISABLE_COND(NV_RAY_TRACING_INVOCATION_REORDER, NV_ray_tracing_invocation_reorder, VKD3D_CONFIG_FLAG_NO_DXR),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
     VK_EXTENSION(VALVE_SHADER_MIXED_FLOAT_DOT_PRODUCT, VALVE_shader_mixed_float_dot_product),
@@ -2523,6 +2524,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->present_timing_features);
     }
 
+    if (vulkan_info->NV_ray_tracing_invocation_reorder)
+    {
+        info->ray_tracing_invocation_reorder_features_nv.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV;
+        vk_prepend_struct(&info->features2, &info->ray_tracing_invocation_reorder_features_nv);
+    }
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
@@ -3752,6 +3759,10 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
 
 static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
 {
+    int rc = vkd3d_nv_shader_init(device);
+    if (rc)
+        ERR("Failed to init NvShader, rc %d.\n", rc);
+
     /* We don't do anything with this library directly, but various AMD provided dlls
      * like FSR and AntiLag check if amdxc64.dll is loaded, then attempt
      * calling into it. On Proton, this DLL is purely a shim intended to forward calls
@@ -3760,8 +3771,6 @@ static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
      * but the logical thing to do is to load the DLL when the d3d12 device is created,
      * since this is literally the name of the d3d12 driver on Windows.
      * Don't bother with 32-bit since 32-bit d3d12 is not really a thing. */
-    (void)device;
-
 #ifdef _WIN64
     /* Don't try to load the native amdxc64.dll, that will only crash since AMD's driver will
      * assume certain things about their own ID3D12Device implementation. */
@@ -3776,6 +3785,8 @@ static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
 
 static void d3d12_device_cleanup_vendor_hacks(struct d3d12_device *device)
 {
+    vkd3d_nv_shader_cleanup(device);
+
 #ifdef _WIN64
     if (device->vendor_hacks.amdxc64)
         FreeLibrary(device->vendor_hacks.amdxc64);
@@ -4506,7 +4517,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
     if (IsEqualGUID(riid, &IID_ID3D12DeviceExt)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt1)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt2)
-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt3))
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt3)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt4))
     {
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
@@ -10440,7 +10452,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     }
 }
 
-extern CONST_VTBL struct ID3D12DeviceExt3Vtbl d3d12_device_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12DeviceExt4Vtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;

@@ -591,6 +591,9 @@ struct vkd3d_shader_compile_arguments
     VkDriverId driver_id;
     uint32_t driver_version;
 
+    uint32_t nv_shader_extn_uav_slot;
+    uint32_t nv_shader_extn_uav_space;
+
     struct
     {
         bool enable;

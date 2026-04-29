@@ -19,6 +19,84 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include "vkd3d_private.h"
+#include "nvShaderExtnEnums.h"
+
+uint32_t vkd3d_nv_shader_extn_entry_hash(const void *key)
+{
+    return *(const unsigned int *)key;
+}
+
+bool vkd3d_nv_shader_extn_entry_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_nv_shader_extn_entry *extn = (const void*)entry;
+    const unsigned int *thread_id = key;
+    return *thread_id == extn->thread_id;
+}
+
+int vkd3d_nv_shader_init(struct d3d12_device *device)
+{
+    int rc = pthread_mutex_init(&device->vendor_hacks.nv_shader.mutex, NULL);
+
+    device->vendor_hacks.nv_shader.initialized = false;
+    device->vendor_hacks.nv_shader.enabled = false;
+
+    if (rc)
+        return rc;
+
+    hash_map_init(&device->vendor_hacks.nv_shader.map,
+        vkd3d_nv_shader_extn_entry_hash,
+        vkd3d_nv_shader_extn_entry_compare,
+        sizeof(struct vkd3d_nv_shader_extn_entry));
+
+    device->vendor_hacks.nv_shader.initialized = true;
+
+    return 0;
+}
+
+void vkd3d_nv_shader_cleanup(struct d3d12_device *device)
+{
+    if (!device->vendor_hacks.nv_shader.initialized)
+        return;
+
+    device->vendor_hacks.nv_shader.initialized = false;
+    hash_map_free(&device->vendor_hacks.nv_shader.map);
+    pthread_mutex_destroy(&device->vendor_hacks.nv_shader.mutex);
+}
+
+struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device *device)
+{
+    struct vkd3d_nv_shader_extn result = { UINT32_MAX, 0 };
+    struct vkd3d_nv_shader_extn_entry *entry;
+    unsigned int key;
+    int rc;
+
+    if (!device->vendor_hacks.nv_shader.initialized || !device->vendor_hacks.nv_shader.enabled)
+        return result;
+
+    key = vkd3d_get_current_thread_id();
+
+    if ((rc = pthread_mutex_lock(&device->vendor_hacks.nv_shader.mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return result;
+    }
+
+    entry = (void*)hash_map_find(&device->vendor_hacks.nv_shader.map, &key);
+
+    if (!entry || entry->extn.uav_slot == UINT32_MAX)
+    {
+        key = 0;
+        entry = (void*)hash_map_find(&device->vendor_hacks.nv_shader.map, &key);
+    }
+
+    if (entry)
+        result = entry->extn;
+
+    if ((rc = pthread_mutex_unlock(&device->vendor_hacks.nv_shader.mutex)))
+        ERR("Failed to unlock mutex, rc %d.\n", rc);
+
+    return result;
+}
 
 static inline struct d3d12_device *d3d12_device_from_ID3D12DeviceExt(d3d12_device_vkd3d_ext_iface *iface)
 {
@@ -436,7 +514,93 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetAGSUAVSlot(d3d12_devi
     return E_NOTIMPL;
 }
 
-CONST_VTBL struct ID3D12DeviceExt3Vtbl d3d12_device_vkd3d_ext_vtbl =
+static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupported(d3d12_device_vkd3d_ext_iface *iface,
+        UINT32 op_code)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    TRACE("iface %p, op_code %"PRIu32".\n", iface, op_code);
+
+    if (!device->vendor_hacks.nv_shader.initialized)
+        return FALSE;
+
+    switch (op_code)
+    {
+        case NV_EXTN_OP_HIT_OBJECT_TRACE_RAY:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT_WITH_RECORD_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_MISS:
+        case NV_EXTN_OP_HIT_OBJECT_REORDER_THREAD:
+        case NV_EXTN_OP_HIT_OBJECT_INVOKE:
+        case NV_EXTN_OP_HIT_OBJECT_IS_MISS:
+        case NV_EXTN_OP_HIT_OBJECT_GET_INSTANCE_ID:
+        case NV_EXTN_OP_HIT_OBJECT_GET_INSTANCE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_PRIMITIVE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_GEOMETRY_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_HIT_KIND:
+        case NV_EXTN_OP_HIT_OBJECT_GET_RAY_DESC:
+        case NV_EXTN_OP_HIT_OBJECT_GET_ATTRIBUTES:
+        case NV_EXTN_OP_HIT_OBJECT_GET_SHADER_TABLE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_LOAD_LOCAL_ROOT_TABLE_CONSTANT:
+        case NV_EXTN_OP_HIT_OBJECT_IS_HIT:
+        case NV_EXTN_OP_HIT_OBJECT_IS_NOP:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_NOP:
+            return device->device_info.ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder ? TRUE : FALSE;
+        default:
+            return FALSE;
+    }
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace(d3d12_device_vkd3d_ext_iface *iface,
+        UINT32 uav_slot, UINT32 uav_space, BOOL local_thread)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    unsigned int key = local_thread ? vkd3d_get_current_thread_id() : 0;
+    struct vkd3d_nv_shader_extn extn = { uav_slot, uav_space };
+    struct vkd3d_nv_shader_extn_entry e, *entry;
+    int rc;
+
+    TRACE("iface %p, uav_slot %"PRIu32", uav_space %"PRIu32", local_thread %i.\n", iface, uav_slot, uav_space, local_thread);
+
+    if (!device->vendor_hacks.nv_shader.initialized)
+        return E_FAIL;
+
+    device->vendor_hacks.nv_shader.enabled = true;
+
+    if ((rc = pthread_mutex_lock(&device->vendor_hacks.nv_shader.mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return E_FAIL;
+    }
+
+    entry = (void*)hash_map_find(&device->vendor_hacks.nv_shader.map, &key);
+
+    if (entry)
+    {
+        entry->extn = extn;
+
+        if ((rc = pthread_mutex_unlock(&device->vendor_hacks.nv_shader.mutex)))
+        {
+            ERR("Failed to unlock mutex, rc %d.\n", rc);
+            return E_FAIL;
+        }
+
+        return S_OK;
+    }
+
+    e.thread_id = key;
+    entry = (void*)hash_map_insert(&device->vendor_hacks.nv_shader.map, &key, &e.entry);
+    entry->extn = extn;
+
+    if ((rc = pthread_mutex_unlock(&device->vendor_hacks.nv_shader.mutex)))
+    {
+        ERR("Failed to unlock mutex, rc %d.\n", rc);
+        return E_FAIL;
+    }
+
+    return S_OK;
+}
+
+CONST_VTBL struct ID3D12DeviceExt4Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_vkd3d_ext_QueryInterface,
@@ -465,6 +629,10 @@ CONST_VTBL struct ID3D12DeviceExt3Vtbl d3d12_device_vkd3d_ext_vtbl =
     /* ID3D12DeviceExt3 methods */
     d3d12_device_vkd3d_ext_SupportsAGSExtension,
     d3d12_device_vkd3d_ext_SetAGSUAVSlot,
+
+    /* ID3D12DeviceExt4 methods */
+    d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupported,
+    d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace,
 };
 
 static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(d3d12_dxvk_interop_device_iface *iface)

@@ -209,6 +209,7 @@ struct vkd3d_vulkan_info
     bool NV_low_latency2;
     bool NV_raw_access_chains;
     bool NV_cooperative_matrix2;
+    bool NV_ray_tracing_invocation_reorder;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_shader_mixed_float_dot_product;
@@ -5111,6 +5112,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDevicePresentId2FeaturesKHR present_id2_features;
     VkPhysicalDevicePresentWait2FeaturesKHR present_wait2_features;
     VkPhysicalDevicePresentTimingFeaturesEXT present_timing_features;
+    VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV ray_tracing_invocation_reorder_features_nv;
 
     VkPhysicalDeviceFeatures2 features2;
 
@@ -5224,7 +5226,7 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
 struct vkd3d_timestamp_profiler;
 
 /* ID3D12DeviceExt */
-typedef ID3D12DeviceExt3 d3d12_device_vkd3d_ext_iface;
+typedef ID3D12DeviceExt4 d3d12_device_vkd3d_ext_iface;
 
 /* ID3D12DXVKInteropDevice */
 typedef ID3D12DXVKInteropDevice3 d3d12_dxvk_interop_device_iface;
@@ -5478,6 +5480,33 @@ struct vkd3d_null_rtas_allocation
     spinlock_t lock;
 };
 
+struct vkd3d_nv_shader_extn
+{
+    uint32_t uav_slot;
+    uint32_t uav_space;
+};
+
+struct vkd3d_nv_shader_extn_entry
+{
+    struct hash_map_entry entry;
+    unsigned int thread_id;
+    struct vkd3d_nv_shader_extn extn;
+};
+
+struct vkd3d_nv_shader
+{
+    struct hash_map map;
+    pthread_mutex_t mutex;
+    bool initialized;
+    bool enabled;
+};
+
+uint32_t vkd3d_nv_shader_extn_entry_hash(const void *key);
+bool vkd3d_nv_shader_extn_entry_compare(const void *key, const struct hash_map_entry *entry);
+int vkd3d_nv_shader_init(struct d3d12_device *device);
+void vkd3d_nv_shader_cleanup(struct d3d12_device *device);
+struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device *device);
+
 struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
@@ -5586,12 +5615,13 @@ struct d3d12_device
         bool tiler_suspend_resume_relax_load_store_op;
     } workarounds;
 
-#ifdef _WIN64
     struct
     {
+#ifdef _WIN64
         HMODULE amdxc64;
-    } vendor_hacks;
 #endif
+        struct vkd3d_nv_shader nv_shader;
+    } vendor_hacks;
 
     bool independent_device;
 };
