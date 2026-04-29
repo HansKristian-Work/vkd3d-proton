@@ -607,10 +607,13 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         }
     }
 
-    if (quirks & VKD3D_SHADER_QUIRK_FORCE_LOOP)
     {
         struct dxil_spv_option_branch_control helper = { { DXIL_SPV_OPTION_BRANCH_CONTROL } };
-        helper.force_loop = DXIL_SPV_TRUE;
+        if (quirks & VKD3D_SHADER_QUIRK_FORCE_LOOP)
+            helper.force_loop = DXIL_SPV_TRUE;
+        else
+            helper.use_shader_metadata = DXIL_SPV_TRUE;
+
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             WARN("dxil-spirv does not support BRANCH_CONTROL.\n");
