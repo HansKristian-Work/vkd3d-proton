@@ -4155,9 +4155,12 @@ void test_sm68_draw_parameters(void)
 
     complex_sig = NULL;
 
-    hr = ID3D12Device_CreateCommandSignature(context.device, &sig_desc, context.root_signature, &IID_ID3D12CommandSignature, (void**)&complex_sig);
-    todo_if(hr == E_NOTIMPL)
-    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    if (!is_vkd3d_proton_device(context.device) ||
+        is_vk_device_extension_supported(context.device, "VK_EXT_device_generated_commands"))
+    {
+        hr = ID3D12Device_CreateCommandSignature(context.device, &sig_desc, context.root_signature, &IID_ID3D12CommandSignature, (void**)&complex_sig);
+        todo_if(hr == E_NOTIMPL) ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    }
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
