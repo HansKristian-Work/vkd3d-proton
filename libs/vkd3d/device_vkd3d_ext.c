@@ -35,7 +35,7 @@ bool vkd3d_nv_shader_extn_entry_compare(const void *key, const struct hash_map_e
 
 int vkd3d_nv_shader_init(struct d3d12_device *device)
 {
-    int rc = rwlock_init(&device->vendor_hacks.nv_shader.lock);
+    int rc = pthread_mutex_init(&device->vendor_hacks.nv_shader.mutex, NULL);
 
     device->vendor_hacks.nv_shader.initialized = false;
     device->vendor_hacks.nv_shader.enabled = false;
@@ -60,7 +60,7 @@ void vkd3d_nv_shader_cleanup(struct d3d12_device *device)
 
     device->vendor_hacks.nv_shader.initialized = false;
     hash_map_free(&device->vendor_hacks.nv_shader.map);
-    rwlock_destroy(&device->vendor_hacks.nv_shader.lock);
+    pthread_mutex_destroy(&device->vendor_hacks.nv_shader.mutex);
 }
 
 struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device *device)
@@ -75,7 +75,7 @@ struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device 
 
     key = vkd3d_get_current_thread_id();
 
-    if ((rc = rwlock_lock_read(&device->vendor_hacks.nv_shader.lock)))
+    if ((rc = pthread_mutex_lock(&device->vendor_hacks.nv_shader.mutex)))
     {
         ERR("Failed to lock mutex, rc %d.\n", rc);
         return result;
@@ -92,7 +92,7 @@ struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device 
     if (entry)
         result = entry->extn;
 
-    if ((rc = rwlock_unlock_read(&device->vendor_hacks.nv_shader.lock)))
+    if ((rc = pthread_mutex_unlock(&device->vendor_hacks.nv_shader.mutex)))
         ERR("Failed to unlock mutex, rc %d.\n", rc);
 
     return result;
@@ -555,7 +555,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     unsigned int key = local_thread ? vkd3d_get_current_thread_id() : 0;
-    struct vkd3d_nv_shader_extn_entry extn, *entry;
+    struct vkd3d_nv_shader_extn extn = { uav_slot, uav_space };
+    struct vkd3d_nv_shader_extn_entry e, *entry;
     int rc;
 
     TRACE("iface %p, uav_slot %"PRIu32", uav_space %"PRIu32", local_thread %i.\n", iface, uav_slot, uav_space, local_thread);
@@ -565,7 +566,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace
 
     device->vendor_hacks.nv_shader.enabled = true;
 
-    if ((rc = rwlock_lock_read(&device->vendor_hacks.nv_shader.lock)))
+    if ((rc = pthread_mutex_lock(&device->vendor_hacks.nv_shader.mutex)))
     {
         ERR("Failed to lock mutex, rc %d.\n", rc);
         return E_FAIL;
@@ -575,10 +576,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace
 
     if (entry)
     {
-        entry->extn.uav_slot = uav_slot;
-        entry->extn.uav_space = uav_space;
+        entry->extn = extn;
 
-        if ((rc = rwlock_unlock_read(&device->vendor_hacks.nv_shader.lock)))
+        if ((rc = pthread_mutex_unlock(&device->vendor_hacks.nv_shader.mutex)))
         {
             ERR("Failed to unlock mutex, rc %d.\n", rc);
             return E_FAIL;
@@ -587,24 +587,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetNvShaderExtnSlotSpace
         return S_OK;
     }
 
-    if ((rc = rwlock_unlock_read(&device->vendor_hacks.nv_shader.lock)))
-    {
-        ERR("Failed to unlock mutex, rc %d.\n", rc);
-        return E_FAIL;
-    }
+    e.thread_id = key;
+    entry = (void*)hash_map_insert(&device->vendor_hacks.nv_shader.map, &key, &e.entry);
+    entry->extn = extn;
 
-    if ((rc = rwlock_lock_write(&device->vendor_hacks.nv_shader.lock)))
-    {
-        ERR("Failed to lock mutex, rc %d.\n", rc);
-        return E_FAIL;
-    }
-
-    extn.thread_id = key;
-    entry = (void*)hash_map_insert(&device->vendor_hacks.nv_shader.map, &key, &extn.entry);
-    entry->extn.uav_slot = uav_slot;
-    entry->extn.uav_space = uav_space;
-
-    if ((rc = rwlock_unlock_write(&device->vendor_hacks.nv_shader.lock)))
+    if ((rc = pthread_mutex_unlock(&device->vendor_hacks.nv_shader.mutex)))
     {
         ERR("Failed to unlock mutex, rc %d.\n", rc);
         return E_FAIL;

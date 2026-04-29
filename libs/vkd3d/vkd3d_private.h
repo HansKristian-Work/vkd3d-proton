@@ -5496,7 +5496,7 @@ struct vkd3d_nv_shader_extn_entry
 struct vkd3d_nv_shader
 {
     struct hash_map map;
-    rwlock_t lock;
+    pthread_mutex_t mutex;
     bool initialized;
     bool enabled;
 };
