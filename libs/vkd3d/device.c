@@ -3843,7 +3843,6 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
      * Be spec correct by default, and go a bit out of spec if we know the drivers are sensible. */
     switch (device->device_info.vulkan_1_2_properties.driverID)
     {
-        case VK_DRIVER_ID_MESA_TURNIP:
         case VK_DRIVER_ID_MESA_RADV:
         case VK_DRIVER_ID_MESA_NVK:
         case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
