@@ -510,7 +510,7 @@ void test_update_root_descriptors(void)
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
 
-    pipeline_state = create_compute_pipeline_state(device, root_signature, update_root_descriptors_dxbc);
+    pipeline_state = create_compute_pipeline_state(device, root_signature, update_root_descriptors_dxil);
 
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline_state);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, root_signature);
@@ -4742,6 +4742,7 @@ void test_undefined_descriptor_heap_mismatch_types(void)
     ID3D12Resource *buf;
     float float_value;
     unsigned int i, j;
+    bool heap;
 
 #include "shaders/descriptors/headers/undefined_descriptor_heap_mismatch_types_srv_raw.h"
 #include "shaders/descriptors/headers/undefined_descriptor_heap_mismatch_types_srv_tex.h"
@@ -4896,8 +4897,11 @@ void test_undefined_descriptor_heap_mismatch_types(void)
     reset_command_list(context.list, context.allocator);
 
     radv_32b_layout = is_radv_device(context.device) &&
-            is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_buffer") &&
+            (is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_buffer") ||
+             is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap")) &&
             ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) == 32;
+
+    heap = is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap");
 
     for (j = 0; j < TYPE_COUNT; j++)
     {
@@ -4942,6 +4946,12 @@ void test_undefined_descriptor_heap_mismatch_types(void)
                 else if ((access_type == SRV_RAW_BUFFER || access_type == UAV_RAW_BUFFER) && descriptor_type == CBV)
                 {
                     skip("Skipping CBV accessed as raw buffer on NVIDIA since it will hang GPU.\n");
+                    continue;
+                }
+
+                if (heap && access_type != descriptor_type && (access_type == CBV || descriptor_type == CBV))
+                {
+                    skip("Skipping CBV mismatch since it will hang GPU.\n");
                     continue;
                 }
             }
@@ -6169,7 +6179,7 @@ void test_custom_border_color_limits(void)
 
         /* NV will fail around 4k unique samplers. */
         if (is_nvidia_device(context.device))
-            is_todo = flat_index >= 4000;
+            is_todo = !is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap") && flat_index >= 4000;
         else if (is_amd_vulkan_device(context.device) ||
                 is_adreno_device(context.device) ||
                 is_mesa_intel_device(context.device))

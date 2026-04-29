@@ -453,7 +453,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
-            memory_properties, &global_info->payload_device_allocation)))
+            memory_properties, 0, &global_info->payload_device_allocation)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hr;
@@ -511,7 +511,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_control_buffer,
-            memory_properties, &global_info->control_device_allocation)))
+            memory_properties, 0, &global_info->control_device_allocation)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hr;
@@ -669,7 +669,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
 #endif
 
     if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_payload_buffer,
-            memory_properties,
+            memory_properties, 0,
             &global_info->payload_device_allocation)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);

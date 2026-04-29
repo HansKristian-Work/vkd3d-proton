@@ -261,6 +261,8 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_EXPECT_ASSUME = 0x00000200u,
     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC          = 0x00000400u,
     VKD3D_SHADER_INTERFACE_INSTRUCTION_QA_BUFFER_SYNC_COMPUTE  = 0x00000800u,
+    VKD3D_SHADER_INTERFACE_HEAP_LOWERING                       = 0x00001000u,
+    VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV                  = 0x00002000u,
 };
 
 struct vkd3d_shader_stage_io_entry
@@ -319,6 +321,7 @@ struct vkd3d_shader_interface_info
 
     /* Used for either VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER or local root signatures. */
     uint32_t descriptor_size_cbv_srv_uav;
+    uint32_t raw_uav_counter_offset;
     uint32_t descriptor_size_sampler;
 
     /* Purely for debug. Only non-NULL when running with EXTENDED_DEBUG_UTILS. */
@@ -1047,6 +1050,8 @@ struct vkd3d_shader_node_input_push_signature
     VkDeviceAddress local_root_signature_bda;
     uint32_t node_payload_output_offset;
     uint32_t node_remaining_recursion_levels;
+    /* Used by heap path. */
+    VkDeviceAddress root_parameter_bda;
 };
 
 struct vkd3d_shader_node_input_data
@@ -1185,7 +1190,8 @@ vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
         const struct vkd3d_shader_compile_arguments *args,
         vkd3d_shader_hash_t hash, const char *entry);
 
-uint64_t vkd3d_shader_get_revision(void);
+/* Also returns global shader quirks which are added through config files. */
+uint64_t vkd3d_shader_get_revision(vkd3d_shader_quirks_t *aux_quirks);
 
 int vkd3d_shader_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc,
@@ -1203,6 +1209,37 @@ vkd3d_shader_hash_t vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
 bool vkd3d_shader_hash_range_parse_line(char *line,
         vkd3d_shader_hash_t *lo, vkd3d_shader_hash_t *hi,
         char **trail);
+
+/* In EXT_descriptor_heap, sets and bindings are non-physical concepts.
+ * Agree on a convention so that we can link SPIR-V to PSO creation. */
+enum
+{
+    VKD3D_SHADER_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE = 0, /* maximum 64 of these. binding encodes constant offset. */
+    VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET = 100,
+
+    /* Non-bindless bindings for global root signature */
+    VKD3D_SHADER_STATIC_SAMPLERS_VIRTUAL_DESCRIPTOR_SET = 101, /* bindings are allocated linearly */
+    VKD3D_SHADER_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET = 102, /* Allows reading root parameters as a UBO */
+    VKD3D_SHADER_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET = 103, /* binding = raw VA index */
+
+    /* Non-bindless bindings for local root signature */
+    VKD3D_SHADER_STATIC_LOCAL_SAMPLERS_VIRTUAL_DESCRIPTOR_SET = 104,
+    VKD3D_SHADER_LOCAL_ROOT_CONSTANTS_VIRTUAL_DESCRIPTOR_SET = 105,
+    VKD3D_SHADER_LOCAL_ROOT_DESCRIPTORS_VIRTUAL_DESCRIPTOR_SET = 106,
+
+    /* Same as tables, but for shader records. Maximum number of these would be 4096 / sizeof(u64) = 512,
+     * so the numbering scheme is sound. */
+    VKD3D_SHADER_LOCAL_TABLES_VIRTUAL_DESCRIPTOR_SET_BASE = 200,
+
+    /* Bindings within GLOBAL_HEAP set */
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING = 0,
+
+    /* These are either plain SSBOs or magic UBOs. */
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS = 1,
+    VKD3D_SHADER_RAW_VIEW_GLOBAL_HEAP_BINDING = VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS,
+    VKD3D_SHADER_GLOBAL_HEAP_SIZE_BINDING,
+    VKD3D_SHADER_GLOBAL_HEAP_BINDING_AUX_BINDINGS_COUNT = 4
+};
 
 #ifdef __cplusplus
 }

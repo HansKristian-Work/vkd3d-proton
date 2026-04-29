@@ -331,6 +331,7 @@ VK_DEVICE_EXT_PFN(vkCmdCuLaunchKernelNVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewHandle64NVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewHandleNVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewAddressNVX)
+VK_DEVICE_EXT_PFN(vkGetDeviceCombinedImageSamplerIndexNVX)
 
 /* VK_VALVE_descriptor_set_host_mapping */
 VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutHostMappingInfoVALVE)
@@ -403,6 +404,17 @@ VK_DEVICE_EXT_PFN(vkGetPastPresentationTimingEXT)
 VK_DEVICE_EXT_PFN(vkGetSwapchainTimeDomainPropertiesEXT)
 VK_DEVICE_EXT_PFN(vkGetSwapchainTimingPropertiesEXT)
 VK_DEVICE_EXT_PFN(vkSetSwapchainPresentTimingQueueSizeEXT)
+
+/* VK_EXT_descriptor_heap */
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceDescriptorSizeEXT)
+VK_DEVICE_EXT_PFN(vkWriteSamplerDescriptorsEXT)
+VK_DEVICE_EXT_PFN(vkWriteResourceDescriptorsEXT)
+VK_DEVICE_EXT_PFN(vkCmdBindSamplerHeapEXT)
+VK_DEVICE_EXT_PFN(vkCmdBindResourceHeapEXT)
+VK_DEVICE_EXT_PFN(vkCmdPushDataEXT)
+VK_DEVICE_EXT_PFN(vkGetImageOpaqueCaptureDataEXT)
+VK_DEVICE_EXT_PFN(vkRegisterCustomBorderColorEXT)
+VK_DEVICE_EXT_PFN(vkUnregisterCustomBorderColorEXT)
 
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
