@@ -19586,6 +19586,7 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+    VkAccelerationStructureGeometryKHR *geometry;
     unsigned int i, geometry_index, usage_index;
 
     if (!rtas_batch->build_info_count && !rtas_batch->omm_build_info_count)
@@ -19629,6 +19630,20 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
         rtas_batch->omm_build_infos[i].pUsageCounts = &rtas_batch->omm_usage_infos[usage_index];
 
         usage_index += usage_count;
+    }
+
+    /* pNext pointers on Geometry AS. Currently limited to Opacity micromaps */
+    for (i = 0; i < rtas_batch->geometry_info_count; i++)
+    {
+        geometry = &rtas_batch->geometry_infos[i];
+
+        if (geometry->geometry.triangles.pNext)
+        {
+            assert(geometry->geometryType == VK_GEOMETRY_TYPE_TRIANGLES_KHR);
+            assert(((const VkBaseInStructure *)&rtas_batch->omm_infos[i])->sType ==
+                   VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT);
+            geometry->geometry.triangles.pNext = &rtas_batch->omm_infos[i];
+        }
     }
 
     d3d12_command_list_end_current_render_pass(list, true);
