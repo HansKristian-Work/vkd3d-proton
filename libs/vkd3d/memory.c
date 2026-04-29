@@ -2191,6 +2191,16 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
         }
     }
 
+    /* If using breadcrumbs, ensure that we can read from the heap
+     * on a hang to try fishing out some debug information. */
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) &&
+        device->d3d12_caps.options16.GPUUploadHeapSupported &&
+        (alloc_info.flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER) &&
+        !is_cpu_accessible_heap(&alloc_info.heap_properties))
+    {
+        alloc_info.heap_properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
+    }
+
     hr = vkd3d_allocate_memory(device, allocator, &alloc_info, allocation);
 
     if (SUCCEEDED(hr) && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && !allocation->chunk)
