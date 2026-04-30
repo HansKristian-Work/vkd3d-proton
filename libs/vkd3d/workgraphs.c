@@ -2163,6 +2163,7 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
         struct d3d12_wg_state_object_module *module,
         struct vkd3d_shader_library_entry_point *entry)
 {
+    struct vkd3d_nv_shader_extn nv_shader_extn = d3d12_device_get_nv_shader_extn(object->device);
     struct vkd3d_shader_interface_local_info shader_interface_local_info;
     const struct d3d12_state_object_association *global_rs_assoc;
     const struct d3d12_state_object_association *local_rs_assoc;
@@ -2181,6 +2182,8 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
     compile_args.max_subgroup_size = object->device->device_info.vulkan_1_3_properties.maxSubgroupSize;
     /* Don't care about wave size promotion in RT. */
     compile_args.quirks = &object->device->workarounds.quirks;
+    compile_args.nv_shader_extn_uav_slot = nv_shader_extn.uav_slot;
+    compile_args.nv_shader_extn_uav_space = nv_shader_extn.uav_space;
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
     {
