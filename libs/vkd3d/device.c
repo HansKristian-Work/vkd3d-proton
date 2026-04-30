@@ -3902,11 +3902,15 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
             }
         }
 
-        /* AMDGPU seems to have a strange bug where remapping a page to NULL can cause an impossible
-         * page table issue where it's now possible to fault on a PRT page.
-         * It's unknown which kernel version introduced it and when it will be fixed.
-         * Only seems to affect very specific content which does not really rely on the NULL page behavior anyway. */
-        device->workarounds.amdgpu_broken_null_tile_mapping = true;
+        if (device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_MESA_RADV ||
+            device->device_info.properties2.properties.driverVersion < VK_MAKE_VERSION(26, 2, 0))
+        {
+            /* Current AMD GPUs have a bug where NULL pages which are read through SMEM unit
+             * does not understand PRT, leading to GPU hangs on a bogus page fault instead of returning the correct 0 value.
+             * Worked around properly in Mesa 26.2+. */
+            device->workarounds.amdgpu_broken_null_tile_mapping = true;
+            INFO("Broken NULL PRT with SMEM detected, per-game workarounds may apply.\n");
+        }
 
         /* Works around a weird GPU hang on RDNA4.
          * See mesa issue https://gitlab.freedesktop.org/mesa/mesa/-/issues/14812.
