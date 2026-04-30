@@ -11450,8 +11450,19 @@ static void d3d12_get_resolve_barrier_for_src_resource(struct d3d12_resource *re
         if (resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
         {
             resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-            resolve_stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-            resolve_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+
+            /* Very quirky spec behavior. LOAD_OP_LOAD happens in depth-stencil, but the resolve is read in COLOR,
+             * so to avoid WAR hazard we have to sync against that. */
+            if (post_resolve)
+            {
+                resolve_stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                resolve_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+            }
+            else
+            {
+                resolve_stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+                resolve_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+            }
         }
         else
         {
