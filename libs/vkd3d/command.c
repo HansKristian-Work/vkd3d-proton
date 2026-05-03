@@ -18692,7 +18692,7 @@ static void d3d12_command_list_resolve_render_pass_attachments(struct d3d12_comm
             for (k = 0; k < j && (!found_src || !found_dst); k++)
             {
                 found_src = found_src || !memcmp(&regions[j].srcSubresource, &regions[k].srcSubresource, sizeof(regions[j].srcSubresource));
-                found_dst = found_dst || !memcmp(&regions[j].srcSubresource, &regions[k].dstSubresource, sizeof(regions[j].dstSubresource));
+                found_dst = found_dst || !memcmp(&regions[j].dstSubresource, &regions[k].dstSubresource, sizeof(regions[j].dstSubresource));
             }
 
             if (!found_src)
