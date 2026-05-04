@@ -5111,23 +5111,46 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
-    VkAccelerationStructureCreateInfoKHR create_info;
-    VkDeviceAddress buffer_address;
-    VkDeviceAddress rtas_address;
+    VkAccelerationStructureCreateInfo2KHR create_info_v2;
+    VkAccelerationStructureCreateInfoKHR create_info_v1;
+    VkDeviceAddress buffer_address, rtas_address;
     struct vkd3d_view *object;
-    VkResult vr;
+    VkResult result;
 
-    create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-    create_info.pNext = NULL;
-    create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR;
-    create_info.createFlags = 0;
-    create_info.deviceAddress = 0;
-    create_info.buffer = desc->buffer;
-    create_info.offset = desc->offset;
-    create_info.size = desc->size;
+    buffer_address = vkd3d_get_buffer_device_address(device, desc->buffer) + desc->offset;
 
-    vr = VK_CALL(vkCreateAccelerationStructureKHR(device->vk_device, &create_info, NULL, &vk_acceleration_structure));
-    if (vr != VK_SUCCESS)
+    if (device->device_info.device_address_commands_features.deviceAddressCommands)
+    {
+        memset(&create_info_v2, 0, sizeof(create_info_v2));
+
+        create_info_v2.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_2_KHR;
+        create_info_v2.type = VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR;
+        create_info_v2.addressFlags = VK_ADDRESS_COMMAND_FULLY_BOUND_BIT_KHR
+              | VK_ADDRESS_COMMAND_STORAGE_BUFFER_USAGE_BIT_KHR;
+        if (device->vk_info.EXT_transform_feedback)
+            create_info_v2.addressFlags |= VK_ADDRESS_COMMAND_TRANSFORM_FEEDBACK_BUFFER_USAGE_BIT_KHR;
+
+        create_info_v2.addressRange.address = buffer_address;
+        create_info_v2.addressRange.size = desc->size;
+
+        result = VK_CALL(vkCreateAccelerationStructure2KHR(device->vk_device, &create_info_v2, NULL,
+                    &vk_acceleration_structure));
+    }
+    else
+    {
+        memset(&create_info_v1, 0, sizeof(create_info_v1));
+
+        create_info_v1.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+        create_info_v1.type = VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR;
+        create_info_v1.buffer = desc->buffer;
+        create_info_v1.offset = desc->offset;
+        create_info_v1.size = desc->size;
+
+        result = VK_CALL(vkCreateAccelerationStructureKHR(device->vk_device, &create_info_v1, NULL,
+                    &vk_acceleration_structure));
+    }
+
+    if (result != VK_SUCCESS)
         return false;
 
     if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE_OR_OPACITY_MICROMAP)))
@@ -5136,14 +5159,14 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
         return false;
     }
 
-    /* Sanity check. Spec should guarantee this.
-     * There is a note in the spec for vkGetAccelerationStructureDeviceAddressKHR:
-     * The acceleration structure device address may be different from the
-     * buffer device address corresponding to the acceleration structure's
-     * start offset in its storage buffer for acceleration structure types
-     * other than VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR. */
-    buffer_address = vkd3d_get_buffer_device_address(device, desc->buffer) + desc->offset;
     rtas_address = vkd3d_get_acceleration_structure_device_address(device, vk_acceleration_structure);
+
+    /* Sanity check: the view is created as VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR. On v2 the
+     * spec guarantees the returned address equals addressRange.address, making this
+     * query redundant (but cheap). On v1 it may differ for non-GENERIC AS types;
+     * for GENERIC ASes real drivers return buffer_address, though the spec only
+     * mandates relative-offset consistency between GENERIC ASes in the same buffer.
+     * The FIXME guards against driver divergence. */
     if (buffer_address != rtas_address)
     {
         FIXME("buffer_address = 0x%"PRIx64", rtas_address = 0x%"PRIx64".\n", buffer_address, rtas_address);

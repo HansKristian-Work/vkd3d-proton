@@ -655,7 +655,6 @@ void vkd3d_build_null_rtas_va(struct d3d12_device *device, VkCommandBuffer vk_cm
 D3D12_GPU_VIRTUAL_ADDRESS vkd3d_get_null_rtas_va(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkAccelerationStructureDeviceAddressInfoKHR get_addr;
     VkAccelerationStructureCreateInfoKHR rtas_info;
     struct vkd3d_allocate_memory_info alloc_info;
     struct vkd3d_empty_rtas_build_info info;
@@ -709,10 +708,7 @@ D3D12_GPU_VIRTUAL_ADDRESS vkd3d_get_null_rtas_va(struct d3d12_device *device)
         goto end_unlock;
     }
 
-    memset(&get_addr, 0, sizeof(get_addr));
-    get_addr.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
-    get_addr.accelerationStructure = device->null_rtas_allocation.rtas;
-    va = VK_CALL(vkGetAccelerationStructureDeviceAddressKHR(device->vk_device, &get_addr));
+    va = vkd3d_get_acceleration_structure_device_address(device, device->null_rtas_allocation.rtas);
 
     /* Make sure that we flush any write to the memory init system before we broadcast the VA
      * since a different thread could read the VA and submit work to GPU before we do the init work. */
