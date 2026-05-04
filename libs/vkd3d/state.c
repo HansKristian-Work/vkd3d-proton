@@ -5363,7 +5363,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     vkd3d_shader_free_shader_signature(&pc_output_signature);
     vkd3d_shader_free_shader_signature(&io_output_signature);
 
-    graphics->attribute_count = (graphics->stage_flags & VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT)
+    graphics->attribute_count = (graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT)
             ? 0 : desc->input_layout.NumElements;
 
     if (graphics->attribute_count > ARRAY_SIZE(graphics->attributes))
