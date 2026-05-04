@@ -84,6 +84,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_MAINTENANCE_8, KHR_maintenance8),
     VK_EXTENSION(KHR_MAINTENANCE_9, KHR_maintenance9),
     VK_EXTENSION(KHR_MAINTENANCE_10, KHR_maintenance10),
+    VK_EXTENSION(KHR_MAINTENANCE_11, KHR_maintenance11),
     VK_EXTENSION(KHR_SHADER_MAXIMAL_RECONVERGENCE, KHR_shader_maximal_reconvergence),
     VK_EXTENSION(KHR_SHADER_QUAD_CONTROL, KHR_shader_quad_control),
     VK_EXTENSION(KHR_COMPUTE_SHADER_DERIVATIVES, KHR_compute_shader_derivatives),
@@ -2285,6 +2286,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->maintenance_10_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_10_PROPERTIES_KHR;
         vk_prepend_struct(&info->properties2, &info->maintenance_10_properties);
         vkd3d_physical_device_info_init_maint10(info, device);
+    }
+
+    if (vulkan_info->KHR_maintenance11)
+    {
+        info->maintenance_11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_11_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->maintenance_11_features);
     }
 
     if (vulkan_info->KHR_shader_maximal_reconvergence)

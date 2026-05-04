@@ -873,6 +873,14 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             && desc->SampleDesc.Count == 1)
         image_info->flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
+    if (device->device_info.maintenance_11_features.maintenance11 && (
+            desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+            desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D))
+    {
+        /* Texture2D and Texture2DArray can be freely reinterpreted. */
+        image_info->flags |= VK_IMAGE_CREATE_ALIAS_SINGLE_LAYER_DESCRIPTOR_BIT_KHR;
+    }
+
     if (sparse_resource)
     {
         image_info->flags |= VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
@@ -6401,9 +6409,12 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
 
 static void vkd3d_texture_view_desc_fixup(struct d3d12_device *device, struct vkd3d_texture_view_desc *desc)
 {
-    if (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
+    if (!device->device_info.maintenance_11_features.maintenance11 &&
+        device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
     {
+        /* Fixed in maintenance11. */
         FIXME_ONCE("Remapping 2D to 2D_ARRAY. Needs Vulkan spec tightening to match D3D12 properly.\n");
+
         /* D3D allows some reinterpretation between Texture2D and Texture2DArray.
          * Texture2D in shader can read a resource with 1 array layer,
          * and Texture2DArray can read a Texture2D descriptor.

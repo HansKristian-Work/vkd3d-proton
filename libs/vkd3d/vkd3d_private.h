@@ -146,6 +146,7 @@ struct vkd3d_vulkan_info
     bool KHR_maintenance8;
     bool KHR_maintenance9;
     bool KHR_maintenance10;
+    bool KHR_maintenance11;
     bool KHR_shader_maximal_reconvergence;
     bool KHR_shader_quad_control;
     bool KHR_compute_shader_derivatives;
@@ -5088,6 +5089,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMaintenance9FeaturesKHR maintenance_9_features;
     VkPhysicalDeviceMaintenance10FeaturesKHR maintenance_10_features;
     VkPhysicalDeviceMaintenance10PropertiesKHR maintenance_10_properties;
+    VkPhysicalDeviceMaintenance11FeaturesKHR maintenance_11_features;
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
     VkPhysicalDeviceFaultFeaturesEXT fault_features;
