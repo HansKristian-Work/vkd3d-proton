@@ -94,6 +94,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_PRESENT_ID_2, KHR_present_id2),
     VK_EXTENSION(KHR_PRESENT_WAIT_2, KHR_present_wait2),
     VK_EXTENSION(EXT_PRESENT_TIMING, EXT_present_timing),
+    VK_EXTENSION(KHR_DEVICE_ADDRESS_COMMANDS, KHR_device_address_commands),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -2479,6 +2480,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->zero_initialize_device_memory_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_DEVICE_MEMORY_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->zero_initialize_device_memory_features);
+    }
+
+    if (vulkan_info->KHR_device_address_commands)
+    {
+        info->device_address_commands_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_ADDRESS_COMMANDS_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->device_address_commands_features);
     }
 
     if (vulkan_info->EXT_opacity_micromap)

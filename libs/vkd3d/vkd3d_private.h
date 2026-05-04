@@ -154,6 +154,7 @@ struct vkd3d_vulkan_info
     bool KHR_cooperative_matrix;
     bool KHR_unified_image_layouts;
     bool KHR_present_mode_fifo_latest_ready;
+    bool KHR_device_address_commands;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -5181,6 +5182,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDevicePresentTimingFeaturesEXT present_timing_features;
     VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV ray_tracing_invocation_reorder_features_nv;
     VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptor_heap_features;
+    VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR device_address_commands_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
