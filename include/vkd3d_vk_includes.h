@@ -41,6 +41,7 @@ typedef enum VkImageLayout VkImageLayout;
 
 typedef enum D3D12_VK_EXTENSION
 {
+    D3D12_VK_EXT_OPACITY_MICROMAP   = 0x0,
     D3D12_VK_NVX_BINARY_IMPORT      = 0x1,
     D3D12_VK_NVX_IMAGE_VIEW_HANDLE  = 0x2,
     D3D12_VK_NV_LOW_LATENCY_2       = 0x3,
