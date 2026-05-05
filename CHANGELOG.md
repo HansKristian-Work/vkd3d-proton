@@ -1,5 +1,84 @@
 # Change Log
 
+## 3.0.1
+
+This is likely the last release before `VK_EXT_descriptor_heap` lands.
+There are some practical reasons why this is 3.0.1 instead of 3.1,
+but numbers don't really matter that much anyway.
+
+A ton of work on descriptor heaps have been happening in the background as well,
+but that is not included in this release.
+
+### Features
+
+- D3D12 view instancing is now experimentally supported.
+  It is enabled for the one known game that requires it, Crimson Desert (1.04+).
+- Implement `VK_EXT_present_timing`, allowing for smooth frame pacing for SyncInterval > 1 when supported.
+- Support Independent Devices feature.
+- Add support for new AGS WMMA ops required for FSR4 Ray Reconstruction and Denoiser, as used in Crimson Desert.
+- Expose new interfaces for more up-to-date NVAPI and expose some support for NVAPI shader intrinsics.
+  With up-to-date dxvk-nvapi, the vendor extensions for Shader Execution Reordering should work for example.
+- Expose new interfaces for AMD AGS and expose some support for AGS shader intrinsics, as used in Crimson Desert.
+
+### Fixes
+
+- Allow `SV_PrimitiveID` to be read in more shader stages as expected.
+- Various fixes for NVIDIA Reflex to improve performance in some cases. [NVIDIA contrib]
+  - Rather than trying to lock NVAPI present ID to our present ID, these can now be decoupled.
+    This helps frame-gen in particular, since we can now signal this situation properly.
+- Various fixes to make Turnip pass vkd3d-proton test suite.
+- Various fixes in dxil-spirv to make new games not crash in shader compiler.
+- Fix regression in F1 2019/2020 where old workaround in old compiler was not retained in new code.
+- Misc other bug fixes.
+
+### Performance
+
+Most of the performance work for this release revolved around giving some love to mobile chips which rely
+on tiling for optimal performance:
+
+- Implement deferred clears and discards to potentially improve performance on e.g. Turnip.
+- Take advantage of render pass suspend-resume on mobile GPUs, which can potentially improve performance a lot.
+  NOTE: This depends on driver and game to "do the right thing". It does not magically make things go faster.
+- Move query pool initialization and resolves around to avoid breaking render passes as much as possible. 
+- Rework how MSAA resolves work to make it easier for drivers to optimize.
+
+Other performance improvements:
+
+- Implement a batched system for complex ExecuteIndirect where existing split command list optimization did not work.
+  Improves GPU bound performance in various games that spam ExecuteIndirect with state updates like Crimson Desert, Starfield and Halo Infinite.
+- Implement SM 6.4 dot2add with `VK_VALVE_shader_mixed_float_dot_product` if supported.
+- Finally use a proper Vulkan TRANSFER queue for D3D12 COPY queues if supported instead of Vulkan COMPUTE queue.
+  RADV does not expose this by default yet, but a TRANSFER queue is now used on NVIDIA by default,
+  which should improve performance when streaming assets.
+
+### Workarounds
+
+- Introduce a mechanism to apply workarounds based on shader entry point name instead of hash.
+  This is not always available, but should avoid churn in e.g. Wuthering Waves and Crimson Desert
+  which are moving targets w.r.t. shader hashes.
+- Workaround DispatchRays where game forgets to set root signature correctly.
+- Workaround misc game bugs in:
+  - Shadows of the Tomb Raider
+  - Rise of the Tomb Raider
+  - Spider Man 2
+  - Death Stranding 2
+  - Guardians of the Galaxy
+  - REANIMAL
+  - Crimson Desert
+  - ... and others I probably missed to mention
+- Workaround hardware bug on RDNA4 with `SV_ShadingRate` on affected Mesa versions.
+  - Fixed in 26.1+. Workaround is disabled on those versions.
+- Remove NULL SMEM PRT HW workaround on AMD in future Mesa 26.2+.
+  - Resolves a 1.5 year old nightmare in Monster Hunter Wilds.
+- Add performance workaround for NVIDIA kernel when waiting for ID3D12Fences.
+- Allow RDNA1 GPUs to pretend that they support barycentrics and VRS. Allows Crimson Desert to run on RDNA1.
+- Remove global submission lock workaround on NVIDIA.
+
+### Misc
+
+Remove legacy paths for `VK_NV_device_generated_commands{,_compute}` and compute fallback for `NV_dgcc`.
+No relevant driver is impacted by this cleanup.
+
 ## 3.0
 
 A new major release, yay!
