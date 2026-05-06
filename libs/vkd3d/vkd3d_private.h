@@ -1574,6 +1574,7 @@ struct d3d12_descriptor_heap
 
     ID3D12DescriptorHeap ID3D12DescriptorHeap_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     uint64_t gpu_va;
     D3D12_DESCRIPTOR_HEAP_DESC desc;
@@ -1618,6 +1619,8 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap);
 void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap);
 bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *device);
+void d3d12_descriptor_heap_inc_ref(struct d3d12_descriptor_heap *heap);
+void d3d12_descriptor_heap_dec_ref(struct d3d12_descriptor_heap *heap);
 
 static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
 {

@@ -8071,6 +8071,23 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_AddRef(ID3D12DescriptorHeap
     return refcount;
 }
 
+void d3d12_descriptor_heap_inc_ref(struct d3d12_descriptor_heap *heap)
+{
+    InterlockedIncrement(&heap->internal_refcount);
+}
+
+void d3d12_descriptor_heap_dec_ref(struct d3d12_descriptor_heap *heap)
+{
+    ULONG refcount = InterlockedDecrement(&heap->internal_refcount);
+
+    if (!refcount)
+    {
+        d3d12_descriptor_heap_cleanup(heap);
+        vkd3d_private_store_destroy(&heap->private_store);
+        vkd3d_free_aligned(heap);
+    }
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHeap *iface)
 {
     struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
@@ -8081,13 +8098,8 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
     if (!refcount)
     {
         struct d3d12_device *device = heap->device;
-
         d3d_destruction_notifier_free(&heap->destruction_notifier);
-
-        d3d12_descriptor_heap_cleanup(heap);
-        vkd3d_private_store_destroy(&heap->private_store);
-        vkd3d_free_aligned(heap);
-
+        d3d12_descriptor_heap_dec_ref(heap);
         d3d12_device_release(device);
     }
 
@@ -8910,6 +8922,7 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
     memset(descriptor_heap, 0, sizeof(*descriptor_heap));
     descriptor_heap->ID3D12DescriptorHeap_iface.lpVtbl = &d3d12_descriptor_heap_vtbl;
     descriptor_heap->refcount = 1;
+    descriptor_heap->internal_refcount = 1;
     descriptor_heap->device = device;
     descriptor_heap->desc = *desc;
 
