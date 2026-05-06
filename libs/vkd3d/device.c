@@ -727,6 +727,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * and VRS can be nooped. */
     { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", 0, 0,
         VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY | VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING },
+    /* Ark Ascended (2399830). Very broken FSR3 usage where the entire thing is freed. We can retain the resources automatically
+     * but descriptor heap is not named, so we cannot auto-detect. Similar story for the PSOs. */
+    { VKD3D_STRING_COMPARE_EXACT, "ArkAscended.exe",
+        VKD3D_CONFIG_FLAG_RETAIN_DESCRIPTOR_HEAPS | VKD3D_CONFIG_FLAG_RETAIN_PSOS, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -1294,6 +1298,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"no_staggered_submit", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT},
     {"no_clear_uav_sync", VKD3D_CONFIG_FLAG_NO_CLEAR_UAV_SYNC},
     {"retain_psos", VKD3D_CONFIG_FLAG_RETAIN_PSOS},
+    {"retain_descriptor_heaps", VKD3D_CONFIG_FLAG_RETAIN_DESCRIPTOR_HEAPS},
     {"force_dynamic_msaa", VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA},
     {"instruction_qa_checks", VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS},
     {"no_gpu_upload_heap", VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP},

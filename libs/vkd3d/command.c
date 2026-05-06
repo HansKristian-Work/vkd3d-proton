@@ -2780,6 +2780,17 @@ static void d3d12_command_allocator_retain_pipeline_state(struct d3d12_command_a
     allocator->pipelines[allocator->pipelines_count++] = state;
 }
 
+static void d3d12_command_allocator_retain_descriptor_heap(struct d3d12_command_allocator *allocator,
+        struct d3d12_descriptor_heap *heap)
+{
+    if (!vkd3d_array_reserve((void **)&allocator->descriptor_heaps, &allocator->descriptor_heaps_size,
+            allocator->descriptor_heaps_count + 1, sizeof(*allocator->descriptor_heaps)))
+        return;
+
+    d3d12_descriptor_heap_inc_ref(heap);
+    allocator->descriptor_heaps[allocator->descriptor_heaps_count++] = heap;
+}
+
 static void d3d12_command_list_register_used_resource(struct d3d12_command_list *list,
         struct d3d12_resource *resource)
 {
@@ -2836,6 +2847,12 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
         d3d12_pipeline_state_dec_ref(allocator->pipelines[i]);
     }
     allocator->pipelines_count = 0;
+
+    for (i = 0; i < allocator->descriptor_heaps_count; i++)
+    {
+        d3d12_descriptor_heap_dec_ref(allocator->descriptor_heaps[i]);
+    }
+    allocator->descriptor_heaps_count = 0;
 }
 
 static void d3d12_command_allocator_set_name(struct d3d12_command_allocator *allocator, const char *name)
@@ -2944,6 +2961,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
         vkd3d_free(allocator->buffer_views);
         vkd3d_free(allocator->views);
         vkd3d_free(allocator->pipelines);
+        vkd3d_free(allocator->descriptor_heaps);
 
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
         {
@@ -13520,11 +13538,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
         UINT heap_count, ID3D12DescriptorHeap *const *heaps)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    UINT i;
 
     TRACE("iface %p, heap_count %u, heaps %p.\n", iface, heap_count, heaps);
 
     /* We don't capture heap state as part of DGC batch. */
     d3d12_command_list_flush_dgc_batch(list);
+
+    /* More FSR workaround shenanigans. */
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RETAIN_DESCRIPTOR_HEAPS)
+    {
+        for (i = 0; i < heap_count; i++)
+        {
+            struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(heaps[i]);
+            if (heap)
+                d3d12_command_allocator_retain_descriptor_heap(list->allocator, heap);
+        }
+    }
 
     if (d3d12_device_uses_descriptor_buffers(list->device))
         d3d12_command_list_set_descriptor_heaps_buffers(list, heap_count, heaps);

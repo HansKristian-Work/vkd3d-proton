@@ -2645,6 +2645,10 @@ struct d3d12_command_allocator
     size_t pipelines_size;
     size_t pipelines_count;
 
+    struct d3d12_descriptor_heap **descriptor_heaps;
+    size_t descriptor_heaps_size;
+    size_t descriptor_heaps_count;
+
     struct d3d12_command_allocator_command_pool primary_pool;
     struct d3d12_command_allocator_command_pool fallback_pool;
     struct d3d12_command_allocator_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
