@@ -307,20 +307,45 @@ bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *
     omm_triangles_info->indexStride = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StrideInBytes;
     omm_triangles_info->baseTriangle = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation;
 
-    if (geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray)
-    {
-        omm_triangles_info->micromap = vkd3d_va_map_read_rtas(&device->memory_allocator.va_map, device,
-                geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray, true);
-
-        if (omm_triangles_info->micromap == VK_NULL_HANDLE)
-            ERR("Failed to place OMM at VA 0x%"PRIx64".\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
-    }
-
     RT_TRACE("  OMM Index type: %s\n", debug_dxgi_format(geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat));
     RT_TRACE("  OMM IBO VA: %"PRIx64"\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StartAddress);
     RT_TRACE("  OMM Index stride: %"PRIu64" bytes\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexBuffer.StrideInBytes);
     RT_TRACE("  OMM Base: %u\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapBaseLocation);
     RT_TRACE("  OMM Micromap VA: %"PRIx64"\n", geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray);
+
+    return true;
+}
+
+bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos)
+{
+    const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
+    D3D12_GPU_VIRTUAL_ADDRESS va;
+    unsigned int i;
+
+    if (desc->Type != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
+        return true;
+
+    for (i = 0; i < desc->NumDescs; i++)
+    {
+        if (desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS)
+            geom_desc = desc->ppGeometryDescs[i];
+        else
+            geom_desc = &desc->pGeometryDescs[i];
+
+        if (geom_desc->Type != D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES)
+            continue;
+
+        va = geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray;
+        if (!va)
+            continue;
+
+        omm_triangles_infos[i].micromap = vkd3d_va_map_read_rtas(
+                &device->memory_allocator.va_map, device, va, true);
+        if (omm_triangles_infos[i].micromap == VK_NULL_HANDLE)
+            return false;
+    }
 
     return true;
 }

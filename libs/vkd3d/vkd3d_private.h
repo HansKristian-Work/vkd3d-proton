@@ -6859,6 +6859,9 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
         uint32_t *primitive_counts);
+bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos);
 void vkd3d_acceleration_structure_emit_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
