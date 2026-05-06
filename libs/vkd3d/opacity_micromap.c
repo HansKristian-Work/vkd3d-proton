@@ -20,6 +20,7 @@
 #include "vkd3d_private.h"
 
 #define RT_TRACE TRACE
+#define RT_TRACE_ON() TRACE_ON()
 
 static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk(
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
@@ -45,21 +46,6 @@ static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk(
     return vk_flags;
 }
 
-static VkOpacityMicromapFormatKHR d3d12_format_to_vk(
-        D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT format)
-{
-    switch (format)
-    {
-        case D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_2_STATE:
-            return VK_OPACITY_MICROMAP_FORMAT_2_STATE_KHR;
-        case D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_4_STATE:
-            return VK_OPACITY_MICROMAP_FORMAT_4_STATE_KHR;
-        default:
-            FIXME("Unrecognized format #%x.\n", format);
-            return (VkOpacityMicromapFormatKHR)format;
-    }
-}
-
 VKD3D_UNUSED static char const* debug_omm_format(
         D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT format)
 {
@@ -79,25 +65,30 @@ static uint32_t vkd3d_opacity_micromap_convert_inputs_usages(
         const D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_DESC *desc,
         VkMicromapUsageKHR *usages)
 {
-    const D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY *histogram_entry;
-    VkMicromapUsageKHR *usage;
     unsigned int i;
 
-    for (i = 0; i < desc->NumOmmHistogramEntries; i++)
+    /* Verify that these are binary compatible, so a memcpy can be used, a memcpy is still required because the
+     * write into the command list is deferred. */
+    STATIC_ASSERT(sizeof(VkMicromapUsageKHR) == sizeof(D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY));
+    STATIC_ASSERT(offsetof(VkMicromapUsageKHR, count) == offsetof(D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY, Count));
+    STATIC_ASSERT(offsetof(VkMicromapUsageKHR, subdivisionLevel) == offsetof(D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY, SubdivisionLevel));
+    STATIC_ASSERT(offsetof(VkMicromapUsageKHR, format) == offsetof(D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY, Format));
+    STATIC_ASSERT((uint32_t)VK_OPACITY_MICROMAP_FORMAT_2_STATE_KHR == (uint32_t)D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_2_STATE);
+    STATIC_ASSERT((uint32_t)VK_OPACITY_MICROMAP_FORMAT_4_STATE_KHR == (uint32_t)D3D12_RAYTRACING_OPACITY_MICROMAP_FORMAT_OC1_4_STATE);
+    memcpy(usages, desc->pOmmHistogram, sizeof(*usages) * desc->NumOmmHistogramEntries);
+
+    if (RT_TRACE_ON())
     {
-        RT_TRACE(" Histogram entry %u:\n", i);
-
-        histogram_entry = &desc->pOmmHistogram[i];
-        usage = &usages[i];
-
-        usage->count = histogram_entry->Count;
-        usage->subdivisionLevel = histogram_entry->SubdivisionLevel;
-        usage->format = d3d12_format_to_vk(histogram_entry->Format);
-
-        RT_TRACE("  Count: %u\n", histogram_entry->Count);
-        RT_TRACE("  Subdivision level: %u\n", histogram_entry->SubdivisionLevel);
-        RT_TRACE("  Format: %s\n", debug_omm_format(histogram_entry->Format));
+        for (i = 0; i < desc->NumOmmHistogramEntries; i++)
+        {
+            VKD3D_UNUSED const D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY *histogram_entry = &desc->pOmmHistogram[i];
+            RT_TRACE(" Histogram entry %u:\n", i);
+            RT_TRACE("  Count: %u\n", histogram_entry->Count);
+            RT_TRACE("  Subdivision level: %u\n", histogram_entry->SubdivisionLevel);
+            RT_TRACE("  Format: %s\n", debug_omm_format(histogram_entry->Format));
+        }
     }
+
     return desc->NumOmmHistogramEntries;
 }
 
