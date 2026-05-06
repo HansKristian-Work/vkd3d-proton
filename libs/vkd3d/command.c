@@ -20596,6 +20596,10 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
         return;
     }
 
+    if (!vkd3d_acceleration_structure_resolve_omm_va_maps(list->device, &desc->Inputs,
+            omm_triangles_infos))
+        return;
+
     if (desc->DestAccelerationStructureData)
     {
         build_info->dstAccelerationStructure =
