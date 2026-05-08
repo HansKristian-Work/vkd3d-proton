@@ -902,7 +902,7 @@ struct vkd3d_memory_transfer_tracked_resource
     UINT64 semaphore_value;
 };
 
-struct vkd3d_memory_transfer_queue
+struct __attribute__((aligned(64))) vkd3d_memory_transfer_queue
 {
     struct d3d12_device *device;
     struct vkd3d_queue *vkd3d_queue;
@@ -921,6 +921,7 @@ struct vkd3d_memory_transfer_queue
     VkDeviceSize num_bytes_pending;
     uint32_t command_buffer_index;
 
+    /* Control variables grouped together for cache efficiency */
     struct vkd3d_memory_transfer_info *transfers;
     size_t transfer_size;
     size_t transfer_count;
@@ -928,6 +929,10 @@ struct vkd3d_memory_transfer_queue
     struct vkd3d_memory_transfer_tracked_resource *tracked_resources;
     size_t tracked_resource_size;
     size_t tracked_resource_count;
+
+    /* Large arrays at the end to prevent pushing control variables out of the first cache lines */
+    struct vkd3d_memory_transfer_info transfers_inline[32];
+    struct vkd3d_memory_transfer_tracked_resource tracked_resources_inline[32];
 };
 
 void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue);
@@ -3244,6 +3249,7 @@ struct d3d12_command_list
     unsigned int deferred_discard_count;
 
     struct d3d12_rtv_resolve *rtv_resolves;
+    struct d3d12_rtv_resolve rtv_resolves_inline[8];
     size_t rtv_resolve_size;
     size_t rtv_resolve_count;
 
@@ -3302,12 +3308,14 @@ struct d3d12_command_list
     VkDeviceSize so_counter_buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
 
     struct vkd3d_initial_transition *init_transitions;
+    struct vkd3d_initial_transition init_transitions_inline[16];
     size_t init_transitions_size;
     size_t init_transitions_count;
 
     struct vkd3d_query_ranges query_ranges;
 
     struct vkd3d_active_query *active_queries;
+    struct vkd3d_active_query active_queries_inline[16];
     size_t active_queries_size;
     size_t active_queries_count;
 

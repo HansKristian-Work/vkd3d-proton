@@ -21,6 +21,10 @@
 #include "vkd3d_private.h"
 #include "vkd3d_descriptor_debug.h"
 
+static void *vkd3d_memory_transfer_queue_run_thread(void *userdata);
+static void vkd3d_memory_transfer_queue_execute_transfer_locked(struct vkd3d_memory_transfer_queue *queue,
+        struct vkd3d_memory_transfer_info *transfer);
+
 static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_transfer_queue *queue,
         uint64_t wait_value, uint64_t timeout);
 
@@ -34,58 +38,50 @@ static void vkd3d_release_tracked_resource(struct d3d12_resource *resource)
     d3d12_resource_decref(resource);
 }
 
-static void *vkd3d_memory_transfer_queue_run_thread(void *userdata)
+static bool vkd3d_transfer_queue_reserve_transfers(struct vkd3d_memory_transfer_queue *queue, size_t count)
 {
-    struct vkd3d_memory_transfer_tracked_resource *tracked_resources;
-    size_t i, tracked_resource_size, tracked_resource_count;
-    struct vkd3d_memory_transfer_queue *queue = userdata;
-    bool running = true;
+    size_t new_size;
+    struct vkd3d_memory_transfer_info *new_array;
 
-    tracked_resources = NULL;
-    tracked_resource_size = 0;
-    tracked_resource_count = 0;
+    if (count <= queue->transfer_size)
+        return true;
 
-    while (running)
-    {
-        struct vkd3d_memory_transfer_tracked_resource *old_tracked_resources;
-        size_t old_tracked_resource_size;
+    new_size = max(count, queue->transfer_size * 2);
 
-        pthread_mutex_lock(&queue->mutex);
+    if (!(new_array = vkd3d_malloc(new_size * sizeof(*new_array))))
+        return false;
 
-        while (!queue->tracked_resource_count)
-        {
-            pthread_cond_wait(&queue->cond, &queue->mutex);
-        }
+    memcpy(new_array, queue->transfers, queue->transfer_count * sizeof(*new_array));
 
-        old_tracked_resources = tracked_resources;
-        old_tracked_resource_size = tracked_resource_size;
+    if (queue->transfers != queue->transfers_inline)
+        vkd3d_free(queue->transfers);
 
-        tracked_resources = queue->tracked_resources;
-        tracked_resource_size = queue->tracked_resource_size;
-        tracked_resource_count = queue->tracked_resource_count;
+    queue->transfers = new_array;
+    queue->transfer_size = new_size;
+    return true;
+}
 
-        queue->tracked_resources = old_tracked_resources;
-        queue->tracked_resource_size = old_tracked_resource_size;
-        queue->tracked_resource_count = 0;
+static bool vkd3d_transfer_queue_reserve_tracked_resources(struct vkd3d_memory_transfer_queue *queue, size_t count)
+{
+    size_t new_size;
+    struct vkd3d_memory_transfer_tracked_resource *new_array;
 
-        pthread_mutex_unlock(&queue->mutex);
+    if (count <= queue->tracked_resource_size)
+        return true;
 
-        for (i = 0; i < tracked_resource_count; i++)
-        {
-            const struct vkd3d_memory_transfer_tracked_resource *entry = &tracked_resources[i];
+    new_size = max(count, queue->tracked_resource_size * 2);
 
-            if (entry->resource)
-            {
-                vkd3d_memory_transfer_queue_wait_semaphore(queue, entry->semaphore_value, UINT64_MAX);
-                vkd3d_release_tracked_resource(entry->resource);
-            }
-            else
-                running = false;
-        }
-    }
+    if (!(new_array = vkd3d_malloc(new_size * sizeof(*new_array))))
+        return false;
 
-    vkd3d_free(tracked_resources);
-    return NULL;
+    memcpy(new_array, queue->tracked_resources, queue->tracked_resource_count * sizeof(*new_array));
+
+    if (queue->tracked_resources != queue->tracked_resources_inline)
+        vkd3d_free(queue->tracked_resources);
+
+    queue->tracked_resources = new_array;
+    queue->tracked_resource_size = new_size;
+    return true;
 }
 
 static void vkd3d_memory_transfer_queue_track_resource_locked(struct vkd3d_memory_transfer_queue *queue,
@@ -93,8 +89,7 @@ static void vkd3d_memory_transfer_queue_track_resource_locked(struct vkd3d_memor
 {
     struct vkd3d_memory_transfer_tracked_resource *entry;
 
-    if (!vkd3d_array_reserve((void**)&queue->tracked_resources, &queue->tracked_resource_size,
-            queue->tracked_resource_count + 1, sizeof(*queue->tracked_resources)))
+    if (!vkd3d_transfer_queue_reserve_tracked_resources(queue, queue->tracked_resource_count + 1))
     {
         ERR("Failed to track resource.\n");
         return;
@@ -123,8 +118,11 @@ void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *que
     VK_CALL(vkDestroyCommandPool(queue->device->vk_device, queue->vk_command_pool, NULL));
     VK_CALL(vkDestroySemaphore(queue->device->vk_device, queue->vk_semaphore, NULL));
 
-    vkd3d_free(queue->tracked_resources);
-    vkd3d_free(queue->transfers);
+    if (queue->tracked_resources != queue->tracked_resources_inline)
+        vkd3d_free(queue->tracked_resources);
+        
+    if (queue->transfers != queue->transfers_inline)
+        vkd3d_free(queue->transfers);
 
     pthread_cond_destroy(&queue->cond);
     pthread_mutex_destroy(&queue->mutex);
@@ -142,6 +140,12 @@ HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *que
     int rc;
 
     memset(queue, 0, sizeof(*queue));
+
+    queue->transfers = queue->transfers_inline;
+    queue->transfer_size = ARRAY_SIZE(queue->transfers_inline);
+
+    queue->tracked_resources = queue->tracked_resources_inline;
+    queue->tracked_resource_size = ARRAY_SIZE(queue->tracked_resources_inline);
 
     queue->device = device;
     queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(
@@ -216,6 +220,97 @@ HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *que
 fail:
     vkd3d_memory_transfer_queue_cleanup(queue);
     return hr;
+}
+
+static void *vkd3d_memory_transfer_queue_run_thread(void *userdata)
+{
+    struct vkd3d_memory_transfer_tracked_resource *tracked_resources;
+    struct vkd3d_memory_transfer_info *transfers;
+    size_t i, tracked_resource_count;
+    size_t j, transfer_count;
+    struct vkd3d_memory_transfer_queue *queue = userdata;
+    bool running = true;
+
+    struct vkd3d_memory_transfer_tracked_resource local_res_buffer[32];
+    struct vkd3d_memory_transfer_info local_trans_buffer[32];
+
+    tracked_resources = NULL;
+    tracked_resource_count = 0;
+
+    transfers = NULL;
+    transfer_count = 0;
+
+    while (running)
+    {
+        pthread_mutex_lock(&queue->mutex);
+
+        while (!queue->tracked_resource_count && !queue->transfer_count)
+        {
+            pthread_cond_wait(&queue->cond, &queue->mutex);
+        }
+
+        if (queue->tracked_resource_count <= 32 && queue->tracked_resources == queue->tracked_resources_inline)
+        {
+            memcpy(local_res_buffer, queue->tracked_resources, queue->tracked_resource_count * sizeof(*local_res_buffer));
+            if (tracked_resources != queue->tracked_resources_inline && tracked_resources != local_res_buffer)
+                vkd3d_free(tracked_resources);
+            tracked_resources = local_res_buffer;
+            tracked_resource_count = queue->tracked_resource_count;
+            queue->tracked_resource_count = 0;
+        }
+        else
+        {
+            struct vkd3d_memory_transfer_tracked_resource *old_res = tracked_resources;
+            tracked_resources = queue->tracked_resources;
+            tracked_resource_count = queue->tracked_resource_count;
+            queue->tracked_resources = (old_res == local_res_buffer) ? NULL : old_res;
+            queue->tracked_resource_count = 0;
+        }
+
+        if (queue->transfer_count <= 32 && queue->transfers == queue->transfers_inline)
+        {
+            memcpy(local_trans_buffer, queue->transfers, queue->transfer_count * sizeof(*local_trans_buffer));
+            if (transfers != queue->transfers_inline && transfers != local_trans_buffer)
+                vkd3d_free(transfers);
+            transfers = local_trans_buffer;
+            transfer_count = queue->transfer_count;
+            queue->transfer_count = 0;
+        }
+        else
+        {
+            struct vkd3d_memory_transfer_info *old_trans = transfers;
+            transfers = queue->transfers;
+            transfer_count = queue->transfer_count;
+            queue->transfers = (old_trans == local_trans_buffer) ? NULL : old_trans;
+            queue->transfer_count = 0;
+        }
+
+        pthread_mutex_unlock(&queue->mutex);
+
+        for (j = 0; j < transfer_count; j++)
+        {
+            vkd3d_memory_transfer_queue_execute_transfer_locked(queue, &transfers[j]);
+        }
+
+        for (i = 0; i < tracked_resource_count; i++)
+        {
+            const struct vkd3d_memory_transfer_tracked_resource *entry = &tracked_resources[i];
+            if (entry->resource)
+            {
+                vkd3d_memory_transfer_queue_wait_semaphore(queue, entry->semaphore_value, UINT64_MAX);
+                vkd3d_release_tracked_resource(entry->resource);
+            }
+            else
+                running = false;
+        }
+    }
+
+    if (tracked_resources != queue->tracked_resources_inline && tracked_resources != local_res_buffer)
+        vkd3d_free(tracked_resources);
+    if (transfers != queue->transfers_inline && transfers != local_trans_buffer)
+        vkd3d_free(transfers);
+
+    return NULL;
 }
 
 static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_transfer_queue *queue,
@@ -493,10 +588,9 @@ HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *qu
 static void vkd3d_memory_transfer_queue_execute_transfer_locked(struct vkd3d_memory_transfer_queue *queue,
         struct vkd3d_memory_transfer_info *transfer)
 {
-    if (!vkd3d_array_reserve((void**)&queue->transfers, &queue->transfer_size,
-            queue->transfer_count + 1, sizeof(*queue->transfers)))
+    if (!vkd3d_transfer_queue_reserve_transfers(queue, queue->transfer_count + 1))
     {
-        ERR("Failed to insert free range.\n");
+        ERR("Failed to reserve space for memory transfer.\n");
         return;
     }
 
