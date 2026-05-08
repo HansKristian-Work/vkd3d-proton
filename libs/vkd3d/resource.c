@@ -1360,6 +1360,8 @@ static uint32_t vkd3d_view_entry_hash(const void *key)
             hash = hash_combine(hash, hash_uint64(k->u.buffer.offset));
             hash = hash_combine(hash, hash_uint64(k->u.buffer.size));
             hash = hash_combine(hash, (uintptr_t)k->u.buffer.format);
+            /* The only interesting usage flags are 32-bit. */
+            hash = hash_combine(hash, (VkBufferUsageFlags)k->u.buffer.usage);
             break;
 
         case VKD3D_VIEW_TYPE_IMAGE:
@@ -1425,7 +1427,8 @@ static bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entr
             return k->u.buffer.buffer == e->key.u.buffer.buffer &&
                     k->u.buffer.format == e->key.u.buffer.format &&
                     k->u.buffer.offset == e->key.u.buffer.offset &&
-                    k->u.buffer.size == e->key.u.buffer.size;
+                    k->u.buffer.size == e->key.u.buffer.size &&
+                    k->u.buffer.usage == e->key.u.buffer.usage;
 
         case VKD3D_VIEW_TYPE_IMAGE:
             return k->u.texture.image == e->key.u.texture.image &&
@@ -5023,11 +5026,13 @@ bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct VkBufferViewCreateInfo view_desc;
+    VkBufferViewCreateInfo view_desc;
     VkResult vr;
 
     if (offset % 4)
         FIXME("Offset %#"PRIx64" violates the required alignment 4.\n", offset);
+
+    /* R32UI is always supported with uniform/storage. */
 
     view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
     view_desc.pNext = NULL;
@@ -5043,10 +5048,11 @@ bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
 
 bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, const struct vkd3d_format *format,
-        VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
+        VkDeviceSize offset, VkDeviceSize range, VkBufferUsageFlags2 usage, VkBufferView *vk_view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct VkBufferViewCreateInfo view_desc;
+    VkBufferUsageFlags2CreateInfo flags2;
+    VkBufferViewCreateInfo view_desc;
     VkResult vr;
 
     if (vkd3d_format_is_compressed(format))
@@ -5062,6 +5068,15 @@ bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
     view_desc.format = format->vk_format;
     view_desc.offset = offset;
     view_desc.range = range;
+
+    if (device->device_info.maintenance_5_features.maintenance5)
+    {
+        memset(&flags2, 0, sizeof(flags2));
+        flags2.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO;
+        flags2.usage = usage;
+        vk_prepend_struct(&view_desc, &flags2);
+    }
+
     if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
         WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
     return vr == VK_SUCCESS;
@@ -5073,7 +5088,7 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device, const struct vkd3d_bu
     struct vkd3d_view *object;
     VkBufferView vk_view;
 
-    if (!vkd3d_create_vk_buffer_view(device, desc->buffer, desc->format, desc->offset, desc->size, &vk_view))
+    if (!vkd3d_create_vk_buffer_view(device, desc->buffer, desc->format, desc->offset, desc->size, desc->usage, &vk_view))
         return false;
 
     if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_BUFFER)))
@@ -5289,6 +5304,10 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
     key.u.buffer.format = format;
     key.u.buffer.offset = resource->mem.offset + offset * element_size;
     key.u.buffer.size = size * element_size;
+    if (flags & VKD3D_VIEW_BUFFER_SRV)
+        key.u.buffer.usage = VK_BUFFER_USAGE_2_UNIFORM_TEXEL_BUFFER_BIT;
+    else
+        key.u.buffer.usage = VK_BUFFER_USAGE_2_STORAGE_TEXEL_BUFFER_BIT;
 
     return !!(*view = vkd3d_view_map_create_view(&resource->view_map, device, &key));
 }

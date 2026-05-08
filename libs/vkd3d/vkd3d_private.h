@@ -1328,6 +1328,7 @@ struct vkd3d_buffer_view_desc
     const struct vkd3d_format *format;
     VkDeviceSize offset;
     VkDeviceSize size;
+    VkBufferUsageFlags2 usage;
 };
 
 struct vkd3d_texture_view_desc
@@ -1471,7 +1472,7 @@ void d3d12_desc_create_sampler_embedded(vkd3d_cpu_descriptor_va_t sampler,
 
 bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, const struct vkd3d_format *format,
-        VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view);
+        VkDeviceSize offset, VkDeviceSize range, VkBufferUsageFlags2 usage, VkBufferView *vk_view);
 bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
         D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view);
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,

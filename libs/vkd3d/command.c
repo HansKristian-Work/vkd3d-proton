@@ -15145,7 +15145,8 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     pipeline = vkd3d_meta_get_clear_buffer_uav_pipeline(&list->device->meta_ops, true, false);
     workgroup_size = vkd3d_meta_get_clear_buffer_uav_workgroup_size();
 
-    if (!vkd3d_create_vk_buffer_view(list->device, scratch.buffer, format, scratch.offset, scratch_buffer_size, &vk_buffer_view))
+    if (!vkd3d_create_vk_buffer_view(list->device, scratch.buffer, format, scratch.offset, scratch_buffer_size,
+            VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT, &vk_buffer_view))
     {
         ERR("Failed to create buffer view for UAV clear.\n");
         return;
@@ -15432,6 +15433,7 @@ static bool vkd3d_clear_uav_synthesize_buffer_view(struct d3d12_command_list *li
     view_desc.size = args->u.buffer.range;
     view_desc.format = override_format ? override_format :
             vkd3d_get_format(list->device, args->clear_dxgi_format, false);
+    view_desc.usage = VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
 
     if (!view_desc.format || !vkd3d_create_buffer_view(list->device, &view_desc, inline_view))
     {
@@ -17603,6 +17605,7 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
         src_buffer_view_desc.size = extent.width * extent.height;
         src_buffer_view_desc.offset = src->mem.offset;
         src_buffer_view_desc.buffer = src->res.vk_buffer;
+        src_buffer_view_desc.usage = VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
 
         if (!vkd3d_create_buffer_view(list->device, &src_buffer_view_desc, &src_view))
             goto cleanup;
@@ -17962,6 +17965,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         dst_buffer_view_desc.size = extent.width * extent.height;
         dst_buffer_view_desc.offset = dst->mem.offset;
         dst_buffer_view_desc.buffer = dst->res.vk_buffer;
+        dst_buffer_view_desc.usage = VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
 
         if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
             goto cleanup;

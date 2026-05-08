@@ -273,6 +273,7 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
     key.u.buffer.offset = va - resource->va;
     key.u.buffer.size = resource->size - key.u.buffer.offset;
     key.u.buffer.format = NULL;
+    key.u.buffer.usage = 0;
 
     view = vkd3d_view_map_get_view(view_map, device, &key);
     if (!view)
@@ -334,6 +335,7 @@ static void vkd3d_va_map_try_place_rtas(struct vkd3d_va_map *va_map,
     key.u.buffer.offset = va - resource->va;
     key.u.buffer.size = resource->size - key.u.buffer.offset;
     key.u.buffer.format = NULL;
+    key.u.buffer.usage = 0;
 
     view = vkd3d_view_map_create_view2(view_map, device, &key, rtas_is_omm);
     if (!view)
