@@ -8324,14 +8324,6 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descrip
             alloc_size = align64(alloc_size, device->device_info.descriptor_heap_properties.resourceHeapAlignment);
             descriptor_heap->descriptor_buffer.reserved_offset = alloc_size;
             alloc_size += device->device_info.descriptor_heap_properties.minResourceHeapReservedRange;
-
-            if (alloc_size > device->device_info.descriptor_heap_properties.maxResourceHeapSize)
-            {
-                /* Should not happen. */
-                ERR("Resource heap is allocated with too large size, %"PRIu64" > %"PRIu64".\n",
-                        alloc_size, device->device_info.descriptor_heap_properties.maxResourceHeapSize);
-                return E_OUTOFMEMORY;
-            }
         }
     }
     else
@@ -8344,14 +8336,6 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descrip
             alloc_size = align64(alloc_size, device->device_info.descriptor_heap_properties.samplerHeapAlignment);
             descriptor_heap->descriptor_buffer.reserved_offset = alloc_size;
             alloc_size += device->device_info.descriptor_heap_properties.minSamplerHeapReservedRangeWithEmbedded;
-
-            if (alloc_size > device->device_info.descriptor_heap_properties.maxSamplerHeapSize)
-            {
-                /* Should not happen. */
-                ERR("Sampler heap is allocated with too large size, %"PRIu64" > %"PRIu64".\n",
-                        alloc_size, device->device_info.descriptor_heap_properties.maxSamplerHeapSize);
-                return E_OUTOFMEMORY;
-            }
         }
     }
 
