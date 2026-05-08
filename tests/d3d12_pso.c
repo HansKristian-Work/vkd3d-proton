@@ -5150,3 +5150,202 @@ void test_primitive_id_read_tess_geom(void)
     ID3D12Resource_Release(output);
     destroy_test_context(&context);
 }
+
+void test_sample_shading_coverage_mask(void)
+{
+    D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    struct test_context_desc context_desc;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    D3D12_INPUT_ELEMENT_DESC input_elem;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_HEAP_PROPERTIES heap_props;
+    D3D12_ROOT_PARAMETER rs_param;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12PipelineState *pso60;
+    ID3D12PipelineState *pso66;
+    ID3D12DescriptorHeap *rtv;
+    unsigned int x, y, layer;
+    unsigned int test_index;
+    ID3D12Resource *output;
+    unsigned int pso_index;
+    ID3D12Resource *vbo;
+    ID3D12Resource *rw;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+#include "shaders/pso/headers/vs_sample_mask.h"
+#include "shaders/pso/headers/ps_sample_mask.h"
+#include "shaders/pso/headers/ps_sample_mask66.h"
+
+    static const float vbo_data[] = {
+        /* Fullscreen */
+        -1, -1, 0, 1,
+        3, -1, 0, 1,
+        -1, 3, 0, 1,
+
+        /* Hits sample 0 in (0, 1). */
+        -1.0f + 5.0f / 16.0f, -1.0f + 13.0f / 16.0f, 0, 1,
+        -1.0f + 6.0f / 16.0f, -1.0f + 15.0f / 16.0f, 0, 1,
+        -1.0f + 7.0f / 16.0f, -1.0f + 13.0f / 16.0f, 0, 1,
+
+        /* Hits sample 2 in (0, 0) and sample 0 in (0, 1). */
+        -1.0f + 0.0f / 16.0f, -1.0f + 13.0f / 16.0f, 0, 1,
+        -1.0f + 12.0f / 16.0f, -1.0f + 13.0f / 16.0f, 0, 1,
+        -1.0f, +1.0f, 0, 1,
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    shader_model.HighestShaderModel = D3D_SHADER_MODEL_6_6;
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL,
+            &shader_model, sizeof(shader_model));
+
+    if (FAILED(hr) || shader_model.HighestShaderModel < D3D_SHADER_MODEL_6_6)
+    {
+        skip("Device does not support SM 6.6.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rs_param.Descriptor.ShaderRegister = 1;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Width = 2;
+    resource_desc.Height = 2;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.MipLevels = 1;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    input_layout.NumElements = 1;
+    input_layout.pInputElementDescs = &input_elem;
+
+    memset(&input_elem, 0, sizeof(input_elem));
+    input_elem.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    input_elem.SemanticName = "POSITION";
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&output);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    vbo = create_upload_buffer(context.device, sizeof(vbo_data), vbo_data);
+
+    init_pipeline_state_desc_dxil(&pso_desc, context.root_signature, DXGI_FORMAT_R32_FLOAT,
+            &vs_sample_mask_dxil, &ps_sample_mask_dxil, &input_layout);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.SampleDesc.Count = 4;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso60);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    pso_desc.PS = ps_sample_mask66_dxil;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso66);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv);
+    ID3D12Device_CreateRenderTargetView(context.device, output, NULL, rtv_handle);
+
+    for (pso_index = 0; pso_index < 2; pso_index++)
+    {
+        for (test_index = 0; test_index < ARRAY_SIZE(vbo_data) / 12; test_index++)
+        {
+            vkd3d_test_set_context("PSO index %u, test index %u", pso_index, test_index);
+            rw = create_default_buffer(context.device, 2 * 2 * 4 * sizeof(uint32_t),
+                    D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+            vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo);
+            vbv.SizeInBytes = sizeof(vbo_data);
+            vbv.StrideInBytes = 16;
+            ID3D12GraphicsCommandList_IASetVertexBuffers(context.list, 0, 1, &vbv);
+
+            set_viewport(&vp, 0, 0, 2, 2, 0, 1);
+            set_rect(&sci, 0, 0, 2, 2);
+            ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+            ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_handle, FALSE, NULL);
+            ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_index ? pso66 : pso60);
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(rw));
+            ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 3 * test_index, 0);
+
+            transition_resource_state(context.list, rw, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            get_buffer_readback_with_command_list(rw, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+            for (layer = 0; layer < 4; layer++)
+            {
+                for (y = 0; y < 2; y++)
+                {
+                    for (x = 0; x < 2; x++)
+                    {
+                        uint32_t expected;
+                        uint32_t value = get_readback_uint(&rb, x + y * 2 + layer * 4, 0, 0);
+
+                        if (test_index == 0)
+                        {
+                            /* Full coverage. Even if super sampling, D3D expects the coverage mask to include other samples. */
+                            expected = 0xf;
+                        }
+                        else if (test_index == 1)
+                        {
+                            expected = layer == 0 && x == 0 && y == 1 ? (0x1 | ((0xf ^ 0x4) << 28)) : 0; /* Pixel 0, 1 and 3 are helpers. */
+                        }
+                        else
+                        {
+                            /* IsHelperLane() is broken in SM 6.0. The fallback in DXIL checks for coverage != 0, but if a sibling sample
+                             * has coverage, but the current sample does not, the coverage check will still assume it's not a helper lane. */
+                            if (layer == 0 && x == 0 && y == 1)
+                                expected = pso_index == 0 ? 0xa0000001 : 0xb0000001;
+                            else if (layer == 2 && x == 0 && y == 0)
+                                expected = pso_index == 0 ? 0xa0000004 : 0xe0000004;
+                            else
+                                expected = 0;
+                        }
+
+                        /* AMD native is broken here even in SM 6.6 ... */
+
+                        todo ok(expected == value, "(%u, %u, %u): expected %08x, got %08x\n", x, y, layer, expected, value);
+                    }
+                }
+            }
+
+            release_resource_readback(&rb);
+            reset_command_list(context.list, context.allocator);
+            ID3D12Resource_Release(rw);
+        }
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12DescriptorHeap_Release(rtv);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(vbo);
+    ID3D12PipelineState_Release(pso60);
+    ID3D12PipelineState_Release(pso66);
+    destroy_test_context(&context);
+}
