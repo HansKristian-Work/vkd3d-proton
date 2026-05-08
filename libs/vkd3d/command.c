@@ -6098,7 +6098,8 @@ static void d3d12_command_list_end_rendering(struct d3d12_command_list *list)
     else if (suspend_resume)
     {
         VkResolveModeFlagBits rt_resolves[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-        VkResolveModeFlagBits depth_resolve, stencil_resolve;
+        VkResolveModeFlagBits stencil_resolve = VK_RESOLVE_MODE_NONE;
+        VkResolveModeFlagBits depth_resolve = VK_RESOLVE_MODE_NONE;
         uint32_t i;
 
         /* We attempted to suspend, but we need to emit some other code, so that's not going to work.
@@ -8590,7 +8591,8 @@ static void d3d12_command_list_begin_rendering(struct d3d12_command_list *list)
     {
         struct d3d12_command_list_render_pass_suspend_resume_compat *resume = &list->cmd.suspend_resume.resume;
         VkAttachmentLoadOp load_ops[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-        VkAttachmentLoadOp depth_load_op, stencil_load_op;
+        VkAttachmentLoadOp stencil_load_op = VK_ATTACHMENT_LOAD_OP_LOAD;
+        VkAttachmentLoadOp depth_load_op = VK_ATTACHMENT_LOAD_OP_LOAD;
 
         /* Speculate that we can link up with previous command list in submission order. */
         list->cmd.suspend_resume.block_resume = true;
