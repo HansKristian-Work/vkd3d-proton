@@ -6854,11 +6854,6 @@ void vkd3d_opacity_micromap_write_postbuild_info(
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkDeviceSize desc_offset,
         VkMicromapEXT vk_opacity_micromap);
-void vkd3d_opacity_micromap_emit_postbuild_info(
-        struct d3d12_command_list *list,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        uint32_t count,
-        const D3D12_GPU_VIRTUAL_ADDRESS *addresses);
 void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,

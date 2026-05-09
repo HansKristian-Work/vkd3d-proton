@@ -206,49 +206,6 @@ void vkd3d_opacity_micromap_write_postbuild_info(
     }
 }
 
-void vkd3d_opacity_micromap_emit_postbuild_info(
-        struct d3d12_command_list *list,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        uint32_t count,
-        const D3D12_GPU_VIRTUAL_ADDRESS *addresses)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkMicromapEXT vk_opacity_micromap;
-    VkDependencyInfo dep_info;
-    VkMemoryBarrier2 barrier;
-    VkDeviceSize stride;
-    uint32_t i;
-
-    /* We resolve the query in TRANSFER, but DXR expects UNORDERED_ACCESS. */
-    memset(&barrier, 0, sizeof(barrier));
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-
-    memset(&dep_info, 0, sizeof(dep_info));
-    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep_info.memoryBarrierCount = 1;
-    dep_info.pMemoryBarriers = &barrier;
-
-    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
-
-    stride = desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION ?
-            2 * sizeof(uint64_t) : sizeof(uint64_t);
-
-    for (i = 0; i < count; i++)
-    {
-        vk_opacity_micromap = vkd3d_va_map_place_opacity_micromap(
-                &list->device->memory_allocator.va_map, list->device, addresses[i]);
-        if (vk_opacity_micromap)
-            vkd3d_opacity_micromap_write_postbuild_info(list, desc, i * stride, vk_opacity_micromap);
-        else
-            ERR("Failed to query opacity micromap for VA 0x%"PRIx64".\n", addresses[i]);
-    }
-
-    vkd3d_opacity_micromap_end_barrier(list);
-}
-
 void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
