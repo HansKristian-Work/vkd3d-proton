@@ -309,8 +309,7 @@ bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *
 
     if (geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray)
     {
-        omm_triangles_info->micromap = vkd3d_va_map_place_acceleration_structure(
-                &device->memory_allocator.va_map, device,
+        omm_triangles_info->micromap = vkd3d_va_map_read_rtas(&device->memory_allocator.va_map, device,
                 geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapArray, true);
 
         if (omm_triangles_info->micromap == VK_NULL_HANDLE)

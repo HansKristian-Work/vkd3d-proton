@@ -457,29 +457,21 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
 
     for (i = 0; i < count; i++)
     {
-        if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+        if (!vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
+            list->device, addresses[i], &vk_acceleration_structure, &is_micromap))
         {
-            vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
-                    list->device, addresses[i], &vk_acceleration_structure, &is_micromap);
-
-            if (vk_acceleration_structure != VK_NULL_HANDLE)
-            {
-                if (is_micromap)
-                    vkd3d_opacity_micromap_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
-                else
-                    vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
-                continue;
-            }
-            else
-                FIXME("Failed to query existing RTAS for VA 0x%"PRIx64", falling back to placement.\n", addresses[i]);
+            FIXME("Failed to query existing RTAS for VA 0x%"PRIx64"\n", addresses[i]);
+            continue;
         }
-
-        vk_acceleration_structure = vkd3d_va_map_place_acceleration_structure(
-                &list->device->memory_allocator.va_map, list->device, addresses[i], false);
-        if (vk_acceleration_structure != VK_NULL_HANDLE)
-            vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
+        if (is_micromap && !d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+        {
+            FIXME("OMM postbuild on a non-tier-1.2 device at VA 0x%"PRIx64".\n", addresses[i]);
+            continue;
+        }
+        if (is_micromap)
+            vkd3d_opacity_micromap_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
         else
-            ERR("Failed to query acceleration structure for VA 0x%"PRIx64".\n", addresses[i]);
+            vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
     }
 
     vkd3d_acceleration_structure_end_barrier(list);

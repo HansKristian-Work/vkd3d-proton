@@ -247,7 +247,7 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
     return vkd3d_va_map_deref_mutable(va_map, va);
 }
 
-void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
+bool vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va,
         VkAccelerationStructureKHR *acceleration_structure,
         bool *is_micromap)
@@ -257,16 +257,13 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
     const struct vkd3d_view *view;
     struct vkd3d_view_key key;
 
-    *acceleration_structure = VK_NULL_HANDLE;
-    *is_micromap = false;
-
     resource = vkd3d_va_map_deref(va_map, va);
     if (!resource || !resource->va)
-        return;
+        return false;
 
     view_map = vkd3d_atomic_ptr_load_explicit(&resource->view_map, vkd3d_memory_order_acquire);
     if (!view_map)
-        return;
+        return false;
 
     key.view_type = VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE;
     key.u.buffer.buffer = resource->vk_buffer;
@@ -277,10 +274,34 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
 
     view = vkd3d_view_map_get_view(view_map, device, &key);
     if (!view)
-        return;
+        return false;
 
     *acceleration_structure = view->vk_acceleration_structure;
     *is_micromap = view->info.buffer.rtas_is_micromap;
+
+    return true;
+}
+
+VkAccelerationStructureKHR vkd3d_va_map_read_rtas(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device, VkDeviceAddress va, bool expected_rtas_is_omm)
+{
+    VkAccelerationStructureKHR result;
+    bool rtas_is_omm;
+
+    if (!vkd3d_va_map_try_read_rtas(va_map, device, va, &result, &rtas_is_omm))
+    {
+        ERR("Failed to query %s for VA 0x%"PRIx64".\n", expected_rtas_is_omm ? "opacity micromap" : "RTAS", va);
+        return VK_NULL_HANDLE;
+    }
+    if (rtas_is_omm != expected_rtas_is_omm)
+    {
+        ERR("Expected a %s at VA 0x%"PRIx64" got %s, missing new build?.\n",
+                expected_rtas_is_omm ? "opacity micromap" : "RTAS", va,
+                rtas_is_omm ? "opacity micromap" : "RTAS");
+        return VK_NULL_HANDLE;
+    }
+
+    return result;
 }
 
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
@@ -334,11 +355,6 @@ VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3
     view = vkd3d_view_map_create_view2(view_map, device, &key, rtas_is_omm);
     if (!view)
         return VK_NULL_HANDLE;
-
-    if (rtas_is_omm != view->info.buffer.rtas_is_micromap)
-        FIXME("Attempted to place %s on VA #%"PRIx64" previously used by %s.\n",
-                rtas_is_omm ? "OMM" : "RTAS", va,
-                view->info.buffer.rtas_is_micromap ? "OMM" : "RTAS");
 
     view->info.buffer.rtas_is_micromap = rtas_is_omm;
 

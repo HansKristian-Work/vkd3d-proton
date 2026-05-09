@@ -20598,6 +20598,15 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
         return;
     }
 
+    if (build_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR &&
+            desc->SourceAccelerationStructureData)
+    {
+        build_info->srcAccelerationStructure = vkd3d_va_map_read_rtas(&list->device->memory_allocator.va_map,
+                list->device, desc->SourceAccelerationStructureData, false);
+        if (build_info->srcAccelerationStructure == VK_NULL_HANDLE)
+            return;
+    }
+
     if (desc->DestAccelerationStructureData)
     {
         build_info->dstAccelerationStructure =
@@ -20606,19 +20615,6 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
         if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place destAccelerationStructure. Dropping call.\n");
-            return;
-        }
-    }
-
-    if (build_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR &&
-            desc->SourceAccelerationStructureData)
-    {
-        build_info->srcAccelerationStructure =
-                vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->SourceAccelerationStructureData, false);
-        if (build_info->srcAccelerationStructure == VK_NULL_HANDLE)
-        {
-            ERR("Failed to place srcAccelerationStructure. Dropping call.\n");
             return;
         }
     }
@@ -20827,40 +20823,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
 
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+    if (!vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map, list->device, src_data, &src_as,
+            &is_micromap))
     {
-        vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
-                list->device, src_data, &src_as, &is_micromap);
-
-        if (src_as != VK_NULL_HANDLE)
-        {
-            vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, is_micromap);
-            VKD3D_BREADCRUMB_AUX64(dst_data);
-            VKD3D_BREADCRUMB_AUX64(src_data);
-            VKD3D_BREADCRUMB_AUX32(mode);
-            if (is_micromap)
-                VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
-            else
-                VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
-            return;
-        }
-        else
-            FIXME("Failed to query existing RTAS for VA 0x%"PRIx64", falling back to placement.\n", src_data);
+        FIXME("Failed to query existing RTAS for VA 0x%"PRIx64".\n", src_data);
+        return;
     }
-
-    src_as = vkd3d_va_map_place_acceleration_structure(
-            &list->device->memory_allocator.va_map, list->device, src_data, false);
-
-    if (src_as != VK_NULL_HANDLE)
+    if (is_micromap && !d3d12_device_supports_ray_tracing_tier_1_2(list->device))
     {
-        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, false);
-        VKD3D_BREADCRUMB_AUX64(dst_data);
-        VKD3D_BREADCRUMB_AUX64(src_data);
-        VKD3D_BREADCRUMB_AUX32(mode);
-        VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
+        FIXME("OMM copy src on non-tier-1.2 at VA 0x%"PRIx64".\n", src_data);
+        return;
     }
+    vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, is_micromap);
+    VKD3D_BREADCRUMB_AUX64(dst_data);
+    VKD3D_BREADCRUMB_AUX64(src_data);
+    VKD3D_BREADCRUMB_AUX32(mode);
+    if (is_micromap)
+        VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
     else
-        ERR("Invalid src address #%"PRIx64" for RTAS copy.\n", src_data);
+        VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command_list_iface *iface,
