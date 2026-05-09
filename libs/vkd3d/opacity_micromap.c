@@ -163,76 +163,6 @@ static void vkd3d_opacity_micromap_end_barrier(struct d3d12_command_list *list)
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 }
 
-void vkd3d_opacity_micromap_write_postbuild_info(
-        struct d3d12_command_list *list,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        VkDeviceSize desc_offset,
-        VkAccelerationStructureKHR vk_opacity_micromap)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct vkd3d_unique_resource *resource;
-    VkQueryPool vk_query_pool;
-    VkQueryType vk_query_type;
-    uint32_t vk_query_index;
-    VkDeviceSize stride;
-    uint32_t type_index;
-    VkBuffer vk_buffer;
-    uint32_t offset;
-
-    resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, desc->DestBuffer);
-    if (!resource)
-    {
-        ERR("Invalid resource.\n");
-        return;
-    }
-
-    vk_buffer = resource->vk_buffer;
-    offset = desc->DestBuffer - resource->va;
-    offset += desc_offset;
-    stride = sizeof(uint64_t);
-
-    switch (desc->InfoType)
-    {
-        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE:
-            vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
-            type_index = VKD3D_QUERY_TYPE_INDEX_RT_COMPACTED_SIZE;
-            break;
-        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE:
-            vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR;
-            type_index = VKD3D_QUERY_TYPE_INDEX_RT_CURRENT_SIZE;
-            break;
-        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION:
-            vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
-            type_index = VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE;
-            break;
-        default:
-            FIXME("Unsupported InfoType %u.\n", desc->InfoType);
-            VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset,
-                    sizeof(uint64_t), 0));
-            return;
-    }
-
-    if (!d3d12_command_allocator_allocate_query_from_type_index(list->allocator,
-            type_index, &vk_query_pool, &vk_query_index))
-    {
-        ERR("Failed to allocate query.\n");
-        return;
-    }
-
-    VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->cmd.vk_command_buffer,
-            1, &vk_opacity_micromap, vk_query_type, vk_query_pool, vk_query_index));
-    VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
-            vk_query_pool, vk_query_index, 1,
-            vk_buffer, offset, stride,
-            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
-
-    if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION)
-    {
-        VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
-                sizeof(uint64_t), 0));
-    }
-}
-
 void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
@@ -261,7 +191,7 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     for (i = 0; i < count; i++)
-        vkd3d_opacity_micromap_write_postbuild_info(list, &desc[i], 0, vk_opacity_micromap);
+        vkd3d_acceleration_structure_write_postbuild_info(list, &desc[i], 0, vk_opacity_micromap, true);
 
     vkd3d_opacity_micromap_end_barrier(list);
 }
