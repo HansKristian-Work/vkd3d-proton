@@ -4865,6 +4865,7 @@ static void d3d12_command_list_update_subresource_data(struct d3d12_command_list
 {
     struct vkd3d_subresource_tracking *entry;
     VkImageAspectFlags aspect, aspect_mask;
+    uint32_t merged_end;
     uint32_t i;
     bool skip;
 
@@ -4893,9 +4894,10 @@ static void d3d12_command_list_update_subresource_data(struct d3d12_command_list
                 else if (entry->subresource.baseArrayLayer <= subresource.baseArrayLayer + subresource.layerCount &&
                             entry->subresource.baseArrayLayer + entry->subresource.layerCount >= subresource.baseArrayLayer)
                 {
+					merged_end = max(entry->subresource.baseArrayLayer + entry->subresource.layerCount,
+                            subresource.baseArrayLayer + subresource.layerCount);
                     subresource.baseArrayLayer = min(entry->subresource.baseArrayLayer, subresource.baseArrayLayer);
-                    subresource.layerCount = max(entry->subresource.baseArrayLayer + entry->subresource.layerCount,
-                            subresource.baseArrayLayer - subresource.layerCount) - entry->subresource.baseArrayLayer;
+                    subresource.layerCount = merged_end - subresource.baseArrayLayer;
                     *entry = list->subresource_tracking[--list->subresource_tracking_count];
                     continue;
                 }
