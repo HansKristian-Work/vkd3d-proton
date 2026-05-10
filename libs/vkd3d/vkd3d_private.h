@@ -5673,6 +5673,7 @@ struct d3d12_device
         bool tiler_renderpass_barriers;
         bool tiler_suspend_resume;
         bool tiler_suspend_resume_relax_load_store_op;
+        bool synchronize_compute_blas;
     } workarounds;
 
     struct

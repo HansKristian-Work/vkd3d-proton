@@ -583,6 +583,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
     VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
     VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING = 1 << 6,
+    VKD3D_APPLICATION_FEATURE_SYNCHRONIZE_COMPUTE_BLAS = 1 << 7,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -650,7 +651,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Dead Space (2023) (1693980) */
     { VKD3D_STRING_COMPARE_EXACT, "Dead Space.exe", VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION, 0 },
     /* Witcher 3 (2023) (292030) */
-    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION, 0 },
+    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe",
+            VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION, 0,
+            VKD3D_APPLICATION_FEATURE_SYNCHRONIZE_COMPUTE_BLAS },
     /* Age of Wonders 4 (1669000). Extremely stuttery performance with ReBAR. */
     { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* Red Dead Redemption (2668510). Inconsistent performance with ReBAR at cutscenes of the game. */
@@ -10094,6 +10097,12 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
         INFO("Disabling AMD anti-lag.\n");
         device->vk_info.AMD_anti_lag = false;
         device->device_info.anti_lag_amd.antiLag = VK_FALSE;
+    }
+
+    if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_SYNCHRONIZE_COMPUTE_BLAS)
+    {
+        INFO("Enabling compute to BLAS barrier synchronization.\n");
+        device->workarounds.synchronize_compute_blas = true;
     }
 }
 
