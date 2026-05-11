@@ -1922,7 +1922,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     /* Don't care about wave size promotion in RT. */
     compile_args.quirks = &object->device->workarounds.quirks;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DRIVER_VERSION_SENSITIVE_SHADERS))
     {
         compile_args.driver_id = object->device->device_info.vulkan_1_2_properties.driverID;
         compile_args.driver_version = object->device->device_info.properties2.properties.driverVersion;
@@ -2638,7 +2638,7 @@ static HRESULT d3d12_state_object_init(struct d3d12_rt_state_object *object,
     object->type = desc->Type;
 
     if (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION) &&
+            VKD3D_CONFIG_FLAG_IS_SET(ALLOW_SBT_COLLECTION) &&
             !device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
     {
         /* It seems to be valid to query shader identifiers from a COLLECTION which is pure insanity.

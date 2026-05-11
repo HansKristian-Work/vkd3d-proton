@@ -2185,7 +2185,7 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
     compile_args.nv_shader_extn_uav_slot = nv_shader_extn.uav_slot;
     compile_args.nv_shader_extn_uav_space = nv_shader_extn.uav_space;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DRIVER_VERSION_SENSITIVE_SHADERS))
     {
         compile_args.driver_id = object->device->device_info.vulkan_1_2_properties.driverID;
         compile_args.driver_version = object->device->device_info.properties2.properties.driverVersion;

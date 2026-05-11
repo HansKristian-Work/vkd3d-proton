@@ -2551,7 +2551,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
     image_barrier[0].subresourceRange.levelCount = 1;
     image_barrier[0].subresourceRange.layerCount = 1;
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS) &&
             chain->queue->device->vk_info.EXT_debug_utils)
     {
         VkDebugUtilsLabelEXT label;
@@ -2651,7 +2651,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
 
     VK_CALL(vkCmdPipelineBarrier2(vk_cmd, &dep_info));
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS) &&
             chain->queue->device->vk_info.EXT_debug_utils)
     {
         VK_CALL(vkCmdEndDebugUtilsLabelEXT(vk_cmd));

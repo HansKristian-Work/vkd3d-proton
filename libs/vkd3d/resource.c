@@ -783,23 +783,23 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     /* Can be a performance tweak, or app workaround.
      * On AMD native drivers, UAV + RTV usage tends to disable compression, but RADV tends to enable it.
      * This is another source of application bugs. Give us an escape hatch as needed. */
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION) &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(DISABLE_UAV_COMPRESSION) &&
             (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
         disable_compression = true;
 
     /* Mostly for debugging, but could be relevant for app workarounds too. */
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_DEPTH_COMPRESSION) &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(DISABLE_DEPTH_COMPRESSION) &&
             (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
         disable_compression = true;
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION) &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(DISABLE_COLOR_COMPRESSION) &&
             !(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
         disable_compression = true;
 
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
         if (disable_compression ||
-                ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION) &&
+                (VKD3D_CONFIG_FLAG_IS_SET(DISABLE_SIMULTANEOUS_UAV_COMPRESSION) &&
                         (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) &&
                         (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)))
         {
@@ -978,7 +978,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     {
         bool use_2d_array_compatible =
                 (image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) ||
-                ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PREFER_THIN_UAV_TILING) &&
+                (VKD3D_CONFIG_FLAG_IS_SET(PREFER_THIN_UAV_TILING) &&
                  (image_info->usage & VK_IMAGE_USAGE_STORAGE_BIT));
 
         /* For storage images, we don't actually intend to create 2D views, but adding this flag hints to driver
@@ -1141,7 +1141,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         if (desc->Alignment)
             candidate_alignment = desc->Alignment;
 
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PLACED_TEXTURE_ALIASING) &&
+        if (VKD3D_CONFIG_FLAG_IS_SET(PLACED_TEXTURE_ALIASING) &&
                 resource && (resource->flags & VKD3D_RESOURCE_PLACED) &&
                 (candidate_alignment > D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT) &&
                 !(desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) &&
@@ -1298,7 +1298,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
 
     pad_allocation = allocation_info->Alignment > target_alignment &&
             (allocation_info->Alignment > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT ||
-                    !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT));
+                    !VKD3D_CONFIG_FLAG_IS_SET(REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT));
 
     if (pad_allocation)
     {
@@ -1595,7 +1595,7 @@ struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
     if (!success)
         return NULL;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
         vkd3d_view_tag_debug_name(view, device);
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info,
@@ -2305,7 +2305,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *ifac
     {
         d3d_destruction_notifier_notify(&resource->destruction_notifier);
 
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEFER_RESOURCE_DESTRUCTION)
+        if (VKD3D_CONFIG_FLAG_IS_SET(DEFER_RESOURCE_DESTRUCTION))
         {
             /* AC: Valhalla seems to trigger use-after-free long
              * after the resource is destroyed in some cases.
@@ -3941,7 +3941,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         VK_CALL(vkDestroyImageView(device->vk_device, resource->vrs_view, NULL));
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && resource->heap)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS) && resource->heap)
         vkd3d_breadcrumb_tracer_unregister_placed_resource(resource->heap, resource);
 #endif
 
@@ -4292,7 +4292,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         allocate_info.heap_flags = heap_flags;
         allocate_info.explicit_global_buffer_usage = 0;
 
-        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS))
+        if (!VKD3D_CONFIG_FLAG_IS_SET(DAMAGE_NOT_ZEROED_ALLOCATIONS))
         {
             /* Unfortunately, we cannot trust CREATE_NOT_ZEROED to actually do anything.
              * Stress tests on Windows suggest that it drivers always clear anyway.
@@ -4422,7 +4422,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
                 goto fail;
         }
 
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+        if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
         {
             d3d12_resource_tag_debug_name(object, device,
                     (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) ?
@@ -4440,7 +4440,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         allocate_info.heap_desc.Flags = heap_flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         allocate_info.vk_memory_priority = object->priority.residency_count ? vkd3d_convert_to_vk_prio(object->priority.d3d12priority) : 0.f;
 
-        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DAMAGE_NOT_ZEROED_ALLOCATIONS))
+        if (!VKD3D_CONFIG_FLAG_IS_SET(DAMAGE_NOT_ZEROED_ALLOCATIONS))
         {
             /* Unfortunately, we cannot trust CREATE_NOT_ZEROED to actually do anything.
              * Stress tests on Windows suggest that it drivers always clear anyway.
@@ -4577,7 +4577,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
          * See vkd3d_get_image_allocation_info() for details. */
         if ((heap_offset & (D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT - 1)) &&
                 (heap_offset & (memory_requirements.alignment - 1)) &&
-                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT))
+                VKD3D_CONFIG_FLAG_IS_SET(REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT))
         {
             /* Unclear if this is our bug or app bug, so FIXME seems appropriate. */
             FIXME("Application attempts to place small aligned resource at heap offset %"PRIu64", but it is not possible (requirement %u).\n",
@@ -4664,7 +4664,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
             goto fail;
         }
 
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+        if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
             d3d12_resource_tag_debug_name(object, device, "Placed Texture");
     }
     else
@@ -4688,7 +4688,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
      * https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createplacedresource#notes-on-the-required-resource-initialization. */
     if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
-        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION))
+        if (!VKD3D_CONFIG_FLAG_IS_SET(FORCE_INITIAL_TRANSITION))
         {
 #ifdef VKD3D_ENABLE_BREADCRUMBS
             object->initial_layout_transition_validate_only = true;
@@ -4699,7 +4699,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
         vkd3d_breadcrumb_tracer_register_placed_resource(heap, object, heap_offset, required_size);
 #endif
 
@@ -4800,7 +4800,7 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
         vkd3d_va_map_insert(&device->memory_allocator.va_map, &object->res);
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
         d3d12_resource_tag_debug_name(object, device, "Reserved Resource");
 
     *resource = object;
@@ -6077,7 +6077,7 @@ void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
         d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(INSTRUCTION_QA_CHECKS))
     {
         /* We may want to peek at the buffer's raw VA when doing instrumentation. */
         VkDeviceAddress *counter_addresses = d.heap->raw_va_aux_buffer.host_ptr;
@@ -6700,7 +6700,7 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(INSTRUCTION_QA_CHECKS))
     {
         /* We may want to peek at the buffer's raw VA when doing instrumentation. */
         VkDeviceAddress *counter_addresses = d.heap->raw_va_aux_buffer.host_ptr;
@@ -6938,7 +6938,7 @@ static struct vkd3d_view *vkd3d_create_texture_srv_view(struct d3d12_device *dev
     if (!vkd3d_setup_texture_srv_view(device, resource, desc, &key.u.texture))
         return false;
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS) &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(PREALLOCATE_SRV_MIP_CLAMPS) &&
             desc->ViewDimension != D3D12_SRV_DIMENSION_TEXTURE2DMS &&
             desc->ViewDimension != D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY)
     {
@@ -7724,7 +7724,7 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_RAW_VA_BIT;
     }
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    else if (VKD3D_CONFIG_FLAG_IS_SET(INSTRUCTION_QA_CHECKS))
     {
         /* We may want to peek at the buffer's raw VA when doing instrumentation.
          * UAV counted resources do not get instrumentation, so the aliasing should not be a problem in practice. */
@@ -10591,7 +10591,7 @@ static VkMemoryPropertyFlags vkd3d_memory_info_descriptor_heap_memory_properties
         VKD3D_UNUSED const struct vkd3d_memory_topology *topology,
         VKD3D_UNUSED const struct d3d12_device *device)
 {
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
+    if (VKD3D_CONFIG_FLAG_IS_SET(FORCE_HOST_CACHED))
     {
         return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                 VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
@@ -10636,7 +10636,7 @@ static bool vkd3d_memory_info_decide_hvv_usage(
 static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
         const struct vkd3d_memory_topology *topology, const struct d3d12_device *device, bool is_hvv_use_allowed)
 {
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
+    if (VKD3D_CONFIG_FLAG_IS_SET(FORCE_HOST_CACHED))
     {
         INFO("Topology: Forcing HOST_CACHED | HOST_COHERENT for UPLOAD heap.\n");
         return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -10644,7 +10644,7 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV)
+    if (VKD3D_CONFIG_FLAG_IS_SET(NO_UPLOAD_HVV))
     {
         INFO("Topology: Forcing HOST_COHERENT for UPLOAD heap.\n");
         return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -10663,7 +10663,7 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
              * of VRAM spill.
              * Allow this to be tweaked for app-opt purposes.
              * 6 GiB cards are extremely tiny in today's games, so ignore those. */
-            minimum_rebar_size_gb = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR) ? 7ull : 9ull;
+            minimum_rebar_size_gb = VKD3D_CONFIG_FLAG_IS_SET(SMALL_VRAM_REBAR) ? 7ull : 9ull;
             minimum_rebar_size = minimum_rebar_size_gb * 1000ull * 1000ull * 1000ull;
 
             if (largest_size < minimum_rebar_size)
@@ -10691,10 +10691,10 @@ static bool vkd3d_memory_info_decide_gpu_upload_heap(bool is_hvv_use_allowed)
     if (!is_hvv_use_allowed)
         return false;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
+    if (VKD3D_CONFIG_FLAG_IS_SET(FORCE_HOST_CACHED))
         return false;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_GPU_UPLOAD_HEAP)
+    if (VKD3D_CONFIG_FLAG_IS_SET(NO_GPU_UPLOAD_HEAP))
         return false;
 
     return true;

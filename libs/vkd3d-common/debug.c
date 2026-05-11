@@ -463,10 +463,10 @@ bool vkd3d_debug_list_has_member(const char *string, const char *member)
     return false;
 }
 
-uint64_t vkd3d_parse_debug_options(const char *string,
+union vkd3d_config_flags vkd3d_parse_debug_options(const char *string,
         const struct vkd3d_debug_option *options, unsigned int option_count)
 {
-    uint64_t flags = 0;
+    union vkd3d_config_flags flags = VKD3D_CONFIG_FLAGS_NONE;
     unsigned int i;
 
     for (i = 0; i < option_count; ++i)
@@ -474,7 +474,7 @@ uint64_t vkd3d_parse_debug_options(const char *string,
         const struct vkd3d_debug_option *opt = &options[i];
 
         if (vkd3d_debug_list_has_member(string, opt->name))
-            flags |= opt->flag;
+            vkd3d_config_flag_add(&flags, opt->flag);
     }
 
     return flags;

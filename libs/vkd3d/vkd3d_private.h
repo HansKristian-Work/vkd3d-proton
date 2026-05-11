@@ -42,6 +42,7 @@
 #include "vkd3d_string.h"
 #include "vkd3d_file_utils.h"
 #include "vkd3d_native_sync_handle.h"
+#include "config_flags.h"
 #include "copy_utils.h"
 #include <assert.h>
 #include <inttypes.h>
@@ -253,8 +254,6 @@ struct vkd3d_instance
 
     LONG refcount;
 };
-
-extern uint64_t vkd3d_config_flags;
 
 struct vkd3d_queue_timeline_trace_cookie
 {
@@ -476,7 +475,7 @@ static inline bool vkd3d_private_data_object_name_ptr(REFGUID guid,
      * but this avoids an additional, needless allocation
      * and some games may spam SetName.
      */
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS))
+    if (!VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
         return false;
 
     if (IsEqualGUID(guid, &WKPDID_D3DDebugObjectName))
@@ -4135,7 +4134,7 @@ uint32_t vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
         struct vkd3d_breadcrumb_tracer *device, vkd3d_shader_hash_t hash);
 
 #define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) do { \
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS)) { \
         d3d12_command_list_end_transfer_batch(list);          \
     } \
 } while(0)
@@ -4149,7 +4148,7 @@ void vkd3d_breadcrumb_tracer_register_placed_resource(struct d3d12_heap *heap, s
 void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap, struct d3d12_resource *resource);
 
 #define VKD3D_BREADCRUMB_COMMAND(cmd_type) do { \
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS)) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
         breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_##cmd_type; \
         vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
@@ -4159,7 +4158,7 @@ void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap,
 
 /* State commands do no work on their own, should not signal. */
 #define VKD3D_BREADCRUMB_COMMAND_STATE(cmd_type) do { \
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS)) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
         breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_##cmd_type; \
         vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
@@ -4167,7 +4166,7 @@ void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap,
 } while(0)
 
 #define VKD3D_BREADCRUMB_AUX32(v) do { \
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS)) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
         breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_AUX32; \
         breadcrumb_cmd.word_32bit = v; \
@@ -4176,7 +4175,7 @@ void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap,
 } while(0)
 
 #define VKD3D_BREADCRUMB_AUX64(v) do { \
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS)) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
         breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_AUX64; \
         breadcrumb_cmd.word_64bit = v; \
@@ -4185,7 +4184,7 @@ void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap,
 } while(0)
 
 #define VKD3D_BREADCRUMB_COOKIE(v) do { \
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS)) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
         breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_COOKIE; \
         breadcrumb_cmd.word_64bit = v; \
@@ -4194,7 +4193,7 @@ void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap,
 } while(0)
 
 #define VKD3D_BREADCRUMB_TAG(tag_static_str) do { \
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS)) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
         breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_TAG; \
         breadcrumb_cmd.tag = tag_static_str; \
@@ -4206,7 +4205,7 @@ void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap,
 #define VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, cond) do { \
     if (cond) \
         d3d12_device_report_fault(device); \
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && (cond)) { \
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS) && (cond)) { \
         vkd3d_breadcrumb_tracer_report_device_lost(&(device)->breadcrumb_tracer, device); \
         vkd3d_shader_debug_ring_kick(&(device)->debug_ring, device, true); \
     } \

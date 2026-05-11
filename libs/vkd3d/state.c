@@ -410,7 +410,7 @@ static bool d3d12_descriptor_range_can_hoist_cbv_descriptor(
      * As a speed hack, we can pretend that all CBVs have this flag set.
      * Basically no applications set this flag, even though they really could. */
     return !(range->Flags & D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE) ||
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV);
+            VKD3D_CONFIG_FLAG_IS_SET(FORCE_STATIC_CBV);
 }
 
 static void d3d12_root_signature_info_count_srv_uav_table(struct d3d12_root_signature_info *info,
@@ -1456,7 +1456,7 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
         return hr;
 
     if (!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE) &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_EXTENDED_DEBUG_UTILS))
+            VKD3D_CONFIG_FLAG_IS_SET(EXTENDED_DEBUG_UTILS))
     {
         if (!(root_signature->root_parameter_mappings = vkd3d_calloc(root_signature->parameter_count,
                 sizeof(*root_signature->root_parameter_mappings))))
@@ -1784,7 +1784,7 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
     /* Inline the root signature blob inside the SPIR-V. */
     if (SUCCEEDED(hr) && !raw_payload &&
             !(root_signature_desc.d3d12.Desc_1_2.Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE) &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_EXTENDED_DEBUG_UTILS))
+            VKD3D_CONFIG_FLAG_IS_SET(EXTENDED_DEBUG_UTILS))
     {
         object->root_signature_blob = vkd3d_malloc(bytecode_length);
         memcpy(object->root_signature_blob, bytecode, bytecode_length);
@@ -2272,7 +2272,7 @@ HRESULT d3d12_pipeline_state_create_shader_module(struct d3d12_device *device,
         return hresult_from_vk_result(vr);
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
     {
         /* Helpful for tooling like RenderDoc. */
         char hash_str[16 + 1];
@@ -2545,7 +2545,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12Pipeli
         return hresult_from_vk_result(vr);
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
         INFO("Serializing cached blob: %zu bytes.\n", cache_size);
 
     if (FAILED(hr = d3d_blob_create(cache_data, cache_size, &blob_object)))
@@ -2590,17 +2590,17 @@ static HRESULT vkd3d_load_spirv_from_cached_state(struct d3d12_device *device,
 
     if (!cached_state->blob.CachedBlobSizeInBytes)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("SPIR-V chunk was not found due to no Cached PSO state being provided.\n");
         return E_FAIL;
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_IGNORE_SPIRV))
         return E_FAIL;
 
     hr = vkd3d_get_cached_spirv_code_from_d3d12_desc(cached_state, stage, spirv_code, identifier);
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
     {
         if (SUCCEEDED(hr))
         {
@@ -2684,7 +2684,7 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
             d3d12_device_supports_required_subgroup_size_for_stage(device, stage);
     compile_arguments->quirks = &device->workarounds.quirks;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DRIVER_VERSION_SENSITIVE_SHADERS))
     {
         compile_arguments->driver_id = device->device_info.vulkan_1_2_properties.driverID;
         compile_arguments->driver_version = device->device_info.properties2.properties.driverVersion;
@@ -2779,7 +2779,7 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
 
                 override_subgroup_size = true;
             }
-            else if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE) &&
+            else if (VKD3D_CONFIG_FLAG_IS_SET(FORCE_MINIMUM_SUBGROUP_SIZE) &&
                     d3d12_device_supports_required_subgroup_size_for_stage(device, stage))
             {
                 /* GravityMark checks minSubgroupSize and based on that uses a shader variant.
@@ -2828,7 +2828,7 @@ static HRESULT vkd3d_compile_shader_stage(struct d3d12_pipeline_state *state, st
     vkd3d_shader_hash_t compiled_hash = 0;
     int ret;
 
-    if (spirv_code->code && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_SANITIZE_SPIRV))
+    if (spirv_code->code && VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_SANITIZE_SPIRV))
     {
         recovered_hash = vkd3d_shader_hash(spirv_code);
         vkd3d_shader_free_shader_code(spirv_code);
@@ -3053,7 +3053,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     vk_cache = state->vk_pso_cache;
     spirv_code = &state->compute.code;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
         spirv_code_debug = &state->compute.code_debug;
     else
         spirv_code_debug = NULL;
@@ -3097,7 +3097,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
 
     TRACE("Calling vkCreateComputePipelines.\n");
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
     {
         feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO;
         feedback_info.pNext = pipeline_info.pNext;
@@ -3143,7 +3143,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
                 cookie, vkd3d_pipeline_cache_compatibility_condense(&state->pipeline_cache_compat), kind);
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
     {
         if (pipeline_info.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT)
         {
@@ -3651,7 +3651,7 @@ static void blend_attachment_from_d3d12(struct d3d12_device *device, struct VkPi
         /* RGB9E5 is quirky with write masks, RGB must be either all set or unset. Drivers
          * are supposed to ignore alpha, however this is currently broken on RADV. */
         if (format && format->vk_format == VK_FORMAT_E5B9G9R9_UFLOAT_PACK32 &&
-                !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                !VKD3D_CONFIG_FLAG_IS_SET(SKIP_DRIVER_WORKAROUNDS) &&
                 device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
         {
             vk_desc->colorWriteMask &= ~VK_COLOR_COMPONENT_A_BIT;
@@ -4246,7 +4246,7 @@ static bool d3d12_graphics_pipeline_needs_dynamic_rasterization_samples(const st
     /* Ignore the case where the pipeline is compiled for a single sample since Vulkan drivers are robust against that. */
     if (graphics->rs_desc.rasterizerDiscardEnable ||
             (graphics->ms_desc.rasterizationSamples == VK_SAMPLE_COUNT_1_BIT &&
-            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_DYNAMIC_MSAA) &&
+            !VKD3D_CONFIG_FLAG_IS_SET(FORCE_DYNAMIC_MSAA) &&
             !vkd3d_debug_control_has_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_SAMPLE_COUNT_MISMATCH)))
         return false;
 
@@ -4443,7 +4443,7 @@ static void d3d12_pipeline_state_graphics_load_spirv_from_cached_state(
         {
             for (j = 0; j < i; j++)
             {
-                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+                if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                     INFO("Discarding cached SPIR-V for stage #%x.\n", graphics->cached_desc.bytecode_stages[j]);
                 vkd3d_shader_free_shader_code(&graphics->code[j]);
                 memset(&graphics->code[j], 0, sizeof(graphics->code[j]));
@@ -4467,7 +4467,7 @@ static HRESULT d3d12_pipeline_state_graphics_create_shader_stages(
     {
         if (graphics->identifier_create_infos[i].identifierSize == 0)
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+            if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
             {
                 debug_output = &graphics->code_debug[i];
                 if (debug_output->debug_entry_point_name)
@@ -4837,7 +4837,7 @@ static bool d3d12_graphics_pipeline_state_needs_noop_fs(
 {
     return (graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT) &&
             !(graphics->stage_flags & VK_SHADER_STAGE_FRAGMENT_BIT) &&
-            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+            !VKD3D_CONFIG_FLAG_IS_SET(SKIP_DRIVER_WORKAROUNDS) &&
             device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV;
 }
 
@@ -5877,7 +5877,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     if (object->root_signature)
     {
         object->pipeline_cache_compat.root_signature_compat_hash = object->root_signature->pso_compatibility_hash;
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO(" ... Root signature: %016"PRIx64".\n", object->root_signature->pso_compatibility_hash);
     }
 
@@ -5887,10 +5887,10 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     {
         hr = d3d12_cached_pipeline_state_validate(device, &desc->cached_pso, &object->pipeline_cache_compat);
 
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER) &&
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER) &&
                 (hr == D3D12_ERROR_ADAPTER_NOT_FOUND || hr == D3D12_ERROR_DRIVER_VERSION_MISMATCH))
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                 INFO("Ignoring mismatched driver for CachedPSO. Continuing as-if application did not provide cache.\n");
             hr = S_OK;
             memset(&cached_pso, 0, sizeof(cached_pso));
@@ -5923,7 +5923,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         {
             /* Validation is redundant. We only accept disk cache entries if checksum of disk blob passes.
              * The key is also entirely based on the PSO desc itself. */
-            if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG) &&
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG) &&
                     desc->cached_pso.blob.CachedBlobSizeInBytes)
             {
                 INFO("Application provided cached PSO blob, but we opted for disk cache blob instead.\n");
@@ -5938,7 +5938,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     hr = S_OK;
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
+    if (!VKD3D_CONFIG_FLAG_IS_SET(GLOBAL_PIPELINE_CACHE))
         if (FAILED(hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, desc_cached_pso, &object->vk_pso_cache)))
             ERR("Failed to create pipeline cache, hr %d.\n", hr);
 
@@ -6006,7 +6006,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
      * need to actually create fallback pipelines. This avoids unnecessary memory bloat. */
     if (desc_cached_pso->blob.CachedBlobSizeInBytes ||
             (device->disk_cache.library && (device->disk_cache.library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER)) ||
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
+            VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
         d3d12_pipeline_state_free_spirv_code(object);
     else
         d3d12_pipeline_state_destroy_shader_modules(object, device);
@@ -6448,7 +6448,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     TRACE("Calling vkCreateGraphicsPipelines.\n");
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
     {
         feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
         feedback_info.pNext = pipeline_desc.pNext;
@@ -6484,7 +6484,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
                 cookie, vkd3d_pipeline_cache_compatibility_condense(&state->pipeline_cache_compat), kind);
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
     {
         if (pipeline_desc.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT)
         {
@@ -7277,7 +7277,7 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
         {
             /* Intel GPUs have smol descriptor heaps and only way we can fit a D3D12 heap is with
              * single set mutable. */
-            if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_MUTABLE_SINGLE_SET) ||
+            if (VKD3D_CONFIG_FLAG_IS_SET(MUTABLE_SINGLE_SET) ||
                     device_info->properties2.properties.vendorID == VKD3D_VENDOR_ID_INTEL)
             {
                 INFO("Enabling single descriptor set path for MUTABLE.\n");
@@ -7301,7 +7301,7 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
      * The difference in performance is profound (~15% in some cases).
      * On ACO, BDA with NonWritable can be promoted directly to scalar loads,
      * which is great. */
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV) ||
+    if (VKD3D_CONFIG_FLAG_IS_SET(FORCE_RAW_VA_CBV) ||
             (device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA &&
 	     device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_QUALCOMM))
         flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV;

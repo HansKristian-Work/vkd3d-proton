@@ -402,7 +402,7 @@ static VkFence vkd3d_queue_get_or_create_fence_locked(struct vkd3d_queue *queue)
 static bool d3d12_device_has_slow_cpu_timeline_semaphores(struct d3d12_device *device)
 {
     return device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
-        !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS);
+        !VKD3D_CONFIG_FLAG_IS_SET(SKIP_DRIVER_WORKAROUNDS);
 }
 
 VkFence vkd3d_queue_get_signal_fence_proxy_locked(struct vkd3d_queue *queue)
@@ -821,7 +821,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
          * Usually, we'd observe DEVICE_LOST in subsequent submissions,
          * but if application submits something and expects to wait on that submission
          * immediately, this can happen. */
-        if (vkd3d_config_flags & (VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_FAULT))
+        if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS) || VKD3D_CONFIG_FLAG_IS_SET(FAULT))
             timeout = 5000000000ull;
 
         if (d3d12_device_has_slow_cpu_timeline_semaphores(device) &&
@@ -2348,7 +2348,7 @@ static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+    begin_info.flags = VKD3D_CONFIG_FLAG_IS_SET(ONE_TIME_SUBMIT) ?
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
@@ -2431,7 +2431,7 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     list->cmd.estimated_cost = 0;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
     {
         vkd3d_breadcrumb_tracer_allocate_command_list(&allocator->device->breadcrumb_tracer,
                 list, allocator);
@@ -2477,7 +2477,7 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+    begin_info.flags = VKD3D_CONFIG_FLAG_IS_SET(ONE_TIME_SUBMIT) ?
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
     if ((vr = VK_CALL(vkBeginCommandBuffer(iteration->vk_command_buffer, &begin_info))) < 0)
@@ -2580,7 +2580,7 @@ static HRESULT d3d12_command_allocator_allocate_fixup_command_buffer(struct d3d1
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+    begin_info.flags = VKD3D_CONFIG_FLAG_IS_SET(ONE_TIME_SUBMIT) ?
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
@@ -2628,7 +2628,7 @@ static HRESULT d3d12_command_allocator_allocate_init_post_indirect_command_buffe
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
-    begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+    begin_info.flags = VKD3D_CONFIG_FLAG_IS_SET(ONE_TIME_SUBMIT) ?
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
     begin_info.pInheritanceInfo = NULL;
 
@@ -2963,7 +2963,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
         vkd3d_free(allocator->pipelines);
         vkd3d_free(allocator->descriptor_heaps);
 
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
+        if (VKD3D_CONFIG_FLAG_IS_SET(RECYCLE_COMMAND_POOLS))
         {
             /* Don't want to do this unless we have to, so hide it behind a config.
              * For well-behaving apps, we'll just bloat memory. */
@@ -3016,7 +3016,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
         vkd3d_free(allocator->query_pools);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
         {
             vkd3d_breadcrumb_tracer_release_command_lists(&device->breadcrumb_tracer,
                     allocator->breadcrumb_context_indices, allocator->breadcrumb_context_index_count);
@@ -3160,7 +3160,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
     {
         /* Release breadcrumb references. */
         vkd3d_breadcrumb_tracer_release_command_lists(&device->breadcrumb_tracer,
@@ -3366,7 +3366,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->primary_pool.vk_queue_flags = queue_family->vk_queue_flags;
     allocator->transfer_granularity = queue_family->transfer_granularity;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(RECYCLE_COMMAND_POOLS))
     {
         /* Try to recycle command allocators. Some games spam free/allocate pools. */
         if (pthread_mutex_lock(&device->mutex) == 0)
@@ -4284,7 +4284,7 @@ static void d3d12_command_list_debug_mark_label_cmd(struct d3d12_command_list *l
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDebugUtilsLabelEXT label;
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
     {
         label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
         label.pNext = NULL;
@@ -4321,8 +4321,8 @@ static void d3d12_command_list_debug_mark_begin_region_cmd(
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDebugUtilsLabelEXT label;
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
-            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY) &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS) &&
+            !VKD3D_CONFIG_FLAG_IS_SET(APP_DEBUG_MARKER_ONLY) &&
             list->device->vk_info.EXT_debug_utils)
     {
         label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
@@ -4340,8 +4340,8 @@ static void d3d12_command_list_debug_mark_end_region_cmd(
         struct d3d12_command_list *list, VkCommandBuffer vk_cmd)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
-            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY) &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS) &&
+            !VKD3D_CONFIG_FLAG_IS_SET(APP_DEBUG_MARKER_ONLY) &&
             list->device->vk_info.EXT_debug_utils)
     {
         VK_CALL(vkCmdEndDebugUtilsLabelEXT(vk_cmd));
@@ -6067,7 +6067,7 @@ static void d3d12_command_list_end_rendering(struct d3d12_command_list *list)
 
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin_info.pNext = NULL;
-        begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+        begin_info.flags = VKD3D_CONFIG_FLAG_IS_SET(ONE_TIME_SUBMIT) ?
                 VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
         begin_info.pInheritanceInfo = NULL;
         if ((vr = VK_CALL(vkBeginCommandBuffer(suspend->vk_fixup_cmd_buffer, &begin_info))) < 0)
@@ -6729,7 +6729,7 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
                 list->allocator, list, &list->cmd.vk_query_reset_commands, "Query Resets")))
             return hr;
 
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+        if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
         {
             d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_query_reset_commands,
                     1.0f, 1.0f, 0.8f, 1.0f, "Resetting query range, index %u, count %u",
@@ -6888,7 +6888,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         d3d12_command_list_check_render_pass_validation(list, "Close called with an active render pass.\n", false);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
         vkd3d_breadcrumb_tracer_end_command_list(list);
 #endif
 
@@ -8607,7 +8607,7 @@ static void d3d12_command_list_begin_rendering(struct d3d12_command_list *list)
 
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin_info.pNext = NULL;
-        begin_info.flags = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ONE_TIME_SUBMIT) ?
+        begin_info.flags = VKD3D_CONFIG_FLAG_IS_SET(ONE_TIME_SUBMIT) ?
                 VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT : 0;
         begin_info.pInheritanceInfo = NULL;
         if ((vr = VK_CALL(vkBeginCommandBuffer(resume->vk_fixup_cmd_buffer, &begin_info))) < 0)
@@ -11293,7 +11293,7 @@ enum vkd3d_resolve_image_path d3d12_command_list_select_resolve_path(struct d3d1
     {
         path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT;
 
-        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
+        if (!VKD3D_CONFIG_FLAG_IS_SET(SKIP_DRIVER_WORKAROUNDS))
         {
             /* Some drivers ignore the view format for resolve attachments */
             if (list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY ||
@@ -12250,7 +12250,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
         }
     }
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && state &&
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS) && state &&
             list->device->vk_info.EXT_debug_utils)
     {
         char buffer[1024];
@@ -12301,7 +12301,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && state)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS) && state)
     {
         struct vkd3d_breadcrumb_command cmd;
         cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_SHADER_HASH;
@@ -12361,7 +12361,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     if (list->state == state)
         return;
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_RETAIN_PSOS) && state)
+    if (VKD3D_CONFIG_FLAG_IS_SET(RETAIN_PSOS) && state)
         d3d12_command_allocator_retain_pipeline_state(list->allocator, state);
 
     d3d12_command_list_invalidate_current_pipeline(list, false);
@@ -13205,7 +13205,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     }
                 }
 
-                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+                if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
                 {
                     d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
                             1.0f, 1.0f, 0.0f, 1.0f, "Transition cookie %u, subresource %d: %s -> %s",
@@ -13550,7 +13550,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
     d3d12_command_list_flush_dgc_batch(list);
 
     /* More FSR workaround shenanigans. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RETAIN_DESCRIPTOR_HEAPS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(RETAIN_DESCRIPTOR_HEAPS))
     {
         for (i = 0; i < heap_count; i++)
         {
@@ -15082,7 +15082,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
      * very unfortunate behavior from 11on12 where ClearUAV are implicitly barriers, similar to how
      * transfer ops work. Too many cases in the wild where this stuff just breaks,
      * so be conservative. */
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_CLEAR_UAV_SYNC))
+    if (!VKD3D_CONFIG_FLAG_IS_SET(NO_CLEAR_UAV_SYNC))
         list->cmd.clear_uav_pending = true;
 
     d3d12_command_list_debug_mark_end_region(list);
@@ -19815,7 +19815,7 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* Immediately record the OMM build command here so that we don't have
      * to create a deep copy of the entire D3D12 input description */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
     {
         d3d12_command_list_flush_rtas_batch(list);
 
@@ -19943,7 +19943,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(&desc->Inputs);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
         primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
 #endif
 
@@ -19988,7 +19988,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* Immediately record the RTAS build command here so that we don't have
      * to create a deep copy of the entire D3D12 input description */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
     {
         d3d12_command_list_flush_rtas_batch(list);
 
@@ -20197,7 +20197,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && state)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS) && state)
     {
         struct vkd3d_breadcrumb_command cmd;
         size_t i;
@@ -20797,7 +20797,7 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
         return;
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
     {
         d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
                 1.0f, 1.0f, 0.0f, 1.0f, "Global barrier (%s / %s) -> (%s / %s)",
@@ -20851,7 +20851,7 @@ static void d3d12_command_list_process_enhanced_barrier_buffer(struct d3d12_comm
     global.AccessAfter = barrier->AccessAfter;
     d3d12_command_list_process_enhanced_barrier_global(list, batch, &global);
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
     {
         d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
                 1.0f, 1.0f, 0.0f, 1.0f, "Buffer barrier (%s / %s) -> (%s / %s)",
@@ -20889,7 +20889,7 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
         return;
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
     {
         d3d12_command_list_debug_mark_label_printf(list, list->cmd.vk_command_buffer,
                 1.0f, 1.0f, 0.0f, 1.0f, "Texture barrier cookie %u: (layout %s -> %s) (%s / %s) -> (%s / %s)",
@@ -21775,7 +21775,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
                 range_flag = range_flags[range_idx];
 
                 if (range_flag == D3D12_TILE_RANGE_FLAG_NULL &&
-                        (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_NULL_SPARSE_TILES) &&
+                        VKD3D_CONFIG_FLAG_IS_SET(SKIP_NULL_SPARSE_TILES) &&
                         command_queue->device->workarounds.amdgpu_broken_null_tile_mapping)
                 {
                     range_flag = D3D12_TILE_RANGE_FLAG_SKIP;
@@ -22145,7 +22145,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS_TRACE))
         breadcrumb_indices = vkd3d_malloc(sizeof(unsigned int) * command_list_count);
     else
         breadcrumb_indices = NULL;
@@ -22361,7 +22361,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         /* Submission logic for IB fallbacks seems to have exposed something ... very dodgy in RADV. */
         if (cmd_list->cmd.uses_dgc_compute_in_async_compute &&
-                !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                !VKD3D_CONFIG_FLAG_IS_SET(SKIP_DRIVER_WORKAROUNDS) &&
                 command_queue->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
         {
             sub.execute.split_submission = true;
@@ -22377,7 +22377,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         /* For a grouped submission, it's useful to know about the full submission when reporting failures.
          * Synchronization issues can occur between command lists.
          * It's not allowed to submit the same command list concurrently, so this should be safe. */
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
         {
             vkd3d_breadcrumb_tracer_link_submission(cmd_list,
                     i ? unsafe_impl_from_ID3D12CommandList(command_lists[i - 1]) : NULL,
@@ -22650,7 +22650,7 @@ static bool d3d12_command_queue_needs_cpu_waits_locked(struct d3d12_command_queu
     if (command_queue->vkd3d_queue->command_queue_count == 1)
         return false;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT)
+    if (VKD3D_CONFIG_FLAG_IS_SET(NO_STAGGERED_SUBMIT))
         return false;
 
     current_time_ns = vkd3d_get_current_time_ns();
@@ -23377,8 +23377,8 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     pool->barriers_count = 0;
     pool->query_heaps_count = 0;
 
-    qa_checks = (vkd3d_config_flags & (VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS |
-            VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS)) != 0;
+	qa_checks = VKD3D_CONFIG_FLAG_IS_SET(INSTRUCTION_QA_CHECKS) ||
+		VKD3D_CONFIG_FLAG_IS_SET(DESCRIPTOR_QA_CHECKS);
 
     if (!qa_checks && !count)
     {
@@ -23438,20 +23438,20 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     dep_info.imageMemoryBarrierCount = pool->barriers_count;
     dep_info.pImageMemoryBarriers = pool->barriers;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(INSTRUCTION_QA_CHECKS))
     {
         /* Every ExecuteCommandLists is an implicit barrier, so flush the bloom filter automatically. */
         uint32_t value = vkd3d_descriptor_debug_clear_bloom_filter(
                 device->descriptor_qa_global_info, device, cmd);
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
+        if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS_TRACE))
             INFO("QA: Updating sync-val iteration to %u (#%x) between submission.\n", value, value);
     }
-    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS)
+    else if (VKD3D_CONFIG_FLAG_IS_SET(DESCRIPTOR_QA_CHECKS))
     {
         /* Every ExecuteCommandLists is an implicit barrier, so flush the bloom filter automatically. */
         uint32_t value = vkd3d_descriptor_debug_update_va_timestamp(
                 device->descriptor_qa_global_info, device, cmd);
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
+        if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS_TRACE))
             INFO("QA: Updating VA timestamp to %u (#%x) between submission.\n", value, value);
     }
 
@@ -23547,7 +23547,7 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
     if (command_queue->vkd3d_queue->command_queue_count == 1)
         return false;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT)
+    if (VKD3D_CONFIG_FLAG_IS_SET(NO_STAGGERED_SUBMIT))
         return false;
 
     /* Cannot meaningfully stagger submits if we're doing suspend resume style render passes. */

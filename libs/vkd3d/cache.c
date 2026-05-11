@@ -334,7 +334,7 @@ static uint32_t d3d12_cached_pipeline_state_to_flags(const struct d3d12_cached_p
 
     if (state->library)
         pipeline_library_flags = state->library->flags;
-    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE)
+    else if (VKD3D_CONFIG_FLAG_IS_SET(GLOBAL_PIPELINE_CACHE))
         pipeline_library_flags = 0;
     else
     {
@@ -362,7 +362,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
     /* Avoid E_INVALIDARG with an invalid header size, since that may confuse some games */
     if (state->blob.CachedBlobSizeInBytes < sizeof(*blob) || blob->version != VKD3D_CACHE_BLOB_VERSION)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Invalid PSO blob detected, returning D3D12_ERROR_DRIVER_VERSION_MISMATCH.\n");
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
     }
@@ -372,7 +372,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
     /* Indicate that the cached data is not useful if we're running on a different device or driver */
     if (blob->vendor_id != device_properties->vendorID || blob->device_id != device_properties->deviceID)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Unexpected vendor detected, returning D3D12_ERROR_ADAPTER_NOT_FOUND.\n");
         return D3D12_ERROR_ADAPTER_NOT_FOUND;
     }
@@ -384,7 +384,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
     if (blob->vkd3d_build != vkd3d_build ||
             blob->vkd3d_shader_interface_key != device->shader_interface_key)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
         {
             if (blob->vkd3d_build != vkd3d_build)
             {
@@ -406,7 +406,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
     {
         if (memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE) != 0)
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                 INFO("Unexpected pipelineCacheUUID, returning D3D12_ERROR_DRIVER_VERSION_MISMATCH.\n");
             return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
         }
@@ -418,7 +418,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
                 device->device_info.shader_module_identifier_properties.shaderModuleIdentifierAlgorithmUUID,
                 VK_UUID_SIZE) != 0)
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                 INFO("Unexpected shaderModuleIdentifierAlgorithmUUID, returning D3D12_ERROR_DRIVER_VERSION_MISMATCH.\n");
             return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
         }
@@ -455,7 +455,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
     /* Verify the expected PSO state that was used. This must match, or we have to fail compilation as per API spec. */
     if (compat->state_desc_compat_hash != pso_compat->compat.state_desc_compat_hash)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("PSO compatibility hash mismatch.\n");
         else
             WARN("PSO compatibility hash mismatch.\n");
@@ -465,7 +465,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
     /* Verify the expected root signature that was used to generate the SPIR-V. */
     if (compat->root_signature_compat_hash != pso_compat->compat.root_signature_compat_hash)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Root signature compatibility hash mismatch.\n");
         else
             WARN("Root signature compatibility hash mismatch.\n");
@@ -475,7 +475,7 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
     /* Verify that DXBC shader blobs match. */
     if (memcmp(compat->dxbc_blob_hashes, pso_compat->compat.dxbc_blob_hashes, sizeof(compat->dxbc_blob_hashes)) != 0)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("DXBC blob hash mismatch.\n");
         else
             WARN("DXBC blob hash mismatch.\n");
@@ -604,7 +604,7 @@ HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
 
     if (!state->blob.CachedBlobSizeInBytes)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("No PSO cache was provided, creating empty pipeline cache.\n");
         vr = vkd3d_create_pipeline_cache(device, 0, NULL, cache);
         return hresult_from_vk_result(vr);
@@ -628,7 +628,7 @@ HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
         if (!d3d12_pipeline_library_find_internal_blob(state->library,
                 &state->library->driver_cache_map, link->hash, &data, &size))
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                 INFO("Did not find internal PSO cache reference %016"PRIx64".\n", link->hash);
 
             data = NULL;
@@ -1596,7 +1596,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
 
     TRACE("iface %p, name %s, pipeline %p.\n", iface, debugstr_w(name), pipeline);
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
         INFO("Serializing pipeline to library.\n");
 
     if ((rc = rwlock_lock_read(&pipeline_library->mutex)))
@@ -1750,12 +1750,12 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
 
         if (memcmp(&pipeline_cache_compat, &cached_state->pipeline_cache_compat, sizeof(pipeline_cache_compat)) != 0)
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                 INFO("Attempt to load existing PSO from library, but failed argument validation.\n");
             return E_INVALIDARG;
         }
 
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Handing out existing pipeline state object.\n");
 
         *state = cached_state;
@@ -1811,7 +1811,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadGraphicsPipeline(d3d
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
         INFO("Attempting LoadGraphicsPipeline.\n");
 
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_graphics_desc(&pipeline_desc, desc)))
@@ -1836,7 +1836,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadComputePipeline(d3d1
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
         INFO("Attempting LoadComputePipeline.\n");
 
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_compute_desc(&pipeline_desc, desc)))
@@ -2053,7 +2053,7 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
             serialized_data, &name_offset, &blob_offset);
     pso_size = blob_offset - pso_size;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
     {
         INFO("Serializing pipeline library (%"PRIu64" bytes):\n"
             "  TOC overhead: %"PRIu64" bytes\n"
@@ -2118,7 +2118,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadPipeline(d3d12_pipel
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
         INFO("Attempting LoadPipeline.\n");
 
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_stream_desc(&pipeline_desc, desc, &pipeline_type)))
@@ -2356,7 +2356,7 @@ static HRESULT d3d12_pipeline_library_read_blob_stream_format(struct d3d12_pipel
         entries = (const struct vkd3d_serialized_pipeline_stream_entry *)&entries->data[aligned_size];
     }
 
-    if (!early_teardown && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG))
+    if (!early_teardown && VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
     {
         INFO("Loading stream pipeline library (%"PRIu64" bytes):\n"
                 "  D3D12 PSO count: %u\n"
@@ -2393,28 +2393,28 @@ static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline
      * underlying device/driver changed */
     if (blob_length < sizeof(*header) || header->version != VKD3D_PIPELINE_LIBRARY_VERSION_TOC)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Rejecting pipeline library due to invalid header version.\n");
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
     }
 
     if (header->device_id != device_properties->deviceID || header->vendor_id != device_properties->vendorID)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Rejecting pipeline library due to vendorID/deviceID mismatch.\n");
         return D3D12_ERROR_ADAPTER_NOT_FOUND;
     }
 
     if (header->vkd3d_build != vkd3d_build)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Rejecting pipeline library due to vkd3d-proton build mismatch.\n");
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
     }
 
     if (header->vkd3d_shader_interface_key != device->shader_interface_key)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Rejecting pipeline library due to vkd3d-proton shader interface key mismatch.\n");
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
     }
@@ -2424,7 +2424,7 @@ static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline
     {
         if (memcmp(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE) != 0)
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                 INFO("Rejecting pipeline library due to pipelineCacheUUID mismatch.\n");
             return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
         }
@@ -2436,7 +2436,7 @@ static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline
                 device->device_info.shader_module_identifier_properties.shaderModuleIdentifierAlgorithmUUID,
                 VK_UUID_SIZE) != 0)
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                 INFO("Rejecting pipeline library due to shaderModuleIdentifierAlgorithmUUID mismatch.\n");
             return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
         }
@@ -2449,7 +2449,7 @@ static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline
 
     if (blob_length < header_entry_size)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
             INFO("Rejecting pipeline library due to too small blob length compared to expected size.\n");
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
     }
@@ -2481,7 +2481,7 @@ static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline
         return hr;
     i += header->pipeline_count;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
     {
         INFO("Loading pipeline library (%"PRIu64" bytes):\n"
                 "  D3D12 PSO count: %u\n"
@@ -2558,7 +2558,7 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
     {
         hr = d3d12_pipeline_library_read_blob(pipeline_library, device, blob, blob_length);
 
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER) &&
+        if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER) &&
                 (hr == D3D12_ERROR_ADAPTER_NOT_FOUND || hr == D3D12_ERROR_DRIVER_VERSION_MISMATCH))
         {
             /* Sigh ... Otherwise, certain games might never create a replacement
@@ -2571,7 +2571,7 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
         if (FAILED(hr))
             goto cleanup_hash_map;
     }
-    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    else if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
         INFO("Creating empty pipeline library.\n");
 
     if (FAILED(hr = vkd3d_private_store_init(&pipeline_library->private_store)))
@@ -2753,7 +2753,7 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
         {
             const struct vkd3d_shader_code dxbc = { code_list[i]->pShaderBytecode, code_list[i]->BytecodeLength };
             compat->dxbc_blob_hashes[output_index] = vkd3d_shader_hash(&dxbc);
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_LOG))
                 INFO("Shader hash: %016"PRIx64".\n", compat->dxbc_blob_hashes[output_index]);
             compat->dxbc_blob_hashes[output_index] = hash_fnv1_iterate_u8(compat->dxbc_blob_hashes[output_index], i);
             output_index++;
@@ -3222,7 +3222,7 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
 
     memset(cache, 0, sizeof(*cache));
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY)
+    if (VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_APP_CACHE_ONLY))
         return S_OK;
 
     /* Match DXVK style here. The environment variable is a directory.
@@ -3286,12 +3286,12 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
     flags = VKD3D_PIPELINE_LIBRARY_FLAG_INTERNAL_KEYS | VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE;
 
     /* This flag is mostly for debug. Normally we want to do shader cache management in disk thread. */
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SHADER_CACHE_SYNC))
+    if (!VKD3D_CONFIG_FLAG_IS_SET(SHADER_CACHE_SYNC))
         flags |= VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE_PARSE_ASYNC;
 
     if (device->device_info.shader_module_identifier_features.shaderModuleIdentifier)
         flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER;
-    else if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
+    else if (!VKD3D_CONFIG_FLAG_IS_SET(PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
         flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV;
 
     /* For internal caches, we're mostly just concerned with caching SPIR-V.
