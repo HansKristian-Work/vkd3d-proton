@@ -21,9 +21,11 @@
 
 struct vkd3d_config_flags_bitfield
 {
-#define VKD3D_DECL_CONFIG(CONF) uint32_t CONF : 1;
+#define VKD3D_DECL_CONFIG(name, CONF) uint32_t CONF : 1;
+#define VKD3D_DECL_CONFIG_PLAIN(CONF) uint32_t CONF : 1;
 #include "config_flag_decl.h"
 #undef VKD3D_DECL_CONFIG
+#undef VKD3D_DECL_CONFIG_PLAIN
 	/* With designated initializers, we will be initializing only this union portion.
 	 * If the size isn't padded out fully,
 	 * we may end up with stray uninitialized bits which can subtly break bitwise operations later.
