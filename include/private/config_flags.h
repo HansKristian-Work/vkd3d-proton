@@ -46,7 +46,11 @@ union vkd3d_config_flags
  * Need macros to aid inlining them. */
 #define VKD3D_CONFIG_FLAG(CONF) ((union vkd3d_config_flags) { .bits = { .CONF = 1 } })
 #define VKD3D_CONFIG_FLAG_INIT(...) ((union vkd3d_config_flags) { .bits = { __VA_ARGS__ } })
-#define VKD3D_CONFIG_FLAGS_NONE ((union vkd3d_config_flags) { .bits = { } })
+
+/* MSVC is supremely dumb here. */
+#define VKD3D_CONFIG_FLAG_INIT_STATIC(...) { .bits = { __VA_ARGS__ } }
+#define VKD3D_CONFIG_FLAG_STATIC(CONF) { .bits = { .CONF = 1 } }
+#define VKD3D_CONFIG_FLAGS_NONE { .bits = { } }
 
 extern union vkd3d_config_flags vkd3d_config_flags;
 
