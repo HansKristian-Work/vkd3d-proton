@@ -40,6 +40,9 @@ bool vkd3d_array_reserve(void **elements, size_t *capacity, size_t element_count
     if (new_capacity < element_count)
         new_capacity = element_count;
 
+    if (new_capacity > max_capacity)
+        return false;
+
     if (!(new_elements = vkd3d_realloc(*elements, new_capacity * element_size)))
         return false;
 
