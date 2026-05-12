@@ -5349,3 +5349,54 @@ void test_sample_shading_coverage_mask(void)
     ID3D12PipelineState_Release(pso66);
     destroy_test_context(&context);
 }
+
+void test_render_target_support_validation(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    HRESULT hr;
+
+#include "shaders/pso/headers/vs_null_root_signature.h"
+#include "shaders/pso/headers/ps_null_root_signature.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    memset(&context, 0, sizeof(context));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    init_pipeline_state_desc(&pso_desc, NULL, DXGI_FORMAT_R32_FLOAT, &vs_null_root_signature_dxbc, &ps_null_root_signature_dxbc, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(pso);
+
+    /* No errors are created. Only logical conclusion is that bogus formats are nulled out. */
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_BC6H_UF16;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(pso);
+
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DSVFormat = DXGI_FORMAT_BC7_UNORM;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(pso);
+
+    /* No errors are created. Only logical conclusion is that bogus formats are nulled out. */
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R32_TYPELESS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(pso);
+
+    destroy_test_context(&context);
+}

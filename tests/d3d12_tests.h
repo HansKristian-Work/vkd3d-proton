@@ -568,3 +568,4 @@ decl_test(test_copy_queue_depth_stencil);
 decl_test(test_copy_queue_render_target_msaa);
 decl_test(test_copy_queue_depth_stencil_msaa);
 decl_test(test_sample_shading_coverage_mask);
+decl_test(test_render_target_support_validation);
