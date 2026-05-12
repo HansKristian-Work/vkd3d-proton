@@ -5115,11 +5115,16 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
     VkAccelerationStructureCreateInfoKHR create_info_v1;
     VkDeviceAddress buffer_address, rtas_address;
     struct vkd3d_view *object;
+    bool broken_rtas_dac;
     VkResult result;
 
     buffer_address = vkd3d_get_buffer_device_address(device, desc->buffer) + desc->offset;
 
-    if (device->device_info.device_address_commands_features.deviceAddressCommands)
+    /* RADV crashes on CopyRTAS if it comes from CreateRTAS2 because a VkBuffer is expected to be there. */
+    broken_rtas_dac = device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
+        device->device_info.properties2.properties.driverVersion < VK_MAKE_VERSION(26, 2, 0);
+
+    if (!broken_rtas_dac && device->device_info.device_address_commands_features.deviceAddressCommands)
     {
         memset(&create_info_v2, 0, sizeof(create_info_v2));
 
