@@ -157,6 +157,7 @@ struct vkd3d_vulkan_info
     bool KHR_present_mode_fifo_latest_ready;
     bool KHR_device_address_commands;
     bool KHR_opacity_micromap;
+    bool KHR_index_type_uint8;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -5301,6 +5302,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features;
     VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT zero_initialize_device_memory_features;
     VkPhysicalDeviceOpacityMicromapFeaturesKHR opacity_micromap_features;
+    VkPhysicalDeviceIndexTypeUint8FeaturesKHR index_type_uint8_features;
     VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
