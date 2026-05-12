@@ -100,6 +100,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
 #endif
+    VK_EXTENSION(KHR_INDEX_TYPE_UINT8, KHR_index_type_uint8),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CONSERVATIVE_RASTERIZATION, EXT_conservative_rasterization),
@@ -2499,6 +2500,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->opacity_micromap_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->opacity_micromap_features);
+    }
+
+    if (vulkan_info->KHR_index_type_uint8)
+    {
+        info->index_type_uint8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->index_type_uint8_features);
     }
 
     if (vulkan_info->EXT_shader_float8)
