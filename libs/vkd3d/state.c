@@ -5030,25 +5030,46 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     for (i = 0; i < rt_count; ++i)
     {
         const D3D12_RENDER_TARGET_BLEND_DESC *rt_desc;
+        bool null_format = false;
 
         if (desc->rtv_formats.RTFormats[i] == DXGI_FORMAT_UNKNOWN)
         {
-            graphics->null_attachment_mask |= 1u << i;
-            graphics->cached_desc.ps_output_swizzle[i] = VKD3D_NO_SWIZZLE;
-            graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
-            format = NULL;
+            null_format = true;
         }
         else if ((format = vkd3d_get_format(device, desc->rtv_formats.RTFormats[i], false)))
         {
-            graphics->cached_desc.ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
-            graphics->rtv_formats[i] = format->vk_format;
-            graphics->rtv_active_mask |= 1u << i;
+            if (format->vk_format_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT)
+            {
+                /* Runtime does not validate, but it might plausibly work, so don't do anything until
+                 * we're proven wrong. */
+                if (format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+                    FIXME_ONCE("Attempting to render to typeless format #%x.\n", desc->rtv_formats.RTFormats[i]);
+
+                graphics->cached_desc.ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
+                graphics->rtv_formats[i] = format->vk_format;
+                graphics->rtv_active_mask |= 1u << i;
+            }
+            else
+            {
+                /* Runtime does not validate or error out on any of this, so the most sensible option
+                 * is to force a NULL format, which seems to be what at least RADV does anyway. */
+                WARN("Format #%x is not RTV capable, forcing NULL format.\n", desc->rtv_formats.RTFormats[i]);
+                null_format = true;
+            }
         }
         else
         {
             WARN("Invalid RTV format %#x.\n", desc->rtv_formats.RTFormats[i]);
             hr = E_INVALIDARG;
             goto fail;
+        }
+
+        if (null_format)
+        {
+            graphics->null_attachment_mask |= 1u << i;
+            graphics->cached_desc.ps_output_swizzle[i] = VKD3D_NO_SWIZZLE;
+            graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
+            format = NULL;
         }
 
         rt_desc = &desc->blend_state.RenderTarget[desc->blend_state.IndependentBlendEnable ? i : 0];
@@ -5132,10 +5153,24 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
         }
         else if (format)
         {
-            if (format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
-                graphics->dsv_format = format;
+            if (format->vk_format_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT)
+            {
+                /* Runtime does not validate, but it might plausibly work, so don't do anything until
+                 * we're proven wrong. */
+                if (format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+                    FIXME_ONCE("Attempting to render to typeless format #%x.\n", desc->dsv_format);
+
+                if (format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+                    graphics->dsv_format = format;
+                else
+                    FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
+            }
             else
-                FIXME("Format %#x is not depth/stencil format.\n", format->dxgi_format);
+            {
+                WARN("DSV format #%x is not supported for rendering. Assuming NULL path.\n", desc->dsv_format);
+                /* For maximal robustness, treat this as NULL case. */
+                graphics->null_attachment_mask |= dsv_attachment_mask(graphics);
+            }
         }
         else
         {
