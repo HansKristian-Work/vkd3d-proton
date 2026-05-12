@@ -187,7 +187,8 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
     vkd3d_opacity_micromap_end_barrier(list);
 }
 
-static bool vkd3d_acceleration_structure_convert_opacity_micromap_index_type(DXGI_FORMAT format, VkIndexType *result)
+static bool vkd3d_acceleration_structure_convert_opacity_micromap_index_type(const struct d3d12_device *device,
+        DXGI_FORMAT format, VkIndexType *result)
 {
     switch (format)
     {
@@ -201,8 +202,12 @@ static bool vkd3d_acceleration_structure_convert_opacity_micromap_index_type(DXG
             *result = VK_INDEX_TYPE_UINT16;
             return true;
         case DXGI_FORMAT_R8_UINT:
-            FIXME_ONCE("Using UINT8 as OMM index format is technically out of spec.\n");
             *result = VK_INDEX_TYPE_UINT8;
+            if (!device->device_info.index_type_uint8_features.indexTypeUint8)
+            {
+                FIXME_ONCE("R8_UINT index buffer used but the underlying Vulkan stack lacks VK_KHR_index_type_uint8; the driver will not accept this submit.\n");
+                return false;
+            }
             return true;
         default:
             ERR("Unsupported OMM index format #%x.\n", format);
@@ -219,7 +224,7 @@ bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *
     omm_triangles_info->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_KHR;
     omm_triangles_info->pNext = NULL;
 
-    if (!vkd3d_acceleration_structure_convert_opacity_micromap_index_type(
+    if (!vkd3d_acceleration_structure_convert_opacity_micromap_index_type(device,
             geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat, &omm_triangles_info->indexType))
     {
         return false;
