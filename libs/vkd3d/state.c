@@ -930,6 +930,10 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                         binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_IMAGE;
                         table->first_binding[table->binding_count++] = binding;
                     }
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+                    if (!local_root_signature)
+                        root_signature->descriptor_table_mask_sampler |= 1ull << i;
+#endif
                     break;
                 case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
                     if (vkd3d_bindless_state_find_binding(bindless_state, range_flag, &binding.binding))

@@ -7751,6 +7751,35 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
         root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
         table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
         table_offsets[table->table_index] = bindings->descriptor_tables[root_parameter_index];
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+        if (root_signature->descriptor_table_mask_sampler & (1ull << root_parameter_index))
+        {
+            if (!list->descriptor_heap.buffers.sampler.heap)
+            {
+                WARN("Using sampler tables in root signature, but no heap is bound?\n");
+            }
+            else if (table_offsets[table->table_index] >= list->descriptor_heap.buffers.sampler.heap->desc.NumDescriptors)
+            {
+                WARN("Sampler table offset %u is out of bounds %u >= %u\n", root_parameter_index,
+                    table_offsets[table->table_index],
+                    list->descriptor_heap.buffers.sampler.heap->desc.NumDescriptors);
+            }
+        }
+        else
+        {
+            if (!list->descriptor_heap.buffers.resource.heap)
+            {
+                WARN("Using resource tables in root signature, but no heap is bound?\n");
+            }
+            else if (table_offsets[table->table_index] >= list->descriptor_heap.buffers.resource.heap->desc.NumDescriptors)
+            {
+                WARN("Resource table offset %u is out of bounds %u >= %u\n", root_parameter_index,
+                    table_offsets[table->table_index],
+                    list->descriptor_heap.buffers.resource.heap->desc.NumDescriptors);
+            }
+        }
+#endif
     }
 
     /* Set descriptor offsets */
@@ -13640,6 +13669,9 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
     current_resource_va = list->descriptor_heap.buffers.db.heap_va_resource;
     current_sampler_va = list->descriptor_heap.buffers.db.heap_va_sampler;
 
+    list->descriptor_heap.buffers.resource.heap = NULL;
+    list->descriptor_heap.buffers.sampler.heap = NULL;
+
     for (i = 0; i < heap_count; i++)
     {
         struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(heaps[i]);
@@ -13652,6 +13684,7 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
         {
             list->descriptor_heap.buffers.db.heap_va_resource = heap->descriptor_buffer.va;
             list->descriptor_heap.buffers.db.vk_buffer_resource = heap->descriptor_buffer.vk_buffer;
+            list->descriptor_heap.buffers.resource.heap = heap;
 
             if (!d3d12_device_use_embedded_mutable_descriptors(list->device))
             {
@@ -13663,6 +13696,7 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
         else if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
         {
             list->descriptor_heap.buffers.db.heap_va_sampler = heap->descriptor_buffer.va;
+            list->descriptor_heap.buffers.sampler.heap = heap;
         }
 
         for (j = 0; j < bindless_state->legacy.set_count; j++)
@@ -13789,6 +13823,33 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(d3d12_
             impl_from_ID3D12RootSignature(root_signature));
 }
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+static inline void d3d12_command_list_validate_heap_index(struct d3d12_command_list *list,
+        const struct d3d12_root_signature *root_signature, unsigned int index,
+        D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor, uint32_t table_index)
+{
+    /* This path is quite hot, so skip debug checks in release builds. */
+    if (root_signature->descriptor_table_mask_sampler & (1ull << index))
+    {
+        if (list->descriptor_heap.buffers.sampler.heap &&
+            table_index >= list->descriptor_heap.buffers.sampler.heap->desc.NumDescriptors)
+        {
+            WARN("Sampler table offset %u (VA %016"PRIx64") is out of bounds %u >= %u\n", index,
+                base_descriptor.ptr, table_index, list->descriptor_heap.buffers.sampler.heap->desc.NumDescriptors);
+        }
+    }
+    else
+    {
+        if (list->descriptor_heap.buffers.resource.heap &&
+            table_index >= list->descriptor_heap.buffers.resource.heap->desc.NumDescriptors)
+        {
+            WARN("Resource table offset %u (VA %016"PRIx64") is out of bounds %u >= %u\n", index,
+                base_descriptor.ptr, table_index, list->descriptor_heap.buffers.resource.heap->desc.NumDescriptors);
+        }
+    }
+}
+#endif
+
 static inline void d3d12_command_list_set_descriptor_table_embedded(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, unsigned int index,
         D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor,
@@ -13798,11 +13859,29 @@ static inline void d3d12_command_list_set_descriptor_table_embedded(struct d3d12
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
 
     assert(index < ARRAY_SIZE(bindings->descriptor_tables));
+
+    /* Elden Ring seems to hit this in some cases.
+     * It passes in UINT64_MAX in some cases which happens to be robust on native AMD/NV (but WARP crashes obviously).
+     * AMD is only robust through pure luck. See test_descriptor_heap_broken_table_va for more details.
+     * Since we emit fake VAs, we'll never emit something with MSB set. */
+    if (base_descriptor.ptr & (1ull << 63))
+    {
+        WARN("Corrupt descriptor heap VA table pointer (%016"PRIx64") detected, ignoring.\n",
+            base_descriptor.ptr);
+        return;
+    }
+
     bindings->descriptor_tables[index] = d3d12_desc_heap_offset_from_embedded_gpu_handle(
             base_descriptor, cbv_srv_uav_size_log2, sampler_size_log2);
 
     if (root_signature)
     {
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+        /* This path is quite hot, so skip debug checks in release builds. */
+        d3d12_command_list_validate_heap_index(list, root_signature, index,
+            base_descriptor, bindings->descriptor_tables[index]);
+#endif
+
         if (root_signature->descriptor_table_count)
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
         if (root_signature->hoist_info.num_desc)
@@ -13819,11 +13898,28 @@ static inline void d3d12_command_list_set_descriptor_table(struct d3d12_command_
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
 
+    /* Elden Ring seems to hit this in some cases.
+     * It passes in UINT64_MAX in some cases which happens to be robust on native AMD/NV (but WARP crashes obviously).
+     * AMD is only robust through pure luck. See test_descriptor_heap_broken_table_va for more details.
+     * Since we emit fake VAs, we'll never emit something with MSB set. */
+    if (base_descriptor.ptr & (1ull << 63))
+    {
+        WARN("Corrupt descriptor heap VA table pointer (%016"PRIx64") detected, ignoring.\n",
+            base_descriptor.ptr);
+        return;
+    }
+
     assert(index < ARRAY_SIZE(bindings->descriptor_tables));
     bindings->descriptor_tables[index] = d3d12_desc_heap_offset_from_gpu_handle(base_descriptor);
 
     if (root_signature)
     {
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+        /* This path is quite hot, so skip debug checks in release builds. */
+        d3d12_command_list_validate_heap_index(list, root_signature, index,
+            base_descriptor, bindings->descriptor_tables[index]);
+#endif
+
         if (root_signature->descriptor_table_count)
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
         if (root_signature->hoist_info.num_desc)
