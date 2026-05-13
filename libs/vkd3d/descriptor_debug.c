@@ -105,12 +105,12 @@ static void vkd3d_descriptor_debug_init_once(void)
             descriptor_debug_active_log = true;
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS)
+    if (VKD3D_CONFIG_FLAG_IS_SET(DESCRIPTOR_QA_CHECKS))
     {
         INFO("Enabling descriptor QA checks!\n");
         descriptor_debug_active_descriptor_checks = true;
     }
-    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_INSTRUCTION_QA_CHECKS)
+    else if (VKD3D_CONFIG_FLAG_IS_SET(INSTRUCTION_QA_CHECKS))
     {
         INFO("Enabling instruction-level QA checks!\n");
         descriptor_debug_active_instruction_checks = true;
@@ -480,7 +480,7 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_instructions(
 
     if (needs_sync_val)
     {
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SINGLE_QUEUE)
+        if (VKD3D_CONFIG_FLAG_IS_SET(SINGLE_QUEUE))
         {
             buffer_desc.Width += bloom_buffer_size;
             global_info->needs_sync_validation = true;
