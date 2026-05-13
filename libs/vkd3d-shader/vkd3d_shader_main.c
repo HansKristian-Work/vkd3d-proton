@@ -417,6 +417,7 @@ static const struct vkd3d_shader_quirk_mapping
     ENTRY(IGNORE_PRIMITIVE_SHADING_RATE),
     ENTRY(PRECISE_FMA),
     ENTRY(CLAMP_WAVE_SIZE_TO_THREAD_GROUP32),
+    ENTRY(ENABLE_FAIR_SCHEDULING),
 };
 #undef ENTRY
 

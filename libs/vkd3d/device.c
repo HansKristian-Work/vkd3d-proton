@@ -1019,8 +1019,14 @@ static const struct vkd3d_shader_quirk_info spiderman2_quirks = {
 
 /* These shaders clamp the wave size to 32, but misses this in a few places of course ... */
 static const struct vkd3d_shader_quirk_hash pragmata_hashes[] = {
-    { "PersistentClusterCulling", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
-    { "PersistentShadowClusterCulling", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
+    {
+        "PersistentClusterCulling", 0,
+        VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 | VKD3D_SHADER_QUIRK_ENABLE_FAIR_SCHEDULING
+    },
+    {
+        "PersistentShadowClusterCulling", 0,
+        VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 | VKD3D_SHADER_QUIRK_ENABLE_FAIR_SCHEDULING
+    },
 };
 
 static const struct vkd3d_shader_quirk_info pragmata_quirks = {

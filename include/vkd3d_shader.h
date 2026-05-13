@@ -555,6 +555,10 @@ enum vkd3d_shader_target_extension
  * Some games assume they can get away with only <= wave32. */
 #define VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 (1ull << 34)
 
+/* Very special surgical hack that lets specific drivers listen for a NonSemantic flag
+ * to enable very awkward workarounds. This workaround is expected to go away eventually. */
+#define VKD3D_SHADER_QUIRK_ENABLE_FAIR_SCHEDULING (1ull << 35)
+
 typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
