@@ -1900,6 +1900,9 @@ struct d3d12_root_signature
     uint32_t root_descriptor_set;
 
     uint64_t descriptor_table_mask;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    uint64_t descriptor_table_mask_sampler;
+#endif
     uint64_t root_constant_mask;
     uint64_t root_descriptor_raw_va_mask;
     uint64_t root_descriptor_push_mask;
@@ -3018,6 +3021,8 @@ union vkd3d_descriptor_heap_state
         bool heap_dirty;
 
         VkDeviceSize vk_offsets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+        struct d3d12_descriptor_heap *resource_heap;
+        struct d3d12_descriptor_heap *sampler_heap;
     } buffers;
 
     struct
