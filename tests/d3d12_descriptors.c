@@ -6736,3 +6736,131 @@ void test_static_sampler_dynamic_index(void)
     destroy_test_context(&context);
 }
 
+void test_descriptor_heap_broken_table_va(void)
+{
+    /* Somewhat of a sandbox to explore deep Eldritch horror UB with OOB table access.
+     * We don't consider descriptor heap robustness when descriptor indexing is not used,
+     * and these are cases that could in theory be caught at CPU time, but drivers don't really
+     * seem to do anything special to validate heap offsets. */
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    struct test_context_desc context_desc;
+    D3D12_DESCRIPTOR_RANGE rs_range[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    int i;
+
+#include "shaders/descriptors/headers/broken_table.h"
+
+    float input_data[1024];
+    for (i = 0; i < 1024; i++)
+        input_data[i] = 1.0f + i;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    /* Compute ring crash on AMD Windows just locks up the system completely, requiring a hard reboot ... */
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_range, 0, sizeof(rs_range));
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[0].DescriptorTable.NumDescriptorRanges = 1;
+    rs_param[0].DescriptorTable.pDescriptorRanges = &rs_range[0];
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[1].DescriptorTable.NumDescriptorRanges = 1;
+    rs_param[1].DescriptorTable.pDescriptorRanges = &rs_range[1];
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+
+    rs_range[0].NumDescriptors = 1024;
+    rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_range[1].NumDescriptors = 1024;
+    rs_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_range[1].RegisterSpace = 1;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, broken_table_dxbc);
+
+#define NUM_GROUPS_X (1)
+    output = create_default_buffer(context.device, NUM_GROUPS_X * 64 * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1024);
+
+    for (i = 0; i < 1024; i++)
+    {
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Buffer.NumElements = 1;
+        srv_desc.Buffer.FirstElement = i;
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc, get_cpu_descriptor_handle(&context, heap, i));
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    /* There are no guard descriptors on AMD. I have observed GPU hangs when reading descriptor 1024 which is exactly out of bounds. */
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, get_gpu_descriptor_handle(&context, heap, 1013));
+
+    /* Reads from this descriptor goes through no matter what, so we shouldn't nop the entire draw. */
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 1, get_gpu_descriptor_handle(&context, heap, 1));
+
+    /* NV is sort of robust against this case. It seems to wrap around the 20-bit index and within that range it's robust. */
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+    gpu_handle.ptr |= UINT64_MAX << 5;
+
+    if (is_amd_windows_device(context.device))
+    {
+        /* The final VA will fall exactly out of the 32-bit VA range and somehow this translates to a null descriptor.
+         * It's possible the native driver has guard pages in place to handle these cases, or page faults outside 32-bit VA range
+         * are ignored by kernel somehow??? */
+        gpu_handle.ptr -= 9 << 5;
+    }
+    else
+    {
+        /* The final VA falls exactly inside the 32-bit VA range and crashes the GPU as we would expect. */
+        gpu_handle.ptr -= 10 << 5;
+    }
+
+    /* For vkd3d-proton we have no reasonable way to implement this but to ignore obviously broken GPU VAs being passed down
+     * since we cannot control this deep vendor-specific behavior.
+     * In the known broken application case, UINT64_MAX is passed directly. */
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_handle);
+
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, NUM_GROUPS_X, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < NUM_GROUPS_X * 64; i++)
+    {
+        float value, expected, expected_alt;
+        value = get_readback_float(&rb, i, 0);
+        expected = 20.0f + 2.0f;
+        expected_alt = expected + 1024.0f; /* For vkd3d-proton we ignore bogus VAs and let the valid 1023 offset come through. */
+        ok(value == expected || value == expected_alt, "value %u: expected %f or %f, got %f\n", i, expected, expected_alt, value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(input);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
