@@ -5386,6 +5386,9 @@ struct vkd3d_device_frame_markers
 /* ID3D12Device */
 typedef ID3D12Device12 d3d12_device_iface;
 
+/* ID3D12VideoDevice */
+typedef ID3D12VideoDevice d3d12_video_device_iface;
+
 struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
 struct vkd3d_timestamp_profiler;
@@ -5675,6 +5678,7 @@ struct vkd3d_nv_shader_extn d3d12_device_get_nv_shader_extn(struct d3d12_device 
 struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
+    d3d12_video_device_iface ID3D12VideoDevice_iface;
     d3d12_device_vkd3d_ext_iface ID3D12DeviceExt_iface;
     d3d12_dxvk_interop_device_iface ID3D12DXVKInteropDevice_iface;
     d3d_low_latency_device_iface ID3DLowLatencyDevice_iface;

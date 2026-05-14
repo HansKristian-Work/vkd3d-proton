@@ -36,6 +36,7 @@
 # endif
 
 # include <vkd3d_d3d12.h>
+# include <vkd3d_d3d12video.h>
 # include <vkd3d_core_interface.h>
 # undef WIDL_C_INLINE_WRAPPERS
 #endif  /* VKD3D_NO_WIN32_TYPES */

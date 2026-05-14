@@ -1,6 +1,7 @@
 vkd3d_idl = [
   'vkd3d_d3d12.idl',
   'vkd3d_d3d12sdklayers.idl',
+  'vkd3d_d3d12video.idl',
   'vkd3d_d3dcommon.idl',
   'vkd3d_dxcapi.idl',
   'vkd3d_dxgi.idl',

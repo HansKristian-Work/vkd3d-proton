@@ -4474,6 +4474,7 @@ void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vk
 }
 
 /* ID3D12Device */
+extern ULONG STDMETHODCALLTYPE d3d12_video_device_AddRef(d3d12_video_device_iface *iface);
 extern ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(d3d12_device_vkd3d_ext_iface *iface);
 extern ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_AddRef(d3d12_dxvk_interop_device_iface *iface);
 extern ULONG STDMETHODCALLTYPE d3d12_low_latency_device_AddRef(ID3DLowLatencyDevice *iface);
@@ -4507,6 +4508,13 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
     {
         ID3D12Device12_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3D12VideoDevice))
+    {
+        d3d12_video_device_AddRef(&device->ID3D12VideoDevice_iface);
+        *object = &device->ID3D12VideoDevice_iface;
         return S_OK;
     }
 
@@ -10712,6 +10720,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     }
 }
 
+extern CONST_VTBL struct ID3D12VideoDeviceVtbl d3d12_video_device_vtbl;
 extern CONST_VTBL struct ID3D12DeviceExt4Vtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
@@ -10805,6 +10814,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     spinlock_init(&device->low_latency_swapchain_spinlock);
 
+    device->ID3D12VideoDevice_iface.lpVtbl = &d3d12_video_device_vtbl;
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
     device->ID3D12DXVKInteropDevice_iface.lpVtbl = &d3d12_dxvk_interop_device_vtbl;
     device->ID3DLowLatencyDevice_iface.lpVtbl = &d3d_low_latency_device_vtbl;
