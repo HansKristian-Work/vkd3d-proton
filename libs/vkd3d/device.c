@@ -3860,8 +3860,10 @@ static void d3d12_device_init_workarounds(struct d3d12_device *device)
     if (VKD3D_CONFIG_FLAG_IS_SET(SKIP_DRIVER_WORKAROUNDS))
         return;
 
-    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
+        device->device_info.properties2.properties.driverVersion < VK_MAKE_VERSION(26, 2, 0))
     {
+        /* Fixed in RADV 26.2+. */
         if (device->device_info.properties2.properties.limits.maxImageDimension1D < 32768 &&
             device->device_info.compute_shader_derivatives_features_khr.computeDerivativeGroupQuads)
         {
