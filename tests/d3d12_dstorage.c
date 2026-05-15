@@ -67,10 +67,10 @@ void test_dstorage_decompression(void)
     ID3D12CommandQueue *queue;
     uint32_t control_data[5];
     ID3D12Device5 *device5;
+    unsigned int refcount;
     ID3D12Device *device;
     unsigned int i;
     uint32_t count;
-    ULONG refcount;
     size_t offset;
     HRESULT hr;
 
@@ -120,12 +120,12 @@ void test_dstorage_decompression(void)
 
     count = 0;
     hr = ID3D12Device5_EnumerateMetaCommands(device5, &count, NULL);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     meta_command_descs = calloc(count, sizeof(*meta_command_descs));
 
     hr = ID3D12Device5_EnumerateMetaCommands(device5, &count, meta_command_descs);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     for (i = 0; i < count && !supports_meta_command; i++)
         supports_meta_command = !memcmp(&meta_command_descs[i].Id, &IID_META_COMMAND_DSTORAGE, sizeof(meta_command_descs[i].Id));
@@ -189,14 +189,14 @@ void test_dstorage_decompression(void)
 
     hr = ID3D12Device5_CreateMetaCommand(device5, &IID_META_COMMAND_DSTORAGE,
             0, create_args, sizeof(create_args), &IID_ID3D12MetaCommand, (void**)&meta_command);
-    ok(hr == DXGI_ERROR_UNSUPPORTED, "Unexpected hr %#x.\n", hr);
+    ok(hr == DXGI_ERROR_UNSUPPORTED, "Unexpected hr %#x.\n", (int)hr);
 
     create_args[0] = 0u;                /* version */
     create_args[1] = 1u;                /* format */
 
     hr = ID3D12Device5_CreateMetaCommand(device5, &IID_META_COMMAND_DSTORAGE,
             0, create_args, sizeof(create_args), &IID_ID3D12MetaCommand, (void**)&meta_command);
-    ok(hr == DXGI_ERROR_UNSUPPORTED, "Unexpected hr %#x.\n", hr);
+    ok(hr == DXGI_ERROR_UNSUPPORTED, "Unexpected hr %#x.\n", (int)hr);
 
     /* Create the actual meta command */
     create_args[0] = 1u;
@@ -204,7 +204,7 @@ void test_dstorage_decompression(void)
 
     hr = ID3D12Device5_CreateMetaCommand(device5, &IID_META_COMMAND_DSTORAGE,
             0, create_args, sizeof(create_args), &IID_ID3D12MetaCommand, (void**)&meta_command);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     /* Create resources for the actual decompression. */
     memset(&heap_desc, 0, sizeof(heap_desc));
@@ -227,20 +227,20 @@ void test_dstorage_decompression(void)
     hr = ID3D12Device5_CreateCommittedResource(device5, &heap_desc,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             NULL, &IID_ID3D12Resource, (void**)&control_buffer);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_Map(control_buffer, 0, NULL, &control_buffer_ptr);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     /* Input buffer */
     resource_desc.Width = input_buffer_size;
     hr = ID3D12Device5_CreateCommittedResource(device5, &heap_desc,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             NULL, &IID_ID3D12Resource, (void**)&input_buffer);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_Map(input_buffer, 0, NULL, &input_buffer_ptr);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     offset = 0;
 
@@ -264,7 +264,7 @@ void test_dstorage_decompression(void)
         hr = ID3D12Device5_CreateCommittedResource(device5, &heap_desc,
                 D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 NULL, &IID_ID3D12Resource, (void**)&scratch_buffer);
-        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
     }
     else
         scratch_buffer = NULL;
@@ -274,25 +274,25 @@ void test_dstorage_decompression(void)
     hr = ID3D12Device5_CreateCommittedResource(device5, &heap_desc,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             NULL, &IID_ID3D12Resource, (void**)&output_buffer);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     /* Set up compute queue and list to do the decompression on */
     memset(&queue_desc, 0u, sizeof(queue_desc));
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
 
     hr = ID3D12Device5_CreateCommandQueue(device5, &queue_desc, &IID_ID3D12CommandQueue, (void**)&queue);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Device5_CreateCommandAllocator(device5, queue_desc.Type,
             &IID_ID3D12CommandAllocator, (void**)&command_allocator);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Device5_CreateCommandList1(device5, 0, queue_desc.Type,
             D3D12_COMMAND_LIST_FLAG_NONE, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12GraphicsCommandList4_QueryInterface(command_list4, &IID_ID3D12GraphicsCommandList, (void**)&command_list);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     /* Initialize meta command. This is expected to be done once after
      * creation, and in case of DirectStorage, does not take any arguments. */
@@ -353,5 +353,5 @@ void test_dstorage_decompression(void)
 
     ID3D12Device5_Release(device5);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }

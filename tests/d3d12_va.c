@@ -117,7 +117,7 @@ void test_gpu_virtual_address(void)
     buffer = create_upload_buffer(context.device, ib_offset + sizeof(indices), NULL);
 
     hr = ID3D12Resource_Map(buffer, 0, NULL, (void **)&ptr);
-    ok(SUCCEEDED(hr), "Failed to map upload buffer, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to map upload buffer, hr %#x.\n", (int)hr);
     memcpy(ptr + vb_offset, quad, sizeof(quad));
     memcpy(ptr + ib_offset, indices, sizeof(indices));
     ID3D12Resource_Unmap(buffer, 0, NULL);

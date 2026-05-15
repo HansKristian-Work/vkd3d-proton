@@ -1143,7 +1143,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_work_graph_properties_QueryInterface(d3d1
 static ULONG STDMETHODCALLTYPE d3d12_wg_state_object_AddRef(ID3D12StateObject *iface)
 {
     struct d3d12_wg_state_object *state_object = wg_impl_from_ID3D12StateObject(iface);
-    ULONG refcount = InterlockedIncrement(&state_object->refcount);
+    unsigned int refcount = InterlockedIncrement(&state_object->refcount);
 
     TRACE("%p increasing refcount to %u.\n", state_object, refcount);
 
@@ -1153,7 +1153,7 @@ static ULONG STDMETHODCALLTYPE d3d12_wg_state_object_AddRef(ID3D12StateObject *i
 static ULONG STDMETHODCALLTYPE d3d12_wg_state_object_properties_AddRef(d3d12_state_object_properties_iface *iface)
 {
     struct d3d12_wg_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
-    ULONG refcount = InterlockedIncrement(&state_object->refcount);
+    unsigned int refcount = InterlockedIncrement(&state_object->refcount);
 
     TRACE("%p increasing refcount to %u.\n", state_object, refcount);
 
@@ -1163,7 +1163,7 @@ static ULONG STDMETHODCALLTYPE d3d12_wg_state_object_properties_AddRef(d3d12_sta
 static ULONG STDMETHODCALLTYPE d3d12_work_graph_properties_AddRef(d3d12_work_graph_properties_iface *iface)
 {
     struct d3d12_wg_state_object *state_object = impl_from_ID3D12WorkGraphProperties(iface);
-    ULONG refcount = InterlockedIncrement(&state_object->refcount);
+    unsigned int refcount = InterlockedIncrement(&state_object->refcount);
 
     TRACE("%p increasing refcount to %u.\n", state_object, refcount);
 
@@ -1224,7 +1224,7 @@ static void d3d12_wg_state_object_cleanup(struct d3d12_wg_state_object *state_ob
 
 static void d3d12_wg_state_object_dec_ref(struct d3d12_wg_state_object *state_object)
 {
-    ULONG refcount = InterlockedDecrement(&state_object->internal_refcount);
+    unsigned int refcount = InterlockedDecrement(&state_object->internal_refcount);
 
     TRACE("%p decreasing internal refcount to %u.\n", state_object, refcount);
 
@@ -1240,7 +1240,7 @@ static void d3d12_wg_state_object_dec_ref(struct d3d12_wg_state_object *state_ob
 
 static ULONG d3d12_wg_state_object_release(struct d3d12_wg_state_object *state_object)
 {
-    ULONG refcount = InterlockedDecrement(&state_object->refcount);
+    unsigned int refcount = InterlockedDecrement(&state_object->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", state_object, refcount);
 
@@ -1530,7 +1530,7 @@ static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetNodeIndex(
     struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
     const struct d3d12_wg_state_object_program *program;
     unsigned int count, i;
-    TRACE("iface %p, WorkGraphIndex %u, NodeID.Name, NodeID.ArrayIndex %u, stub!\n",
+    TRACE("iface %p, WorkGraphIndex %u, NodeID.Name %s, NodeID.ArrayIndex %u, stub!\n",
             iface, WorkGraphIndex, debugstr_w(NodeID.Name), NodeID.ArrayIndex);
 
     if (WorkGraphIndex >= object->programs_count)
@@ -1639,7 +1639,7 @@ static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetEntrypointIndex(
     const struct d3d12_wg_state_object_program *program;
     unsigned int i;
 
-    TRACE("iface %p, WorkGraphIndex %u, NodeID.Name, NodeID.ArrayIndex %u!\n",
+    TRACE("iface %p, WorkGraphIndex %u, NodeID.Name %s, NodeID.ArrayIndex %u!\n",
             iface, WorkGraphIndex, debugstr_w(NodeID.Name), NodeID.ArrayIndex);
 
     if (WorkGraphIndex >= object->programs_count)

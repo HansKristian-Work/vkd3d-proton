@@ -72,7 +72,7 @@ static void skip_dword_unknown(const char **ptr, unsigned int count)
     for (i = 0; i < count; ++i)
     {
         read_dword(ptr, &d);
-        WARN("\t0x%08x\n", d);
+        WARN("\t0x%08x\n", (int)d);
     }
 }
 
@@ -82,7 +82,7 @@ static const char *shader_get_string(const char *data, size_t data_size, DWORD o
 
     if (offset >= data_size)
     {
-        WARN("Invalid offset %#x (data size %#lx).\n", offset, (long)data_size);
+        WARN("Invalid offset %#x (data size %#lx).\n", (int)offset, (long)data_size);
         return NULL;
     }
 
@@ -113,7 +113,7 @@ static int parse_dxbc(const char *data, size_t data_size,
     }
 
     read_dword(&ptr, &tag);
-    TRACE("tag: %#x.\n", tag);
+    TRACE("tag: %#x.\n", (int)tag);
 
     if (tag != TAG_DXBC)
     {
@@ -125,18 +125,18 @@ static int parse_dxbc(const char *data, size_t data_size,
     skip_dword_unknown(&ptr, 4);
 
     read_dword(&ptr, &version);
-    TRACE("version: %#x.\n", version);
+    TRACE("version: %#x.\n", (int)version);
     if (version != 0x00000001)
     {
-        WARN("Got unexpected DXBC version %#x.\n", version);
+        WARN("Got unexpected DXBC version %#x.\n", (int)version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
     read_dword(&ptr, &total_size);
-    TRACE("total size: %#x\n", total_size);
+    TRACE("total size: %#x\n", (int)total_size);
 
     read_dword(&ptr, &chunk_count);
-    TRACE("chunk count: %#x\n", chunk_count);
+    TRACE("chunk count: %#x\n", (int)chunk_count);
 
     for (i = 0; i < chunk_count; ++i)
     {
@@ -145,11 +145,11 @@ static int parse_dxbc(const char *data, size_t data_size,
         DWORD chunk_offset;
 
         read_dword(&ptr, &chunk_offset);
-        TRACE("chunk %u at offset %#x\n", i, chunk_offset);
+        TRACE("chunk %u at offset %#x\n", i, (int)chunk_offset);
 
         if (chunk_offset >= data_size || !require_space(chunk_offset, 2, sizeof(DWORD), data_size))
         {
-            WARN("Invalid chunk offset %#x (data size %zu).\n", chunk_offset, data_size);
+            WARN("Invalid chunk offset %#x (data size %zu).\n", (int)chunk_offset, data_size);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
@@ -161,7 +161,7 @@ static int parse_dxbc(const char *data, size_t data_size,
         if (!require_space(chunk_ptr - data, 1, chunk_size, data_size))
         {
             WARN("Invalid chunk size %#x (data size %zu, chunk offset %#x).\n",
-                    chunk_size, data_size, chunk_offset);
+                    (int)chunk_size, data_size, (int)chunk_offset);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
 
@@ -183,18 +183,18 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
 
     if (!require_space(0, 2, sizeof(DWORD), data_size))
     {
-        WARN("Invalid data size %#x.\n", data_size);
+        WARN("Invalid data size %#x.\n", (int)data_size);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
     read_dword(&ptr, &count);
-    TRACE("%u elements.\n", count);
+    TRACE("%u elements.\n", (unsigned int)count);
 
     skip_dword_unknown(&ptr, 1); /* It seems to always be 0x00000008. */
 
     if (!require_space(ptr - data, count, 6 * sizeof(DWORD), data_size))
     {
-        WARN("Invalid count %#x (data size %#x).\n", count, data_size);
+        WARN("Invalid count %#x (data size %#x).\n", (int)count, (int)data_size);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
@@ -219,7 +219,7 @@ static int shader_parse_signature(DWORD tag, const char *data, DWORD data_size,
         read_dword(&ptr, &name_offset);
         if (!(e[i].semantic_name = shader_get_string(data, data_size, name_offset)))
         {
-            WARN("Invalid name offset %#x (data size %#x).\n", name_offset, data_size);
+            WARN("Invalid name offset %#x (data size %#x).\n", (int)name_offset, (int)data_size);
             vkd3d_free(e);
             return VKD3D_ERROR_INVALID_ARGUMENT;
         }
@@ -629,7 +629,7 @@ static int shader_parse_root_parameters1(struct root_signature_parser_context *c
 
     if (!require_space(offset, 3 * count, sizeof(DWORD), context->data_size))
     {
-        WARN("Invalid data size %#x (offset %u, count %u).\n", context->data_size, offset, count);
+        WARN("Invalid data size %#x (offset %u, count %u).\n", context->data_size, (unsigned int)offset, (unsigned int)count);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
     ptr = &context->data[offset];

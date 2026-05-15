@@ -677,7 +677,7 @@ static void test_clip_distance(bool use_dxil)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     input_layout.pInputElementDescs = layout_desc;
     input_layout.NumElements = ARRAY_SIZE(layout_desc);
@@ -694,7 +694,7 @@ static void test_clip_distance(bool use_dxil)
     }
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", (int)hr);
 
     vb[0] = create_upload_buffer(device, sizeof(quad), quad);
     vbv[0].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb[0]);
@@ -744,7 +744,7 @@ static void test_clip_distance(bool use_dxil)
     pso_desc.GS = gs;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", (int)hr);
 
     check_clip_distance(&context, pso, vbv, vb[1], vs_cb, gs_cb);
 
@@ -778,7 +778,7 @@ static void test_clip_distance(bool use_dxil)
     memset(&pso_desc.GS, 0, sizeof(pso_desc.GS));
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", (int)hr);
 
     cb_data.use_constant = false;
     update_buffer_data(vs_cb, 0, sizeof(cb_data), &cb_data);

@@ -877,7 +877,7 @@ START_TEST(pso_library_bloat)
         void *ptr;
 
         hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, &IID_ID3D12PipelineLibrary, (void**)&lib);
-        ok(SUCCEEDED(hr), "Failed to create library, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create library, hr #%x.\n", (int)hr);
 
         for (i = 0; i < 100; i++, overall_iteration++)
         {
@@ -910,7 +910,7 @@ START_TEST(pso_library_bloat)
             desc.CS.pShaderBytecode = cs_code_dxil;
             desc.CS.BytecodeLength = sizeof(cs_code_dxil);
             hr = ID3D12Device1_CreateComputePipelineState(device1, &desc, &IID_ID3D12PipelineState, (void**)&pso);
-            ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
             ID3D12RootSignature_Release(desc.pRootSignature);
             ID3D12PipelineLibrary_StorePipeline(lib, wname, pso);
             ID3D12PipelineState_Release(pso);
@@ -920,7 +920,7 @@ START_TEST(pso_library_bloat)
         printf("Iteration %u, serialized size = %zu\n", library_iteration, serialized_size);
         ptr = malloc(serialized_size);
         hr = ID3D12PipelineLibrary_Serialize(lib, ptr, serialized_size);
-        ok(SUCCEEDED(hr), "Failed to serialize library, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to serialize library, hr #%x.\n", (int)hr);
         ID3D12PipelineLibrary_Release(lib);
         free(ptr);
 

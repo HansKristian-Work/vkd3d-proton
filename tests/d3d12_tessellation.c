@@ -125,12 +125,12 @@ void test_nop_tessellation_shaders(void)
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     /* Runtime used to fail this, but it "just works" now :|. */
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(context.pipeline_state);
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(context.pipeline_state);
 
     for (i = 0; i < ARRAY_SIZE(hull_shaders); ++i)
@@ -141,7 +141,7 @@ void test_nop_tessellation_shaders(void)
         pso_desc.DS = *domain_shaders[i];
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-        ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -272,7 +272,7 @@ static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology, bool 
         destroy_test_context(&context);
         return;
     }
-    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", (int)hr);
 
     context.root_signature = create_32bit_constants_root_signature_(__LINE__,
             device, 0, 6, D3D12_SHADER_VISIBILITY_HULL,
@@ -344,7 +344,7 @@ static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology, bool 
         pso_desc.HS = use_dxil ? quad_tess_hs_ccw_dxil : quad_tess_hs_ccw_dxbc;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -383,7 +383,7 @@ static void test_quad_tessellation(bool use_dxil, bool wrong_pso_topology, bool 
     pso_desc.HS = use_dxil ? quad_tess_hs_cw_dxil : quad_tess_hs_cw_dxbc;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -561,7 +561,7 @@ static void test_tessellation_dcl_index_range(bool use_dxil)
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     vb = create_upload_buffer(device, sizeof(quad), quad);
 
@@ -659,7 +659,7 @@ static void test_tessellation_dcl_index_range_complex(bool use_dxil)
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     vb = create_upload_buffer(device, sizeof(quad), quad);
 
@@ -741,7 +741,7 @@ static void test_hull_shader_control_point_phase(bool use_dxil)
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -802,7 +802,7 @@ void test_hull_shader_vertex_input_patch_constant_phase(void)
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -859,7 +859,7 @@ static void test_hull_shader_fork_phase(bool use_dxil)
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -945,7 +945,7 @@ void test_tessellation_read_tesslevel(void)
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     vkd3d_unmute_validation_message("09658");
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     so_buffer = create_default_buffer(context.device, 4096,
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_STREAM_OUT);
@@ -1085,7 +1085,7 @@ static void test_line_tessellation(bool use_dxil)
         destroy_test_context(&context);
         return;
     }
-    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", (int)hr);
 
     input_layout.pInputElementDescs = layout_desc;
     input_layout.NumElements = ARRAY_SIZE(layout_desc);
@@ -1112,7 +1112,7 @@ static void test_line_tessellation(bool use_dxil)
     pso_desc.StreamOutput.RasterizedStream = D3D12_SO_NO_RASTERIZED_STREAM;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
     vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
@@ -1259,7 +1259,7 @@ void test_tessellation_primitive_id(void)
     root_signature_desc.pParameters = root_parameters;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     input_layout.pInputElementDescs = layout_desc;
     input_layout.NumElements = ARRAY_SIZE(layout_desc);
@@ -1272,7 +1272,7 @@ void test_tessellation_primitive_id(void)
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
     vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);

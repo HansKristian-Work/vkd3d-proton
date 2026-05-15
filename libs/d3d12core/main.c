@@ -44,6 +44,8 @@
 #define DLLEXPORT
 #endif
 
+#include <inttypes.h>
+
 typedef IVKD3DCoreInterface d3d12core_interface;
 HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void** debug);
 
@@ -71,12 +73,12 @@ static BOOL wait_vr_key(HKEY vr_key)
     size = sizeof(value);
     if ((status = RegQueryValueExA(vr_key, "state", NULL, &type, (BYTE *)&value, &size)))
     {
-        ERR("OpenVR: could not query value, status %d.\n", status);
+        ERR("OpenVR: could not query value, status %d.\n", (int)status);
         return false;
     }
     if (type != REG_DWORD)
     {
-        ERR("OpenVR: unexpected value type %d.\n", type);
+        ERR("OpenVR: unexpected value type %d.\n", (int)type);
         return false;
     }
 
@@ -100,7 +102,7 @@ static BOOL wait_vr_key(HKEY vr_key)
         size = sizeof(value);
         if ((status = RegQueryValueExA(vr_key, "state", NULL, &type, (BYTE *)&value, &size)))
         {
-            ERR("OpenVR: could not query value, status %d.\n", status);
+            ERR("OpenVR: could not query value, status %d.\n", (int)status);
             break;
         }
         if (value)
@@ -109,13 +111,13 @@ static BOOL wait_vr_key(HKEY vr_key)
 
         while ((wait_status = WaitForSingleObject(event, 1000)) == WAIT_TIMEOUT && max_retry)
         {
-            WARN("VR state wait timeout (retries left %u).\n", max_retry);
+            WARN("VR state wait timeout (retries left %u).\n", (int)max_retry);
             max_retry--;
         }
 
         if (wait_status != WAIT_OBJECT_0 && wait_status != WAIT_TIMEOUT)
         {
-            ERR("Got unexpected wait status %u.\n", wait_status);
+            ERR("Got unexpected wait status %u.\n", (int)wait_status);
             break;
         }
     }
@@ -134,7 +136,7 @@ static char *openvr_instance_extensions()
 
     if (status != ERROR_SUCCESS)
     {
-        WARN("Failed to open VR registry key, status %d.\n", status);
+        WARN("Failed to open VR registry key, status %d.\n", (int)status);
         return NULL;
     }
     if (!wait_vr_key(vr_key))
@@ -147,13 +149,13 @@ static char *openvr_instance_extensions()
     status = RegQueryValueExA(vr_key, "openvr_vulkan_instance_extensions", NULL, &type, NULL, &len);
     if (status != ERROR_SUCCESS)
     {
-        WARN("Failed to query VR instance extensions, status %d.\n", status);
+        WARN("Failed to query VR instance extensions, status %d.\n", (int)status);
         RegCloseKey(vr_key);
         return NULL;
     }
     if (type != REG_SZ)
     {
-        WARN("Unexpected VR instance extensions type %d.\n", type);
+        WARN("Unexpected VR instance extensions type %d.\n", (int)type);
         RegCloseKey(vr_key);
         return NULL;
     }
@@ -161,7 +163,7 @@ static char *openvr_instance_extensions()
     status = RegQueryValueExA(vr_key, "openvr_vulkan_instance_extensions", NULL, &type, (BYTE *)openvr_instance_extensions, &len);
     if (status != ERROR_SUCCESS)
     {
-        WARN("Failed to query VR instance extensions, status %d.\n", status);
+        WARN("Failed to query VR instance extensions, status %d.\n", (int)status);
         vkd3d_free(openvr_instance_extensions);
         openvr_instance_extensions = NULL;
     }
@@ -180,7 +182,7 @@ static char *openvr_device_extensions(DXGI_ADAPTER_DESC *desc)
 
     if (status != ERROR_SUCCESS)
     {
-        WARN("Failed to open VR registry key, status %d.\n", status);
+        WARN("Failed to open VR registry key, status %d.\n", (int)status);
         return NULL;
     }
     if (!wait_vr_key(vr_key))
@@ -195,13 +197,13 @@ static char *openvr_device_extensions(DXGI_ADAPTER_DESC *desc)
     status = RegQueryValueExA(vr_key, key_name, NULL, &type, NULL, &len);
     if (status != ERROR_SUCCESS)
     {
-        WARN("Failed to query VR instance extensions, status %d.\n", status);
+        WARN("Failed to query VR instance extensions, status %d.\n", (int)status);
         RegCloseKey(vr_key);
         return NULL;
     }
     if (type != REG_SZ)
     {
-        WARN("Unexpected VR instance extensions type %d.\n", type);
+        WARN("Unexpected VR instance extensions type %d.\n", (int)type);
         RegCloseKey(vr_key);
         return NULL;
     }
@@ -209,7 +211,7 @@ static char *openvr_device_extensions(DXGI_ADAPTER_DESC *desc)
     status = RegQueryValueExA(vr_key, key_name, NULL, &type, (BYTE *)openvr_device_extensions, &len);
     if (status != ERROR_SUCCESS)
     {
-        WARN("Failed to query VR instance extensions, status %d.\n", status);
+        WARN("Failed to query VR instance extensions, status %d.\n", (int)status);
         vkd3d_free(openvr_device_extensions);
         openvr_device_extensions = NULL;
     }
@@ -380,13 +382,13 @@ static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
     {
         if (FAILED(hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory)))
         {
-            WARN("Failed to create DXGI factory, hr %#x.\n", hr);
+            WARN("Failed to create DXGI factory, hr %#x.\n", (int)hr);
             goto done;
         }
 
         if (FAILED(hr = IDXGIFactory4_EnumAdapters(factory, 0, dxgi_adapter)))
         {
-            WARN("Failed to enumerate primary adapter, hr %#x.\n", hr);
+            WARN("Failed to enumerate primary adapter, hr %#x.\n", (int)hr);
             goto done;
         }
     }
@@ -398,12 +400,12 @@ static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
 
         if (FAILED(hr = IDXCoreAdapter_GetProperty(dxcore_adapter, InstanceLuid, sizeof(luid), &luid)))
         {
-            WARN("Failed to get InstanceLuid property from dxcore adapter, hr %#x.\n", hr);
+            WARN("Failed to get InstanceLuid property from dxcore adapter, hr %#x.\n", (int)hr);
             goto done;
         }
         if (FAILED(hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory)))
         {
-            WARN("Failed to create DXGI factory, hr %#x.\n", hr);
+            WARN("Failed to create DXGI factory, hr %#x.\n", (int)hr);
             goto done;
         }
         for (i = 0; SUCCEEDED(IDXGIFactory4_EnumAdapters(factory, i, dxgi_adapter)); ++i)
@@ -427,7 +429,7 @@ static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
     {
         if (FAILED(hr = IUnknown_QueryInterface(adapter, &IID_IDXGIAdapter, (void **)dxgi_adapter)))
         {
-            WARN("Invalid adapter %p, hr %#x.\n", adapter, hr);
+            WARN("Invalid adapter %p, hr %#x.\n", adapter, (int)hr);
             goto done;
         }
     }
@@ -507,7 +509,8 @@ static VkPhysicalDevice d3d12_find_physical_device(struct vkd3d_instance *instan
 
             if (vk_physical_device)
             {
-                WARN("Multiple adapters found with LUID %#x%x.\n", adapter_desc->AdapterLuid.HighPart, adapter_desc->AdapterLuid.LowPart);
+                WARN("Multiple adapters found with LUID %#x%x.\n",
+                        (int)adapter_desc->AdapterLuid.HighPart, (int)adapter_desc->AdapterLuid.LowPart);
 
                 match = properties2.properties.deviceID == adapter_desc->DeviceId &&
                         properties2.properties.vendorID == adapter_desc->VendorId;
@@ -625,7 +628,7 @@ static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance
 #endif
 
     if (FAILED(hr = vkd3d_create_instance(&instance_create_info, out_instance)))
-        WARN("Failed to create vkd3d instance, hr %#x.\n", hr);
+        WARN("Failed to create vkd3d instance, hr %#x.\n", (int)hr);
 
 #ifdef _WIN32
     if (instance_create_info.instance_extensions != instance_extensions)
@@ -673,7 +676,7 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDeviceFromFactory(
 
     if (FAILED(hr = IDXGIAdapter_GetDesc(dxgi_adapter, &adapter_desc)))
     {
-        WARN("Failed to get adapter desc, hr %#x.\n", hr);
+        WARN("Failed to get adapter desc, hr %#x.\n", (int)hr);
         goto out_release_adapter;
     }
 
@@ -745,7 +748,7 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDevice(d3d12core_interface *cor
 HRESULT STDMETHODCALLTYPE d3d12core_CreateRootSignatureDeserializer(d3d12core_interface *core,
         const void *data, SIZE_T data_size, REFIID iid, void **deserializer)
 {
-    TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
+    TRACE("data %p, data_size %zu, iid %s, deserializer %p.\n",
             data, data_size, debugstr_guid(iid), deserializer);
 
     return vkd3d_create_root_signature_deserializer(data, data_size, iid, deserializer);
@@ -763,7 +766,7 @@ HRESULT STDMETHODCALLTYPE d3d12core_SerializeRootSignature(d3d12core_interface *
 HRESULT STDMETHODCALLTYPE d3d12core_CreateVersionedRootSignatureDeserializer(d3d12core_interface *core,
         const void *data, SIZE_T data_size, REFIID iid, void **deserializer)
 {
-    TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
+    TRACE("data %p, data_size %zu, iid %s, deserializer %p.\n",
             data, data_size, debugstr_guid(iid), deserializer);
 
     return vkd3d_create_versioned_root_signature_deserializer(data, data_size, iid, deserializer);

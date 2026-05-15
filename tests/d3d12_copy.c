@@ -691,7 +691,7 @@ void test_copy_texture_bc_rgba(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&rgba_texture);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     resource_desc.Format = DXGI_FORMAT_BC3_UNORM;
     resource_desc.Width = 8;
@@ -699,7 +699,7 @@ void test_copy_texture_bc_rgba(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&bc_texture);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     /* CopyResource from RGBA32 to BC3 */
     subresource_data.pData = bc_data;
@@ -736,7 +736,7 @@ void test_copy_texture_bc_rgba(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&rgba_texture);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_CopyResource(context.list, rgba_texture, bc_texture);
 
@@ -845,7 +845,7 @@ void test_copy_texture_bc_rgba(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&rgba_texture);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     resource_desc.Format = DXGI_FORMAT_BC3_UNORM;
     resource_desc.Width = 4;
@@ -854,7 +854,7 @@ void test_copy_texture_bc_rgba(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&bc_texture);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     upload_texture_data(rgba_texture, &subresource_data, 1, context.queue, context.list);
     reset_command_list(context.list, context.allocator);
@@ -911,7 +911,7 @@ void test_copy_texture_bc_rgba(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&rgba_texture);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     memset(&rgba_region, 0, sizeof(rgba_region));
     rgba_region.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -1207,7 +1207,7 @@ void test_copy_buffer_texture(void)
 
     zero_buffer = create_upload_buffer(device, buffer_size * sizeof(*ptr) + D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, NULL);
     hr = ID3D12Resource_Map(zero_buffer, 0, NULL, (void **)&ptr);
-    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", (int)hr);
     memset(ptr, 0, buffer_size * sizeof(*ptr) + D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
     for (i = 0; i < D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT / sizeof(*ptr); ++i)
         ptr[i] = 0xdeadbeef;
@@ -1215,7 +1215,7 @@ void test_copy_buffer_texture(void)
 
     src_buffer = create_upload_buffer(device, buffer_size * sizeof(*ptr), NULL);
     hr = ID3D12Resource_Map(src_buffer, 0, NULL, (void **)&ptr);
-    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", (int)hr);
     for (z = 0; z < 64; ++z)
     {
         for (y = 0; y < 100; ++y)
@@ -1377,7 +1377,7 @@ void test_copy_block_compressed_texture(void)
     dst_buffer = create_default_buffer(device, 4096, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     src_buffer = create_upload_buffer(device, 4096, NULL);
     hr = ID3D12Resource_Map(src_buffer, 0, NULL, (void **)&ptr);
-    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", (int)hr);
     for (x = 0; x < 4096 / format_size(DXGI_FORMAT_BC2_UNORM); ++x)
     {
         block_id = x << 8;
@@ -1613,16 +1613,16 @@ void test_multisample_resolve(void)
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
         &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&ms_render_target);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", (int)hr);
     resource_desc.Width = 4;
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
         &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void **)&ms_render_target_copy);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", (int)hr);
     resource_desc.SampleDesc.Count = 1;
     resource_desc.Height = 8;
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
         &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void **)&render_target);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", (int)hr);
 
     ms_rtv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     ID3D12Device_CreateRenderTargetView(context.device, ms_render_target, NULL, ms_rtv);
@@ -1723,7 +1723,7 @@ void test_multisample_resolve_formats(void)
     unsigned int i, j;
     UINT dst_x, dst_y;
     HRESULT hr;
-    LONG x, y;
+    int x, y;
 
     static const float black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
@@ -1761,12 +1761,12 @@ void test_multisample_resolve_formats(void)
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     hr = create_root_signature(context.device, &rs_desc, &rs_setup_render_targets);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     rs_desc.NumParameters = 1;
     rs_desc.pParameters = &rs_param;
     hr = create_root_signature(context.device, &rs_desc, &rs_setup_stencil);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pipeline_desc, rs_setup_render_targets,
             DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_rt_dxbc, NULL);
@@ -1782,7 +1782,7 @@ void test_multisample_resolve_formats(void)
     pipeline_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pipeline_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pipeline_desc, &IID_ID3D12PipelineState, (void**)&pso_setup_render_targets);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pipeline_desc, rs_setup_stencil,
             DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_stencil_dxbc, NULL);
@@ -1796,7 +1796,7 @@ void test_multisample_resolve_formats(void)
     pipeline_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
     pipeline_desc.DepthStencilState.BackFace = pipeline_desc.DepthStencilState.FrontFace;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pipeline_desc, &IID_ID3D12PipelineState, (void**)&pso_setup_stencil);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -1815,15 +1815,15 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_f32_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_u32_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_s32_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.SampleDesc.Count = 1;
@@ -1831,26 +1831,26 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_f32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_u32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_s32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     /* FIXME we should not require UAV usage */
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
             NULL, &IID_ID3D12Resource, (void**)&image_u32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
             NULL, &IID_ID3D12Resource, (void**)&image_s32);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
@@ -1860,7 +1860,7 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
             NULL, &IID_ID3D12Resource, (void**)&ds_ms);
-    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", (int)hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.Format = DXGI_FORMAT_R32G8X24_TYPELESS;
@@ -1870,7 +1870,7 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
             NULL, &IID_ID3D12Resource, (void**)&ds);
-    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", (int)hr);
 
     memset(&resource_desc, 0, sizeof(resource_desc));
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -1885,7 +1885,7 @@ void test_multisample_resolve_formats(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
             NULL, &IID_ID3D12Resource, (void**)&combined_image);
-    ok(hr == S_OK, "Failed to create combined image, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create combined image, hr %#x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 6);
     dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 2);
@@ -2290,7 +2290,7 @@ void test_multisample_resolve_strongly_typed(void)
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pso_desc, context.root_signature,
             DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_simple_dxbc, NULL);
@@ -2357,7 +2357,7 @@ void test_multisample_resolve_strongly_typed(void)
         pso_desc.RTVFormats[0] = tests[i].src_format;
 
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
-        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, src_rtv, green, 0, NULL);
         ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, dst_rtv, red, 0, NULL);
@@ -2416,22 +2416,22 @@ void test_multisample_resolve_strongly_typed(void)
 
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void**)&resolve_dst);
-        ok(hr == S_OK, "Failed to create resolve destination, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create resolve destination, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ResolveSubresource(context.list, resolve_dst, 0,
                 resolve_src, 0, invalid_tests[i].resolve_format);
 
         hr = ID3D12GraphicsCommandList_Close(context.list);
         todo_if(invalid_tests[i].is_todo)
-        ok(hr == invalid_tests[i].expected, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+        ok(hr == invalid_tests[i].expected, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
         ID3D12GraphicsCommandList_Release(context.list);
 
         hr = ID3D12CommandAllocator_Reset(context.allocator);
-        ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", (int)hr);
 
         hr = ID3D12Device_CreateCommandList(context.device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
                 context.allocator, NULL, &IID_ID3D12GraphicsCommandList, (void**)&context.list);
-        ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
 
         ID3D12Resource_Release(resolve_dst);
         ID3D12Resource_Release(resolve_src);
@@ -3241,7 +3241,7 @@ void test_resolve_subresource_depth(void)
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     hr = create_root_signature(context.device, &rs_desc, &rs_setup_ds);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pipeline_desc, rs_setup_ds,
         DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_rt_dxbc, NULL);
@@ -3251,7 +3251,7 @@ void test_resolve_subresource_depth(void)
     pipeline_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pipeline_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pipeline_desc, &IID_ID3D12PipelineState, (void **)&pso_setup_ds);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -3271,7 +3271,7 @@ void test_resolve_subresource_depth(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
         D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
         NULL, &IID_ID3D12Resource, (void **)&ds_ms);
-    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", (int)hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.Format = DXGI_FORMAT_R32_FLOAT;
@@ -3283,7 +3283,7 @@ void test_resolve_subresource_depth(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
         D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST,
         NULL, &IID_ID3D12Resource, (void **)&ds);
-    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create depth-stencil resource, hr %#x.\n", (int)hr);
 
     dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
 
@@ -3587,13 +3587,13 @@ static bool init_copy_test_context(struct test_context_copy *context, D3D12_COMM
 
     hr = ID3D12Device_CreateCommandAllocator(context->context.device, type,
         &IID_ID3D12CommandAllocator, (void **)&context->copy_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr #%x\n", (int)hr);
 
     memset(&copy_queue_desc, 0, sizeof(copy_queue_desc));
     copy_queue_desc.Type = type;
     hr = ID3D12Device_CreateCommandQueue(context->context.device, &copy_queue_desc,
         &IID_ID3D12CommandQueue, (void **)&context->copy_queue);
-    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", (int)hr);
 
     ID3D12Device_CreateCommandList(context->context.device, 0, type,
         context->copy_allocator, NULL,
@@ -3626,7 +3626,7 @@ static void test_queue_buffer(D3D12_COMMAND_LIST_TYPE type)
         return;
 
     hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
-    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", (int)hr);
 
     a = create_upload_buffer(context.context.device, 4 * 1024 * 1024, NULL);
     ID3D12Resource_Map(a, 0, NULL, (void **)&ptr);
@@ -3712,10 +3712,10 @@ static void test_queue_buffer_image(D3D12_COMMAND_LIST_TYPE type)
 
     hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
         &IID_ID3D12Fence, (void **)&direct_fence);
-    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", (int)hr);
     hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
         &IID_ID3D12Fence, (void **)&copy_fence);
-    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", (int)hr);
 
     a = create_upload_buffer(context.context.device, 4 * 1024 * 1024, NULL);
     ID3D12Resource_Map(a, 0, NULL, (void **)&ptr);
@@ -3833,7 +3833,7 @@ static void test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE type, bool ms
 
     hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&fence);
-    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", (int)hr);
 
     upload_buf = create_default_buffer(context.context.device, 64 * 64 * sizeof(uint32_t),
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
@@ -3856,11 +3856,11 @@ static void test_queue_render_target_inner(D3D12_COMMAND_LIST_TYPE type, bool ms
 
     hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&tex);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&copy_tex);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
     rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv);
     ID3D12Device_CreateRenderTargetView(context.context.device, tex, NULL, rtv_handle);
@@ -4068,18 +4068,18 @@ static void test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE type, bool ms
 
     hr = ID3D12Device_CreateFence(context.context.device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&fence);
-    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", (int)hr);
 
     upload_buf = create_default_buffer(context.context.device, 64 * 64 * sizeof(float),
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
 
     hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void **)&tex);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommittedResource(context.context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&copy_tex);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
     dsv = create_cpu_descriptor_heap(context.context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
     dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv);

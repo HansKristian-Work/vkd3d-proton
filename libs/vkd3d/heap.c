@@ -61,7 +61,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *ifa
 static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(d3d12_heap_iface *iface)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
-    ULONG refcount = InterlockedIncrement(&heap->refcount);
+    unsigned int refcount = InterlockedIncrement(&heap->refcount);
 
     if (refcount == 1)
     {
@@ -101,7 +101,7 @@ static void d3d12_heap_set_name(struct d3d12_heap *heap, const char *name)
 static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
-    ULONG refcount = InterlockedDecrement(&heap->refcount);
+    unsigned int refcount = InterlockedDecrement(&heap->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", heap, refcount);
 
@@ -179,7 +179,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_GetProtectedResourceSession(d3d12_he
 
 ULONG d3d12_heap_incref(struct d3d12_heap *heap)
 {
-    ULONG refcount = InterlockedIncrement(&heap->internal_refcount);
+    unsigned int refcount = InterlockedIncrement(&heap->internal_refcount);
 
     TRACE("%p increasing refcount to %u.\n", heap, refcount);
 
@@ -188,7 +188,7 @@ ULONG d3d12_heap_incref(struct d3d12_heap *heap)
 
 ULONG d3d12_heap_decref(struct d3d12_heap *heap)
 {
-    ULONG refcount = InterlockedDecrement(&heap->internal_refcount);
+    unsigned int refcount = InterlockedDecrement(&heap->internal_refcount);
 
     TRACE("%p decreasing refcount to %u.\n", heap, refcount);
 

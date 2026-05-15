@@ -29,7 +29,7 @@ void test_create_root_signature(void)
     D3D12_ROOT_PARAMETER root_parameters[3];
     ID3D12RootSignature *root_signature;
     ID3D12Device *device, *tmp_device;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -54,16 +54,16 @@ void test_create_root_signature(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12RootSignature_GetDevice(root_signature, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(root_signature, &IID_ID3D12Object, true);
     check_interface(root_signature, &IID_ID3D12DeviceChild, true);
@@ -71,7 +71,7 @@ void test_create_root_signature(void)
     check_interface(root_signature, &IID_ID3D12RootSignature, true);
 
     refcount = ID3D12RootSignature_Release(root_signature);
-    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", refcount);
 
     /* sampler and SRV in the same descriptor table */
     descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
@@ -89,7 +89,7 @@ void test_create_root_signature(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == E_INVALIDARG, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     /* empty root signature */
     root_signature_desc.NumParameters = 0;
@@ -98,9 +98,9 @@ void test_create_root_signature(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
     refcount = ID3D12RootSignature_Release(root_signature);
-    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", refcount);
 
     /* root constants */
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -119,14 +119,14 @@ void test_create_root_signature(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    todo ok(hr == E_FAIL || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_FAIL || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12RootSignature_Release(root_signature);
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
     refcount = ID3D12RootSignature_Release(root_signature);
-    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", refcount);
 
     root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     root_parameters[2].Constants.ShaderRegister = 1;
@@ -135,9 +135,9 @@ void test_create_root_signature(void)
     root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     root_signature_desc.NumParameters = 3;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
     refcount = ID3D12RootSignature_Release(root_signature);
-    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", refcount);
 
     /* root descriptors */
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
@@ -154,17 +154,17 @@ void test_create_root_signature(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    todo ok(hr == E_FAIL || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_FAIL || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12RootSignature_Release(root_signature);
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_GEOMETRY;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
     refcount = ID3D12RootSignature_Release(root_signature);
-    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", refcount);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_root_signature_limits(void)
@@ -173,8 +173,8 @@ void test_root_signature_limits(void)
     D3D12_ROOT_PARAMETER root_parameters[D3D12_MAX_ROOT_COST + 1];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12RootSignature *root_signature;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     unsigned int i;
     HRESULT hr;
 
@@ -205,15 +205,15 @@ void test_root_signature_limits(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
     ID3D12RootSignature_Release(root_signature);
 
     root_signature_desc.NumParameters = D3D12_MAX_ROOT_COST + 1;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 static void check_descriptor_range_(unsigned int line, const D3D12_DESCRIPTOR_RANGE *range,
@@ -536,7 +536,7 @@ static void check_root_signature_deserialization_(unsigned int line, const D3D12
     ID3D12VersionedRootSignatureDeserializer *versioned_deserializer;
     ID3D12RootSignatureDeserializer *deserializer;
     const D3D12_ROOT_SIGNATURE_DESC *desc;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
     if (!code->BytecodeLength)
@@ -544,21 +544,21 @@ static void check_root_signature_deserialization_(unsigned int line, const D3D12
 
     hr = D3D12CreateRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
             &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
-    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", (int)hr);
 
     desc = ID3D12RootSignatureDeserializer_GetRootSignatureDesc(deserializer);
     ok(desc, "Got NULL root signature desc.\n");
     check_root_signature_desc_(line, desc, expected_desc);
 
     refcount = ID3D12RootSignatureDeserializer_Release(deserializer);
-    ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", refcount);
 
     if (!pfn_D3D12CreateVersionedRootSignatureDeserializer)
         return;
 
     hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
             &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&versioned_deserializer);
-    ok_(line)(hr == S_OK, "Failed to create versioned deserializer, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create versioned deserializer, hr %#x.\n", (int)hr);
 
     versioned_desc = ID3D12VersionedRootSignatureDeserializer_GetUnconvertedRootSignatureDesc(versioned_deserializer);
     ok(versioned_desc, "Got NULL root signature desc.\n");
@@ -567,18 +567,18 @@ static void check_root_signature_deserialization_(unsigned int line, const D3D12
 
     hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
             D3D_ROOT_SIGNATURE_VERSION_1_0, &versioned_desc2);
-    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", (int)hr);
     ok_(line)(versioned_desc2 == versioned_desc, "Got unexpected pointer %p.\n", versioned_desc2);
 
     hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
             D3D_ROOT_SIGNATURE_VERSION_1_1, &versioned_desc);
-    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", (int)hr);
     ok(versioned_desc, "Got NULL root signature desc.\n");
     ok(versioned_desc->Version == D3D_ROOT_SIGNATURE_VERSION_1_1, "Got unexpected version %#x.\n", versioned_desc->Version);
     check_root_signature_desc1_(line, &versioned_desc->Desc_1_1, expected_desc1, true);
 
     refcount = ID3D12VersionedRootSignatureDeserializer_Release(versioned_deserializer);
-    ok_(line)(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok_(line)(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", refcount);
 }
 
 #define check_root_signature_serialization(a, b) check_root_signature_serialization_(__LINE__, a, b)
@@ -597,7 +597,7 @@ static void check_root_signature_serialization_(unsigned int line, const D3D12_S
 
     error_blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
     hr = D3D12SerializeRootSignature(desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob, &error_blob);
-    ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", (int)hr);
     ok_(line)(!error_blob, "Got unexpected error blob %p.\n", error_blob);
 
     blob_buffer = ID3D10Blob_GetBufferPointer(blob);
@@ -622,12 +622,12 @@ static void check_root_signature_deserialization1_(unsigned int line, const D3D1
     ID3D12VersionedRootSignatureDeserializer *versioned_deserializer;
     ID3D12RootSignatureDeserializer *deserializer;
     const D3D12_ROOT_SIGNATURE_DESC *desc;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
     hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
             &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&versioned_deserializer);
-    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", (int)hr);
 
     versioned_desc = ID3D12VersionedRootSignatureDeserializer_GetUnconvertedRootSignatureDesc(versioned_deserializer);
     ok(versioned_desc, "Got NULL root signature desc.\n");
@@ -636,29 +636,29 @@ static void check_root_signature_deserialization1_(unsigned int line, const D3D1
 
     hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
             D3D_ROOT_SIGNATURE_VERSION_1_1, &versioned_desc2);
-    ok_(line)(hr == S_OK, "Failed to get root signature 1.1, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.1, hr %#x.\n", (int)hr);
     ok_(line)(versioned_desc2 == versioned_desc, "Got unexpected pointer %p.\n", versioned_desc2);
 
     hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
             D3D_ROOT_SIGNATURE_VERSION_1_0, &versioned_desc);
-    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", (int)hr);
     ok(versioned_desc, "Got NULL root signature desc.\n");
     ok(versioned_desc->Version == D3D_ROOT_SIGNATURE_VERSION_1_0, "Got unexpected version %#x.\n", versioned_desc->Version);
     check_root_signature_desc_(line, &versioned_desc->Desc_1_0, expected_desc);
 
     refcount = ID3D12VersionedRootSignatureDeserializer_Release(versioned_deserializer);
-    ok_(line)(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok_(line)(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", refcount);
 
     hr = D3D12CreateRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
             &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
-    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", (int)hr);
 
     desc = ID3D12RootSignatureDeserializer_GetRootSignatureDesc(deserializer);
     ok(desc, "Got NULL root signature desc.\n");
     check_root_signature_desc_(line, desc, expected_desc);
 
     refcount = ID3D12RootSignatureDeserializer_Release(deserializer);
-    ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", refcount);
 }
 
 #define check_root_signature_deserialization2(a, b, c, d) check_root_signature_deserialization2_(__LINE__, a, b, c, d)
@@ -671,12 +671,12 @@ static void check_root_signature_deserialization2_(unsigned int line, const D3D1
     ID3D12VersionedRootSignatureDeserializer *versioned_deserializer;
     ID3D12RootSignatureDeserializer *deserializer;
     const D3D12_ROOT_SIGNATURE_DESC *desc;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
     hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
             &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&versioned_deserializer);
-    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", (int)hr);
 
     versioned_desc = ID3D12VersionedRootSignatureDeserializer_GetUnconvertedRootSignatureDesc(versioned_deserializer);
     ok(versioned_desc, "Got NULL root signature desc.\n");
@@ -685,36 +685,36 @@ static void check_root_signature_deserialization2_(unsigned int line, const D3D1
 
     hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
             D3D_ROOT_SIGNATURE_VERSION_1_2, &versioned_desc2);
-    ok_(line)(hr == S_OK, "Failed to get root signature 1.2, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.2, hr %#x.\n", (int)hr);
     ok_(line)(versioned_desc2 == versioned_desc, "Got unexpected pointer %p.\n", versioned_desc2);
 
     hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
             D3D_ROOT_SIGNATURE_VERSION_1_1, &versioned_desc2);
-    ok_(line)(hr == S_OK, "Failed to get root signature 1.1, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.1, hr %#x.\n", (int)hr);
     ok(versioned_desc2, "Got NULL root signature desc.\n");
     ok(versioned_desc2->Version == D3D_ROOT_SIGNATURE_VERSION_1_1, "Got unexpected version %#x.\n", versioned_desc2->Version);
     check_root_signature_desc1_(line, &versioned_desc2->Desc_1_1, expected_desc1, false);
 
     hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
             D3D_ROOT_SIGNATURE_VERSION_1_0, &versioned_desc);
-    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", (int)hr);
     ok(versioned_desc, "Got NULL root signature desc.\n");
     ok(versioned_desc->Version == D3D_ROOT_SIGNATURE_VERSION_1_0, "Got unexpected version %#x.\n", versioned_desc->Version);
     check_root_signature_desc_(line, &versioned_desc->Desc_1_0, expected_desc);
 
     refcount = ID3D12VersionedRootSignatureDeserializer_Release(versioned_deserializer);
-    ok_(line)(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok_(line)(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", refcount);
 
     hr = D3D12CreateRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
             &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
-    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", (int)hr);
 
     desc = ID3D12RootSignatureDeserializer_GetRootSignatureDesc(deserializer);
     ok(desc, "Got NULL root signature desc.\n");
     check_root_signature_desc_(line, desc, expected_desc);
 
     refcount = ID3D12RootSignatureDeserializer_Release(deserializer);
-    ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", refcount);
 }
 
 #define check_root_signature_serialization1(a, b) check_root_signature_serialization1_(__LINE__, a, b)
@@ -734,7 +734,7 @@ static void check_root_signature_serialization1_(unsigned int line, const D3D12_
 
     error_blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
     hr = pfn_D3D12SerializeVersionedRootSignature(&versioned_desc, &blob, &error_blob);
-    ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", (int)hr);
     ok_(line)(!error_blob, "Got unexpected error blob %p.\n", error_blob);
 
     blob_buffer = ID3D10Blob_GetBufferPointer(blob);
@@ -768,7 +768,7 @@ static void check_root_signature_serialization2_(unsigned int line, const D3D12_
 
     error_blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
     hr = pfn_D3D12SerializeVersionedRootSignature(&versioned_desc, &blob, &error_blob);
-    ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", (int)hr);
     ok_(line)(!error_blob, "Got unexpected error blob %p.\n", error_blob);
 
     blob_buffer = ID3D10Blob_GetBufferPointer(blob);
@@ -789,9 +789,9 @@ void test_root_signature_byte_code(void)
 {
     ID3D12VersionedRootSignatureDeserializer *versioned_deserializer;
     ID3D12RootSignatureDeserializer *deserializer;
+    unsigned int refcount;
     ID3DBlob *blob;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
 #if 0
@@ -1350,14 +1350,14 @@ void test_root_signature_byte_code(void)
 
     hr = D3D12CreateRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
             &IID_IUnknown, (void **)&deserializer);
-    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", (int)hr);
     hr = D3D12CreateRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
             &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&deserializer);
-    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = D3D12CreateRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
             &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
-    ok(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create deserializer, hr %#x.\n", (int)hr);
 
     check_interface(deserializer, &IID_IUnknown, false);
     check_interface(deserializer, &IID_ID3D12RootSignatureDeserializer, true);
@@ -1367,7 +1367,7 @@ void test_root_signature_byte_code(void)
     check_interface(deserializer, &IID_ID3D12Pageable, false);
 
     refcount = ID3D12RootSignatureDeserializer_Release(deserializer);
-    ok(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", refcount);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -1380,7 +1380,7 @@ void test_root_signature_byte_code(void)
 
         blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
         hr = D3D12SerializeRootSignature(t->desc, D3D_ROOT_SIGNATURE_VERSION_1_1, &blob, NULL);
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
         ok(blob == (ID3DBlob *)(uintptr_t)0xdeadbeef, "Got unexpected blob %p.\n", blob);
 
         if (!pfn_D3D12CreateVersionedRootSignatureDeserializer)
@@ -1399,14 +1399,14 @@ void test_root_signature_byte_code(void)
 
     hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
             &IID_IUnknown, (void **)&versioned_deserializer);
-    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", (int)hr);
     hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
             &IID_ID3D12RootSignatureDeserializer, (void **)&versioned_deserializer);
-    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_NOINTERFACE, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(empty_rootsig, sizeof(empty_rootsig),
             &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&versioned_deserializer);
-    ok(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create deserializer, hr %#x.\n", (int)hr);
 
     check_interface(versioned_deserializer, &IID_IUnknown, false);
     check_interface(versioned_deserializer, &IID_ID3D12RootSignatureDeserializer, false);
@@ -1416,7 +1416,7 @@ void test_root_signature_byte_code(void)
     check_interface(versioned_deserializer, &IID_ID3D12Pageable, false);
 
     refcount = ID3D12VersionedRootSignatureDeserializer_Release(versioned_deserializer);
-    ok(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", refcount);
 }
 
 void test_root_signature_byte_code2(void)
@@ -1619,13 +1619,13 @@ void test_root_signature_byte_code2(void)
 
     hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(rs_blob_dxbc, sizeof(rs_blob_dxbc),
             &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&deserializer);
-    ok(SUCCEEDED(hr), "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Got unexpected hr %#x.\n", (int)hr);
 
     check_root_signature_deserialization2(&rs_blob, &desc0, &desc1, &desc2);
     check_root_signature_serialization2(&rs_blob, &desc2);
 
     refcount = ID3D12VersionedRootSignatureDeserializer_Release(deserializer);
-    ok(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", refcount);
 }
 
 void test_root_signature_priority(void)
@@ -1693,10 +1693,10 @@ void test_root_signature_priority(void)
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
     hr = create_root_signature(device, &root_signature_desc, &api_root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateRootSignature(context.device, 0, cs_code, sizeof(cs_code), &IID_ID3D12RootSignature, (void**)&shader_root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pipeline = create_compute_pipeline_state(device, api_root_signature, cs);
     resource = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(expected),
@@ -1790,17 +1790,17 @@ void test_missing_bindings_root_signature(void)
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
     hr = create_root_signature(device, &root_signature_desc, &api_root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateRootSignature(context.device, 0, cs_code, sizeof(cs_code), &IID_ID3D12RootSignature, (void **)&shader_root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&cs_desc, 0, sizeof(cs_desc));
     cs_desc.pRootSignature = api_root_signature;
     cs_desc.CS = cs;
 
     hr = ID3D12Device_CreateComputePipelineState(context.device, &cs_desc, &IID_ID3D12PipelineState, (void **)&pipeline);
-    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(pipeline);
 
@@ -1839,7 +1839,7 @@ void test_root_signature_empty_blob(void)
 
     hr = ID3D12Device_CreateRootSignature(context.device, 0, cs_code, sizeof(cs_code), &IID_ID3D12RootSignature, (void **)&root_signature);
     /* Has to be E_FAIL, not E_INVALIDARG, oddly enough. */
-    ok(hr == E_FAIL, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_FAIL, "Unexpected hr #%x.\n", (int)hr);
     destroy_test_context(&context);
 }
 
@@ -1900,7 +1900,7 @@ void test_root_signature_embedded(void)
             pso_desc.GS = *tests[i].gs;
         pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-        todo_if(tests[i].is_todo) ok(hr == tests[i].hr, "Expected hr #%x, got hr #%x\n", tests[i].hr, hr);
+        todo_if(tests[i].is_todo) ok(hr == tests[i].hr, "Expected hr #%x, got hr #%x\n", (int)tests[i].hr, (int)hr);
         if (SUCCEEDED(hr))
             ID3D12PipelineState_Release(pso);
     }

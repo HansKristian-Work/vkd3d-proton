@@ -33,8 +33,8 @@ void test_create_committed_resource(void)
     D3D12_CLEAR_VALUE clear_value;
     D3D12_RESOURCE_STATES state;
     ID3D12Resource *resource;
+    unsigned int refcount;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     static const struct
@@ -87,16 +87,16 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12Resource_GetDevice(resource, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(resource, &IID_ID3D12Object, true);
     check_interface(resource, &IID_ID3D12DeviceChild, true);
@@ -107,13 +107,13 @@ void test_create_committed_resource(void)
     ok(!gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
 
     refcount = ID3D12Resource_Release(resource);
-    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", refcount);
 
     resource_desc.MipLevels = 0;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.MipLevels == 6, "Got unexpected miplevels %u.\n", resource_desc.MipLevels);
     ok(resource_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
@@ -125,7 +125,7 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.MipLevels == 10, "Got unexpected miplevels %u.\n", resource_desc.MipLevels);
     ok(resource_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
@@ -138,20 +138,20 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     resource_desc.SampleDesc.Count = 1;
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
             &clear_value, &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* For D3D12_RESOURCE_STATE_RENDER_TARGET the D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET flag is required. */
     resource_desc.Flags = 0;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -161,14 +161,14 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(!resource, "Got unexpected pointer %p.\n", resource);
 
     resource = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Device, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(!resource, "Got unexpected pointer %p.\n", resource);
 
     /* A texture *can* be created on a GPU UPLOAD heap. */
@@ -179,9 +179,9 @@ void test_create_committed_resource(void)
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     if (is_gpu_upload_heap_supported)
-        ok(hr == S_OK, "Failed to create committed resource (rendertarget) on GPU upload heap, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create committed resource (rendertarget) on GPU upload heap, hr %#x.\n", (int)hr);
     else
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -192,9 +192,9 @@ void test_create_committed_resource(void)
         &resource_desc, D3D12_RESOURCE_STATE_DEPTH_READ, NULL,
         &IID_ID3D12Resource, (void**)&resource);
     if (is_gpu_upload_heap_supported)
-        todo ok(hr == S_OK, "Failed to create committed resource (depth texture) on GPU upload heap, hr %#x.\n", hr);
+        todo ok(hr == S_OK, "Failed to create committed resource (depth texture) on GPU upload heap, hr %#x.\n", (int)hr);
     else
-        todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
     resource_desc.Flags = 0;
@@ -205,7 +205,7 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     resource_desc.Format = DXGI_FORMAT_BC1_UNORM;
@@ -215,7 +215,7 @@ void test_create_committed_resource(void)
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
             "Got aligment %"PRIu64", expected D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
     ID3D12Resource_Release(resource);
 
     resource_desc.Alignment = 0;
@@ -224,7 +224,7 @@ void test_create_committed_resource(void)
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     /* Unaligned mip 0 textures are allowed now on AgilitySDK 606. */
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -234,7 +234,7 @@ void test_create_committed_resource(void)
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     /* Unaligned mip 0 textures are allowed now on AgilitySDK 606. */
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -244,7 +244,7 @@ void test_create_committed_resource(void)
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     /* Unaligned mip 0 textures are allowed now on AgilitySDK 606. */
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -254,7 +254,7 @@ void test_create_committed_resource(void)
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
     /* Unaligned mip 0 textures are allowed now on AgilitySDK 606. */
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -264,7 +264,7 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* Texture that meets small alignment requirements */
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -282,7 +282,7 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.Alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
             "Got aligment %"PRIu64", expected D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
@@ -294,7 +294,7 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* MSAA with large alignment */
     resource_desc.Alignment = 0;
@@ -306,7 +306,7 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.Alignment == D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT,
             "Got aligment %"PRIu64", expected D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
@@ -332,7 +332,7 @@ void test_create_committed_resource(void)
     resource_desc = ID3D12Resource_GetDesc(resource);
     ok(resource_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
             "Got aligment %"PRIu64", expected D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT.\n", resource_desc.Alignment);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
     check_interface(resource, &IID_ID3D12Object, true);
     check_interface(resource, &IID_ID3D12DeviceChild, true);
@@ -343,7 +343,7 @@ void test_create_committed_resource(void)
     ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
 
     refcount = ID3D12Resource_Release(resource);
-    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", refcount);
     resource_desc.Alignment = 0;
 
     heap_properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
@@ -352,7 +352,7 @@ void test_create_committed_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     if (is_gpu_upload_heap_supported)
     {
-        ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
         check_interface(resource, &IID_ID3D12Object, true);
         check_interface(resource, &IID_ID3D12DeviceChild, true);
@@ -363,30 +363,30 @@ void test_create_committed_resource(void)
         ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
 
         refcount = ID3D12Resource_Release(resource);
-        ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+        ok(!refcount, "ID3D12Resource has %u references left.\n", refcount);
     }
     else
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
     resource_desc.MipLevels = 0;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Failed to create committed resource, hr %#x.\n", (int)hr);
     resource_desc.MipLevels = 1;
 
     /* The clear value must be NULL for buffers. */
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* For D3D12_HEAP_TYPE_UPLOAD the state must be D3D12_RESOURCE_STATE_GENERIC_READ. */
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     /* AgilitySDK 606 allows COMMON for UPLOAD heap now. */
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
@@ -394,7 +394,7 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     /* AgilitySDK 606 allows partial GENERIC_READ for UPLOAD heap now. */
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
@@ -404,21 +404,21 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", hr);
+    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", hr);
+    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
         &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
         &IID_ID3D12Resource, (void**)&resource);
-    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", hr);
+    ok(hr == (is_gpu_upload_heap_supported ? S_OK : E_INVALIDARG), "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -427,30 +427,30 @@ void test_create_committed_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
     gpu_address = ID3D12Resource_GetGPUVirtualAddress(resource);
     ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
 
     refcount = ID3D12Resource_Release(resource);
-    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", refcount);
 
     /* For D3D12_HEAP_TYPE_READBACK the state must be D3D12_RESOURCE_STATE_COPY_DEST. */
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     /* AgilitySDK 606 allows COMMON for READBACK heap now. */
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(invalid_buffer_desc_tests); ++i)
     {
@@ -476,11 +476,11 @@ void test_create_committed_resource(void)
 
         hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, state, NULL, &IID_ID3D12Resource, (void **)&resource);
-        ok(hr == E_INVALIDARG, "Test %u: Got unexpected hr %#x.\n", i, hr);
+        ok(hr == E_INVALIDARG, "Test %u: Got unexpected hr %#x.\n", i, (int)hr);
     }
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_heap(void)
@@ -492,9 +492,9 @@ void test_create_heap(void)
     bool is_gpu_upload_heap_supported;
     bool is_pool_L1_supported;
     HRESULT hr, expected_hr;
+    unsigned int refcount;
     unsigned int i, j;
     ID3D12Heap *heap;
-    ULONG refcount;
 
     static const struct
     {
@@ -556,16 +556,16 @@ void test_create_heap(void)
     desc.Alignment = 0;
     desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12Heap_GetDevice(heap, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(heap, &IID_ID3D12Object, true);
     check_interface(heap, &IID_ID3D12DeviceChild, true);
@@ -576,21 +576,21 @@ void test_create_heap(void)
     check_heap_desc(&result_desc, &desc);
 
     refcount = ID3D12Heap_Release(heap);
-    ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Heap has %u references left.\n", refcount);
 
     desc.SizeInBytes = 0;
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     desc.SizeInBytes = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES | D3D12_HEAP_FLAG_ALLOW_DISPLAY;
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     heap = (void *)(uintptr_t)0xdeadbeef;
     desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_ALLOW_DISPLAY;
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(!heap, "Got unexpected pointer %p.\n", heap);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
@@ -604,7 +604,7 @@ void test_create_heap(void)
             desc.Flags = heap_flags[j].flags;
             hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
             ok(hr == tests[i].expected_hr, "Test %u, %s: Got hr %#x, expected %#x.\n",
-                    i, heap_flags[j].name, hr, tests[i].expected_hr);
+                    i, heap_flags[j].name, (int)hr, (int)tests[i].expected_hr);
             if (FAILED(hr))
                 continue;
 
@@ -612,13 +612,13 @@ void test_create_heap(void)
             check_heap_desc(&result_desc, &desc);
 
             refcount = ID3D12Heap_Release(heap);
-            ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+            ok(!refcount, "ID3D12Heap has %u references left.\n", refcount);
         }
     }
     vkd3d_test_set_context(NULL);
 
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
-    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", (int)hr);
     if (options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
     {
         skip("Resource heap tier %u.\n", options.ResourceHeapTier);
@@ -629,15 +629,15 @@ void test_create_heap(void)
     desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     desc.Flags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
     hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     result_desc = ID3D12Heap_GetDesc(heap);
     check_heap_desc(&result_desc, &desc);
     refcount = ID3D12Heap_Release(heap);
-    ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Heap has %u references left.\n", refcount);
 
     memset(&architecture, 0, sizeof(architecture));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE, &architecture, sizeof(architecture));
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     for (i = D3D12_HEAP_TYPE_DEFAULT; i <= D3D12_HEAP_TYPE_GPU_UPLOAD; ++i)
     {
         if (i == D3D12_HEAP_TYPE_CUSTOM || (i == D3D12_HEAP_TYPE_GPU_UPLOAD && !is_gpu_upload_heap_supported))
@@ -687,7 +687,7 @@ void test_create_heap(void)
         }
 
         hr = ID3D12Device_CreateHeap(device, &desc, &IID_ID3D12Heap, (void **)&heap);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         result_desc = ID3D12Heap_GetDesc(heap);
         check_heap_desc(&result_desc, &desc);
         ID3D12Heap_Release(heap);
@@ -712,7 +712,7 @@ void test_create_heap(void)
             expected_hr = E_INVALIDARG;
 
         ok(hr == expected_hr, "Test %u, page_property %u, pool_preference %u: Got hr %#x, expected %#x.\n",
-                i, custom_tests[i].page_property, custom_tests[i].pool_preference, hr, expected_hr);
+                i, custom_tests[i].page_property, custom_tests[i].pool_preference, (int)hr, (int)expected_hr);
         if (FAILED(hr))
             continue;
 
@@ -720,13 +720,13 @@ void test_create_heap(void)
         check_heap_desc(&result_desc, &desc);
 
         refcount = ID3D12Heap_Release(heap);
-        ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+        ok(!refcount, "ID3D12Heap has %u references left.\n", refcount);
     }
     vkd3d_test_set_context(NULL);
 
 done:
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_placed_resource_size(void)
@@ -775,21 +775,21 @@ void test_create_placed_resource_size(void)
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     heap_desc.SizeInBytes = mip_sizes[ARRAY_SIZE(mip_sizes) - 1];
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", (int)hr);
 
     hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&resource);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
     ID3D12Resource_Release(resource);
     ID3D12Heap_Release(heap);
 
     heap_desc.SizeInBytes = 64 * 1024;
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", (int)hr);
 
     /* Runtime validates range, this must fail. */
     hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Unexpected result, hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr #%x.\n", (int)hr);
 
     ID3D12Heap_Release(heap);
     ID3D12Device_Release(device);
@@ -805,9 +805,9 @@ void test_create_placed_resource(void)
     D3D12_RESOURCE_STATES state;
     D3D12_HEAP_DESC heap_desc;
     ID3D12Resource *resource;
+    unsigned int refcount;
     ID3D12Heap *heap;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     static const struct
@@ -840,7 +840,7 @@ void test_create_placed_resource(void)
     heap_desc.Alignment = 0;
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     resource_desc.Alignment = 0;
@@ -861,24 +861,24 @@ void test_create_placed_resource(void)
     clear_value.Color[3] = 1.0f;
 
     refcount = get_refcount(heap);
-    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
 
     hr = ID3D12Device_CreatePlacedResource(device, heap, 0,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(heap);
-    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
 
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12Resource_GetDevice(resource, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 4, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 4, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(resource, &IID_ID3D12Object, true);
     check_interface(resource, &IID_ID3D12DeviceChild, true);
@@ -889,13 +889,13 @@ void test_create_placed_resource(void)
     ok(gpu_address, "Got unexpected GPU virtual address %#"PRIx64".\n", gpu_address);
 
     refcount = ID3D12Resource_Release(resource);
-    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", refcount);
 
     /* The clear value must be NULL for buffers. */
     hr = ID3D12Device_CreatePlacedResource(device, heap, 0,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* Textures are disallowed on ALLOW_ONLY_HEAPS */
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -905,7 +905,7 @@ void test_create_placed_resource(void)
     hr = ID3D12Device_CreatePlacedResource(device, heap, 0,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     ID3D12Heap_Release(heap);
 
@@ -918,10 +918,10 @@ void test_create_placed_resource(void)
         heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
         if (heap_desc.Properties.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported)
-            ok(hr == S_OK, "Test %u: Failed to create heap, hr %#x.\n", i, hr);
+            ok(hr == S_OK, "Test %u: Failed to create heap, hr %#x.\n", i, (int)hr);
         else
         {
-            ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+            ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
             continue;
         }
 
@@ -944,13 +944,13 @@ void test_create_placed_resource(void)
 
         hr = ID3D12Device_CreatePlacedResource(device, heap, 0,
                 &resource_desc, state, &clear_value, &IID_ID3D12Resource, (void **)&resource);
-        ok(hr == E_INVALIDARG, "Test %u: Got unexpected hr %#x.\n", i, hr);
+        ok(hr == E_INVALIDARG, "Test %u: Got unexpected hr %#x.\n", i, (int)hr);
 
         ID3D12Heap_Release(heap);
     }
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_reserved_resource(void)
@@ -963,8 +963,8 @@ void test_create_reserved_resource(void)
     ID3D12Resource *resource;
     ID3D12Device10 *device10;
     bool standard_swizzle;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
     void *ptr;
 
@@ -998,7 +998,7 @@ void test_create_reserved_resource(void)
     hr = ID3D12Device_CreateReservedResource(device,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", (int)hr);
 
     check_interface(resource, &IID_ID3D12Object, true);
     check_interface(resource, &IID_ID3D12DeviceChild, true);
@@ -1010,15 +1010,15 @@ void test_create_reserved_resource(void)
 
     heap_flags = 0xdeadbeef;
     hr = ID3D12Resource_GetHeapProperties(resource, &heap_properties, &heap_flags);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(heap_flags == 0xdeadbeef, "Got unexpected heap flags %#x.\n", heap_flags);
 
     /* Map() is not allowed on reserved resources */
     hr = ID3D12Resource_Map(resource, 0, NULL, &ptr);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     refcount = ID3D12Resource_Release(resource);
-    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", refcount);
 
     /* The clear value must be NULL for buffers. */
     clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1030,20 +1030,20 @@ void test_create_reserved_resource(void)
     hr = ID3D12Device_CreateReservedResource(device,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, &clear_value,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* D3D12_TEXTURE_LAYOUT_ROW_MAJOR must be used for buffers. */
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
     hr = ID3D12Device_CreateReservedResource(device,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     hr = ID3D12Device_CreateReservedResource(device,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE must be used for textures. */
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -1061,28 +1061,28 @@ void test_create_reserved_resource(void)
     hr = ID3D12Device_CreateReservedResource(device,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", (int)hr);
     refcount = ID3D12Resource_Release(resource);
-    ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Resource has %u references left.\n", refcount);
 
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     hr = ID3D12Device_CreateReservedResource(device,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     resource_desc.MipLevels = 1;
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     hr = ID3D12Device_CreateReservedResource(device,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE;
     hr = ID3D12Device_CreateReservedResource(device,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == (standard_swizzle ? S_OK : E_INVALIDARG) || broken(use_warp_device), "Got unexpected hr %#x.\n", hr);
+    ok(hr == (standard_swizzle ? S_OK : E_INVALIDARG) || broken(use_warp_device), "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -1092,7 +1092,7 @@ void test_create_reserved_resource(void)
     hr = ID3D12Device_CreateReservedResource(device,
         &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
         &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -1104,7 +1104,7 @@ void test_create_reserved_resource(void)
         &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
         &IID_ID3D12Resource, (void **)&resource);
     ok(hr == ((get_tiled_resources_tier(device) < D3D12_TILED_RESOURCES_TIER_4)
-            ? E_INVALIDARG : S_OK), "Got unexpected hr %#x.\n", hr);
+            ? E_INVALIDARG : S_OK), "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -1117,7 +1117,7 @@ void test_create_reserved_resource(void)
     hr = ID3D12Device_CreateReservedResource(device,
         &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
         &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
 
@@ -1140,7 +1140,7 @@ void test_create_reserved_resource(void)
         hr = ID3D12Device10_CreateReservedResource2(device10,
             &resource_desc, D3D12_BARRIER_LAYOUT_GENERIC_READ, NULL, NULL,
             1, &castable_format, &IID_ID3D12Resource, (void **)&resource);
-        ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", (int)hr);
 
         if (SUCCEEDED(hr))
             ID3D12Resource_Release(resource);
@@ -1154,7 +1154,7 @@ void test_create_reserved_resource(void)
 
 done:
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_map_resource(void)
@@ -1163,8 +1163,8 @@ void test_map_resource(void)
     D3D12_RESOURCE_DESC resource_desc;
     bool is_gpu_upload_heap_supported;
     ID3D12Resource *resource;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     void *data;
     HRESULT hr;
 
@@ -1193,12 +1193,12 @@ void test_map_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", (int)hr);
 
     /* Resources on a DEFAULT heap cannot be mapped. */
     data = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
     ID3D12Resource_Release(resource);
@@ -1218,12 +1218,12 @@ void test_map_resource(void)
         /* The data pointer must be NULL for the UNKNOWN layout. */
         data = (void *)(uintptr_t)0xdeadbeef;
         hr = ID3D12Resource_Map(resource, 0, NULL, &data);
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
         ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
         /* Texture on custom heaps can be mapped, but the address doesn't get disclosed to applications */
         hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
-        todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        todo ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ID3D12Resource_Unmap(resource, 0, NULL);
 
         ID3D12Resource_Release(resource);
@@ -1239,12 +1239,12 @@ void test_map_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
     /* Resources on a DEFAULT heap cannot be mapped. */
     data = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
     ID3D12Resource_Release(resource);
@@ -1253,29 +1253,29 @@ void test_map_resource(void)
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Resource, (void **)&resource);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
     data = NULL;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ok(data, "Got NULL pointer.\n");
     ID3D12Resource_Unmap(resource, 0, NULL);
 
     data = (void *)(uintptr_t)0xdeadbeef;
     hr = ID3D12Resource_Map(resource, 1, NULL, &data);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
     data = NULL;
     hr = ID3D12Resource_Map(resource, 0, NULL, &data);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ok(data, "Got NULL pointer.\n");
     ID3D12Resource_Unmap(resource, 1, NULL);
     ID3D12Resource_Unmap(resource, 0, NULL);
 
     /* Passing NULL to Map should map, but not disclose the CPU VA to caller. */
     hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ID3D12Resource_Unmap(resource, 0, NULL);
 
     ID3D12Resource_Release(resource);
@@ -1286,39 +1286,39 @@ void test_map_resource(void)
             &IID_ID3D12Resource, (void **)&resource);
     if (is_gpu_upload_heap_supported)
     {
-        ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
         data = NULL;
         hr = ID3D12Resource_Map(resource, 0, NULL, &data);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(data, "Got NULL pointer.\n");
         ID3D12Resource_Unmap(resource, 0, NULL);
 
         data = (void *)(uintptr_t)0xdeadbeef;
         hr = ID3D12Resource_Map(resource, 1, NULL, &data);
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
         ok(data == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", data);
 
         data = NULL;
         hr = ID3D12Resource_Map(resource, 0, NULL, &data);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(data, "Got NULL pointer.\n");
         ID3D12Resource_Unmap(resource, 1, NULL);
         ID3D12Resource_Unmap(resource, 0, NULL);
 
         /* Passing NULL to Map should map, but not disclose the CPU VA to caller. */
         hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ID3D12Resource_Unmap(resource, 0, NULL);
 
         ID3D12Resource_Release(resource);
     }
     else
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_map_placed_resources(void)
@@ -1374,7 +1374,7 @@ void test_map_placed_resources(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_pipeline_state(device, context.root_signature, 0, NULL, &ps_store_buffer_dxbc, NULL);
 
@@ -1384,12 +1384,12 @@ void test_map_placed_resources(void)
     heap_desc.Alignment = 0;
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&upload_heap);
-    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
 
     heap_desc.SizeInBytes = 1024;
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_READBACK;
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&readback_heap);
-    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
 
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     resource_desc.Alignment = 0;
@@ -1409,14 +1409,14 @@ void test_map_placed_resources(void)
                 i * D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
                 &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
                 &IID_ID3D12Resource, (void **)&cb[i]);
-        ok(hr == S_OK, "Failed to create placed resource %u, hr %#x.\n", i, hr);
+        ok(hr == S_OK, "Failed to create placed resource %u, hr %#x.\n", i, (int)hr);
     }
 
     resource_desc.Width = 1024;
     hr = ID3D12Device_CreatePlacedResource(device, readback_heap, 0,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
             &IID_ID3D12Resource, (void **)&readback_buffer);
-    ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", (int)hr);
 
     uav_buffer = create_default_buffer(device, resource_desc.Width,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1424,11 +1424,11 @@ void test_map_placed_resources(void)
     for (i = 0; i < ARRAY_SIZE(cb); ++i)
     {
         hr = ID3D12Resource_Map(cb[i], 0, NULL, (void **)&cb_data[i]);
-        ok(hr == S_OK, "Failed to map buffer %u, hr %#x.\n", i, hr);
+        ok(hr == S_OK, "Failed to map buffer %u, hr %#x.\n", i, (int)hr);
     }
 
     hr = ID3D12Resource_Map(cb[0], 0, NULL, (void **)&ptr);
-    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", (int)hr);
     ok(ptr == cb_data[0], "Got map ptr %p, expected %p.\n", ptr, cb_data[0]);
     cb_data[0][0] = 0;
     cb_data[0][1] = expected_values[0];
@@ -1492,9 +1492,9 @@ void test_map_placed_resources(void)
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_GPU_UPLOAD;
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&gpu_upload_heap);
     if (is_gpu_upload_heap_supported)
-        ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
     else
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     if (is_gpu_upload_heap_supported)
     {
@@ -1502,36 +1502,36 @@ void test_map_placed_resources(void)
         hr = ID3D12Device_CreatePlacedResource(device, gpu_upload_heap, 0,
             &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL,
             &IID_ID3D12Resource, (void**)&cb[0]);
-        ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", (int)hr);
 
         cb_data[0] = NULL;
         hr = ID3D12Resource_Map(cb[0], 0, NULL, (void **)&cb_data[0]);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(cb_data[0], "Got NULL pointer.\n");
         ID3D12Resource_Unmap(cb[0], 0, NULL);
 
         cb_data[0] = (void *)(uintptr_t)0xdeadbeef;
         hr = ID3D12Resource_Map(cb[0], 1, NULL, (void **)&cb_data[0]);
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
         ok(cb_data[0] == (void *)(uintptr_t)0xdeadbeef, "Pointer was modified %p.\n", cb_data[0]);
 
         cb_data[0] = NULL;
         hr = ID3D12Resource_Map(cb[0], 0, NULL, (void **)&cb_data[0]);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(cb_data[0], "Got NULL pointer.\n");
         ID3D12Resource_Unmap(cb[0], 1, NULL);
         ID3D12Resource_Unmap(cb[0], 0, NULL);
 
         /* Passing NULL to Map should map, but not disclose the CPU VA to caller. */
         hr = ID3D12Resource_Map(cb[0], 0, NULL, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ID3D12Resource_Unmap(cb[0], 0, NULL);
 
         ID3D12Resource_Release(cb[0]);
         ID3D12Heap_Release(gpu_upload_heap);
     }
     else
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     destroy_test_context(&context);
 }
@@ -1661,9 +1661,9 @@ void test_get_copyable_footprints(void)
     UINT64 row_sizes[10], total_size;
     unsigned int sub_resource_count;
     unsigned int i, j, k, l;
+    unsigned int refcount;
     ID3D12Device *device;
     UINT row_counts[10];
-    ULONG refcount;
 
     static const struct
     {
@@ -1883,7 +1883,7 @@ void test_get_copyable_footprints(void)
     }
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_resource_allocation_info(void)
@@ -1892,9 +1892,9 @@ void test_resource_allocation_info(void)
     D3D12_RESOURCE_ALLOCATION_INFO info, info1;
     D3D12_RESOURCE_DESC desc[2];
     ID3D12Device4 *device4;
+    unsigned int refcount;
     ID3D12Device *device;
     unsigned int i, j;
-    ULONG refcount;
 
     static const unsigned int alignments[] =
     {
@@ -2065,7 +2065,7 @@ void test_resource_allocation_info(void)
         ID3D12Device4_Release(device4);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_suballocate_small_textures_size(void)
@@ -2325,10 +2325,10 @@ void test_suballocate_small_textures(void)
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *textures[10];
     D3D12_HEAP_DESC heap_desc;
+    unsigned int refcount;
     ID3D12Device *device;
     ID3D12Heap *heap;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -2370,14 +2370,14 @@ void test_suballocate_small_textures(void)
     heap_desc.Alignment = 0;
     heap_desc.Flags = D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES;
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(textures); ++i)
     {
         hr = ID3D12Device_CreatePlacedResource(device, heap, i * info.SizeInBytes,
                 &resource_desc, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                 NULL, &IID_ID3D12Resource, (void **)&textures[i]);
-        ok(hr == S_OK, "Failed to create placed resource %u, hr %#x.\n", i, hr);
+        ok(hr == S_OK, "Failed to create placed resource %u, hr %#x.\n", i, (int)hr);
 
         check_interface(textures[i], &IID_ID3D12Object, true);
         check_interface(textures[i], &IID_ID3D12DeviceChild, true);
@@ -2389,18 +2389,18 @@ void test_suballocate_small_textures(void)
     }
 
     refcount = get_refcount(heap);
-    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
 
     for (i = 0; i < ARRAY_SIZE(textures); ++i)
     {
         refcount = ID3D12Resource_Release(textures[i]);
-        ok(!refcount, "ID3D12Resource has %u references left.\n", (unsigned int)refcount);
+        ok(!refcount, "ID3D12Resource has %u references left.\n", refcount);
     }
 
     refcount = ID3D12Heap_Release(heap);
-    ok(!refcount, "ID3D12Heap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Heap has %u references left.\n", refcount);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_read_subresource_rt(void)
@@ -2556,10 +2556,10 @@ void test_read_write_subresource_2d(void)
 
     set_box(&box, 0, 0, 0, 1, 1, 1);
     hr = ID3D12Resource_WriteToSubresource(rb_buffer, 0, &box, dst_buffer, row_pitch, slice_pitch);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_ReadFromSubresource(rb_buffer, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     ID3D12Resource_Release(rb_buffer);
 
@@ -2591,34 +2591,34 @@ void test_read_write_subresource_2d(void)
     /* Invalid box */
     set_box(&box, 0, 0, 0, 128, 100, 2);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 0, 0, 2, 128, 100, 2);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 128, 0, 0, 129, 100, 1);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* NULL box */
     hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, dst_buffer, row_pitch, slice_pitch);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, NULL);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     /* Empty box */
     set_box(&box, 128, 100, 1, 128, 100, 1);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 0, 0, 0, 0, 0, 0);
     hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     for (i = 0; i < 2; ++i)
     {
@@ -2641,18 +2641,18 @@ void test_read_write_subresource_2d(void)
         if (i)
         {
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, zero_buffer, row_pitch, slice_pitch);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
             /* Write region 1 */
             set_box(&box, 0, 0, 0, 2, 2, 1);
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
             /* Write region 2 */
             set_box(&box, 2, 2, 0, 11, 13, 1);
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, &dst_buffer[2 * 128 + 2],
                     row_pitch, slice_pitch);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         }
         else
         {
@@ -2673,13 +2673,13 @@ void test_read_write_subresource_2d(void)
         /* Read region 1 */
         set_box(&box, 0, 0, 0, 2, 2, 1);
         hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         /* Read region 2 */
         set_box(&box, 2, 2, 0, 11, 13, 1);
         hr = ID3D12Resource_ReadFromSubresource(src_texture, &dst_buffer[2 * 128 + 2], row_pitch,
                 slice_pitch, 0, &box);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         for (y = 0; y < 100; ++y)
         {
@@ -2801,10 +2801,10 @@ void test_read_write_subresource(void)
 
     set_box(&box, 0, 0, 0, 1, 1, 1);
     hr = ID3D12Resource_WriteToSubresource(rb_buffer, 0, &box, dst_buffer, row_pitch, slice_pitch);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_ReadFromSubresource(rb_buffer, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     ID3D12Resource_Release(rb_buffer);
 
@@ -2836,34 +2836,34 @@ void test_read_write_subresource(void)
     /* Invalid box */
     set_box(&box, 0, 0, 0, 128, 100, 65);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 0, 0, 65, 128, 100, 65);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 128, 0, 0, 128, 100, 65);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* NULL box */
     hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, dst_buffer, row_pitch, slice_pitch);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, NULL);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     /* Empty box */
     set_box(&box, 128, 100, 64, 128, 100, 64);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 0, 0, 0, 0, 0, 0);
     hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     for (i = 0; i < 2; ++i)
     {
@@ -2889,18 +2889,18 @@ void test_read_write_subresource(void)
         if (i)
         {
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, zero_buffer, row_pitch, slice_pitch);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
             /* Write region 1 */
             set_box(&box, 0, 0, 0, 2, 2, 2);
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
             /* Write region 2 */
             set_box(&box, 2, 2, 2, 11, 13, 17);
             hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2],
                     row_pitch, slice_pitch);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         }
         else
         {
@@ -2921,13 +2921,13 @@ void test_read_write_subresource(void)
         /* Read region 1 */
         set_box(&box, 0, 0, 0, 2, 2, 2);
         hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         /* Read region 2 */
         set_box(&box, 2, 2, 2, 11, 13, 17);
         hr = ID3D12Resource_ReadFromSubresource(src_texture, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2], row_pitch,
                 slice_pitch, 0, &box);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         for (z = 0; z < 64; ++z)
         {
@@ -3026,29 +3026,29 @@ void test_read_write_subresource(void)
     heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&src_texture);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     /* Unaligned coordinates for BC format */
     set_box(&box, 0, 0, 0, 2, 2, 1);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 2, 2, 0, 4, 4, 1);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 2, 2, 0, 6, 6, 1);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* Invalid coordinates for resource dimensions */
     set_box(&box, 0, 0, 0, 64, 32, 2);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     set_box(&box, 0, 0, 0, 68, 32, 1);
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     ID3D12Resource_Release(src_texture);
 
@@ -3346,13 +3346,13 @@ void test_stress_fallback_render_target_allocation_device(void)
     for (i = 0; i < ARRAY_SIZE(heaps); i++)
     {
         hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heaps[i]);
-        ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", (int)hr);
 
         if (SUCCEEDED(hr))
         {
             hr = ID3D12Device_CreatePlacedResource(context.device, heaps[i], 0, &desc,
                     D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&resource);
-            ok(SUCCEEDED(hr), "Failed to place resource, hr #%x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to place resource, hr #%x.\n", (int)hr);
             if (SUCCEEDED(hr))
                 ID3D12Resource_Release(resource);
         }
@@ -3823,13 +3823,13 @@ void test_map_texture_validation(void)
 
             /* We cannot successfully create host visible linear RT on all implementations. */
             todo_if(tests[i].is_todo)
-            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].heap_creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
+            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].heap_creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", (int)hr);
 
             if (SUCCEEDED(hr))
             {
                 hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &desc, D3D12_RESOURCE_STATE_GENERIC_READ,
                         NULL, &IID_ID3D12Resource, (void**)&resource);
-                todo_if(tests[i].is_todo) ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
+                todo_if(tests[i].is_todo) ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", (int)hr);
                 if (SUCCEEDED(hr))
                     ID3D12Resource_Release(resource);
                 ID3D12Heap_Release(heap);
@@ -3839,17 +3839,17 @@ void test_map_texture_validation(void)
         hr = ID3D12Device_CreateCommittedResource(device, &heap_props, tests[i].heap_flags,
                 &desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource,
                 (void**)&resource);
-        todo_if(tests[i].is_todo) ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
+        todo_if(tests[i].is_todo) ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].creation_hr : E_INVALIDARG), "Unexpected hr %#x.\n", (int)hr);
 
         if (SUCCEEDED(hr))
         {
             hr = ID3D12Resource_Map(resource, 0, NULL, &mapped_ptr);
-            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].map_hr_with_ppdata : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
+            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].map_hr_with_ppdata : E_INVALIDARG), "Unexpected hr %#x.\n", (int)hr);
             if (SUCCEEDED(hr))
                 ID3D12Resource_Unmap(resource, 0, NULL);
 
             hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
-            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].map_hr_without_ppdata : E_INVALIDARG), "Unexpected hr %#x.\n", hr);
+            ok(hr == (heap_props.Type != D3D12_HEAP_TYPE_GPU_UPLOAD || is_gpu_upload_heap_supported ? tests[i].map_hr_without_ppdata : E_INVALIDARG), "Unexpected hr %#x.\n", (int)hr);
             if (SUCCEEDED(hr))
                 ID3D12Resource_Unmap(resource, 0, NULL);
             ID3D12Resource_Release(resource);
@@ -3900,7 +3900,7 @@ void test_aliasing_barrier_edge_cases(void)
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
     hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
-    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", (int)hr);
 
     rtvs = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, ARRAY_SIZE(resources));
     for (i = 0; i < ARRAY_SIZE(resources); i++)
@@ -3909,7 +3909,7 @@ void test_aliasing_barrier_edge_cases(void)
         h.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
                 NULL, &IID_ID3D12Resource, (void**)&resources[i]);
-        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
         ID3D12Device_CreateRenderTargetView(context.device, resources[i], NULL, h);
         rtv[i] = h;
     }
@@ -4129,14 +4129,14 @@ void test_planar_video_formats(void)
     rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&compute_pso_desc, 0, sizeof(compute_pso_desc));
     compute_pso_desc.CS = cs_copy_simple_dxbc;
     compute_pso_desc.pRootSignature = context.root_signature;
 
     hr = ID3D12Device_CreateComputePipelineState(context.device, &compute_pso_desc, &IID_ID3D12PipelineState, (void**)&compute_pso);
-    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
     rtv = get_cpu_descriptor_handle(&context, rtv_heap, 0);
@@ -4156,7 +4156,7 @@ void test_planar_video_formats(void)
         format_support.Format = test_formats[i].format;
 
         hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_SUPPORT, &format_support, sizeof(format_support));
-        ok(hr == S_OK || hr == E_FAIL, "Got invalid hr %#x.\n", hr);
+        ok(hr == S_OK || hr == E_FAIL, "Got invalid hr %#x.\n", (int)hr);
 
         if (FAILED(hr))
         {
@@ -4173,7 +4173,7 @@ void test_planar_video_formats(void)
         format_info.Format = test_formats[i].format;
 
         hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_INFO, &format_info, sizeof(format_info));
-        ok(hr == S_OK, "Checking format info failed, hr %#x.\n", hr);
+        ok(hr == S_OK, "Checking format info failed, hr %#x.\n", (int)hr);
         ok(format_info.PlaneCount == test_formats[i].plane_count, "Got plane count %u, expected %u.\n", format_info.PlaneCount, test_formats[i].plane_count);
 
         /* Validate copyable footprints */
@@ -4202,7 +4202,7 @@ void test_planar_video_formats(void)
 
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resources[0]);
-        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
         for (j = 0; j < test_formats[i].plane_count; j++)
         {
@@ -4214,10 +4214,10 @@ void test_planar_video_formats(void)
             row_pitch = resource_desc.Width * element_size;
 
             hr = ID3D12Resource_Map(resources[0], j, NULL, NULL);
-            ok(hr == S_OK, "Failed to map subresource %u, hr %#x.\n", j, hr);
+            ok(hr == S_OK, "Failed to map subresource %u, hr %#x.\n", j, (int)hr);
 
             hr = ID3D12Resource_WriteToSubresource(resources[0], j, NULL, plane->data, row_pitch, 0);
-            ok(hr == S_OK, "Failed to write subresource %u, hr %#x.\n", j, hr);
+            ok(hr == S_OK, "Failed to write subresource %u, hr %#x.\n", j, (int)hr);
 
             ID3D12Resource_Unmap(resources[0], j, NULL);
 
@@ -4231,13 +4231,13 @@ void test_planar_video_formats(void)
             reset_command_list(context.list, context.allocator);
 
             hr = ID3D12Resource_Map(resources[0], j, NULL, NULL);
-            ok(hr == S_OK, "Failed to map subresource %u, hr %#x.\n", j, hr);
+            ok(hr == S_OK, "Failed to map subresource %u, hr %#x.\n", j, (int)hr);
 
             memset(dst_data, 0xff, sizeof(dst_data));
 
             hr = ID3D12Resource_ReadFromSubresource(resources[0], dst_data,
                     row_pitch, 0, j, NULL);
-            ok(hr == S_OK, "Failed to read subresource %u, hr %#x.\n", j, hr);
+            ok(hr == S_OK, "Failed to read subresource %u, hr %#x.\n", j, (int)hr);
 
             for (k = 0; k < resource_desc.Height; k++)
             {
@@ -4268,7 +4268,7 @@ void test_planar_video_formats(void)
 
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[0]);
-        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
         memset(&heap_properties, 0, sizeof(heap_properties));
         heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
@@ -4285,14 +4285,14 @@ void test_planar_video_formats(void)
 
             hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                     &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
-            ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
             hr = ID3D12Resource_Map(resources[1], 0, NULL, NULL);
-            ok(hr == S_OK, "Failed to map resource, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to map resource, hr %#x.\n", (int)hr);
 
             hr = ID3D12Resource_WriteToSubresource(resources[1], 0, NULL, plane->data,
                     resource_desc.Width * format_size_planar(test_formats[i].format, j), 0);
-            ok(hr == S_OK, "Failed to write resource, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to write resource, hr %#x.\n", (int)hr);
 
             memset(&dst_location, 0, sizeof(dst_location));
             dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -4336,7 +4336,7 @@ void test_planar_video_formats(void)
 
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[0]);
-        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
         for (j = 0; j < test_formats[i].plane_count; j++)
         {
@@ -4363,7 +4363,7 @@ void test_planar_video_formats(void)
         /* Test full copy via CopyResource */
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
-        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_CopyResource(context.list, resources[1], resources[0]);
         transition_resource_state(context.list, resources[1], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -4388,7 +4388,7 @@ void test_planar_video_formats(void)
         /* Test copy via CopyTextureRegion */
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
-        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
         for (j = 0; j < test_formats[i].plane_count; j++)
         {
@@ -4428,7 +4428,7 @@ void test_planar_video_formats(void)
 
             hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                     &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
-            ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
             memset(&dst_location, 0, sizeof(dst_location));
             dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -4469,7 +4469,7 @@ void test_planar_video_formats(void)
 
                 init_pipeline_state_desc(&graphics_pso_desc, context.root_signature, plane->view_format, NULL, &ps_copy_simple_dxbc, NULL);
                 hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &graphics_pso_desc, &IID_ID3D12PipelineState, (void**)&graphics_psos[j]);
-                ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+                ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
             }
 
             /* Test reading image data via SRV */
@@ -4497,7 +4497,7 @@ void test_planar_video_formats(void)
 
                 hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                         &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
-                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
                 memset(&rtv_desc, 0, sizeof(rtv_desc));
                 rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
@@ -4544,7 +4544,7 @@ void test_planar_video_formats(void)
 
                 hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                         &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
-                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
                 for (j = 0; j < test_formats[i].plane_count; j++)
                 {
@@ -4619,7 +4619,7 @@ void test_planar_video_formats(void)
 
                 hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                         &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
-                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
                 for (j = 0; j < test_formats[i].plane_count; j++)
                 {
@@ -4728,7 +4728,8 @@ void test_planar_video_formats(void)
 
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[0]);
-        ok(hr == test_resource_descs[i].expected_hr, "Got hr %#x, expected %#x.\n", hr, test_resource_descs[i].expected_hr);
+        ok(hr == test_resource_descs[i].expected_hr, "Got hr %#x, expected %#x.\n",
+                (int)hr, (int)test_resource_descs[i].expected_hr);
 
         if (resources[0])
             ID3D12Resource_Release(resources[0]);
@@ -4839,7 +4840,7 @@ void test_large_texel_buffer_view(void)
     if (FAILED(hr))
     {
         /* Be robust if the implementation does not support huge allocations */
-        skip("Failed to create data buffer, hr %#x.\n", hr);
+        skip("Failed to create data buffer, hr %#x.\n", (int)hr);
         ID3D12GraphicsCommandList2_Release(command_list2);
         destroy_test_context(&context);
         return;
@@ -4849,7 +4850,7 @@ void test_large_texel_buffer_view(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&feedback_buffer);
-    ok(hr == S_OK, "Failed to create feedback buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create feedback buffer, hr %#x.\n", (int)hr);
 
     descriptor_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4);
     descriptor_cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
@@ -4886,7 +4887,7 @@ void test_large_texel_buffer_view(void)
     rs_desc_ranges[1].NumDescriptors = 2;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     srv_pso = create_compute_pipeline_state(context.device, context.root_signature, cs_large_tbo_load_dxbc);
     uav_pso = create_compute_pipeline_state(context.device, context.root_signature, cs_large_tbo_store_dxbc);
@@ -5079,7 +5080,7 @@ void test_large_heap(void)
 
     if (FAILED(hr))
     {
-        skip("Failed to create large heap, hr %#x.\n", hr);
+        skip("Failed to create large heap, hr %#x.\n", (int)hr);
         destroy_test_context(&context);
         return;
     }
@@ -5094,7 +5095,7 @@ void test_large_heap(void)
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&readback_buffer);
-    ok(hr == S_OK, "Failed to create committed buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed buffer, hr %#x.\n", (int)hr);
 
     /* Create tiled buffer to test for aliasing issues */
     memset(&resource_desc, 0, sizeof(resource_desc));
@@ -5108,7 +5109,7 @@ void test_large_heap(void)
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
     hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&tiled_buffer);
-    ok(hr == S_OK, "Failed to create tiled buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create tiled buffer, hr %#x.\n", (int)hr);
 
     memset(&tile_coord, 0, sizeof(tile_coord));
     memset(&tile_size, 0, sizeof(tile_size));
@@ -5137,7 +5138,7 @@ void test_large_heap(void)
     for (i = 0; i < SECTION_COUNT; i++)
     {
         hr = ID3D12Device_CreatePlacedResource(context.device, heap, SECTION_SIZE * i, &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL, &IID_ID3D12Resource, (void**)&placed_buffers[i]);
-        ok(hr == S_OK, "Failed to create placed buffer, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create placed buffer, hr %#x.\n", (int)hr);
     }
 
     /* Create large placed buffer covering the entire heap */
@@ -5147,7 +5148,7 @@ void test_large_heap(void)
 
     if (FAILED(hr))
     {
-        skip("Failed to create large buffer, hr %#x.\n", hr);
+        skip("Failed to create large buffer, hr %#x.\n", (int)hr);
         large_buffer = NULL;
     }
 
@@ -5156,12 +5157,12 @@ void test_large_heap(void)
     descriptor_heap_desc.NumDescriptors = SECTION_COUNT;
 
     hr = ID3D12Device_CreateDescriptorHeap(context.device, &descriptor_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&cpu_heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
     hr = ID3D12Device_CreateDescriptorHeap(context.device, &descriptor_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&gpu_heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     /* Test writing data to the sparse buffer. Offsets will all be smmall, so if this
      * goes wrong, this proves an issue with large offsets in UpdateTileMappings. */
@@ -5443,15 +5444,15 @@ static void test_non_zeroed_behavior(bool placed)
             if (placed)
             {
                 hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heaps[i]);
-                ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", hr);
+                ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", (int)hr);
                 hr = ID3D12Device_CreatePlacedResource(context.device, heaps[i], 0, &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resources[i]);
-                ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", hr);
+                ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", (int)hr);
             }
             else
             {
                 hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
                     &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resources[i]);
-                ok(SUCCEEDED(hr), "Failed to create committed resource, hr #%x\n", hr);
+                ok(SUCCEEDED(hr), "Failed to create committed resource, hr #%x\n", (int)hr);
             }
 
             burned_vram += heap_size;
@@ -5591,7 +5592,7 @@ void test_tight_resource_alignment(void)
 
         hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &res_desc[0], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
-        ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+        ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
     }
 
     vkd3d_test_set_context(NULL);
@@ -5603,7 +5604,7 @@ void test_tight_resource_alignment(void)
     if (options.TiledResourcesTier)
     {
         hr = ID3D12Device_CreateReservedResource(device, &res_desc[0], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
-        ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", (int)hr);
 
         queried_desc = ID3D12Resource_GetDesc(resource);
         ok(queried_desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT, "Missing D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT in flags %#x.\n", queried_desc.Flags);
@@ -5708,7 +5709,7 @@ void test_tight_resource_alignment(void)
 
             hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                     &res_desc[i], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
-            ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
             queried_desc = ID3D12Resource_GetDesc(resource);
 
@@ -5773,7 +5774,7 @@ void test_tight_resource_alignment(void)
         heap_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
 
         hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
-        ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
 
         heap_va = 0u;
 
@@ -5783,7 +5784,7 @@ void test_tight_resource_alignment(void)
 
             hr = ID3D12Device_CreatePlacedResource(device, heap, res_infos[i].Offset, &res_desc[i],
                     D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
-            ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", (int)hr);
 
             queried_desc = ID3D12Resource_GetDesc(resource);
             ok(queried_desc.Alignment == res_infos[i].Alignment, "Got resource aligment %"PRIu64", expected %"PRIu64".\n",
@@ -5805,7 +5806,7 @@ void test_tight_resource_alignment(void)
             /* Ensure that we can successfully place the resource at the end of the heap too */
             hr = ID3D12Device_CreatePlacedResource(device, heap, heap_desc.SizeInBytes - res_infos[i].SizeInBytes,
                     &res_desc[i], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
-            ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", (int)hr);
 
             ID3D12Resource_Release(resource);
 
@@ -5816,7 +5817,7 @@ void test_tight_resource_alignment(void)
 
                 hr = ID3D12Device_CreatePlacedResource(device, heap, res_infos[i].Offset, &res_desc[i],
                         D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
-                ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+                ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
 
                 res_desc[i].Alignment = 0u;
             }
@@ -5828,7 +5829,7 @@ void test_tight_resource_alignment(void)
             res_desc[0].Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
             hr = ID3D12Device_CreatePlacedResource(device, heap, 0u, &res_desc[0],
                     D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
-            ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", (int)hr);
 
             queried_desc = ID3D12Resource_GetDesc(resource);
             ok(queried_desc.Alignment >= 8u && queried_desc.Alignment <= 256u,
@@ -5859,13 +5860,13 @@ void test_tight_resource_alignment(void)
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
-    ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
 
     vkd3d_test_set_context(NULL);
 
     ID3D12Device4_Release(device4);
     ref_count = ID3D12Device_Release(device);
-    ok(!ref_count, "Device has %u references left.\n", ref_count);
+    ok(!ref_count, "Device has %u references left.\n", (unsigned int)ref_count);
 }
 
 void test_placed_msaa_alignment_workaround(void)
@@ -5913,7 +5914,7 @@ void test_placed_msaa_alignment_workaround(void)
         ID3D12Resource_Release(res);
 
     /* This fails on native. As a workaround, we have to make it work anyway. */
-    ok(hr == (is_vkd3d_proton_device(device) ? S_OK : E_INVALIDARG), "Unexpected hr #%x.\n", hr);
+    ok(hr == (is_vkd3d_proton_device(device) ? S_OK : E_INVALIDARG), "Unexpected hr #%x.\n", (int)hr);
 
     ID3D12Heap_Release(heap);
     refcount = ID3D12Device_Release(device);
@@ -6248,21 +6249,21 @@ void test_buffer_rtv_dsv_usage(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x\n", (int)hr);
 
     desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
     /* For some reason, this is allowed. */
-    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", (int)hr);
 
     desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(resource);
     /* But not this ... */
-    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", (int)hr);
 
     destroy_test_context(&context);
 }

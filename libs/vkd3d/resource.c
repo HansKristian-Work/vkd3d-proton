@@ -2136,7 +2136,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
 
 ULONG d3d12_resource_incref(struct d3d12_resource *resource)
 {
-    ULONG refcount = InterlockedIncrement(&resource->internal_refcount);
+    unsigned int refcount = InterlockedIncrement(&resource->internal_refcount);
 
     TRACE("%p increasing refcount to %u.\n", resource, refcount);
 
@@ -2145,7 +2145,7 @@ ULONG d3d12_resource_incref(struct d3d12_resource *resource)
 
 ULONG d3d12_resource_decref(struct d3d12_resource *resource)
 {
-    ULONG refcount = InterlockedDecrement(&resource->internal_refcount);
+    unsigned int refcount = InterlockedDecrement(&resource->internal_refcount);
 
     TRACE("%p decreasing refcount to %u.\n", resource, refcount);
 
@@ -2246,7 +2246,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_QueryInterface(d3d12_resource_if
 static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
-    ULONG refcount = InterlockedIncrement(&resource->refcount);
+    unsigned int refcount = InterlockedIncrement(&resource->refcount);
 
     TRACE("%p increasing refcount to %u.\n", resource, refcount);
 
@@ -2295,7 +2295,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *ifac
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
     struct d3d12_device *device = resource->device;
-    ULONG refcount;
+    unsigned int refcount;
 
     refcount = InterlockedDecrement(&resource->refcount);
 
@@ -4066,7 +4066,7 @@ static UINT64 d3d12_resource_determine_alignment(struct d3d12_device *device, co
         if (SUCCEEDED(hr = vkd3d_get_image_allocation_info(device, desc, num_castable_formats, castable_formats, &allocation_info)))
             return allocation_info.Alignment;
         else
-            ERR("Failed to query image alignment, hr %#x.\n", hr);
+            ERR("Failed to query image alignment, hr %#x.\n", (int)hr);
     }
 
     if (desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE ||
@@ -8859,7 +8859,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_QueryInterface(ID3D12Desc
 static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_AddRef(ID3D12DescriptorHeap *iface)
 {
     struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
-    ULONG refcount = InterlockedIncrement(&heap->refcount);
+    unsigned int refcount = InterlockedIncrement(&heap->refcount);
 
     TRACE("%p increasing refcount to %u.\n", heap, refcount);
 
@@ -8873,7 +8873,7 @@ void d3d12_descriptor_heap_inc_ref(struct d3d12_descriptor_heap *heap)
 
 void d3d12_descriptor_heap_dec_ref(struct d3d12_descriptor_heap *heap)
 {
-    ULONG refcount = InterlockedDecrement(&heap->internal_refcount);
+    unsigned int refcount = InterlockedDecrement(&heap->internal_refcount);
 
     if (!refcount)
     {
@@ -8913,7 +8913,7 @@ void d3d12_descriptor_heap_free_meta_index(struct d3d12_descriptor_heap *heap, u
 static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHeap *iface)
 {
     struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
-    ULONG refcount = InterlockedDecrement(&heap->refcount);
+    unsigned int refcount = InterlockedDecrement(&heap->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", heap, refcount);
 
@@ -10384,7 +10384,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_QueryInterface(ID3D12QueryHeap
 static ULONG STDMETHODCALLTYPE d3d12_query_heap_AddRef(ID3D12QueryHeap *iface)
 {
     struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
-    ULONG refcount = InterlockedIncrement(&heap->refcount);
+    unsigned int refcount = InterlockedIncrement(&heap->refcount);
 
     TRACE("%p increasing refcount to %u.\n", heap, refcount);
 
@@ -10394,7 +10394,7 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_AddRef(ID3D12QueryHeap *iface)
 static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
 {
     struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
-    ULONG refcount = InterlockedDecrement(&heap->refcount);
+    unsigned int refcount = InterlockedDecrement(&heap->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", heap, refcount);
 

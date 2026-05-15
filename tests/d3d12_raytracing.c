@@ -1115,7 +1115,7 @@ static ID3D12StateObject *rt_pso_add_to_state_object(ID3D12Device5 *device, ID3D
 
     /* Have to add ALLOW_STATE_OBJECT_ADDITIONS for both parent and addition. */
     hr = ID3D12Device7_AddToStateObject(device7, &desc, parent, &IID_ID3D12StateObject, (void**)&new_state_object);
-    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", (int)hr);
 
     config.Flags = D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
     subobj[desc.NumSubobjects].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
@@ -1125,11 +1125,11 @@ static ID3D12StateObject *rt_pso_add_to_state_object(ID3D12Device5 *device, ID3D
     /* Type must be RAYTRACING_PIPELINE. */
     desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
     hr = ID3D12Device7_AddToStateObject(device7, &desc, parent, &IID_ID3D12StateObject, (void**)&new_state_object);
-    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", (int)hr);
     desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
 
     hr = ID3D12Device7_AddToStateObject(device7, &desc, parent, &IID_ID3D12StateObject, (void**)&new_state_object);
-    ok(SUCCEEDED(hr), "Failed to AddToStateObject, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to AddToStateObject, hr #%x.\n", (int)hr);
     if (FAILED(hr))
         new_state_object = NULL;
     ID3D12Device7_Release(device7);
@@ -1307,7 +1307,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         root_parameters[1].Constants.ShaderRegister = 0;
 
         hr = create_root_signature(device, &root_signature_desc, &global_rs);
-        ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", (int)hr);
     }
 
     /* Create local root signature. This defines how the data in the SBT for each individual shader is laid out. */
@@ -1338,7 +1338,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         root_parameters[1].Constants.ShaderRegister = 1;
 
         hr = create_root_signature(device, &root_signature_desc, &local_rs);
-        ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", (int)hr);
 
         root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         root_parameters[0].DescriptorTable.pDescriptorRanges = &table_range;
@@ -1354,7 +1354,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         root_parameters[1].Descriptor.ShaderRegister = 1;
 
         hr = create_root_signature(device, &root_signature_desc, &local_rs_table);
-        ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", (int)hr);
     }
 
     /* Create RT collection (triangles). */
@@ -2163,7 +2163,7 @@ static void test_rayquery_pipeline(enum rt_test_mode mode, bool root_table)
     root_parameters[3].Constants.ShaderRegister = 0;
 
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", (int)hr);
     pso = create_compute_pipeline_state(device, root_signature, get_rayquery_shader());
 
     init_test_geometry(device, &test_geom);
@@ -3181,7 +3181,7 @@ void test_raytracing_collection_identifiers(void)
     ok(!!object, "Failed to create collection.\n");
 
     hr = ID3D12StateObject_QueryInterface(object, &IID_ID3D12StateObjectProperties, (void **)&props);
-    ok(SUCCEEDED(hr), "Failed to query props interface, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to query props interface, hr #%x.\n", (int)hr);
     ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"main");
     ok(!!ident, "Failed to query identifier for COLLECTION.\n");
     if (ident)
@@ -3388,7 +3388,7 @@ void test_raytracing_root_signature_from_subobject(void)
     /* Unambiguous case. */
     lib = get_embedded_root_signature_subobject_rt_lib();
     hr = ID3D12Device5_CreateRootSignature(context.device5, 0, lib.pShaderBytecode, lib.BytecodeLength, &IID_ID3D12RootSignature, (void **)&rs);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", (int)hr);
 
     if (SUCCEEDED(hr))
     {
@@ -3397,7 +3397,7 @@ void test_raytracing_root_signature_from_subobject(void)
         cs_desc.CS.BytecodeLength = sizeof(cs_code_dxil);
         cs_desc.pRootSignature = rs;
         hr = ID3D12Device5_CreateComputePipelineState(context.device5, &cs_desc, &IID_ID3D12PipelineState, (void **)&cs);
-        ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x.\n", (int)hr);
         if (SUCCEEDED(hr))
             ID3D12PipelineState_Release(cs);
         ID3D12RootSignature_Release(rs);
@@ -3406,7 +3406,7 @@ void test_raytracing_root_signature_from_subobject(void)
     /* Two global root signatures are declared in the lib. This results in failure. */
     lib = get_embedded_root_signature_subobject_rt_lib_conflict();
     hr = ID3D12Device5_CreateRootSignature(context.device5, 0, lib.pShaderBytecode, lib.BytecodeLength, &IID_ID3D12RootSignature, (void **)&rs);
-    ok(hr == E_INVALIDARG, "Unexpected return value in creating root signature, hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected return value in creating root signature, hr #%x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12RootSignature_Release(rs);
 
@@ -3421,7 +3421,7 @@ void test_raytracing_root_signature_from_subobject(void)
         cs_desc.CS.BytecodeLength = sizeof(cs_code_dxil);
         cs_desc.pRootSignature = rs;
         hr = ID3D12Device5_CreateComputePipelineState(context.device5, &cs_desc, &IID_ID3D12PipelineState, (void **)&cs);
-        ok(hr == E_INVALIDARG, "Unexpected success in creating pipeline state, hr #%x.\n", hr);
+        ok(hr == E_INVALIDARG, "Unexpected success in creating pipeline state, hr #%x.\n", (int)hr);
         if (SUCCEEDED(hr))
             ID3D12PipelineState_Release(cs);
         ID3D12RootSignature_Release(rs);
@@ -4741,7 +4741,7 @@ void test_raytracing_acceleration_structure_validation(void)
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, NULL, &IID_ID3D12Resource, (void**)&rtas);
-    ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
 
     if (SUCCEEDED(hr))
         ID3D12Resource_Release(rtas);
@@ -4750,7 +4750,7 @@ void test_raytracing_acceleration_structure_validation(void)
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &desc, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, NULL, &IID_ID3D12Resource, (void**)&rtas);
-    ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", (int)hr);
 
     desc = ID3D12Resource_GetDesc(rtas);
     ok(!(desc.Flags & D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE),
@@ -4772,7 +4772,7 @@ void test_raytracing_acceleration_structure_validation(void)
 
         hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties, D3D12_HEAP_FLAG_NONE, &desc1,
                 D3D12_BARRIER_LAYOUT_UNDEFINED, NULL, NULL, 0, NULL, &IID_ID3D12Resource, (void**)&rtas);
-        ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+        ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
 
         desc1.Flags = D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
 
@@ -4782,7 +4782,7 @@ void test_raytracing_acceleration_structure_validation(void)
         desc1.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties, D3D12_HEAP_FLAG_NONE, &desc1,
                 D3D12_BARRIER_LAYOUT_UNDEFINED, NULL, NULL, 0, NULL, &IID_ID3D12Resource, (void**)&rtas);
-        ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create RTAS, hr %#x.\n", (int)hr);
 
         desc = ID3D12Resource_GetDesc(rtas);
         ok(desc.Flags & D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE,

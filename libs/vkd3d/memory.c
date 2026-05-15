@@ -1130,7 +1130,7 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
             type_flags, type_mask, &import_info, true, allocation)))
     {
         if (FAILED(hr))
-            WARN("Failed to import host memory, hr %#x.\n", hr);
+            WARN("Failed to import host memory, hr %#x.\n", (int)hr);
         /* If we failed, fall back to a host-visible allocation. Generally
          * the app will access the memory thorugh the main host pointer,
          * so it's fine. */
@@ -1204,7 +1204,7 @@ static void *vkd3d_allocate_write_watch_pointer(const D3D12_HEAP_PROPERTIES *pro
 
     if (!(ptr = VirtualAlloc(NULL, (SIZE_T)size, MEM_COMMIT | MEM_RESERVE | MEM_WRITE_WATCH, protect)))
     {
-        ERR("Failed to allocate write watch pointer %#x.\n", GetLastError());
+        ERR("Failed to allocate write watch pointer %#x.\n", (int)GetLastError());
         return NULL;
     }
 
@@ -1222,7 +1222,7 @@ static void vkd3d_free_write_watch_pointer(void *pointer)
 {
 #ifdef _WIN32
     if (!VirtualFree(pointer, 0, MEM_RELEASE))
-        ERR("Failed to free write watch pointer %#x.\n", GetLastError());
+        ERR("Failed to free write watch pointer %#x.\n", (int)GetLastError());
 #else
     /* Not supported on other platforms. */
     (void)pointer;

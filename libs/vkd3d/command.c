@@ -713,7 +713,7 @@ static void vkd3d_waiting_fence_signal_fence(struct vkd3d_fence_worker *worker,
         TRACE("Signaling fence %p to virtual value %"PRIu64".\n", info->fence, info->virtual_value);
 
         if (FAILED(hr = d3d12_fence_signal(info->fence, worker, info->update_count)))
-            ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
+            ERR("Failed to signal D3D12 fence, hr %#x.\n", (int)hr);
     }
 
     d3d12_fence_dec_ref(info->fence);
@@ -1135,7 +1135,7 @@ static HRESULT vkd3d_waiting_event_signal(struct d3d12_device *device, struct vk
     hr = vkd3d_native_sync_handle_signal(event->handle);
 
     if (FAILED(hr))
-        ERR("Failed to signal event, hr #%x.\n", hr);
+        ERR("Failed to signal event, hr #%x.\n", (int)hr);
 
     return hr;
 }
@@ -1476,7 +1476,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(d3d12_fence_iface *i
 static ULONG STDMETHODCALLTYPE d3d12_fence_AddRef(d3d12_fence_iface *iface)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
-    ULONG refcount = InterlockedIncrement(&fence->refcount);
+    unsigned int refcount = InterlockedIncrement(&fence->refcount);
 
     TRACE("%p increasing refcount to %u.\n", fence, refcount);
 
@@ -1486,7 +1486,7 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_AddRef(d3d12_fence_iface *iface)
 static ULONG STDMETHODCALLTYPE d3d12_fence_Release(d3d12_fence_iface *iface)
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
-    ULONG refcount = InterlockedDecrement(&fence->refcount);
+    unsigned int refcount = InterlockedDecrement(&fence->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", fence, refcount);
 
@@ -1826,7 +1826,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_QueryInterface(d3d12_fence_i
 static ULONG STDMETHODCALLTYPE d3d12_shared_fence_AddRef(d3d12_fence_iface *iface)
 {
     struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(iface);
-    ULONG refcount = InterlockedIncrement(&fence->refcount);
+    unsigned int refcount = InterlockedIncrement(&fence->refcount);
 
     TRACE("%p increasing refcount to %u.\n", fence, refcount);
 
@@ -1883,7 +1883,7 @@ static void d3d12_shared_fence_dec_ref(struct d3d12_shared_fence *fence)
 static ULONG STDMETHODCALLTYPE d3d12_shared_fence_Release(d3d12_fence_iface *iface)
 {
     struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(iface);
-    ULONG refcount = InterlockedDecrement(&fence->refcount);
+    unsigned int refcount = InterlockedDecrement(&fence->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", fence, refcount);
 
@@ -2927,7 +2927,7 @@ static ULONG d3d12_command_allocator_inc_ref(struct d3d12_command_allocator *all
 static ULONG STDMETHODCALLTYPE d3d12_command_allocator_AddRef(ID3D12CommandAllocator *iface)
 {
     struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
-    ULONG refcount = InterlockedIncrement(&allocator->refcount);
+    unsigned int refcount = InterlockedIncrement(&allocator->refcount);
 
     TRACE("%p increasing refcount to %u.\n", allocator, refcount);
 
@@ -3046,7 +3046,7 @@ static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *all
 static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllocator *iface)
 {
     struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
-    ULONG refcount = InterlockedDecrement(&allocator->refcount);
+    unsigned int refcount = InterlockedDecrement(&allocator->refcount);
     unsigned int pending;
 
     TRACE("%p decreasing refcount to %u.\n", allocator, refcount);
@@ -6798,7 +6798,7 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
 ULONG STDMETHODCALLTYPE d3d12_command_list_AddRef(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    ULONG refcount = InterlockedIncrement(&list->refcount);
+    unsigned int refcount = InterlockedIncrement(&list->refcount);
 
     TRACE("%p increasing refcount to %u.\n", list, refcount);
 
@@ -6808,7 +6808,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_AddRef(d3d12_command_list_iface *ifac
 ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    ULONG refcount = InterlockedDecrement(&list->refcount);
+    unsigned int refcount = InterlockedDecrement(&list->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", list, refcount);
 
@@ -15135,7 +15135,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
     const struct d3d12_rtv_desc *dsv_desc = d3d12_rtv_desc_from_cpu_handle(dsv);
     VkImageAspectFlags clear_aspects = 0;
 
-    TRACE("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
+    TRACE("iface %p, dsv %zx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
             iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
 
     d3d12_command_list_check_render_pass_validation(list, "ClearDepthStencilView called within a render pass.\n", true);
@@ -15269,7 +15269,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
     VkClearValue clear_value;
     int i;
 
-    TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
+    TRACE("iface %p, rtv %zx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
 
     d3d12_command_list_check_render_pass_validation(list, "ClearRenderTargetView called within a render pass.\n", true);
@@ -16000,7 +16000,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     struct vkd3d_clear_uav_info args;
     VkClearColorValue color;
 
-    TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
+    TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %zx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
     d3d12_command_list_check_render_pass_validation(list, "ClearUnorderedAccessViewUint called within a render pass.\n", true);
@@ -16162,7 +16162,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     struct vkd3d_clear_uav_info args;
     VkClearColorValue color;
 
-    TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
+    TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %zx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
     d3d12_command_list_check_render_pass_validation(list, "ClearUnorderedAccessViewFloat called within a render pass.\n", true);
@@ -20176,7 +20176,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_com
     struct d3d12_meta_command *meta_command_object = impl_from_ID3D12MetaCommand(meta_command);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
 
-    TRACE("iface %p, meta_command %p, parameter_data %p, parameter_size %lu.\n",
+    TRACE("iface %p, meta_command %p, parameter_data %p, parameter_size %zu.\n",
             iface, meta_command, parameter_data, parameter_size);
 
     /* Not all meta commands require initialization */
@@ -20198,7 +20198,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_comman
     struct d3d12_meta_command *meta_command_object = impl_from_ID3D12MetaCommand(meta_command);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
 
-    TRACE("iface %p, meta_command %p, parameter_data %p, parameter_size %lu.\n",
+    TRACE("iface %p, meta_command %p, parameter_data %p, parameter_size %zu.\n",
             iface, meta_command, parameter_data, parameter_size);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
@@ -22467,7 +22467,7 @@ HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue 
 ULONG STDMETHODCALLTYPE d3d12_command_queue_AddRef(ID3D12CommandQueue *iface)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
-    ULONG refcount = InterlockedIncrement(&command_queue->refcount);
+    unsigned int refcount = InterlockedIncrement(&command_queue->refcount);
 
     TRACE("%p increasing refcount to %u.\n", command_queue, refcount);
 
@@ -22477,7 +22477,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_AddRef(ID3D12CommandQueue *iface)
 ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
-    ULONG refcount = InterlockedDecrement(&command_queue->refcount);
+    unsigned int refcount = InterlockedDecrement(&command_queue->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", command_queue, refcount);
 
@@ -23661,7 +23661,7 @@ static void d3d12_command_queue_push_fence_waits_to_worker(struct d3d12_command_
         fence_wait->fence = NULL;
 
         if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(worker, &fence_info, &cookie)))
-            ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
+            ERR("Failed to enqueue timeline semaphore, hr %#x.\n", (int)hr);
     }
 }
 
@@ -23891,7 +23891,7 @@ static void d3d12_command_queue_ensure_fence_signal_order(
     d3d12_fence_inc_ref(fence);
 
     if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, NULL)))
-        ERR("Failed to enqueue timeline semaphore, hr %#x.\n", hr);
+        ERR("Failed to enqueue timeline semaphore, hr %#x.\n", (int)hr);
 }
 
 static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
@@ -23997,7 +23997,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     d3d12_fence_inc_ref(signal_info->fence);
 
     if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, &cookie)))
-        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", hr);
+        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", (int)hr);
 
     d3d12_fence_update_pending_value_locked_and_broadcast(fence);
     d3d12_fence_unlock(fence);
@@ -24104,7 +24104,7 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
 
     if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, NULL)))
     {
-        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", hr);
+        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", (int)hr);
     }
 
     /* We should probably trigger DEVICE_REMOVED if we hit any errors in the submission thread. */
@@ -25569,7 +25569,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     hr = d3d12_device_removed_reason(device);
     if (hr != S_OK)
     {
-        WARN("Device %p is removed (reason %#x).\n", device, hr);
+        WARN("Device %p is removed (reason %#x).\n", device, (int)hr);
         return DXGI_ERROR_DEVICE_REMOVED;
     }
 
@@ -25818,7 +25818,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_QueryInterface(ID3D12Co
 static ULONG STDMETHODCALLTYPE d3d12_command_signature_AddRef(ID3D12CommandSignature *iface)
 {
     struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
-    ULONG refcount = InterlockedIncrement(&signature->refcount);
+    unsigned int refcount = InterlockedIncrement(&signature->refcount);
 
     TRACE("%p increasing refcount to %u.\n", signature, refcount);
 
@@ -25852,7 +25852,7 @@ static void d3d12_command_signature_cleanup(struct d3d12_command_signature *sign
 static ULONG STDMETHODCALLTYPE d3d12_command_signature_Release(ID3D12CommandSignature *iface)
 {
     struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
-    ULONG refcount = InterlockedDecrement(&signature->refcount);
+    unsigned int refcount = InterlockedDecrement(&signature->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", signature, refcount);
 

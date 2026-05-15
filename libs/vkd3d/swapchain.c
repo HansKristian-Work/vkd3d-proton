@@ -1580,7 +1580,7 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
         if (FAILED(hr = vkd3d_native_sync_handle_create(chain->frame_latency,
                 VKD3D_NATIVE_SYNC_HANDLE_TYPE_SEMAPHORE, &chain->frame_latency_event)))
         {
-            WARN("Failed to create frame latency semaphore, hr %#x.\n", hr);
+            WARN("Failed to create frame latency semaphore, hr %#x.\n", (int)hr);
             return hr;
         }
     }
@@ -1623,7 +1623,7 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
     if (FAILED(hr = vkd3d_native_sync_handle_create(chain->frame_latency_internal - 1,
             VKD3D_NATIVE_SYNC_HANDLE_TYPE_SEMAPHORE, &chain->frame_latency_event_internal)))
     {
-        WARN("Failed to create internal frame latency semaphore, hr %#x.\n", hr);
+        WARN("Failed to create internal frame latency semaphore, hr %#x.\n", (int)hr);
         return hr;
     }
 
@@ -4199,7 +4199,7 @@ void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12
 
 ULONG dxgi_vk_swap_chain_incref(struct dxgi_vk_swap_chain *chain)
 {
-    ULONG refcount = InterlockedIncrement(&chain->internal_refcount);
+    unsigned int refcount = InterlockedIncrement(&chain->internal_refcount);
 
     TRACE("%p increasing refcount to %u.\n", chain, refcount);
 
@@ -4208,7 +4208,7 @@ ULONG dxgi_vk_swap_chain_incref(struct dxgi_vk_swap_chain *chain)
 
 ULONG dxgi_vk_swap_chain_decref(struct dxgi_vk_swap_chain *chain)
 {
-    ULONG refcount = InterlockedDecrement(&chain->internal_refcount);
+    unsigned int refcount = InterlockedDecrement(&chain->internal_refcount);
 
     TRACE("%p decreasing refcount to %u.\n", chain, refcount);
 

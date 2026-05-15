@@ -284,7 +284,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_meta_command_QueryInterface(d3d12_meta_co
 static ULONG STDMETHODCALLTYPE d3d12_meta_command_AddRef(d3d12_meta_command_iface *iface)
 {
     struct d3d12_meta_command *meta_command = impl_from_ID3D12MetaCommand(iface);
-    ULONG refcount = InterlockedIncrement(&meta_command->refcount);
+    unsigned int refcount = InterlockedIncrement(&meta_command->refcount);
 
     TRACE("%p increasing refcount to %u.\n", meta_command, refcount);
 
@@ -302,7 +302,7 @@ static ULONG STDMETHODCALLTYPE d3d12_meta_command_Release(d3d12_meta_command_ifa
 {
     struct d3d12_meta_command *meta_command = impl_from_ID3D12MetaCommand(iface);
     struct d3d12_device *device = meta_command->device;
-    ULONG refcount;
+    unsigned int refcount;
 
     refcount = InterlockedDecrement(&meta_command->refcount);
 
