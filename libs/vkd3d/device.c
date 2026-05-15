@@ -1096,6 +1096,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
 	/* Spider Man 2 (2651280) */
     { VKD3D_STRING_COMPARE_EXACT, "Spider-Man2.exe", &spiderman2_quirks },
+	/* Forza Horizon 6 (2483190). */
+    { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", &heap_robustness_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
