@@ -158,7 +158,11 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
 
     if (desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
     {
+        /* There is risk of desc->NumDescs being != 1, although it should not happen. */
         memset(geometry_infos, 0, sizeof(*geometry_infos));
+        /* Safety since we check for sentinel when completing batch. */
+        if (omm_infos)
+            memset(omm_infos, 0, sizeof(*omm_infos));
         geometry_infos[0].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
         geometry_infos[0].geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
         geometry_infos[0].geometry.instances.sType =
@@ -188,7 +192,9 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         have_triangles = false;
         have_aabbs = false;
 
+        /* Don't hoist this memset since top-level geometries forces NumDescs == 1 assumption. */
         memset(geometry_infos, 0, sizeof(*geometry_infos) * desc->NumDescs);
+
         if (omm_infos)
             memset(omm_infos, 0, sizeof(*omm_infos) * desc->NumDescs);
 
@@ -267,9 +273,12 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                     vkd3d_acceleration_structure_convert_triangles(device,
                             geom_desc->OmmTriangles.pTriangles, &geometry_infos[i], &primitive_count);
 
-                    geometry_infos[i].geometry.triangles.pNext = omm = &omm_infos[i];
+                    /* This pointer may be invalidated later when batching.
+                     * Patch this in late right before the batch is committed.
+                     * For prebuild info, we need the pointers right away however. */
+                    omm = &omm_infos[i];
+                    vk_prepend_struct(&geometry_infos[i].geometry.triangles, omm);
                     omm->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT;
-                    omm->pNext = NULL;
 
                     switch (geom_desc->OmmTriangles.pOmmLinkage->OpacityMicromapIndexFormat)
                     {
