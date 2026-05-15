@@ -755,7 +755,7 @@ static ID3D12PipelineState *create_pso(ID3D12Device *device, ID3D12RootSignature
     pso_desc.DepthStencilState.StencilEnable = FALSE;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create PSO: hr = #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO: hr = #%x\n", (int)hr);
     return pso;
 }
 

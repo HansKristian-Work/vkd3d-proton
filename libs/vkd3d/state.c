@@ -59,7 +59,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_QueryInterface(ID3D12RootS
 static ULONG STDMETHODCALLTYPE d3d12_root_signature_AddRef(ID3D12RootSignature *iface)
 {
     struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
-    ULONG refcount = InterlockedIncrement(&root_signature->refcount);
+    unsigned int refcount = InterlockedIncrement(&root_signature->refcount);
 
     TRACE("%p increasing refcount to %u.\n", root_signature, refcount);
 
@@ -106,7 +106,7 @@ void d3d12_root_signature_inc_ref(struct d3d12_root_signature *root_signature)
 void d3d12_root_signature_dec_ref(struct d3d12_root_signature *root_signature)
 {
     struct d3d12_device *device = root_signature->device;
-    ULONG refcount = InterlockedDecrement(&root_signature->internal_refcount);
+    unsigned int refcount = InterlockedDecrement(&root_signature->internal_refcount);
 
     if (refcount == 0)
     {
@@ -121,7 +121,7 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature 
 {
     struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
     struct d3d12_device *device = root_signature->device;
-    ULONG refcount = InterlockedDecrement(&root_signature->refcount);
+    unsigned int refcount = InterlockedDecrement(&root_signature->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", root_signature, refcount);
 
@@ -2699,7 +2699,7 @@ void d3d12_pipeline_state_inc_ref(struct d3d12_pipeline_state *state)
 
 ULONG d3d12_pipeline_state_inc_public_ref(struct d3d12_pipeline_state *state)
 {
-    ULONG refcount = InterlockedIncrement(&state->refcount);
+    unsigned int refcount = InterlockedIncrement(&state->refcount);
     if (refcount == 1)
     {
         d3d12_pipeline_state_inc_ref(state);
@@ -2897,7 +2897,7 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 {
     struct d3d12_device *device = state->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    ULONG refcount = InterlockedDecrement(&state->internal_refcount);
+    unsigned int refcount = InterlockedDecrement(&state->internal_refcount);
 
     if (!refcount)
     {
@@ -2927,7 +2927,7 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
 {
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
     struct d3d12_device *device = state->device;
-    ULONG refcount = InterlockedDecrement(&state->refcount);
+    unsigned int refcount = InterlockedDecrement(&state->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", state, refcount);
 
@@ -3014,7 +3014,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12Pipeli
 
     if (FAILED(hr = d3d_blob_create(cache_data, cache_size, &blob_object)))
     {
-        ERR("Failed to create blob, hr %#x.\n", hr);
+        ERR("Failed to create blob, hr %#x.\n", (int)hr);
         vkd3d_free(cache_data);
         return hr;
     }
@@ -3076,7 +3076,7 @@ static HRESULT vkd3d_load_spirv_from_cached_state(struct d3d12_device *device,
         else if (hr == E_INVALIDARG)
             INFO("Pipeline could not be created to mismatch in either root signature or DXBC blobs.\n");
         else
-            INFO("Unexpected error when unserializing SPIR-V (hr %x).\n", hr);
+            INFO("Unexpected error when unserializing SPIR-V (hr %x).\n", (int)hr);
     }
 
     return hr;
@@ -3673,7 +3673,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
     if (vr < 0)
     {
-        ERR("Failed to create Vulkan compute pipeline, hr %#x.\n", hr);
+        ERR("Failed to create Vulkan compute pipeline, hr %#x.\n", (int)hr);
         ERR("  Root signature: %"PRIx64"\n", state->root_signature->pso_compatibility_hash);
         ERR("  Shader: %"PRIx64".\n", state->compute.code.meta.hash);
         return hresult_from_vk_result(vr);
@@ -3707,7 +3707,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     if (FAILED(hr))
     {
-        WARN("Failed to create Vulkan compute pipeline, hr %#x.\n", hr);
+        WARN("Failed to create Vulkan compute pipeline, hr %#x.\n", (int)hr);
         return hr;
     }
 
@@ -6481,7 +6481,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     if (!VKD3D_CONFIG_FLAG_IS_SET(GLOBAL_PIPELINE_CACHE))
         if (FAILED(hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, desc_cached_pso, &object->vk_pso_cache)))
-            ERR("Failed to create pipeline cache, hr %d.\n", hr);
+            ERR("Failed to create pipeline cache, hr %d.\n", (int)hr);
 
     /* By using our own VkPipelineCache, drivers will generally not cache pipelines internally in memory.
      * For games that spam an extreme number of pipelines only to serialize them to pipeline libraries and then
@@ -6974,7 +6974,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
                         &stages[i].module, &graphics->code[i])))
                 {
                     /* This is kind of fatal and should only happen for out-of-memory. */
-                    ERR("Unexpected failure (hr %x) in creating fallback SPIR-V module.\n", hr);
+                    ERR("Unexpected failure (hr %x) in creating fallback SPIR-V module.\n", (int)hr);
                     rwlock_unlock_read(&state->lock);
                     vk_pipeline = VK_NULL_HANDLE;
                     goto err;

@@ -123,11 +123,11 @@ static void do_benchmark_run(ID3D12Device *device)
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void**)&cpu_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr #%x.\n", (int)hr);
 
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void**)&gpu_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr #%x.\n", (int)hr);
 
     texture = create_default_texture2d(device,
                                        256, 256, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,

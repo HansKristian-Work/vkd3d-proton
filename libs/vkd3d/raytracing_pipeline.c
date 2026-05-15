@@ -79,7 +79,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_properties_QueryInterface(d3
 static ULONG STDMETHODCALLTYPE d3d12_state_object_AddRef(ID3D12StateObject *iface)
 {
     struct d3d12_rt_state_object *state_object = rt_impl_from_ID3D12StateObject(iface);
-    ULONG refcount = InterlockedIncrement(&state_object->refcount);
+    unsigned int refcount = InterlockedIncrement(&state_object->refcount);
 
     TRACE("%p increasing refcount to %u.\n", state_object, refcount);
 
@@ -89,7 +89,7 @@ static ULONG STDMETHODCALLTYPE d3d12_state_object_AddRef(ID3D12StateObject *ifac
 static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_AddRef(d3d12_state_object_properties_iface *iface)
 {
     struct d3d12_rt_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
-    ULONG refcount = InterlockedIncrement(&state_object->refcount);
+    unsigned int refcount = InterlockedIncrement(&state_object->refcount);
 
     TRACE("%p increasing refcount to %u.\n", state_object, refcount);
 
@@ -105,7 +105,7 @@ static void d3d12_state_object_inc_ref(struct d3d12_rt_state_object *state_objec
 
 static void d3d12_state_object_dec_ref(struct d3d12_rt_state_object *state_object)
 {
-    ULONG refcount = InterlockedDecrement(&state_object->internal_refcount);
+    unsigned int refcount = InterlockedDecrement(&state_object->internal_refcount);
 
     TRACE("%p decreasing internal refcount to %u.\n", state_object, refcount);
 
@@ -194,7 +194,7 @@ static void d3d12_state_object_cleanup(struct d3d12_rt_state_object *object)
 
 static ULONG d3d12_state_object_release(struct d3d12_rt_state_object *state_object)
 {
-    ULONG refcount = InterlockedDecrement(&state_object->refcount);
+    unsigned int refcount = InterlockedDecrement(&state_object->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", state_object, refcount);
 
@@ -2833,7 +2833,7 @@ HRESULT d3d12_rt_state_object_create(struct d3d12_device *device, const D3D12_ST
     RT_TRACE("==== Create %s ====\n",
             desc->Type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE ? "RTPSO" : "Collection");
     hr = d3d12_state_object_init(object, device, desc, parent);
-    RT_TRACE("==== Done %p (hr = #%x) ====\n", (void *)object, hr);
+    RT_TRACE("==== Done %p (hr = #%x) ====\n", (void *)object, (int)hr);
 
     if (FAILED(hr))
     {

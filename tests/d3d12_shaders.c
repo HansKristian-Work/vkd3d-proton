@@ -3429,7 +3429,7 @@ void test_shader_instructions(void)
     vkd3d_test_set_context(NULL);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", (int)hr);
     reset_command_list(command_list, context.allocator);
     ID3D12Resource_Release(context.render_target);
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_UINT;
@@ -3635,7 +3635,7 @@ void test_compute_shader_instructions(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     buffer = create_default_buffer(device, 512,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -3890,7 +3890,7 @@ void test_cs_constant_buffer(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pipeline_state = create_compute_pipeline_state(device, root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
@@ -3901,7 +3901,7 @@ void test_cs_constant_buffer(void)
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&descriptor_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(device,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -4041,7 +4041,7 @@ void test_constant_buffer_relative_addressing(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
@@ -4398,7 +4398,7 @@ void test_root_constants(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, desc.rt_format, &vs_color, &ps_color, NULL);
 
@@ -4470,7 +4470,7 @@ void test_root_constants(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, desc.rt_format, &vs_mix, &ps_mix, NULL);
 
@@ -4884,7 +4884,7 @@ void test_sample_instructions(void)
     root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
     root_signature_desc.pParameters = root_parameters;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
@@ -6347,7 +6347,7 @@ void test_cube_maps(void)
             pso_desc.PS = *test->ps;
             hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                     &IID_ID3D12PipelineState, (void **)&pso);
-            ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
         }
 
         texture = create_default_texture2d(context.device, texture_size, texture_size,
@@ -6561,7 +6561,7 @@ void test_multisample_array_texture(void)
     root_signature_desc.pParameters = root_parameters;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
@@ -6582,7 +6582,7 @@ void test_multisample_array_texture(void)
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&texture);
-    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", (int)hr);
 
     cpu_handle = get_cpu_rtv_handle(&context, context.rtv_heap, 1);
 
@@ -6967,7 +6967,7 @@ void test_resinfo(void)
                 &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, NULL,
                 &IID_ID3D12Resource, (void **)&texture);
-        ok(hr == S_OK, "Test %u: Failed to create texture, hr %#x.\n", i, hr);
+        ok(hr == S_OK, "Test %u: Failed to create texture, hr %#x.\n", i, (int)hr);
 
         current_srv_desc = NULL;
         if (test->texture_desc.cube_count)
@@ -7340,7 +7340,7 @@ void test_typed_buffer_uav(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pipeline_state = create_compute_pipeline_state(device, root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
@@ -7464,7 +7464,7 @@ void test_typed_uav_store(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_float_code, sizeof(cs_float_code)));
@@ -7613,7 +7613,7 @@ void test_compute_shader_registers(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
@@ -7881,7 +7881,7 @@ void test_tgsm(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     buffer = create_default_buffer(device, 1024,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -8297,7 +8297,7 @@ void test_uav_load(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     set_viewport(&context.viewport, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
     set_rect(&context.scissor_rect, 0, 0, 640, 480);
@@ -8324,7 +8324,7 @@ void test_uav_load(void)
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&rt_texture);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 3);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
@@ -8383,7 +8383,7 @@ void test_uav_load(void)
                     &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
                     D3D12_RESOURCE_STATE_COPY_DEST, NULL,
                     &IID_ID3D12Resource, (void **)&texture);
-            ok(SUCCEEDED(hr), "Test %u: Failed to create texture, hr %#x.\n", i, hr);
+            ok(SUCCEEDED(hr), "Test %u: Failed to create texture, hr %#x.\n", i, (int)hr);
 
             upload_texture_data(texture, current_texture->data,
                     resource_desc.MipLevels * resource_desc.DepthOrArraySize, queue, command_list);
@@ -8677,7 +8677,7 @@ void test_cs_uav_store(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_descriptor_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
@@ -8693,7 +8693,7 @@ void test_cs_uav_store(void)
     ID3D12Device_CreateUnorderedAccessView(device, resource, NULL, &uav_desc, cpu_descriptor_handle);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
     memset(&uav_barrier, 0, sizeof(uav_barrier));
     uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
@@ -8955,7 +8955,7 @@ void test_uav_counters(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_producer_code, sizeof(cs_producer_code)));
@@ -9163,7 +9163,7 @@ void test_decrement_uav_counter(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
@@ -9531,7 +9531,7 @@ static void test_atomic_instructions(bool use_dxil)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     ps_buffer = create_default_buffer(device, sizeof(tests->input),
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -9866,7 +9866,7 @@ void test_buffer_srv(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
@@ -10345,7 +10345,7 @@ static void test_instance_id(bool use_dxil)
         pso_desc.RTVFormats[1] = DXGI_FORMAT_R32_UINT;
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-        ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[0], white, 0, NULL);
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[1], white, 0, NULL);
@@ -10657,7 +10657,7 @@ static void test_vertex_id(bool use_dxil)
         destroy_test_context(&context);
         return;
     }
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     vb = create_upload_buffer(context.device, sizeof(vertices), vertices);
     vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
@@ -11133,7 +11133,7 @@ static void test_face_culling(bool use_dxil)
         pso_desc.RasterizerState.FrontCounterClockwise = tests[i].front_ccw;
         hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&pso);
-        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
@@ -11157,7 +11157,7 @@ static void test_face_culling(bool use_dxil)
         pso_desc.VS = vs_ccw;
         hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&pso);
-        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
@@ -11200,7 +11200,7 @@ static void test_face_culling(bool use_dxil)
         pso_desc.RasterizerState.FrontCounterClockwise = front_tests[i];
         hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&pso);
-        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
@@ -11223,7 +11223,7 @@ static void test_face_culling(bool use_dxil)
         pso_desc.VS = vs_ccw;
         hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&pso);
-        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
         ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
@@ -11446,7 +11446,7 @@ void test_separate_bindings(void)
     root_signature_desc.NumParameters = 4;
     root_signature_desc.pParameters = root_parameters;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     compute_pso = create_compute_pipeline_state(device, context.root_signature,
             shader_bytecode(cs_code, sizeof(cs_code)));
@@ -11711,7 +11711,7 @@ static void test_sample_mask(bool use_dxil)
     pso_desc.SampleDesc.Count = 4;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ms_rtv = get_cpu_rtv_handle(&context, context.rtv_heap, 1);
     desc.sample_desc.Count = 4;
@@ -11913,7 +11913,7 @@ static void test_coverage(bool use_dxil)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     texture = create_default_texture(context.device, desc.rt_width, desc.rt_height, DXGI_FORMAT_R32_UINT,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -11949,7 +11949,7 @@ static void test_coverage(bool use_dxil)
         pso_desc.SampleDesc.Count = desc.sample_desc.Count;
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
                 get_gpu_descriptor_handle(&context, gpu_heap, 0),
@@ -12111,7 +12111,7 @@ static void test_shader_get_render_target_sample_count(bool use_dxil)
     pso_desc.SampleDesc.Count = desc.sample_desc.Count;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
@@ -12282,7 +12282,7 @@ static void test_shader_sample_position(bool use_dxil)
     hr = ID3D12Device_CreateCommittedResource(context.device,
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&texture);
-    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", (int)hr);
 
     heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
     readback_texture = create_default_texture(context.device, 4, 1, DXGI_FORMAT_R32G32B32A32_FLOAT,
@@ -12764,7 +12764,7 @@ static void test_shader_eval_attribute(bool use_dxil)
     pso_desc.SampleDesc.Count = desc.sample_desc.Count;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
@@ -12788,7 +12788,7 @@ static void test_shader_eval_attribute(bool use_dxil)
     pso_desc.PS = ps_eval_centroid;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
@@ -13576,7 +13576,7 @@ static void test_bufinfo_instruction(bool use_dxil)
             root_signature_desc.pStaticSamplers = NULL;
             root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
             hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-            ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
         }
 
         if (current_shader != test->ps)
@@ -13591,7 +13591,7 @@ static void test_bufinfo_instruction(bool use_dxil)
                     context.render_target_desc.Format, &vs, current_shader, &input_layout);
             hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
                     &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-            ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
         }
 
         if (test->uav)
@@ -13973,7 +13973,7 @@ static void test_register_space(bool use_dxil)
     }
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(context.device,
                                                            context.root_signature,
@@ -14407,7 +14407,7 @@ static void test_constant_buffers(bool use_dxil)
     root_parameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(context.device,
                                                            context.root_signature,
@@ -14950,7 +14950,7 @@ static void test_derivative_hoisting(bool use_dxil)
     pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
 
     cbv = create_upload_buffer(context.device, sizeof(cbv_data), cbv_data);
     output = create_default_buffer(context.device, 4 * sizeof(struct vec4), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
@@ -15056,7 +15056,7 @@ static void test_root_constant_indexing(bool use_dxil)
     rs_desc.pParameters = rs_args;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&pso_desc, 0, sizeof(pso_desc));
     pso_desc.pRootSignature = context.root_signature;
@@ -15069,7 +15069,7 @@ static void test_root_constant_indexing(bool use_dxil)
     expected = use_dxil ? E_INVALIDARG : S_OK;
 
     todo_if(use_dxil)
-    ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+    ok(hr == expected, "Got hr %#x, expected %#x.\n", (int)hr, (int)expected);
 
     if (!context.pipeline_state)
     {
@@ -15093,7 +15093,7 @@ static void test_root_constant_indexing(bool use_dxil)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
         D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         NULL, &IID_ID3D12Resource, (void**)&uav_resource);
-    ok(hr == S_OK, "Failed to create UAV resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create UAV resource, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);

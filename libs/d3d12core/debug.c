@@ -54,7 +54,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dred_settings_QueryInterface(
 static ULONG STDMETHODCALLTYPE d3d12_dred_settings_AddRef(d3d12_dred_settings_iface *iface)
 {
     struct d3d12_dred_settings *dred_settings = impl_from_ID3D12DeviceRemovedExtendedDataSettings(iface);
-    ULONG refcount = InterlockedIncrement(&dred_settings->refcount);
+    unsigned int refcount = InterlockedIncrement(&dred_settings->refcount);
 
     TRACE("%p increasing refcount to %u.\n", dred_settings, refcount);
 
@@ -64,7 +64,7 @@ static ULONG STDMETHODCALLTYPE d3d12_dred_settings_AddRef(d3d12_dred_settings_if
 static ULONG STDMETHODCALLTYPE d3d12_dred_settings_Release(d3d12_dred_settings_iface *iface)
 {
     struct d3d12_dred_settings *dred_settings = impl_from_ID3D12DeviceRemovedExtendedDataSettings(iface);
-    ULONG refcount;
+    unsigned int refcount;
 
     pthread_mutex_lock(&debug_singleton_lock);
     refcount = InterlockedDecrement(&dred_settings->refcount);

@@ -66,7 +66,7 @@ void test_vkd3d_dxvk_cmdbuf_interop(void)
         &vkPhysicalDevice,
         &vkDevice)))
     {
-        ok(hr == S_OK, "ID3D12DXVKInteropDevice1_GetVulkanHandles failed %#x.\n", hr);
+        ok(hr == S_OK, "ID3D12DXVKInteropDevice1_GetVulkanHandles failed %#x.\n", (int)hr);
         destroy_test_context(&context);
         return;
     }
@@ -84,7 +84,7 @@ void test_vkd3d_dxvk_cmdbuf_interop(void)
         VK_QUEUE_FAMILY_IGNORED,
         &allocator)))
     {
-        ok(hr == S_OK, "ID3D12DXVKInteropDevice1_CreateInteropCommandAllocator failed %#x.\n", hr);
+        ok(hr == S_OK, "ID3D12DXVKInteropDevice1_CreateInteropCommandAllocator failed %#x.\n", (int)hr);
         destroy_test_context(&context);
         return;
     }
@@ -92,7 +92,7 @@ void test_vkd3d_dxvk_cmdbuf_interop(void)
     if (FAILED(hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list)))
     {
-        ok(hr == S_OK, "ID3D12Device_CreateCommandList failed %#x.\n", hr);
+        ok(hr == S_OK, "ID3D12Device_CreateCommandList failed %#x.\n", (int)hr);
         destroy_test_context(&context);
         return;
     }
@@ -101,7 +101,7 @@ void test_vkd3d_dxvk_cmdbuf_interop(void)
         (ID3D12CommandList*)command_list,
         &vkCmdBuf)))
     {
-        ok(hr == S_OK, "ID3D12DXVKInteropDevice1_BeginVulkanCmdHandles failed %#x.\n", hr);
+        ok(hr == S_OK, "ID3D12DXVKInteropDevice1_BeginVulkanCmdHandles failed %#x.\n", (int)hr);
         destroy_test_context(&context);
         return;
     }
@@ -131,14 +131,14 @@ void test_vkd3d_dxvk_cmdbuf_interop(void)
     if (FAILED(hr = ID3D12DXVKInteropDevice1_EndVkCommandBufferInterop(interop_device,
         (ID3D12CommandList*)command_list)))
     {
-        ok(hr == S_OK, "ID3D12DXVKInteropDevice1_EndVulkanCmdHandles failed %#x.\n", hr);
+        ok(hr == S_OK, "ID3D12DXVKInteropDevice1_EndVulkanCmdHandles failed %#x.\n", (int)hr);
         destroy_test_context(&context);
         return;
     }
 
     // Back to D3D12 logic, close the command list + execute it
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
     reset_command_list(command_list, allocator);

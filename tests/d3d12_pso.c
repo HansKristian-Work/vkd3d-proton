@@ -29,7 +29,7 @@ void test_create_compute_pipeline_state(void)
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
     ID3D12Device *device, *tmp_device;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
 #include "shaders/pso/headers/cs_create_pso.h"
@@ -46,10 +46,10 @@ void test_create_compute_pipeline_state(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     memset(&pipeline_state_desc, 0, sizeof(pipeline_state_desc));
     pipeline_state_desc.pRootSignature = root_signature;
@@ -59,19 +59,19 @@ void test_create_compute_pipeline_state(void)
 
     hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(root_signature);
-    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
 
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12PipelineState_GetDevice(pipeline_state, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 4, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 4, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(pipeline_state, &IID_ID3D12Object, true);
     check_interface(pipeline_state, &IID_ID3D12DeviceChild, true);
@@ -79,12 +79,12 @@ void test_create_compute_pipeline_state(void)
     check_interface(pipeline_state, &IID_ID3D12PipelineState, true);
 
     refcount = ID3D12PipelineState_Release(pipeline_state);
-    ok(!refcount, "ID3D12PipelineState has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12PipelineState has %u references left.\n", refcount);
     refcount = ID3D12RootSignature_Release(root_signature);
-    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", refcount);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_integer_blending_pipeline_state(void)
@@ -126,7 +126,7 @@ void test_integer_blending_pipeline_state(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -144,7 +144,7 @@ void test_integer_blending_pipeline_state(void)
         blend->RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
         hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&pso);
-        ok(hr == tests[i].hr, "Unexpected hr %#x.\n", hr);
+        ok(hr == tests[i].hr, "Unexpected hr %#x.\n", (int)hr);
         if (SUCCEEDED(hr))
             ID3D12PipelineState_Release(pso);
     }
@@ -162,7 +162,7 @@ void test_create_graphics_pipeline_state(void)
     ID3D12PipelineState *pipeline_state;
     ID3D12Device *device, *tmp_device;
     D3D12_BLEND_DESC *blend;
-    ULONG refcount;
+    unsigned int refcount;
     unsigned int i;
     HRESULT hr;
 
@@ -184,27 +184,27 @@ void test_create_graphics_pipeline_state(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     init_pipeline_state_desc(&pso_desc, root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(root_signature);
-    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
 
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12PipelineState_GetDevice(pipeline_state, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 4, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 4, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(pipeline_state, &IID_ID3D12Object, true);
     check_interface(pipeline_state, &IID_ID3D12DeviceChild, true);
@@ -212,7 +212,7 @@ void test_create_graphics_pipeline_state(void)
     check_interface(pipeline_state, &IID_ID3D12PipelineState, true);
 
     refcount = ID3D12PipelineState_Release(pipeline_state);
-    ok(!refcount, "ID3D12PipelineState has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12PipelineState has %u references left.\n", refcount);
 
     blend = &pso_desc.BlendState;
     blend->IndependentBlendEnable = false;
@@ -226,7 +226,7 @@ void test_create_graphics_pipeline_state(void)
     blend->RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(pipeline_state);
 
     /* Only one of BlendEnable or LogicOpEnable can be set to true. */
@@ -235,11 +235,11 @@ void test_create_graphics_pipeline_state(void)
     blend->RenderTarget[0].LogicOpEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     pso_desc.RTVFormats[0] = DXGI_FORMAT_R32_UINT;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     blend->IndependentBlendEnable = false;
     blend->RenderTarget[0].BlendEnable = false;
@@ -250,7 +250,7 @@ void test_create_graphics_pipeline_state(void)
     {
         hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **) &pipeline_state);
-        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
         ID3D12PipelineState_Release(pipeline_state);
     }
 
@@ -261,7 +261,7 @@ void test_create_graphics_pipeline_state(void)
         blend->RenderTarget[i] = blend->RenderTarget[0];
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* DSVFormat = DXGI_FORMAT_UNKNOWN */
     memset(blend, 0, sizeof(*blend));
@@ -271,7 +271,7 @@ void test_create_graphics_pipeline_state(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(pipeline_state);
 
     /* Invalid DSVFormat */
@@ -279,7 +279,7 @@ void test_create_graphics_pipeline_state(void)
     pso_desc.DepthStencilState.DepthEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(pipeline_state);
 
     /* Inactive render targets formats must be set to DXGI_FORMAT_UNKNOWN. */
@@ -287,7 +287,7 @@ void test_create_graphics_pipeline_state(void)
     pso_desc.RTVFormats[1] = DXGI_FORMAT_R8G8B8A8_UNORM;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     /* Stream output without D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT. */
     init_pipeline_state_desc(&pso_desc, root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
@@ -297,12 +297,12 @@ void test_create_graphics_pipeline_state(void)
     pso_desc.StreamOutput.NumStrides = ARRAY_SIZE(strides);
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     refcount = ID3D12RootSignature_Release(root_signature);
-    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", refcount);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_pipeline_state(void)
@@ -311,9 +311,9 @@ void test_create_pipeline_state(void)
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
     ID3D12Device2 *device2;
+    unsigned int refcount;
     ID3D12Device *device;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
 #include "shaders/pso/headers/cs_create_pso.h"
@@ -622,7 +622,7 @@ void test_create_pipeline_state(void)
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT |
             D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -638,21 +638,21 @@ void test_create_pipeline_state(void)
             rs_subobject->root_signature = root_signature;
 
         hr = ID3D12Device2_CreatePipelineState(device2, &tests[i].stream_desc, &IID_ID3D12PipelineState, (void **)&pipeline_state);
-        ok(hr == tests[i].expected_result, "Got unexpected return value %#x.\n", hr);
+        ok(hr == tests[i].expected_result, "Got unexpected return value %#x.\n", (int)hr);
 
         if (hr == S_OK)
         {
             refcount = ID3D12PipelineState_Release(pipeline_state);
-            ok(!refcount, "ID3D12PipelineState has %u references left.\n", (unsigned int)refcount);
+            ok(!refcount, "ID3D12PipelineState has %u references left.\n", refcount);
         }
     }
 
     refcount = ID3D12RootSignature_Release(root_signature);
-    ok(!refcount, "ID3D12RootSignature has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12RootSignature has %u references left.\n", refcount);
     refcount = ID3D12Device2_Release(device2);
-    ok(refcount == 1, "ID3D12Device2 has %u references left.\n", (unsigned int)refcount);
+    ok(refcount == 1, "ID3D12Device2 has %u references left.\n", refcount);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_shader_interstage_interface(void)
@@ -837,7 +837,7 @@ void test_shader_input_output_components(void)
         pso_desc.PS = *tests[i].ps;
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-        ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
         if (i)
         {
@@ -1045,7 +1045,7 @@ void test_blend_factor(void)
     pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -1147,55 +1147,55 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.RTVFormats[1] = pso_desc.RTVFormats[0];
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", (int)hr);
 
     /* Write mask of 0 is not enough. */
     pso_desc.BlendState.IndependentBlendEnable = TRUE;
     pso_desc.BlendState.RenderTarget[1].RenderTargetWriteMask = 0;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
         &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", (int)hr);
 
     /* This appears to be allowed however. */
     pso_desc.RTVFormats[1] = DXGI_FORMAT_UNKNOWN;
     pso_desc.BlendState.IndependentBlendEnable = FALSE;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
         &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(context.pipeline_state);
 
     /* >2 RTs is also allowed as long as we keep using NULL format. */
     pso_desc.NumRenderTargets = 3;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
         &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(context.pipeline_state);
 
     /* This is still allowed. We need to only consider RTs with IOSIG entry apparently ... */
     pso_desc.RTVFormats[2] = pso_desc.RTVFormats[0];
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
         &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(context.pipeline_state);
 
     /* If we try to write to o2 however, this must fail. */
     pso_desc.PS = ps_3rt;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
         &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", (int)hr);
 
     /* Writing to unused RTs is allowed if they aren't bound to the PSO. */
     pso_desc.NumRenderTargets = 1;
     pso_desc.RTVFormats[2] = DXGI_FORMAT_UNKNOWN;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
         &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(context.pipeline_state);
 
     pso_desc.PS = ps;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -1224,7 +1224,7 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.IndependentBlendEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
@@ -1232,7 +1232,7 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.RenderTarget[1] = pso_desc.BlendState.RenderTarget[0];
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
@@ -1241,7 +1241,7 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.RenderTarget[1].DestBlend = D3D12_BLEND_SRC_COLOR;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
@@ -1258,7 +1258,7 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
@@ -1377,7 +1377,7 @@ void test_primitive_restart(void)
         pso_desc.IBStripCutValue = tests[i].strip_cut_value;
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
         ibv.Format = tests[i].ib_format;
         ib = create_upload_buffer(context.device, tests[i].indices_size, tests[i].indices);
@@ -1386,7 +1386,7 @@ void test_primitive_restart(void)
         index_count = tests[i].indices_size / format_size(ibv.Format);
 
         hr = ID3D12Resource_Map(vb, 0, NULL, &ptr);
-        ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", (int)hr);
         memcpy(ptr, quad, (ARRAY_SIZE(quad) - 1) * sizeof(*quad));
         memcpy((BYTE *)ptr + tests[i].last_index * sizeof(*quad), &quad[ARRAY_SIZE(quad) - 1], sizeof(*quad));
         ID3D12Resource_Unmap(vb, 0, NULL);
@@ -1468,12 +1468,12 @@ void test_create_pipeline_with_null_root_signature(void)
 
     hr = ID3D12Device_CreateRootSignature(context.device, 0, cs_null_root_signature_code_dxbc,
             sizeof(cs_null_root_signature_code_dxbc), &IID_ID3D12RootSignature, (void**)&root_signature);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     memset(&compute_desc, 0, sizeof(compute_desc));
     compute_desc.CS = cs_null_root_signature_dxbc;
     hr = ID3D12Device_CreateComputePipelineState(context.device, &compute_desc, &IID_ID3D12PipelineState, (void**)&pipeline_state);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     if (root_signature && pipeline_state)
     {
@@ -1502,7 +1502,7 @@ void test_create_pipeline_with_null_root_signature(void)
 
     hr = ID3D12Device_CreateRootSignature(context.device, 0, vs_null_root_signature_code_dxbc,
             sizeof(vs_null_root_signature_code_dxbc), &IID_ID3D12RootSignature, (void**)&root_signature);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     memset(&graphics_desc, 0, sizeof(graphics_desc));
     graphics_desc.VS = vs_null_root_signature_dxbc;
@@ -1516,7 +1516,7 @@ void test_create_pipeline_with_null_root_signature(void)
     graphics_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     graphics_desc.SampleDesc.Count = 1;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &graphics_desc, &IID_ID3D12PipelineState, (void**)&pipeline_state);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     if (root_signature && pipeline_state)
     {
@@ -1591,14 +1591,14 @@ void test_mismatching_pso_stages(void)
     pso_desc.SampleMask = ~0u;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pipeline);
-    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(pipeline);
 
     pso_desc.PS = vs_create_pso_dxbc;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pipeline);
-    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(pipeline);
 
@@ -1783,7 +1783,7 @@ void test_topology_triangle_fan(void)
     pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, black, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, false, NULL);
@@ -2027,18 +2027,18 @@ void test_dynamic_depth_bias(void)
     pso_desc.root_signature.root_signature = context.root_signature;
 
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void**)&pso_with_bias);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", (int)hr);
 
     pso_desc.rasterizer = rasterizer_no_bias_subobject;
 
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void**)&pso_no_bias);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", (int)hr);
 
     pso_desc.rasterizer = rasterizer_with_bias_subobject;
     pso_desc.flags_desc = flags_static_bias_subobject;
 
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void**)&pso_static_bias);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", (int)hr);
 
     dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
     ds = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, D3D12_RESOURCE_STATE_DEPTH_WRITE);
@@ -2054,7 +2054,7 @@ void test_dynamic_depth_bias(void)
     query_heap_desc.Count = ARRAY_SIZE(tests);
 
     hr = ID3D12Device_CreateQueryHeap(context.device, &query_heap_desc, &IID_ID3D12QueryHeap, (void**)&query_heap);
-    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", (int)hr);
 
     query_buffer = create_readback_buffer(context.device, sizeof(uint64_t) * query_heap_desc.Count);
 
@@ -2176,13 +2176,13 @@ void test_dynamic_depth_bias(void)
             D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0, query_heap_desc.Count, query_buffer, 0);
 
     hr = ID3D12GraphicsCommandList9_Close(command_list9);
-    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", (int)hr);
 
     exec_command_list(context.queue, context.list);
     wait_queue_idle(context.device, context.queue);
 
     hr = ID3D12Resource_Map(query_buffer, 0, NULL, (void**)&readback_data);
-    ok(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -2443,7 +2443,7 @@ void test_dynamic_index_strip_cut(void)
     rs_desc.NumParameters = ARRAY_SIZE(rs_params);
     rs_desc.pParameters = rs_params;
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pso_desc.root_signature.root_signature = context.root_signature;
 
@@ -2453,20 +2453,20 @@ void test_dynamic_index_strip_cut(void)
     pso_desc.strip_cut = ib_strip_cut_disabled_subobject;
     pso_desc.flags_desc = flags_static_strip_cut_subobject;
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_disabled_static);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     pso_desc.flags_desc = flags_dynamic_strip_cut_subobject;
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_disabled_dynamic);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     pso_desc.strip_cut = ib_strip_cut_enabled_subobject;
     pso_desc.flags_desc = flags_static_strip_cut_subobject;
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_enabled_static);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     pso_desc.flags_desc = flags_dynamic_strip_cut_subobject;
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_enabled_dynamic);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     index_buffer_16 = create_upload_buffer(context.device, sizeof(index16_data), index16_data);
     index_buffer_32 = create_upload_buffer(context.device, sizeof(index32_data), index32_data);
@@ -2818,7 +2818,7 @@ void test_line_rasterization(void)
         pso_rs_desc2_desc.rasterizer.rasterizer_desc.LineRasterizationMode = tests[i].line_raster_mode;
 
         hr = ID3D12Device2_CreatePipelineState(device2, tests[i].pso_stream, &IID_ID3D12PipelineState, (void**)&pso);
-        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
         transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -2955,7 +2955,7 @@ void test_coverage_export_atoc(bool use_dxil)
     rs_param.Constants.Num32BitValues = 1;
     rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     hr = create_root_signature(context.device, &rs_desc, &rs);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&rs_srv_range, 0, sizeof(rs_srv_range));
     rs_srv_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -2968,7 +2968,7 @@ void test_coverage_export_atoc(bool use_dxil)
     rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     hr = create_root_signature(context.device, &rs_desc, &rs_count_samples);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&heap_properties, 0, sizeof(heap_properties));
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -2988,14 +2988,14 @@ void test_coverage_export_atoc(bool use_dxil)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, NULL, &IID_ID3D12Resource, (void **)&rt);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.SampleDesc.Count = 4;
     resource_desc.Format = DXGI_FORMAT_R8_UNORM;
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL, &IID_ID3D12Resource, (void **)&rt_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2);
 
@@ -3026,7 +3026,7 @@ void test_coverage_export_atoc(bool use_dxil)
     init_pipeline_state_desc(&pso_desc, rs_count_samples, DXGI_FORMAT_R8_UINT, NULL, &ps_count_samples_dxbc, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso_count_samples);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     viewport.TopLeftX = 0.0f;
     viewport.TopLeftY = 0.0f;
@@ -3055,7 +3055,7 @@ void test_coverage_export_atoc(bool use_dxil)
         pso_desc.BlendState.AlphaToCoverageEnable = tests[i].atoc;
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&pso);
-        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
         ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
@@ -3112,7 +3112,7 @@ void test_coverage_export_atoc(bool use_dxil)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&rt);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     memset(&rtv_desc, 0, sizeof(rtv_desc));
     rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
@@ -3130,7 +3130,7 @@ void test_coverage_export_atoc(bool use_dxil)
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
@@ -3428,7 +3428,7 @@ void test_view_instancing(void)
     rs_desc.pParameters = &rs_arg;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     /* Shaders must accept SV_ViewID even if view instancing is not supported,
      * or disabled for the PSO. */
@@ -3436,7 +3436,7 @@ void test_view_instancing(void)
             &vs_view_id_passthrough_dxil, &ps_view_id_passthrough_dxil, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device,
             &pso_desc_simple, &IID_ID3D12PipelineState, (void **)&pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
     ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
@@ -3491,7 +3491,7 @@ void test_view_instancing(void)
     pso_vs_ps_desc.view_instancing = view_instancing_simple_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -3529,7 +3529,7 @@ void test_view_instancing(void)
     command_desc.pArgumentDescs = &command_arg;
 
     hr = ID3D12Device_CreateCommandSignature(context.device, &command_desc, NULL, &IID_ID3D12CommandSignature, (void**)&command_sig);
-    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", (int)hr);
 
     transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -3560,7 +3560,7 @@ void test_view_instancing(void)
     pso_vs_ps_desc.view_instancing = view_instancing_simple_mask_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso2);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(view_mask_tests); i++)
     {
@@ -3659,7 +3659,7 @@ void test_view_instancing(void)
     pso_vs_ps_desc.view_instancing = view_instancing_shuffle_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -3690,7 +3690,7 @@ void test_view_instancing(void)
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
     /* Normal multiview cannot support this. */
-    todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
     if (FAILED(hr))
     {
         ok(hr == E_NOTIMPL, "Expected NOTIMPL.\n");
@@ -3761,7 +3761,7 @@ void test_view_instancing(void)
     pso_vs_ps_desc.view_instancing = view_instancing_mixed_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -3814,7 +3814,7 @@ void test_view_instancing(void)
         hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
 
         /* We don't support layer bias at the moment. */
-        todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+        todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
         if (FAILED(hr))
         {
             ok(hr == E_NOTIMPL, "Expected E_NOTIMPL.\n");
@@ -3897,7 +3897,7 @@ void test_view_instancing(void)
     pso_vs_gs_ps_desc.view_instancing = view_instancing_export_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_gs_ps_desc, &pso);
-    todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    todo ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
     if (FAILED(hr))
     {
         ok(hr == E_NOTIMPL, "Expected E_NOTIMPL.\n");
@@ -3971,7 +3971,7 @@ void test_view_instancing(void)
         pso_ms_ps_desc.view_instancing = view_instancing_simple_subobject;
 
         hr = create_pipeline_state_from_stream(device2, &pso_ms_ps_desc, &pso);
-        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
         transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -4192,7 +4192,7 @@ void test_view_instancing_indirect_state(void)
     rs_desc.pParameters = &rs_arg;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     init_depth_stencil(&ds, context.device, 16, 16, 2, 1, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_UNKNOWN, NULL);
 
@@ -4219,7 +4219,7 @@ void test_view_instancing_indirect_state(void)
     pso_vs_ps_desc.view_instancing = view_instancing_simple_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     /* Test ExecuteIndirect */
     arg_buffer = create_upload_buffer(context.device, sizeof(indirect_draw_data), indirect_draw_data);
@@ -4648,7 +4648,7 @@ void test_shader_io_mismatch(void)
         expected = i > 1 ? E_INVALIDARG : S_OK;
 
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-        ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+        ok(hr == expected, "Got hr %#x, expected %#x.\n", (int)hr, (int)expected);
 
         if (SUCCEEDED(hr))
             ID3D12PipelineState_Release(pso);
@@ -4701,7 +4701,7 @@ void test_shader_io_mismatch(void)
             pso_desc.PS = *tests[i].ps;
 
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-        ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+        ok(hr == expected, "Got hr %#x, expected %#x.\n", (int)hr, (int)expected);
 
         if (SUCCEEDED(hr))
             ID3D12PipelineState_Release(pso);
@@ -4739,7 +4739,7 @@ void test_shader_io_mismatch(void)
         pso_desc.StreamOutput.pBufferStrides = so_strides;
 
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-        ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+        ok(hr == expected, "Got hr %#x, expected %#x.\n", (int)hr, (int)expected);
 
         if (SUCCEEDED(hr))
             ID3D12PipelineState_Release(pso);
@@ -4789,7 +4789,7 @@ void test_shader_io_mismatch(void)
                 pso_ms_desc.ps.shader_bytecode = *tests[i].ps;
 
             hr = create_pipeline_state_from_stream(device2, &pso_ms_desc, &pso);
-            ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+            ok(hr == expected, "Got hr %#x, expected %#x.\n", (int)hr, (int)expected);
 
             if (SUCCEEDED(hr))
                 ID3D12PipelineState_Release(pso);
@@ -4893,7 +4893,7 @@ void test_gs_topology_mismatch(bool dxil)
             hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
             expected = geometry_shaders[j].topology == topology_types[i] ? S_OK : E_INVALIDARG;
 
-            ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+            ok(hr == expected, "Got hr %#x, expected %#x.\n", (int)hr, (int)expected);
 
             if (hr == S_OK)
                 ID3D12PipelineState_Release(pso);
@@ -4922,7 +4922,7 @@ void test_gs_topology_mismatch(bool dxil)
             expected = (geometry_shaders[j].topology == tess_shaders[i].topology &&
                     !geometry_shaders[j].uses_adjacency) ? S_OK : E_INVALIDARG;
 
-            ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+            ok(hr == expected, "Got hr %#x, expected %#x.\n", (int)hr, (int)expected);
 
             if (hr == S_OK)
                 ID3D12PipelineState_Release(pso);
@@ -5252,7 +5252,7 @@ void test_sample_shading_coverage_mask(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&output);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
     vbo = create_upload_buffer(context.device, sizeof(vbo_data), vbo_data);
 
@@ -5262,10 +5262,10 @@ void test_sample_shading_coverage_mask(void)
     pso_desc.SampleDesc.Count = 4;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso60);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
     pso_desc.PS = ps_sample_mask66_dxil;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso66);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
 
     rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
     rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv);
@@ -5371,14 +5371,14 @@ void test_render_target_support_validation(void)
 
     init_pipeline_state_desc(&pso_desc, NULL, DXGI_FORMAT_R32_FLOAT, &vs_null_root_signature_dxbc, &ps_null_root_signature_dxbc, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(pso);
 
     /* No errors are created. Only logical conclusion is that bogus formats are nulled out. */
     pso_desc.RTVFormats[0] = DXGI_FORMAT_BC6H_UF16;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(pso);
 
@@ -5387,14 +5387,14 @@ void test_render_target_support_validation(void)
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pso_desc.DSVFormat = DXGI_FORMAT_BC7_UNORM;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(pso);
 
     /* No errors are created. Only logical conclusion is that bogus formats are nulled out. */
     pso_desc.RTVFormats[0] = DXGI_FORMAT_R32_TYPELESS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline state, hr #%x\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(pso);
 

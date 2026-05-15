@@ -119,7 +119,7 @@ void test_depth_clip(void)
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -158,7 +158,7 @@ void test_depth_clip(void)
     pso_desc.RasterizerState.DepthClipEnable = false;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -198,7 +198,7 @@ void test_depth_clip(void)
     pso_desc.RasterizerState.DepthClipEnable = true;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list,
@@ -273,7 +273,7 @@ static void check_depth_stencil_sampling_(unsigned int line, struct test_context
     transition_sub_resource_state(command_list, texture, 0,
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok_(line)(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
     exec_command_list(queue, command_list);
     wait_queue_idle(context->device, queue);
 }
@@ -373,7 +373,7 @@ void test_depth_stencil_sampling(void)
     root_signature_desc.NumStaticSamplers = 2;
     root_signature_desc.pStaticSamplers = sampler_desc;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pso_compare = create_pipeline_state(device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps_depth_compare_dxbc, NULL);
@@ -392,7 +392,7 @@ void test_depth_stencil_sampling(void)
     cb = create_upload_buffer(device, sizeof(ps_constant), &ps_constant);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -571,7 +571,7 @@ void test_depth_load(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pipeline_state = create_compute_pipeline_state(device, context.root_signature, cs_load_depth_dxbc);
     context.pipeline_state = create_pipeline_state(context.device,
@@ -690,7 +690,7 @@ void test_depth_read_only_view(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
 
@@ -800,7 +800,7 @@ void test_stencil_load(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pipeline_state = create_compute_pipeline_state(device, context.root_signature, cs_load_stencil_dxbc);
     context.pipeline_state = create_pipeline_state(context.device,
@@ -926,7 +926,7 @@ void test_early_depth_stencil_tests(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps_early_depth_stencil_dxbc, NULL);
     pso_desc.NumRenderTargets = 0;
@@ -936,7 +936,7 @@ void test_early_depth_stencil_tests(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     init_depth_stencil(&ds, context.device, 1, 1, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
     set_rect(&context.scissor_rect, 0, 0, 1, 1);
@@ -1056,7 +1056,7 @@ static void test_stencil_export(bool use_dxil)
     }
 
     hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
-    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", (int)hr);
 
     if (!options.PSSpecifiedStencilRefSupported)
     {
@@ -1093,14 +1093,14 @@ static void test_stencil_export(bool use_dxil)
     pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     rs_sample = create_texture_root_signature(context.device,
             D3D12_SHADER_VISIBILITY_PIXEL, 0, 0);
     init_pipeline_state_desc(&pso_desc, rs_sample, DXGI_FORMAT_R8_UINT, NULL, &ps_stencil_export_load_dxbc, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso_sample);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.NumDescriptors = 1;
@@ -1108,7 +1108,7 @@ static void test_stencil_export(bool use_dxil)
     heap_desc.NodeMask = 0;
 
     hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&srv_heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
             D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0x80, 0, NULL);
@@ -1460,7 +1460,7 @@ void test_depth_stencil_layout_tracking(void)
 
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&psos[i]);
-        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
     }
 
     /* In the tests, begin command lists from a clean slate.
@@ -2071,9 +2071,9 @@ void test_depth_stencil_front_and_back(void)
     pso_desc_write_stencil.root_signature.root_signature = context.root_signature;
 
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream_write_stencil, &IID_ID3D12PipelineState, (void **)&pso_stencil_write);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", (int)hr);
     hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream_read_stencil, &IID_ID3D12PipelineState, (void **)&pso_stencil_read);
-    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", (int)hr);
 
     for (i = 0; i < 3; i++)
     {
@@ -2281,7 +2281,7 @@ void test_depth_bias_behaviour(void)
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     hr = create_root_signature(context.device, &rs_desc, &rs);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     viewport.TopLeftX = 0.0f;
     viewport.TopLeftY = 0.0f;
@@ -2298,7 +2298,7 @@ void test_depth_bias_behaviour(void)
     /* Render reference image with no depth bias and no depth test enabled */
     init_pipeline_state_desc(&pso_desc, rs, DXGI_FORMAT_R32_FLOAT, &vs_depth_bias_behaviour_dxbc, &ps_depth_bias_behaviour_dxbc, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_no_bias, FALSE, NULL);
@@ -2346,7 +2346,7 @@ void test_depth_bias_behaviour(void)
             }
 
             hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
-            ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
             ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv, FALSE, tests[i].dsv_handle);
             ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv, black, 0, NULL);
@@ -2518,7 +2518,7 @@ void test_depth_bias_formats(void)
 
             hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
                     D3D12_HEAP_FLAG_NONE, &ds_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void**)&ds_resource);
-            ok(hr == S_OK, "Failed to create depth image, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create depth image, hr %#x.\n", (int)hr);
 
             memset(&dsv_desc, 0, sizeof(dsv_desc));
             dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
@@ -2541,7 +2541,7 @@ void test_depth_bias_formats(void)
             }
 
             hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
-            ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
             memcpy(&clear_depth, &tests[i].depth_clear, sizeof(clear_depth));
 

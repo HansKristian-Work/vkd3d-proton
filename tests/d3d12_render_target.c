@@ -59,7 +59,7 @@ void test_srgb_unorm_mismatch_usage_aliasing(void)
             &srgb_unorm_mismatch_vs_dxbc, &srgb_unorm_mismatch_ps_dxbc, NULL);
     pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x\n", (int)hr);
 
     /* Triages an AC: Shadows bug where these resources are aliased on top of a heap and game expects this to "just werk". */
 
@@ -85,12 +85,12 @@ void test_srgb_unorm_mismatch_usage_aliasing(void)
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     heap_desc.SizeInBytes = 64 * 1024 + max(unorm_alloc_info.SizeInBytes, srgb_alloc_info.SizeInBytes);
     hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", (int)hr);
 
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     hr = ID3D12Device_CreatePlacedResource(context.device, heap, 64 * 1024, &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL, &IID_ID3D12Resource, (void **)&unorm);
-    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", (int)hr);
 
     /* AC: Shadows does not add this UAV flag, but D3D12 has requirements about aliasing if all things match,
      * and we should be using VK_IMAGE_CREATE_ALIAS_BIT for all placed resoures, which makes this test pass on RDNA4.
@@ -98,7 +98,7 @@ void test_srgb_unorm_mismatch_usage_aliasing(void)
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
     hr = ID3D12Device_CreatePlacedResource(context.device, heap, 64 * 1024, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&srgb);
-    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", (int)hr);
 
     context.rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
     context.rtv = get_cpu_rtv_handle(&context, context.rtv_heap, 0);
@@ -189,7 +189,7 @@ void test_unbound_rtv_rendering(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rt_handle, white, 0, NULL);
@@ -259,7 +259,7 @@ void test_unknown_rtv_format(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     rtvs[0] = get_cpu_rtv_handle(&context, context.rtv_heap, 0);
     rtvs[1] = get_cpu_rtv_handle(&context, context.rtv_heap, 1);
@@ -355,7 +355,7 @@ void test_unknown_dsv_format(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_EQUAL;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
@@ -426,7 +426,7 @@ void test_unknown_dsv_format(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, context.render_target,
@@ -460,7 +460,7 @@ void test_unknown_dsv_format(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, context.render_target,
@@ -538,7 +538,7 @@ void test_depth_stencil_test_no_dsv(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH,
@@ -654,7 +654,7 @@ void test_render_a8_dxil(void)
 
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
 
@@ -717,13 +717,13 @@ void test_multisample_rendering(void)
             context.render_target_desc.Format, NULL, &ps_multisample_resolve_dxbc, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     pso_desc.PS = ps_multisample_color_dxbc;
     pso_desc.SampleDesc.Count = 4;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&ms_pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ms_rtv = get_cpu_rtv_handle(&context, context.rtv_heap, 1);
     desc.sample_desc.Count = 4;
@@ -815,7 +815,7 @@ void test_multisample_rendering(void)
     vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_SAMPLE_COUNT_MISMATCH, TRUE);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&ms_pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
     vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_SAMPLE_COUNT_MISMATCH, FALSE);
 
     reset_command_list(command_list, context.allocator);
@@ -859,7 +859,7 @@ void test_multisample_rendering(void)
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
         hr = ID3D12GraphicsCommandList_Close(command_list);
-        ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to close command list, hr %#x.\n", (int)hr);
 
         exec_command_list(queue, command_list);
         wait_queue_idle(context.device, queue);
@@ -925,7 +925,7 @@ void test_rendering_no_attachments_layers(void)
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, FALSE, NULL);
 
@@ -992,7 +992,7 @@ void test_renderpass_validation(void)
     }
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void**)&allocator);
-    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
         allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
@@ -1024,33 +1024,33 @@ void test_renderpass_validation(void)
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[0]);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[1]);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.Width = 16;
     resource_desc.Height = 16;
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[2]);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.SampleDesc.Count = 4;
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[3]);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     resource_desc.SampleDesc.Count = 1;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void**)&ds);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(rt); i++)
         ID3D12Device_CreateRenderTargetView(device, rt[i], NULL, get_cpu_handle(device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, i));
@@ -1059,7 +1059,7 @@ void test_renderpass_validation(void)
     ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 0, NULL, NULL, 0);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", hr);
+    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     /* Test that binding a simple RTV works */
@@ -1079,7 +1079,7 @@ void test_renderpass_validation(void)
     ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", hr);
+    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     /* Test that not matching BeginRenderPass and EndRenderPass fails */
@@ -1088,7 +1088,7 @@ void test_renderpass_validation(void)
         allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
     ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    ok(FAILED(hr), "Got hr %#x, expected E_FAIL.\n", hr);
+    ok(FAILED(hr), "Got hr %#x, expected E_FAIL.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     ID3D12CommandAllocator_Reset(allocator);
@@ -1096,7 +1096,7 @@ void test_renderpass_validation(void)
         allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     ID3D12CommandAllocator_Reset(allocator);
@@ -1106,7 +1106,7 @@ void test_renderpass_validation(void)
     ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     ID3D12CommandAllocator_Reset(allocator);
@@ -1116,7 +1116,7 @@ void test_renderpass_validation(void)
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     /* Test consecutive render pass validation with suspend/resume flags */
@@ -1136,7 +1136,7 @@ void test_renderpass_validation(void)
     ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", hr);
+    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     ID3D12CommandAllocator_Reset(allocator);
@@ -1148,7 +1148,7 @@ void test_renderpass_validation(void)
     ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    todo ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    todo ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     ID3D12CommandAllocator_Reset(allocator);
@@ -1160,7 +1160,7 @@ void test_renderpass_validation(void)
     ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    todo ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    todo ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     /* Test that executing certain commands during a render pass fails */
@@ -1171,7 +1171,7 @@ void test_renderpass_validation(void)
     ID3D12GraphicsCommandList4_ClearRenderTargetView(command_list4, get_cpu_handle(device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 0), black, 0, NULL);
     ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
     hr = ID3D12GraphicsCommandList4_Close(command_list4);
-    ok(FAILED(hr), "Got hr %#x, expected E_FAIL.\n", hr);
+    ok(FAILED(hr), "Got hr %#x, expected E_FAIL.\n", (int)hr);
     ID3D12GraphicsCommandList4_Release(command_list4);
 
     /* Barriers inside render passes, GPU work occuring between render passes with
@@ -1276,7 +1276,7 @@ void test_renderpass_rendering(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.SampleDesc.Count = 4;
@@ -1284,7 +1284,7 @@ void test_renderpass_rendering(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
             NULL, &IID_ID3D12Resource, (void**)&rt_ms);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.DepthOrArraySize = 1;
@@ -1295,7 +1295,7 @@ void test_renderpass_rendering(void)
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
             D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
             NULL, &IID_ID3D12Resource, (void**)&ds);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 8);
     dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
@@ -1345,13 +1345,13 @@ void test_renderpass_rendering(void)
     pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     pso_desc.SampleDesc.Count = 4;
     pso_desc.SampleMask = 0xf;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso_ms);
-    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", (int)hr);
 
     memset(&rtv_desc, 0, sizeof(rtv_desc));
     rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1900,7 +1900,7 @@ void test_renderpass_resolve_suspend_resume(void)
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
 
     memset(&resource_desc, 0, sizeof(resource_desc));
     resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -2073,7 +2073,7 @@ void test_renderpass_resolve_suspend_resume(void)
         if (test->inter_suspend_resume)
         {
             hr = ID3D12GraphicsCommandList4_Close(list4);
-            ok(SUCCEEDED(hr), "Failed to close command list, hr #%x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to close command list, hr #%x.\n", (int)hr);
             ID3D12GraphicsCommandList4_Reset(altlist, context.allocator, NULL);
 
             ID3D12GraphicsCommandList4_BeginRenderPass(altlist, 2, rt_descs, &dsv_desc,
@@ -2092,7 +2092,7 @@ void test_renderpass_resolve_suspend_resume(void)
             }
 
             hr = ID3D12GraphicsCommandList4_Close(altlist);
-            ok(SUCCEEDED(hr), "Failed to close command list, hr #%x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to close command list, hr #%x.\n", (int)hr);
             {
                 ID3D12CommandList *lists[] = {(ID3D12CommandList *) list4, (ID3D12CommandList *) altlist};
                 ID3D12CommandQueue_ExecuteCommandLists(context.queue, 2, lists);
@@ -2170,7 +2170,7 @@ void test_scissor_clamping(void)
     init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, &vs_flat_color_dxbc, &ps_flat_color_dxbc, NULL);
     pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 3);
     highres[0] = create_default_texture2d(context.device, 1920, 1080, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
@@ -2317,7 +2317,7 @@ void test_mismatching_rtv_dsv_size(void)
     memset(&rs_desc, 0, sizeof(rs_desc));
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps_rt_mismatch_dxbc, NULL);
     pso_desc.DepthStencilState.DepthEnable = TRUE;
@@ -2329,7 +2329,7 @@ void test_mismatching_rtv_dsv_size(void)
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, ARRAY_SIZE(rt_ds_size));
     dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, ARRAY_SIZE(rt_ds_size));
@@ -2354,7 +2354,7 @@ void test_mismatching_rtv_dsv_size(void)
 
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[i]);
-        ok(hr == S_OK, "Failed to create color image, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create color image, hr %#x.\n", (int)hr);
 
         memset(&rtv_desc, 0, sizeof(rtv_desc));
         rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
@@ -2366,7 +2366,7 @@ void test_mismatching_rtv_dsv_size(void)
 
         hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void**)&ds[i]);
-        ok(hr == S_OK, "Failed to create depth image, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create depth image, hr %#x.\n", (int)hr);
 
         memset(&dsv_desc, 0, sizeof(dsv_desc));
         dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
@@ -2560,7 +2560,7 @@ void test_rgb9e5_rendering(void)
     rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 
     hr = ID3D12Device_CreateDescriptorHeap(context.device, &rtv_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&rtv_heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     rtv_descriptor = get_cpu_rtv_handle(&context, rtv_heap, 0);
 
@@ -2580,7 +2580,7 @@ void test_rgb9e5_rendering(void)
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &rt_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt);
-    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", (int)hr);
 
     memset(&rtv_desc, 0, sizeof(rtv_desc));
     rtv_desc.Format = DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
@@ -2596,7 +2596,7 @@ void test_rgb9e5_rendering(void)
     pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     memset(&vp, 0, sizeof(vp));
     vp.Width = 16.0f;
@@ -2648,7 +2648,7 @@ void test_rgb9e5_rendering(void)
     pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = 0x7u; /* no alpha */
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -2683,7 +2683,7 @@ void test_rgb9e5_rendering(void)
     pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = 0x8u; /* only alpha */
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -2796,7 +2796,7 @@ void test_unused_attachments_mix_and_match(void)
         }
 
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&psos[i]);
-        ok(SUCCEEDED(hr), "Failed to create PSO %u, hr #%x.\n", i, hr);
+        ok(SUCCEEDED(hr), "Failed to create PSO %u, hr #%x.\n", i, (int)hr);
     }
 
     rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 9);

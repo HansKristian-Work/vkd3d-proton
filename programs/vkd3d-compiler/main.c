@@ -170,7 +170,7 @@ int main(int argc, char **argv)
     vkd3d_shader_free_shader_code(&dxbc);
     if (FAILED(hr))
     {
-        fprintf(stderr, "Failed to compile DXBC shader, hr %#x.\n", hr);
+        fprintf(stderr, "Failed to compile DXBC shader, hr %#x.\n", (int)hr);
         return 1;
     }
 

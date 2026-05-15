@@ -107,7 +107,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_bundle_allocator_QueryInterface(ID3D12Com
 static ULONG STDMETHODCALLTYPE d3d12_bundle_allocator_AddRef(ID3D12CommandAllocator *iface)
 {
     struct d3d12_bundle_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
-    ULONG refcount = InterlockedIncrement(&allocator->refcount);
+    unsigned int refcount = InterlockedIncrement(&allocator->refcount);
 
     TRACE("%p increasing refcount to %u.\n", allocator, refcount);
 
@@ -117,7 +117,7 @@ static ULONG STDMETHODCALLTYPE d3d12_bundle_allocator_AddRef(ID3D12CommandAlloca
 static ULONG STDMETHODCALLTYPE d3d12_bundle_allocator_Release(ID3D12CommandAllocator *iface)
 {
     struct d3d12_bundle_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
-    ULONG refcount = InterlockedDecrement(&allocator->refcount);
+    unsigned int refcount = InterlockedDecrement(&allocator->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", allocator, refcount);
 
@@ -313,7 +313,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_bundle_QueryInterface(d3d12_command_list_
 static ULONG STDMETHODCALLTYPE d3d12_bundle_AddRef(d3d12_command_list_iface *iface)
 {
     struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
-    ULONG refcount = InterlockedIncrement(&bundle->refcount);
+    unsigned int refcount = InterlockedIncrement(&bundle->refcount);
 
     TRACE("%p increasing refcount to %u.\n", bundle, refcount);
 
@@ -323,7 +323,7 @@ static ULONG STDMETHODCALLTYPE d3d12_bundle_AddRef(d3d12_command_list_iface *ifa
 static ULONG STDMETHODCALLTYPE d3d12_bundle_Release(d3d12_command_list_iface *iface)
 {
     struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
-    ULONG refcount = InterlockedDecrement(&bundle->refcount);
+    unsigned int refcount = InterlockedDecrement(&bundle->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", bundle, refcount);
 
@@ -1162,14 +1162,14 @@ static void STDMETHODCALLTYPE d3d12_bundle_ClearDepthStencilView(d3d12_command_l
         D3D12_CPU_DESCRIPTOR_HANDLE dsv, D3D12_CLEAR_FLAGS flags, float depth, UINT8 stencil,
         UINT rect_count, const D3D12_RECT *rects)
 {
-    WARN("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p ignored!\n",
+    WARN("iface %p, dsv %zx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p ignored!\n",
             iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_ClearRenderTargetView(d3d12_command_list_iface *iface,
         D3D12_CPU_DESCRIPTOR_HANDLE rtv, const FLOAT color[4], UINT rect_count, const D3D12_RECT *rects)
 {
-    WARN("iface %p, rtv %#lx, color %p, rect_count %u, rects %p ignored!\n",
+    WARN("iface %p, rtv %zx, color %p, rect_count %u, rects %p ignored!\n",
             iface, rtv.ptr, color, rect_count, rects);
 }
 
@@ -1177,7 +1177,7 @@ static void STDMETHODCALLTYPE d3d12_bundle_ClearUnorderedAccessViewUint(d3d12_co
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
 {
-    WARN("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p ignored!\n",
+    WARN("iface %p, gpu_handle %"PRIx64", cpu_handle %zx, resource %p, values %p, rect_count %u, rects %p ignored!\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 }
 
@@ -1185,7 +1185,7 @@ static void STDMETHODCALLTYPE d3d12_bundle_ClearUnorderedAccessViewFloat(d3d12_c
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
         const float values[4], UINT rect_count, const D3D12_RECT *rects)
 {
-    WARN("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p ignored!\n",
+    WARN("iface %p, gpu_handle %"PRIx64", cpu_handle %zx, resource %p, values %p, rect_count %u, rects %p ignored!\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 }
 
@@ -1514,15 +1514,15 @@ static void STDMETHODCALLTYPE d3d12_bundle_EndRenderPass(d3d12_command_list_ifac
 static void STDMETHODCALLTYPE d3d12_bundle_InitializeMetaCommand(d3d12_command_list_iface *iface,
         ID3D12MetaCommand *meta_command, const void *parameter_data, SIZE_T parameter_size)
 {
-    WARN("iface %p, meta_command %p, parameter_data %p, parameter_size %lu ignored!\n",
-            iface, meta_command, parameter_data, parameter_size);
+    WARN("iface %p, meta_command %p, parameter_data %p, parameter_size %zu ignored!\n",
+            iface, meta_command, parameter_data, (size_t)parameter_size);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_ExecuteMetaCommand(d3d12_command_list_iface *iface,
         ID3D12MetaCommand *meta_command, const void *parameter_data, SIZE_T parameter_size)
 {
-    WARN("iface %p, meta_command %p, parameter_data %p, parameter_size %lu ignored!\n",
-            iface, meta_command, parameter_data, parameter_size);
+    WARN("iface %p, meta_command %p, parameter_data %p, parameter_size %zu ignored!\n",
+            iface, meta_command, parameter_data, (size_t)parameter_size);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,

@@ -5953,14 +5953,14 @@ ULONG d3d12_device_release_common(struct d3d12_device *device);
 
 static inline ULONG d3d12_device_add_ref(struct d3d12_device *device)
 {
-    ULONG refcount = d3d12_device_add_ref_common(device);
+    unsigned int refcount = d3d12_device_add_ref_common(device);
     TRACE("Increasing refcount to %u.\n", refcount);
     return refcount;
 }
 
 static inline ULONG d3d12_device_release(struct d3d12_device *device)
 {
-    ULONG refcount = d3d12_device_release_common(device);
+    unsigned int refcount = d3d12_device_release_common(device);
     TRACE("Decreasing refcount to %u.\n", refcount);
     return refcount;
 }

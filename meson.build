@@ -107,7 +107,8 @@ add_project_arguments(vkd3d_compiler.get_supported_arguments([
     # For some reason, the use of VLAs isn't in all+extra+pedantic
     # We don't want to use these accidentally from consts...
     '-Wvla',
-    '-Wno-format',
+    '-Wformat',
+    '-Wno-format-truncation',
     '-Wno-missing-field-initializers',
     '-Wno-unused-parameter',
     '-Wdeclaration-after-statement',

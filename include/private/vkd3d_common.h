@@ -59,7 +59,9 @@ static inline size_t align(size_t addr, size_t alignment)
 }
 
 #ifdef __GNUC__
-# define VKD3D_PRINTF_FUNC(fmt, args) __attribute__((format(printf, fmt, args)))
+/* Normal printf needlessly warns on %zu since it targets ancient msvcrt.dll.
+ * This is not relevant anymore. */
+# define VKD3D_PRINTF_FUNC(fmt, args) __attribute__((format(gnu_printf, fmt, args)))
 # define VKD3D_UNUSED __attribute__((unused))
 #else
 # define VKD3D_PRINTF_FUNC(fmt, args)

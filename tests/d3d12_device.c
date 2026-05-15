@@ -24,8 +24,8 @@
 
 void test_create_device(void)
 {
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -40,41 +40,41 @@ void test_create_device(void)
     check_interface(device, &IID_ID3D12Device, true);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
     ID3D12Device_Release(device);
 
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, NULL);
-    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", (int)hr);
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, NULL, NULL);
-    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", (int)hr);
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12DeviceChild, NULL);
-    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_FALSE, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_9_1, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_9_2, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_9_3, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_10_0, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_10_1, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = D3D12CreateDevice(NULL, 0, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = D3D12CreateDevice(NULL, ~0u, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 }
 
 void test_node_count(void)
 {
+    unsigned int refcount;
     ID3D12Device *device;
     UINT node_count;
-    ULONG refcount;
 
     if (!(device = create_device()))
     {
@@ -87,7 +87,7 @@ void test_node_count(void)
     ok(1 <= node_count && node_count <= 32, "Got unexpected node count %u.\n", node_count);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_check_feature_support(void)
@@ -99,9 +99,9 @@ void test_check_feature_support(void)
     D3D12_FEATURE_DATA_ARCHITECTURE architecture;
     D3D12_FEATURE_DATA_FORMAT_INFO format_info;
     unsigned int expected_plane_count;
+    unsigned int refcount;
     ID3D12Device *device;
     DXGI_FORMAT format;
-    ULONG refcount;
     bool is_todo;
     HRESULT hr;
 
@@ -148,7 +148,7 @@ void test_check_feature_support(void)
     memset(&architecture, 0, sizeof(architecture));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE,
             &architecture, sizeof(architecture));
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ok(!architecture.NodeIndex, "Got unexpected node %u.\n", architecture.NodeIndex);
     ok(!architecture.CacheCoherentUMA || architecture.UMA,
             "Got unexpected cache coherent UMA %#x (UMA %#x).\n",
@@ -162,21 +162,21 @@ void test_check_feature_support(void)
         architecture.NodeIndex = 1;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE,
                 &architecture, sizeof(architecture));
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     }
 
     /* Feature levels */
     memset(&feature_levels, 0, sizeof(feature_levels));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     feature_levels.NumFeatureLevels = ARRAY_SIZE(all_feature_levels);
     feature_levels.pFeatureLevelsRequested = all_feature_levels;
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", (int)hr);
     trace("Max supported feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
     max_supported_feature_level = feature_levels.MaxSupportedFeatureLevel;
 
@@ -185,7 +185,7 @@ void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", (int)hr);
     ok(feature_levels.MaxSupportedFeatureLevel == max_supported_feature_level,
             "Got unexpected feature level %#x, expected %#x.\n",
             feature_levels.MaxSupportedFeatureLevel, max_supported_feature_level);
@@ -193,17 +193,17 @@ void test_check_feature_support(void)
     /* Check invalid size. */
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels) + 1);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels) - 1);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     feature_levels.NumFeatureLevels = ARRAY_SIZE(d3d_9_x_feature_levels);
     feature_levels.pFeatureLevelsRequested = d3d_9_x_feature_levels;
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", (int)hr);
     ok(feature_levels.MaxSupportedFeatureLevel == D3D_FEATURE_LEVEL_9_3,
             "Got unexpected max feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
 
@@ -212,7 +212,7 @@ void test_check_feature_support(void)
     feature_levels.MaxSupportedFeatureLevel = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS,
             &feature_levels, sizeof(feature_levels));
-    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", (int)hr);
     ok(feature_levels.MaxSupportedFeatureLevel == 0x3000,
             "Got unexpected max feature level %#x.\n", feature_levels.MaxSupportedFeatureLevel);
 
@@ -220,7 +220,7 @@ void test_check_feature_support(void)
     memset(&format_info, 0, sizeof(format_info));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_INFO,
             &format_info, sizeof(format_info));
-    ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get format info, hr %#x.\n", (int)hr);
     ok(format_info.Format == DXGI_FORMAT_UNKNOWN, "Got unexpected format %#x.\n", format_info.Format);
     ok(format_info.PlaneCount == 1, "Got unexpected plane count %u.\n", format_info.PlaneCount);
 
@@ -263,12 +263,12 @@ void test_check_feature_support(void)
 
         if (format == DXGI_FORMAT_R1_UNORM)
         {
-            ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+            ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
             continue;
         }
 
         todo_if(is_todo)
-        ok(hr == S_OK, "Failed to get format info, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to get format info, hr %#x.\n", (int)hr);
         ok(format_info.Format == format, "Got unexpected format %#x.\n", format_info.Format);
         todo_if(is_todo)
         ok(format_info.PlaneCount == expected_plane_count,
@@ -280,7 +280,7 @@ void test_check_feature_support(void)
     memset(&gpu_virtual_address, 0, sizeof(gpu_virtual_address));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT,
             &gpu_virtual_address, sizeof(gpu_virtual_address));
-    ok(hr == S_OK, "Failed to check GPU virtual address support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check GPU virtual address support, hr %#x.\n", (int)hr);
     trace("GPU virtual address bits per resource: %u.\n",
             gpu_virtual_address.MaxGPUVirtualAddressBitsPerResource);
     trace("GPU virtual address bits per process: %u.\n",
@@ -289,14 +289,14 @@ void test_check_feature_support(void)
     root_signature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
             &root_signature, sizeof(root_signature));
-    ok(hr == S_OK, "Failed to get root signature feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get root signature feature support, hr %#x.\n", (int)hr);
     ok(root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_0,
             "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
 
     root_signature.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
             &root_signature, sizeof(root_signature));
-    ok(hr == S_OK, "Failed to get root signature feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get root signature feature support, hr %#x.\n", (int)hr);
     ok(root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_0
             || root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_1,
             "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
@@ -304,19 +304,19 @@ void test_check_feature_support(void)
     root_signature.HighestVersion = 0;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
             &root_signature, sizeof(root_signature));
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(root_signature.HighestVersion == 0, "Got unexpected root signature feature version %#x.\n",
             root_signature.HighestVersion);
 
     root_signature.HighestVersion = 0xdeadbeef;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
             &root_signature, sizeof(root_signature));
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     ok(root_signature.HighestVersion == 0xdeadbeef, "Got unexpected root signature feature version %#x.\n",
             root_signature.HighestVersion);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 static const DXGI_FORMAT depth_stencil_formats[] =
@@ -341,10 +341,10 @@ void test_format_support(void)
     D3D12_FEATURE_DATA_FEATURE_LEVELS feature_levels;
     bool required_but_fails;
     bool unspecified_format;
+    unsigned int refcount;
     bool optional_format;
     ID3D12Device *device;
     DXGI_FORMAT format;
-    ULONG refcount;
     unsigned int i;
     HRESULT hr;
 
@@ -436,7 +436,7 @@ void test_format_support(void)
     memset(&format_support, 0, sizeof(format_support));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
             &format_support, sizeof(format_support));
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ok(format_support.Support1 == D3D12_FORMAT_SUPPORT1_BUFFER,
             "Got unexpected support1 %#x.\n", format_support.Support1);
     ok(!format_support.Support2 || format_support.Support2 == D3D12_FORMAT_SUPPORT2_TILED,
@@ -447,7 +447,7 @@ void test_format_support(void)
     feature_levels.pFeatureLevelsRequested = all_feature_levels;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS, 
         &feature_levels, sizeof(feature_levels));
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     dxgi_format = NULL;
     for (i = 0; i < ARRAY_SIZE(dxgi_format_list); ++i)
@@ -527,26 +527,26 @@ void test_format_support(void)
                 &format_support, sizeof(format_support));
 
         if (unspecified_format)
-            ok(hr == S_OK || hr == E_FAIL, "Unspecified format %d got unexpected hr %#x.\n", format, hr);
+            ok(hr == S_OK || hr == E_FAIL, "Unspecified format %d got unexpected hr %#x.\n", format, (int)hr);
         else if (optional_format)
-            ok(hr == S_OK || hr == E_FAIL, "Optional format %d got unexpected hr %#x.\n", format, hr);
+            ok(hr == S_OK || hr == E_FAIL, "Optional format %d got unexpected hr %#x.\n", format, (int)hr);
         else 
-            todo_if(required_but_fails) ok(hr == S_OK, "Format %d got unexpected hr %#x.\n", format, hr);
+            todo_if(required_but_fails) ok(hr == S_OK, "Format %d got unexpected hr %#x.\n", format, (int)hr);
     }
     vkd3d_test_set_context(NULL);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_multisample_quality_levels(void)
 {
     static const unsigned int sample_counts[] = {1, 2, 4, 8, 16, 32};
     D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS format_support;
+    unsigned int refcount;
     ID3D12Device *device;
     DXGI_FORMAT format;
     unsigned int i, j;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -559,7 +559,7 @@ void test_multisample_quality_levels(void)
     format_support.NumQualityLevels = 0xdeadbeef;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
             &format_support, sizeof(format_support));
-    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", (int)hr);
     ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
     ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
 
@@ -567,7 +567,7 @@ void test_multisample_quality_levels(void)
     format_support.NumQualityLevels = 0xdeadbeef;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
             &format_support, sizeof(format_support));
-    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", (int)hr);
     ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
     ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
 
@@ -585,7 +585,7 @@ void test_multisample_quality_levels(void)
         format_support.NumQualityLevels = 0xdeadbeef;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
                 &format_support, sizeof(format_support));
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(format_support.NumQualityLevels == 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
     }
     vkd3d_test_set_context(NULL);
@@ -600,7 +600,7 @@ void test_multisample_quality_levels(void)
         format_support.NumQualityLevels = 0xdeadbeef;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
                 &format_support, sizeof(format_support));
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
         ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
 
@@ -608,7 +608,7 @@ void test_multisample_quality_levels(void)
         format_support.NumQualityLevels = 0xdeadbeef;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
                 &format_support, sizeof(format_support));
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(format_support.Flags == D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_TILED_RESOURCE,
                 "Got unexpected flags %#x.\n", format_support.Flags);
         ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
@@ -638,7 +638,7 @@ void test_multisample_quality_levels(void)
         format_support.NumQualityLevels = 0xdeadbeef;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
                 &format_support, sizeof(format_support));
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
         ok(!format_support.NumQualityLevels, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
     }
@@ -651,7 +651,7 @@ void test_multisample_quality_levels(void)
     format_support.NumQualityLevels = 0xdeadbeef;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
             &format_support, sizeof(format_support));
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ok(!format_support.Flags, "Got unexpected flags %#x.\n", format_support.Flags);
     ok(format_support.NumQualityLevels >= 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
 
@@ -661,7 +661,7 @@ void test_multisample_quality_levels(void)
     format_support.NumQualityLevels = 0xdeadbeef;
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
             &format_support, sizeof(format_support));
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ok(format_support.NumQualityLevels >= 1, "Got unexpected quality levels %u.\n", format_support.NumQualityLevels);
 
     for (i = 0; i < ARRAY_SIZE(depth_stencil_formats); ++i)
@@ -672,18 +672,18 @@ void test_multisample_quality_levels(void)
         format_support.NumQualityLevels = 0xdeadbeef;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
                 &format_support, sizeof(format_support));
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     }
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_command_allocator(void)
 {
     ID3D12CommandAllocator *command_allocator;
     ID3D12Device *device, *tmp_device;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -694,16 +694,16 @@ void test_create_command_allocator(void)
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12CommandAllocator_GetDevice(command_allocator, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(command_allocator, &IID_ID3D12Object, true);
     check_interface(command_allocator, &IID_ID3D12DeviceChild, true);
@@ -711,32 +711,32 @@ void test_create_command_allocator(void)
     check_interface(command_allocator, &IID_ID3D12CommandAllocator, true);
 
     refcount = ID3D12CommandAllocator_Release(command_allocator);
-    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", refcount);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_BUNDLE,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
-    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", refcount);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
-    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", refcount);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COPY,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
-    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", refcount);
 
     hr = ID3D12Device_CreateCommandAllocator(device, ~0u,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_command_list(void)
@@ -744,7 +744,7 @@ void test_create_command_list(void)
     ID3D12CommandAllocator *command_allocator;
     ID3D12Device *device, *tmp_device;
     ID3D12CommandList *command_list;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -755,30 +755,30 @@ void test_create_command_list(void)
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             NULL, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(command_allocator);
-    ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
 
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12CommandList_GetDevice(command_list, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 4, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 4, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(command_list, &IID_ID3D12Object, true);
     check_interface(command_list, &IID_ID3D12DeviceChild, true);
@@ -788,60 +788,60 @@ void test_create_command_list(void)
     check_interface(command_list, &IID_ID3D12CommandAllocator, false);
 
     refcount = ID3D12CommandList_Release(command_list);
-    ok(!refcount, "ID3D12CommandList has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandList has %u references left.\n", refcount);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
-    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", refcount);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_BUNDLE,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_BUNDLE,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", (int)hr);
     check_interface(command_list, &IID_ID3D12GraphicsCommandList, true);
     refcount = ID3D12CommandList_Release(command_list);
-    ok(!refcount, "ID3D12CommandList has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandList has %u references left.\n", refcount);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
-    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", refcount);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_BUNDLE,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", (int)hr);
     check_interface(command_list, &IID_ID3D12GraphicsCommandList, true);
     refcount = ID3D12CommandList_Release(command_list);
-    ok(!refcount, "ID3D12CommandList has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandList has %u references left.\n", refcount);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
-    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", refcount);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COPY,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COPY,
             command_allocator, NULL, &IID_ID3D12CommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", (int)hr);
     check_interface(command_list, &IID_ID3D12GraphicsCommandList, true);
     refcount = ID3D12CommandList_Release(command_list);
-    ok(!refcount, "ID3D12CommandList has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandList has %u references left.\n", refcount);
     refcount = ID3D12CommandAllocator_Release(command_allocator);
-    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandAllocator has %u references left.\n", refcount);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_command_queue(void)
@@ -850,8 +850,8 @@ void test_create_command_queue(void)
     D3D12_COMMAND_QUEUE_DESC desc, result_desc;
     ID3D12Device *device, *tmp_device;
     ID3D12CommandQueue *queue;
+    unsigned int refcount;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -865,16 +865,16 @@ void test_create_command_queue(void)
     desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     desc.NodeMask = 0;
     hr = ID3D12Device_CreateCommandQueue(device, &desc, &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12CommandQueue_GetDevice(queue, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(queue, &IID_ID3D12Object, true);
     check_interface(queue, &IID_ID3D12DeviceChild, true);
@@ -888,11 +888,11 @@ void test_create_command_queue(void)
     ok(result_desc.NodeMask == 0x1, "Got unexpected node mask 0x%08x.\n", result_desc.NodeMask);
 
     refcount = ID3D12CommandQueue_Release(queue);
-    ok(!refcount, "ID3D12CommandQueue has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandQueue has %u references left.\n", refcount);
 
     desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
     hr = ID3D12Device_CreateCommandQueue(device, &desc, &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", (int)hr);
 
     result_desc = ID3D12CommandQueue_GetDesc(queue);
     ok(result_desc.Type == desc.Type, "Got unexpected type %#x.\n", result_desc.Type);
@@ -901,19 +901,19 @@ void test_create_command_queue(void)
     ok(result_desc.NodeMask == 0x1, "Got unexpected node mask 0x%08x.\n", result_desc.NodeMask);
 
     refcount = ID3D12CommandQueue_Release(queue);
-    ok(!refcount, "ID3D12CommandQueue has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12CommandQueue has %u references left.\n", refcount);
 
     desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     for (i = 0; i < ARRAY_SIZE(direct_queues); ++i)
     {
         hr = ID3D12Device_CreateCommandQueue(device, &desc, &IID_ID3D12CommandQueue, (void **)&direct_queues[i]);
-        ok(hr == S_OK, "Failed to create direct command queue %u, hr %#x.\n", hr, i);
+        ok(hr == S_OK, "Failed to create direct command queue %u, hr %#x.\n", (int)hr, i);
     }
     desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
     for (i = 0; i < ARRAY_SIZE(compute_queues); ++i)
     {
         hr = ID3D12Device_CreateCommandQueue(device, &desc, &IID_ID3D12CommandQueue, (void **)&compute_queues[i]);
-        ok(hr == S_OK, "Failed to create compute command queue %u, hr %#x.\n", hr, i);
+        ok(hr == S_OK, "Failed to create compute command queue %u, hr %#x.\n", (int)hr, i);
     }
 
     for (i = 0; i < ARRAY_SIZE(direct_queues); ++i)
@@ -922,7 +922,7 @@ void test_create_command_queue(void)
         ID3D12CommandQueue_Release(compute_queues[i]);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_command_signature(void)
@@ -930,9 +930,9 @@ void test_create_command_signature(void)
     D3D12_INDIRECT_ARGUMENT_DESC argument_desc[3];
     D3D12_COMMAND_SIGNATURE_DESC signature_desc;
     ID3D12CommandSignature *command_signature;
+    unsigned int refcount;
     ID3D12Device *device;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -950,29 +950,29 @@ void test_create_command_signature(void)
         argument_desc[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
     hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(argument_desc); ++i)
         argument_desc[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
     hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(argument_desc); ++i)
         argument_desc[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
     hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     argument_desc[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
     argument_desc[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
     signature_desc.NumArgumentDescs = 2;
     hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 struct private_data
@@ -989,14 +989,14 @@ static void private_data_thread_main(void *untyped_data)
     HRESULT hr;
 
     hr = ID3D12Object_SetPrivateData(data->object, &data->guid, sizeof(data->value), &data->value);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     for (i = 0; i < 100000; ++i)
     {
         hr = ID3D12Object_SetPrivateData(data->object, &data->guid, 0, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateData(data->object, &data->guid, sizeof(data->value), &data->value);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     }
 }
 
@@ -1016,11 +1016,11 @@ static void private_data_interface_thread_main(void *untyped_data)
     for (i = 0; i < 100000; ++i)
     {
         hr = ID3D12Object_SetPrivateDataInterface(data->object, &data->guid, data->iface);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateDataInterface(data->object, &data->guid, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateDataInterface(data->object, &data->guid, data->iface);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     }
 }
 
@@ -1033,13 +1033,13 @@ void test_multithread_private_data(void)
     ID3D12RootSignature *root_signature;
     HANDLE private_data_thread[4];
     IUnknown *test_object, *unk;
+    unsigned int refcount;
     ID3D12Device *device;
     ID3D12Object *object;
     unsigned int value;
     unsigned int size;
     unsigned int id;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -1051,12 +1051,12 @@ void test_multithread_private_data(void)
     root_signature = create_empty_root_signature(device,
             D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
     hr = ID3D12RootSignature_QueryInterface(root_signature, &IID_ID3D12Object, (void **)&object);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     ID3D12RootSignature_Release(root_signature);
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&test_object);
-    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
 
     for (i = 0, id = 1; i < ARRAY_SIZE(private_data_interface); ++i, ++id)
     {
@@ -1066,7 +1066,7 @@ void test_multithread_private_data(void)
 
         hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
                 &IID_ID3D12Fence, (void **)&private_data_interface[i].iface);
-        ok(hr == S_OK, "Failed to create fence %u, hr %#x.\n", i, hr);
+        ok(hr == S_OK, "Failed to create fence %u, hr %#x.\n", i, (int)hr);
     }
     for (i = 0; i < ARRAY_SIZE(private_data); ++i, ++id)
     {
@@ -1085,11 +1085,11 @@ void test_multithread_private_data(void)
     for (i = 0; i < 100000; ++i)
     {
         hr = ID3D12Object_SetPrivateDataInterface(object, &guid, test_object);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateDataInterface(object, &guid, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateDataInterface(object, &guid, test_object);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     }
 
     for (i = 0; i < 4; ++i)
@@ -1102,30 +1102,30 @@ void test_multithread_private_data(void)
     {
         size = sizeof(unk);
         hr = ID3D12Object_GetPrivateData(object, &private_data_interface[i].guid, &size, &unk);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         ok(unk == private_data_interface[i].iface, "Got %p, expected %p.\n", unk, private_data_interface[i].iface);
         IUnknown_Release(unk);
         refcount = IUnknown_Release(private_data_interface[i].iface);
-        ok(refcount == 1, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+        ok(refcount == 1, "Got unexpected refcount %u.\n", refcount);
     }
     for (i = 0; i < ARRAY_SIZE(private_data); ++i)
     {
         size = sizeof(value);
         hr = ID3D12Object_GetPrivateData(object, &private_data[i].guid, &size, &value);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         ok(value == private_data[i].value, "Got %u, expected %u.\n", value, private_data[i].value);
     }
 
     hr = ID3D12Object_SetPrivateDataInterface(object, &guid, NULL);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
     refcount = IUnknown_Release(test_object);
-    ok(!refcount, "Test object has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "Test object has %u references left.\n", refcount);
     refcount = ID3D12Object_Release(object);
-    ok(!refcount, "Object has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "Object has %u references left.\n", refcount);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_reset_command_allocator(void)
@@ -1134,9 +1134,9 @@ void test_reset_command_allocator(void)
     ID3D12GraphicsCommandList *command_list, *command_list2;
     D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12CommandQueue *queue;
+    unsigned int refcount;
     ID3D12Device *device;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     static const D3D12_COMMAND_LIST_TYPE tests[] =
@@ -1157,44 +1157,44 @@ void test_reset_command_allocator(void)
 
         hr = ID3D12Device_CreateCommandAllocator(device, type,
                 &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-        ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
 
         hr = ID3D12CommandAllocator_Reset(command_allocator);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12CommandAllocator_Reset(command_allocator);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Device_CreateCommandList(device, 0, type,
                 command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-        ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", (int)hr);
 
         hr = ID3D12CommandAllocator_Reset(command_allocator);
-        ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_FAIL, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12CommandAllocator_Reset(command_allocator);
-        ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_FAIL, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12GraphicsCommandList_Close(command_list);
-        ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
         hr = ID3D12CommandAllocator_Reset(command_allocator);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12CommandAllocator_Reset(command_allocator);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-        ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", (int)hr);
 
         hr = ID3D12CommandAllocator_Reset(command_allocator);
-        ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_FAIL, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12GraphicsCommandList_Close(command_list);
-        ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
         hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-        ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", (int)hr);
 
         hr = ID3D12Device_CreateCommandAllocator(device, type,
                 &IID_ID3D12CommandAllocator, (void **)&command_allocator2);
-        ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
 
         if (type != D3D12_COMMAND_LIST_TYPE_BUNDLE)
         {
@@ -1204,68 +1204,68 @@ void test_reset_command_allocator(void)
             command_queue_desc.NodeMask = 0;
             hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
                     &IID_ID3D12CommandQueue, (void **)&queue);
-            ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", (int)hr);
 
             uav_barrier(command_list, NULL);
             hr = ID3D12GraphicsCommandList_Close(command_list);
-            ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
             exec_command_list(queue, command_list);
 
             /* A command list can be reset when it is in use. */
             hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator2, NULL);
-            ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", (int)hr);
             hr = ID3D12GraphicsCommandList_Close(command_list);
-            ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
             wait_queue_idle(device, queue);
             hr = ID3D12CommandAllocator_Reset(command_allocator);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
             hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-            ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", (int)hr);
 
             uav_barrier(command_list, NULL);
             hr = ID3D12GraphicsCommandList_Close(command_list);
-            ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
             exec_command_list(queue, command_list);
 
             hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-            ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", (int)hr);
             hr = ID3D12GraphicsCommandList_Close(command_list);
-            ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
             wait_queue_idle(device, queue);
 
             hr = ID3D12CommandAllocator_Reset(command_allocator);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
             hr = ID3D12GraphicsCommandList_Reset(command_list, command_allocator, NULL);
-            ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", hr);
+            ok(SUCCEEDED(hr), "Failed to reset command list, hr %#x.\n", (int)hr);
             ID3D12CommandQueue_Release(queue);
         }
 
         /* A command allocator can be used with one command list at a time. */
         hr = ID3D12Device_CreateCommandList(device, 0, type,
                 command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Device_CreateCommandList(device, 0, type,
                 command_allocator2, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
-        ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
 
         hr = ID3D12GraphicsCommandList_Close(command_list2);
-        ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
         hr = ID3D12GraphicsCommandList_Reset(command_list2, command_allocator, NULL);
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
         ID3D12GraphicsCommandList_Release(command_list2);
 
         /* A command allocator can be re-used after closing the command list. */
         hr = ID3D12Device_CreateCommandList(device, 0, type,
                 command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
-        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+        ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12GraphicsCommandList_Close(command_list);
-        ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
         hr = ID3D12Device_CreateCommandList(device, 0, type,
                 command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
-        ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_Release(command_list);
         ID3D12GraphicsCommandList_Release(command_list2);
@@ -1274,7 +1274,7 @@ void test_reset_command_allocator(void)
     }
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_object_interface_null_cases(void)
@@ -1291,24 +1291,24 @@ void test_object_interface_null_cases(void)
     }
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
-    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", (int)hr);
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, NULL);
-    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", (int)hr);
 
     /* S_FALSE is returned even for bogus requested interfaces. */
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Heap, NULL);
-    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", (int)hr);
 
     /* E_POINTER is always returned if QueryInterface ppOutput is NULL. */
     hr = ID3D12Fence_QueryInterface(fence, &IID_IUnknown, NULL);
-    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", (int)hr);
 
     hr = ID3D12Fence_QueryInterface(fence, &IID_ID3D12Fence, NULL);
-    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", (int)hr);
 
     hr = ID3D12Fence_QueryInterface(fence, &IID_ID3D12Heap, NULL);
-    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", (int)hr);
 
     ID3D12Fence_Release(fence);
     ref = ID3D12Device_Release(device);
@@ -1318,9 +1318,9 @@ void test_object_interface_null_cases(void)
 void test_object_interface(void)
 {
     D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
+    unsigned int refcount, expected_refcount;
     D3D12_QUERY_HEAP_DESC query_heap_desc;
     ID3D12RootSignature *root_signature;
-    ULONG refcount, expected_refcount;
     ID3D12CommandAllocator *allocator;
     D3D12_HEAP_DESC heap_desc;
     IUnknown *test_object;
@@ -1370,17 +1370,17 @@ void test_object_interface(void)
             vkd3d_test_set_context("command allocator");
             hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
                     &IID_IUnknown, (void **)&unknown);
-            ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", (int)hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12CommandList))
         {
             vkd3d_test_set_context("command list");
             hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
                     &IID_ID3D12CommandAllocator, (void **)&allocator);
-            ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", (int)hr);
             hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
                     allocator, NULL, &IID_IUnknown, (void **)&unknown);
-            ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
             ID3D12CommandAllocator_Release(allocator);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12CommandQueue))
@@ -1403,7 +1403,7 @@ void test_object_interface(void)
             descriptor_heap_desc.NodeMask = 0;
             hr = ID3D12Device_CreateDescriptorHeap(device, &descriptor_heap_desc,
                     &IID_ID3D12DescriptorHeap, (void **)&unknown);
-            ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12Device))
         {
@@ -1415,7 +1415,7 @@ void test_object_interface(void)
             vkd3d_test_set_context("fence");
             hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
                     &IID_IUnknown, (void **)&unknown);
-            ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12Heap))
         {
@@ -1426,7 +1426,7 @@ void test_object_interface(void)
             heap_desc.Alignment = 0;
             heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
             hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&unknown);
-            ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12PipelineState))
         {
@@ -1444,7 +1444,7 @@ void test_object_interface(void)
             query_heap_desc.NodeMask = 0;
             hr = ID3D12Device_CreateQueryHeap(device, &query_heap_desc,
                     &IID_ID3D12QueryHeap, (void **)&unknown);
-            ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", (int)hr);
         }
         else if (IsEqualGUID(tests[i], &IID_ID3D12Resource))
         {
@@ -1464,161 +1464,161 @@ void test_object_interface(void)
         ok(unknown, "Unhandled object type %u.\n", i);
         object = NULL;
         hr = IUnknown_QueryInterface(unknown, &IID_ID3D12Object, (void **)&object);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         IUnknown_Release(unknown);
 
         hr = ID3D12Object_SetPrivateData(object, &test_guid, 0, NULL);
-        ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_FALSE, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateData(object, &test_guid, ~0u, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateData(object, &test_guid, ~0u, NULL);
-        ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_FALSE, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         size = sizeof(ptr) * 2;
         ptr = (IUnknown *)(uintptr_t)0xdeadbeef;
         hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, &ptr);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(!ptr, "Got unexpected pointer %p.\n", ptr);
         ok(size == sizeof(IUnknown *), "Got unexpected size %u.\n", size);
 
         hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
                 &IID_ID3D12Fence, (void **)&test_object);
-        ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
 
         refcount = get_refcount(test_object);
         hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, (IUnknown *)test_object);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         expected_refcount = refcount + 1;
         refcount = get_refcount(test_object);
         ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
-                (unsigned int)refcount, (unsigned int)expected_refcount);
+                refcount, expected_refcount);
         hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, (IUnknown *)test_object);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         refcount = get_refcount(test_object);
         ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
-                (unsigned int)refcount, (unsigned int)expected_refcount);
+                refcount, expected_refcount);
 
         hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         --expected_refcount;
         refcount = get_refcount(test_object);
         ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
-                (unsigned int)refcount, (unsigned int)expected_refcount);
+                refcount, expected_refcount);
 
         hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, (IUnknown *)test_object);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         size = sizeof(data);
         hr = ID3D12Object_SetPrivateData(object, &test_guid, size, data);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         refcount = get_refcount(test_object);
         ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
-                (unsigned int)refcount, (unsigned int)expected_refcount);
+                refcount, expected_refcount);
         hr = ID3D12Object_SetPrivateData(object, &test_guid, 42, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         hr = ID3D12Object_SetPrivateData(object, &test_guid, 42, NULL);
-        ok(hr == S_FALSE, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_FALSE, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, (IUnknown *)test_object);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ++expected_refcount;
         size = 2 * sizeof(ptr);
         ptr = NULL;
         hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, &ptr);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(size == sizeof(test_object), "Got unexpected size %u.\n", size);
         ++expected_refcount;
         refcount = get_refcount(test_object);
         ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
-                (unsigned int)refcount, (unsigned int)expected_refcount);
+                refcount, expected_refcount);
         IUnknown_Release(ptr);
         --expected_refcount;
 
         ptr = (IUnknown *)(uintptr_t)0xdeadbeef;
         size = 1;
         hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(size == sizeof(ptr), "Got unexpected size %u.\n", size);
         size = 2 * sizeof(ptr);
         hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(size == sizeof(ptr), "Got unexpected size %u.\n", size);
         refcount = get_refcount(test_object);
         ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n",
-                (unsigned int)refcount, (unsigned int)expected_refcount);
+                refcount, expected_refcount);
 
         size = 1;
         hr = ID3D12Object_GetPrivateData(object, &test_guid, &size, &ptr);
-        ok(hr == DXGI_ERROR_MORE_DATA, "Got unexpected hr %#x.\n", hr);
+        ok(hr == DXGI_ERROR_MORE_DATA, "Got unexpected hr %#x.\n", (int)hr);
         ok(size == sizeof(object), "Got unexpected size %u.\n", size);
         ok(ptr == (IUnknown *)(uintptr_t)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
         size = 1;
         hr = ID3D12Object_GetPrivateData(object, &test_guid2, &size, &ptr);
-        ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
+        ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", (int)hr);
         ok(!size, "Got unexpected size %u.\n", size);
         ok(ptr == (IUnknown *)(uintptr_t)0xdeadbeef, "Got unexpected pointer %p.\n", ptr);
 
         if (IsEqualGUID(tests[i], &IID_ID3D12Device))
         {
             hr = ID3D12Object_SetPrivateDataInterface(object, &test_guid, NULL);
-            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         }
 
         hr = ID3D12Object_SetName(object, u"");
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Object_SetName(object, u"deadbeef");
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         size = 1;
         hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectNameW, &size, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(size == 18, "Got unexpected size %u.\n", size);
         hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectNameW, &size, temp_name_buffer);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
         ok(size == 18, "Got unexpected size %u.\n", size);
         ok(temp_name_buffer[1] == L'e', "Got unexpected name");
         size = 1;
         hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectName, &size, NULL);
-        ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
+        ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", (int)hr);
 
 #if 0
         /* NULL name crashes on Windows 11 22621. */
         hr = ID3D12Object_SetName(object, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectNameW, &size, NULL);
-        ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
+        ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", (int)hr);
 #endif
 
         hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectName, sizeof(terminated_name_a), terminated_name_a);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectName, sizeof(non_terminated_name_a), non_terminated_name_a);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectNameW, sizeof(non_terminated_name_w), non_terminated_name_w);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectNameW, 0, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectName, 0, NULL);
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
         ID3D12Object_Release(object);
 
         refcount = IUnknown_Release(test_object);
-        ok(!refcount, "Test object has %u references left.\n", (unsigned int)refcount);
+        ok(!refcount, "Test object has %u references left.\n", refcount);
 
         vkd3d_test_set_context(NULL);
     }
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_device_removed_reason(void)
@@ -1627,8 +1627,8 @@ void test_device_removed_reason(void)
     ID3D12CommandAllocator *command_allocator;
     ID3D12GraphicsCommandList *command_list;
     ID3D12CommandQueue *queue, *tmp_queue;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -1638,7 +1638,7 @@ void test_device_removed_reason(void)
     }
 
     hr = ID3D12Device_GetDeviceRemovedReason(device);
-    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", (int)hr);
 
     command_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     command_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
@@ -1646,36 +1646,36 @@ void test_device_removed_reason(void)
     command_queue_desc.NodeMask = 0;
     hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
             &IID_ID3D12CommandQueue, (void **)&queue);
-    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", (int)hr);
 
     /* Execute a command list in the recording state. */
     exec_command_list(queue, command_list);
 
     hr = ID3D12Device_GetDeviceRemovedReason(device);
-    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandQueue(device, &command_queue_desc,
             &IID_ID3D12CommandQueue, (void **)&tmp_queue);
-    ok(hr == DXGI_ERROR_DEVICE_REMOVED, "Got unexpected hr %#x.\n", hr);
+    ok(hr == DXGI_ERROR_DEVICE_REMOVED, "Got unexpected hr %#x.\n", (int)hr);
     if (SUCCEEDED(hr))
         ID3D12CommandQueue_Release(tmp_queue);
 
     hr = ID3D12Device_GetDeviceRemovedReason(device);
-    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_Release(command_list);
     ID3D12CommandAllocator_Release(command_allocator);
     ID3D12CommandQueue_Release(queue);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_enumerate_meta_commands(void)
@@ -1683,8 +1683,8 @@ void test_enumerate_meta_commands(void)
     D3D12_META_COMMAND_DESC dummy_desc, *descs;
     UINT desc_count, supported_count;
     ID3D12Device5 *device5;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -1703,13 +1703,13 @@ void test_enumerate_meta_commands(void)
     }
 
     hr = ID3D12Device5_EnumerateMetaCommands(device5, NULL, NULL);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", (int)hr);
     hr = ID3D12Device5_EnumerateMetaCommands(device5, NULL, &dummy_desc);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", (int)hr);
 
     desc_count = 0xdeadbeef;
     hr = ID3D12Device5_EnumerateMetaCommands(device5, &desc_count, NULL);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
 
     supported_count = desc_count;
 
@@ -1717,7 +1717,7 @@ void test_enumerate_meta_commands(void)
     memset(&dummy_desc, 0, sizeof(dummy_desc));
 
     hr = ID3D12Device5_EnumerateMetaCommands(device5, &desc_count, descs);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
     ok(desc_count == supported_count, "Unexpected desc count %u.\n", desc_count);
 
     if (desc_count)
@@ -1725,7 +1725,7 @@ void test_enumerate_meta_commands(void)
         desc_count -= 1;
 
         hr = ID3D12Device5_EnumerateMetaCommands(device5, &desc_count, descs);
-        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", (int)hr);
         ok(desc_count == supported_count, "Unexpected desc count %u.\n", desc_count);
     }
 
@@ -1735,7 +1735,7 @@ void test_enumerate_meta_commands(void)
     free(descs);
 
     refcount = ID3D12Device5_Release(device5);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_vtable_origins(void)
@@ -1829,10 +1829,10 @@ void test_destruction_notifier_callback(void)
 
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resource);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     hr = ID3D12Resource_QueryInterface(resource, &IID_ID3DDestructionNotifier, (void**)&notifier);
-    ok(hr == S_OK, "Failed to query destruction notifier from resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to query destruction notifier from resource, hr %#x.\n", (int)hr);
 
     if (FAILED(hr))
     {
@@ -1844,32 +1844,32 @@ void test_destruction_notifier_callback(void)
     callback_id = 0xdeadbeef;
 
     hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, NULL, NULL, &callback_id);
-    ok(hr == DXGI_ERROR_INVALID_CALL, "Got hr %#x, expected DXGI_ERROR_INVALID_CALL.\n", hr);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got hr %#x, expected DXGI_ERROR_INVALID_CALL.\n", (int)hr);
     ok(callback_id == 0xdeadbeef, "Got callback ID %d\n", callback_id);
 
     hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, &destruction_notifier_callback, &tests[0].invoked, &callback_id);
-    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", (int)hr);
     ok(callback_id == 1, "Expected callback ID 0, got %d.\n", callback_id);
 
     /* Not capturing the callback ID is fine */
     hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, &destruction_notifier_callback, &tests[1].invoked, NULL);
-    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", (int)hr);
 
     hr = ID3DDestructionNotifier_UnregisterDestructionCallback(notifier, callback_id);
-    ok(hr == S_OK, "Failed to unregister callback, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to unregister callback, hr %#x.\n", (int)hr);
 
     hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, &destruction_notifier_callback, &tests[2].invoked, &callback_id);
-    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", (int)hr);
     ok(callback_id == 2, "Expected callback ID 0, got %d.\n", callback_id);
 
     hr = ID3DDestructionNotifier_RegisterDestructionCallback(notifier, &destruction_notifier_callback, &tests[3].invoked, &callback_id);
-    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to register callback, hr %#x.\n", (int)hr);
     ok(callback_id == 3, "Expected callback ID 2, got %d.\n", callback_id);
 
     hr = ID3DDestructionNotifier_UnregisterDestructionCallback(notifier, 0);
-    ok(hr == DXGI_ERROR_NOT_FOUND, "Got hr %#x, expected DXGI_ERROR_NOT_FOUND.\n", hr);
+    ok(hr == DXGI_ERROR_NOT_FOUND, "Got hr %#x, expected DXGI_ERROR_NOT_FOUND.\n", (int)hr);
     hr = ID3DDestructionNotifier_UnregisterDestructionCallback(notifier, 0xdeadbeef);
-    ok(hr == DXGI_ERROR_NOT_FOUND, "Got hr %#x, expected DXGI_ERROR_NOT_FOUND.\n", hr);
+    ok(hr == DXGI_ERROR_NOT_FOUND, "Got hr %#x, expected DXGI_ERROR_NOT_FOUND.\n", (int)hr);
 
     ID3DDestructionNotifier_Release(notifier);
     ID3D12Resource_Release(resource);
@@ -1894,6 +1894,7 @@ void test_destruction_notifier_interfaces(void)
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12CommandAllocator *command_allocator;
     ID3D12CommandSignature *command_signature;
+    unsigned int refcount, expected_refcount;
     ID3D12PipelineLibrary *pipeline_library;
     D3D12_QUERY_HEAP_DESC query_heap_desc;
     ID3D12DescriptorHeap *descriptor_heap;
@@ -1902,7 +1903,6 @@ void test_destruction_notifier_interfaces(void)
     ID3DDestructionNotifier *notifier;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12CommandQueue *command_queue;
-    ULONG refcount, expected_refcount;
     ID3D12CommandList *command_list;
     ID3D12PipelineState *pipeline;
     ID3D12QueryHeap *query_heap;
@@ -1948,7 +1948,7 @@ void test_destruction_notifier_interfaces(void)
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
-    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create heap, hr %#x.\n", (int)hr);
 
     memset(&resource_desc, 0, sizeof(resource_desc));
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -1962,17 +1962,17 @@ void test_destruction_notifier_interfaces(void)
 
     hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &resource_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resource);
-    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create resource, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void**)&fence);
-    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&query_heap_desc, 0, sizeof(query_heap_desc));
     query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
@@ -1980,22 +1980,22 @@ void test_destruction_notifier_interfaces(void)
 
     hr = ID3D12Device_CreateQueryHeap(device, &query_heap_desc,
             &IID_ID3D12QueryHeap, (void**)&query_heap);
-    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void**)&command_allocator);
-    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12CommandList, (void**)&command_list);
-    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
 
     memset(&queue_desc, 0, sizeof(queue_desc));
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
 
     hr = ID3D12Device_CreateCommandQueue(device, &queue_desc, &IID_ID3D12CommandQueue, (void**)&command_queue);
-    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", (int)hr);
 
     memset(&descriptor_heap_desc, 0, sizeof(descriptor_heap_desc));
     descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -2003,14 +2003,14 @@ void test_destruction_notifier_interfaces(void)
     descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
     hr = ID3D12Device_CreateDescriptorHeap(device, &descriptor_heap_desc, &IID_ID3D12DescriptorHeap, (void**)&descriptor_heap);
-    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command queue, hr %#x.\n", (int)hr);
 
     pipeline_library = NULL;
 
     if (device1)
     {
         hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
-        ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", (int)hr);
     }
 
     memset(&command_signature_arg, 0, sizeof(command_signature_arg));
@@ -2023,12 +2023,12 @@ void test_destruction_notifier_interfaces(void)
 
     hr = ID3D12Device_CreateCommandSignature(device, &command_signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void**)&command_signature);
-    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pipeline_desc, root_signature,
             DXGI_FORMAT_R8G8B8A8_UNORM, NULL, NULL, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pipeline_desc, &IID_ID3D12PipelineState, (void**)&pipeline);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -2046,7 +2046,7 @@ void test_destruction_notifier_interfaces(void)
 
         notifier = NULL;
         hr = IUnknown_QueryInterface(iface, &IID_ID3DDestructionNotifier, (void**)&notifier);
-        ok(hr == S_OK, "Failed to query ID3DDestructionNotifier, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to query ID3DDestructionNotifier, hr %#x.\n", (int)hr);
 
         if (!notifier)
             continue;
@@ -2154,7 +2154,7 @@ void test_sdk_configuration_set_sdk_path(void)
     /* Docs say that this is only allowed in developer mode, but that's not true.
      * It seems to just return S_OK always, even for bogus values, so *shrug* */
     hr = ID3D12SDKConfiguration_SetSDKVersion(config, 1234213432, "OMGIDONTCARE");
-    ok(hr == S_OK, "Unexpected hr #%x.\n", hr);
+    ok(hr == S_OK, "Unexpected hr #%x.\n", (int)hr);
 
     ok(ID3D12SDKConfiguration_Release(config) == 0, "Unexpected refcount.\n");
 }
@@ -2266,7 +2266,7 @@ void test_device_factory(void)
     ok(flags == D3D12_DEVICE_FACTORY_FLAG_NONE, "Unexpected flags #%x.\n", flags);
     /* This doesn't actually seem to work. Flags is not updated. */
     hr = ID3D12DeviceFactory_InitializeFromGlobalState(factory);
-    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", (int)hr);
     flags = ID3D12DeviceFactory_GetFlags(factory);
     ok(flags == D3D12_DEVICE_FACTORY_FLAG_NONE, "Unexpected flags #%x.\n", flags);
 
@@ -2274,13 +2274,13 @@ void test_device_factory(void)
         ID3D12Debug *debug;
         hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
             &CLSID_D3D12Debug, &IID_ID3D12Debug, (void **)&debug);
-        todo ok(SUCCEEDED(hr), "Failed to get debug interface, hr #%x\n", hr);
+        todo ok(SUCCEEDED(hr), "Failed to get debug interface, hr #%x\n", (int)hr);
         if (SUCCEEDED(hr))
         {
             ID3D12Debug_Release(debug);
             hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
                 &CLSID_D3D12Debug, &IID_ID3D12Debug, NULL);
-            ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+            ok(hr == S_FALSE, "Unexpected hr #%x.\n", (int)hr);
         }
     }
 
@@ -2288,13 +2288,13 @@ void test_device_factory(void)
         ID3D12Tools *tools;
         hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
             &CLSID_D3D12Tools, &IID_ID3D12Tools, (void **)&tools);
-        todo ok(SUCCEEDED(hr), "Failed to get tools interface, hr #%x\n", hr);
+        todo ok(SUCCEEDED(hr), "Failed to get tools interface, hr #%x\n", (int)hr);
         if (SUCCEEDED(hr))
         {
             ID3D12Tools_Release(tools);
             hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
                 &CLSID_D3D12Tools, &IID_ID3D12Tools, NULL);
-            ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+            ok(hr == S_FALSE, "Unexpected hr #%x.\n", (int)hr);
         }
     }
 
@@ -2303,14 +2303,14 @@ void test_device_factory(void)
         hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
             &CLSID_D3D12DeviceRemovedExtendedData, &IID_ID3D12DeviceRemovedExtendedDataSettings, (void **)&dred);
         /* We implement this in a stubbed form. */
-        ok(SUCCEEDED(hr), "Failed to get dred interface, hr #%x\n", hr);
+        ok(SUCCEEDED(hr), "Failed to get dred interface, hr #%x\n", (int)hr);
         if (SUCCEEDED(hr))
         {
             ID3D12DeviceRemovedExtendedDataSettings_Release(dred);
             /* S_FALSE is returned even if ExtendedData is not supported, as we expect from return_interface(). */
             hr = ID3D12DeviceFactory_GetConfigurationInterface(factory,
                 &CLSID_D3D12DeviceRemovedExtendedData, &IID_ID3D12DeviceRemovedExtendedData, NULL);
-            ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+            ok(hr == S_FALSE, "Unexpected hr #%x.\n", (int)hr);
         }
     }
 
@@ -2328,11 +2328,11 @@ static void check_create_devices(ID3D12DeviceFactory *factory, ID3D12Device *sin
     HRESULT hr;
 
     hr = ID3D12DeviceFactory_CreateDevice(factory, NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device1);
-    ok(SUCCEEDED(hr), "Failed to create device (hr #%x).\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create device (hr #%x).\n", (int)hr);
     if (FAILED(hr))
         device1 = NULL;
     hr = ID3D12DeviceFactory_CreateDevice(factory, NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device2);
-    ok(SUCCEEDED(hr), "Failed to create device (hr #%x).\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create device (hr #%x).\n", (int)hr);
     if (FAILED(hr))
         device2 = NULL;
 
@@ -2447,7 +2447,7 @@ static void test_root_signature_serialization(ID3D12DeviceConfiguration1 *config
     param.Descriptor.ShaderRegister = 2;
 
     hr = ID3D12DeviceConfiguration1_SerializeVersionedRootSignature(config, &desc, &blob, NULL);
-    ok(SUCCEEDED(hr), "Failed to serialize versioned root signature, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to serialize versioned root signature, hr #%x.\n", (int)hr);
     if (FAILED(hr))
         return;
 

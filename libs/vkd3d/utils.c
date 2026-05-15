@@ -1738,7 +1738,7 @@ static HRESULT STDMETHODCALLTYPE d3d_blob_QueryInterface(ID3DBlob *iface, REFIID
 static ULONG STDMETHODCALLTYPE d3d_blob_AddRef(ID3DBlob *iface)
 {
     struct d3d_blob *blob = impl_from_ID3DBlob(iface);
-    ULONG refcount = InterlockedIncrement(&blob->refcount);
+    unsigned int refcount = InterlockedIncrement(&blob->refcount);
 
     TRACE("%p increasing refcount to %u.\n", blob, refcount);
 
@@ -1748,7 +1748,7 @@ static ULONG STDMETHODCALLTYPE d3d_blob_AddRef(ID3DBlob *iface)
 static ULONG STDMETHODCALLTYPE d3d_blob_Release(ID3DBlob *iface)
 {
     struct d3d_blob *blob = impl_from_ID3DBlob(iface);
-    ULONG refcount = InterlockedDecrement(&blob->refcount);
+    unsigned int refcount = InterlockedDecrement(&blob->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", blob, refcount);
 
@@ -1834,7 +1834,7 @@ static HRESULT STDMETHODCALLTYPE d3d_destruction_notifier_QueryInterface(ID3DDes
 static ULONG STDMETHODCALLTYPE d3d_destruction_notifier_AddRef(ID3DDestructionNotifier *iface)
 {
     struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
-    ULONG refcount = IUnknown_AddRef(notifier->parent);
+    unsigned int refcount = IUnknown_AddRef(notifier->parent);
 
     TRACE("%p increasing refcount to %u.\n", notifier, refcount);
 
@@ -1844,7 +1844,7 @@ static ULONG STDMETHODCALLTYPE d3d_destruction_notifier_AddRef(ID3DDestructionNo
 static ULONG STDMETHODCALLTYPE d3d_destruction_notifier_Release(ID3DDestructionNotifier *iface)
 {
     struct d3d_destruction_notifier *notifier = impl_from_ID3DDestructionNotifier(iface);
-    ULONG refcount = IUnknown_Release(notifier->parent);
+    unsigned int refcount = IUnknown_Release(notifier->parent);
 
     TRACE("%p decreasing refcount to %u.\n", notifier, refcount);
 

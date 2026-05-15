@@ -345,12 +345,12 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
             &IID_ID3D12Fence, (void **)&fence);
-    assert_that_(line)(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+    assert_that_(line)(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 1);
-    assert_that_(line)(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    assert_that_(line)(hr == S_OK, "Failed to signal fence, hr %#x.\n", (int)hr);
     hr = wait_for_fence(fence, 1);
-    assert_that_(line)(hr == S_OK, "Failed to wait for fence, hr %#x.\n", hr);
+    assert_that_(line)(hr == S_OK, "Failed to wait for fence, hr %#x.\n", (int)hr);
 
     ID3D12Fence_Release(fence);
 }
@@ -362,12 +362,12 @@ static inline void wait_queue_idle_no_event_(unsigned int line, ID3D12Device *de
 
     hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
         &IID_ID3D12Fence, (void **)&fence);
-    assert_that_(line)(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+    assert_that_(line)(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
 
     hr = ID3D12CommandQueue_Signal(queue, fence, 1);
-    assert_that_(line)(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    assert_that_(line)(hr == S_OK, "Failed to signal fence, hr %#x.\n", (int)hr);
     hr = wait_for_fence_no_event(fence, 1);
-    assert_that_(line)(hr == S_OK, "Failed to wait for fence, hr %#x.\n", hr);
+    assert_that_(line)(hr == S_OK, "Failed to wait for fence, hr %#x.\n", (int)hr);
 
     ID3D12Fence_Release(fence);
 }
@@ -416,7 +416,7 @@ static IUnknown *create_warp_adapter(IDXGIFactory4 *factory)
     adapter = NULL;
     hr = IDXGIFactory4_EnumWarpAdapter(factory, &IID_IUnknown, (void **)&adapter);
     if (FAILED(hr))
-        trace("Failed to get WARP adapter, hr %#x.\n", hr);
+        trace("Failed to get WARP adapter, hr %#x.\n", (int)hr);
     return adapter;
 }
 
@@ -427,7 +427,7 @@ static IUnknown *create_adapter(void)
     HRESULT hr;
 
     hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory);
-    ok(hr == S_OK, "Failed to create IDXGIFactory4, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create IDXGIFactory4, hr %#x.\n", (int)hr);
 
     if (use_warp_device && (adapter = create_warp_adapter(factory)))
     {
@@ -438,7 +438,7 @@ static IUnknown *create_adapter(void)
     hr = IDXGIFactory4_EnumAdapters(factory, use_adapter_idx, (IDXGIAdapter **)&adapter);
     IDXGIFactory4_Release(factory);
     if (FAILED(hr))
-        trace("Failed to get adapter, hr %#x.\n", hr);
+        trace("Failed to get adapter, hr %#x.\n", (int)hr);
     return adapter;
 }
 
@@ -478,11 +478,11 @@ static inline void init_adapter_info(void)
         return;
 
     hr = IUnknown_QueryInterface(adapter, &IID_IDXGIAdapter, (void **)&dxgi_adapter);
-    ok(hr == S_OK, "Failed to query IDXGIAdapter, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to query IDXGIAdapter, hr %#x.\n", (int)hr);
     IUnknown_Release(adapter);
 
     hr = IDXGIAdapter_GetDesc(dxgi_adapter, &desc);
-    ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", (int)hr);
 
     /* FIXME: Use debugstr_w(). */
     for (i = 0; i < ARRAY_SIZE(desc.Description) && isprint(desc.Description[i]); ++i)
@@ -515,13 +515,13 @@ static inline bool get_adapter_desc(ID3D12Device *device, DXGI_ADAPTER_DESC *des
     luid = ID3D12Device_GetAdapterLuid(device);
 
     hr = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory);
-    ok(hr == S_OK, "Failed to create IDXGIFactory4, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create IDXGIFactory4, hr %#x.\n", (int)hr);
 
     hr = IDXGIFactory4_EnumAdapterByLuid(factory, luid, &IID_IDXGIAdapter, (void **)&adapter);
     if (SUCCEEDED(hr))
     {
         hr = IDXGIAdapter_GetDesc(adapter, desc);
-        ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to get adapter desc, hr %#x.\n", (int)hr);
         IDXGIAdapter_Release(adapter);
     }
 

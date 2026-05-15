@@ -173,7 +173,7 @@ void test_bindless_heap_sm66(void)
     root_parameters[0].Constants.Num32BitValues = 4;
 
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", (int)hr);
 
     pso = create_compute_pipeline_state(device, root_signature, bindless_heap_sm66_dxil);
     cpu_resource_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
@@ -454,7 +454,7 @@ static void test_bindless_srv(bool use_dxil)
     }
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     for (i = 0; i < 256; i++)
     {
@@ -629,7 +629,7 @@ static void test_bindless_samplers(bool use_dxil)
     descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     {
         const float tex_data[] = { 10, 100, 100, 100 };
@@ -767,7 +767,7 @@ void test_bindless_full_root_parameters_sm51(void)
     root_parameters[62].Descriptor.ShaderRegister = 0;
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     for (i = 0; i < 1024; i++)
     {
@@ -892,7 +892,7 @@ static void test_bindless_cbv(bool use_dxil)
     descriptor_ranges.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     for (i = 0; i < 512; i++)
     {
@@ -1015,7 +1015,7 @@ static void test_bindless_uav(bool use_dxil)
     descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     for (i = 0; i < 256; i++)
         output_buffers[i] = create_default_buffer(context.device, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1164,7 +1164,7 @@ static void test_bindless_uav_counter(bool use_dxil)
     descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     for (i = 0; i < 256; i++)
         output_buffers[i] = create_default_buffer(context.device, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1333,7 +1333,7 @@ static void test_bindless_bufinfo(bool use_dxil)
     descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     for (i = 0; i < 256; i++)
         output_buffers[i] = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1521,7 +1521,7 @@ void test_divergent_buffer_index_varying(void)
     pso_desc.DepthStencilState.DepthEnable = FALSE;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr %x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr %x\n", (int)hr);
 
     ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ibo);
     ibv.Format = DXGI_FORMAT_R32_UINT;

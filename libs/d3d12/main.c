@@ -47,6 +47,8 @@
 #define DLLEXPORT
 #endif
 
+#include <inttypes.h>
+
 static pthread_once_t library_once = PTHREAD_ONCE_INIT;
 
 static vkd3d_module_t d3d12core_module = NULL;
@@ -152,7 +154,7 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
 HRESULT WINAPI DLLEXPORT D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer)
 {
-    TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
+    TRACE("data %p, data_size %zu, iid %s, deserializer %p.\n",
             data, data_size, debugstr_guid(iid), deserializer);
 
     if (!load_d3d12core())
@@ -174,7 +176,7 @@ HRESULT WINAPI DLLEXPORT D3D12SerializeRootSignature(const D3D12_ROOT_SIGNATURE_
 HRESULT WINAPI DLLEXPORT D3D12CreateVersionedRootSignatureDeserializer(const void *data, SIZE_T data_size,
         REFIID iid, void **deserializer)
 {
-    TRACE("data %p, data_size %lu, iid %s, deserializer %p.\n",
+    TRACE("data %p, data_size %zu, iid %s, deserializer %p.\n",
             data, data_size, debugstr_guid(iid), deserializer);
 
     if (!load_d3d12core())

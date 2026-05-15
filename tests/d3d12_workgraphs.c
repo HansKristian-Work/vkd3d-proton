@@ -116,7 +116,7 @@ static void check_work_graph_properties(ID3D12StateObject *pso,
     UINT size;
 
     hr = ID3D12StateObject_QueryInterface(pso, &IID_ID3D12WorkGraphProperties, (void **)&props);
-    ok(SUCCEEDED(hr), "Failed to query work graph props, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to query work graph props, hr #%x.\n", (int)hr);
 
     if (SUCCEEDED(hr))
     {
@@ -207,7 +207,7 @@ static ID3D12StateObject *create_workgraph_pso(
     wg_desc.ProgramName = program_name;
 
     hr = ID3D12Device5_CreateStateObject(context->device, &pso_desc, &IID_ID3D12StateObject, (void **)&pso);
-    ok(SUCCEEDED(hr), "Failed to create state object, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create state object, hr #%x.\n", (int)hr);
     if (FAILED(hr))
         return NULL;
 

@@ -65,11 +65,11 @@ void test_get_cached_blob(void)
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     hr = create_root_signature(device, &root_signature_desc, &root_signature_alt);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&compute_desc, 0, sizeof(compute_desc));
     compute_desc.pRootSignature = root_signature;
@@ -78,10 +78,10 @@ void test_get_cached_blob(void)
 
     hr = ID3D12Device_CreateComputePipelineState(device,
             &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", (int)hr);
 
     hr = ID3D12PipelineState_GetCachedBlob(state, &blob);
-    ok(hr == S_OK, "Failed to get cached blob, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get cached blob, hr %#x.\n", (int)hr);
     ok(ID3D10Blob_GetBufferSize(blob) > 0, "Cached blob is empty.\n");
 
     ID3D12PipelineState_Release(state);
@@ -91,7 +91,7 @@ void test_get_cached_blob(void)
 
     hr = ID3D12Device_CreateComputePipelineState(device,
             &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", (int)hr);
 
     ID3D12PipelineState_Release(state);
 
@@ -100,7 +100,7 @@ void test_get_cached_blob(void)
     compute_desc.CS.BytecodeLength = sizeof(cs_dxbc_2);
     hr = ID3D12Device_CreateComputePipelineState(device,
             &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", (int)hr);
 
     /* Using mismatched root signature must fail. */
     compute_desc.CS.pShaderBytecode = cs_dxbc;
@@ -108,7 +108,7 @@ void test_get_cached_blob(void)
     compute_desc.pRootSignature = root_signature_alt;
     hr = ID3D12Device_CreateComputePipelineState(device,
             &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", (int)hr);
 
     ID3D12RootSignature_Release(root_signature);
     ID3D12RootSignature_Release(root_signature_alt);
@@ -124,11 +124,11 @@ void test_pipeline_library(void)
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12PipelineLibrary *pipeline_library;
     ID3D12RootSignature *root_signature;
+    unsigned int reference_refcount;
     struct test_context context;
     ID3D12PipelineState *state3;
     ID3D12PipelineState *state2;
     ID3D12PipelineState *state;
-    ULONG reference_refcount;
     size_t serialized_size;
     ID3D12Device1 *device1;
     void *serialized_data;
@@ -194,15 +194,15 @@ void test_pipeline_library(void)
 
     /* Test adding pipelines to an empty pipeline library */
     hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
-    ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", (int)hr);
 
     /* ppData == NULL means a query */
     hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, NULL, NULL);
-    ok(hr == S_FALSE, "Failed to query pipeline library, hr %#x.\n", hr);
+    ok(hr == S_FALSE, "Failed to query pipeline library, hr %#x.\n", (int)hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&compute_desc, 0, sizeof(compute_desc));
     compute_desc.pRootSignature = root_signature;
@@ -211,14 +211,14 @@ void test_pipeline_library(void)
 
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateComputePipelineState(device,
             &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", (int)hr);
 
     hr = ID3D12PipelineLibrary_StorePipeline(pipeline_library, compute_name, state);
-    ok(hr == S_OK, "Failed to store compute pipeline, hr %x.\n", hr);
+    ok(hr == S_OK, "Failed to store compute pipeline, hr %x.\n", (int)hr);
 
     ID3D12PipelineState_Release(state);
 
@@ -239,24 +239,24 @@ void test_pipeline_library(void)
 
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
             graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateGraphicsPipelineState(device,
             &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     hr = ID3D12PipelineLibrary_StorePipeline(pipeline_library, graphics_name, state);
-    ok(hr == S_OK, "Failed to store graphics pipeline, hr %x.\n", hr);
+    ok(hr == S_OK, "Failed to store graphics pipeline, hr %x.\n", (int)hr);
 
     /* Try to load PSO after a Store. Verify that we have a ref-count. */
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library, graphics_name, &graphics_desc,
             &IID_ID3D12PipelineState, (void**)&state2);
-    ok(hr == S_OK, "Failed to load graphics pipeline, hr %x.\n", hr);
+    ok(hr == S_OK, "Failed to load graphics pipeline, hr %x.\n", (int)hr);
     ok(state == state2, "Resulting PSOs must point to same object.\n");
     ok(get_refcount(state2) == 2, "Refcount %u != 2.\n", get_refcount(state2));
 
     hr = ID3D12PipelineLibrary_StorePipeline(pipeline_library, compute_name, state);
-    ok(hr == E_INVALIDARG, "Storing pipeline with already existing name succeeded, hr %x.\n", hr);
+    ok(hr == E_INVALIDARG, "Storing pipeline with already existing name succeeded, hr %x.\n", (int)hr);
 
     ID3D12PipelineState_Release(state);
     ID3D12PipelineState_Release(state2);
@@ -264,19 +264,19 @@ void test_pipeline_library(void)
     /* Test looking up pipelines in a new pipeline library */
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(state);
 
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
             graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(state);
 
     /* Verify that modifying a PSO description must be invalidated by runtime. */
     graphics_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
             graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", (int)hr);
     graphics_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
     serialized_size = ID3D12PipelineLibrary_GetSerializedSize(pipeline_library);
@@ -284,28 +284,28 @@ void test_pipeline_library(void)
 
     serialized_data = malloc(serialized_size);
     hr = ID3D12PipelineLibrary_Serialize(pipeline_library, serialized_data, serialized_size - 1);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", (int)hr);
 
     hr = ID3D12PipelineLibrary_Serialize(pipeline_library, serialized_data, serialized_size);
-    ok(hr == S_OK, "Failed to serialize pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to serialize pipeline library, hr %#x.\n", (int)hr);
 
     ID3D12PipelineLibrary_Release(pipeline_library);
 
     /* Test deserializing a pipeline library */
     hr = ID3D12Device1_CreatePipelineLibrary(device1, serialized_data,
             serialized_size, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
-    ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", (int)hr);
 
     /* Verify that PSO library must internally ref-count a unique PSO. */
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
             graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", (int)hr);
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
             graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state2);
-    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", (int)hr);
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
             graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state3);
-    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", (int)hr);
 
     ok(state == state2 && state == state3, "Resulting PSOs must point to same object.\n");
     ok(get_refcount(state) == 3, "Refcount %u != 3.\n", get_refcount(state));
@@ -320,13 +320,13 @@ void test_pipeline_library(void)
     /* Verify that PSO library must internally ref-count a unique PSO. */
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", (int)hr);
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state2);
-    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", (int)hr);
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state3);
-    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", (int)hr);
 
     ok(get_refcount(context.device) == reference_refcount + 1, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 1);
     ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void**)&fence);
@@ -342,24 +342,27 @@ void test_pipeline_library(void)
     ID3D12PipelineState_Release(state);
     ID3D12PipelineState_Release(state2);
     ok(get_refcount(fence) == 2, "Refcount %u != 2.\n", get_refcount(fence));
-    ok(get_refcount(context.device) == reference_refcount + 2, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 2);
+    ok(get_refcount(context.device) == reference_refcount + 2, "Refcount %u != %u\n",
+            get_refcount(context.device), reference_refcount + 2);
     ok(ID3D12PipelineState_Release(state3) == 0, "Refcount did not hit 0.\n");
     /* Releasing the last public reference does not release private data. */
     ok(get_refcount(fence) == 2, "Refcount %u != 2.\n", get_refcount(fence));
     /* Device ref count does release however ... */
-    ok(get_refcount(context.device) == reference_refcount + 1, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 1);
+    ok(get_refcount(context.device) == reference_refcount + 1, "Refcount %u != %u\n",
+            get_refcount(context.device), reference_refcount + 1);
 
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
         compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state2);
     /* Device ref count increases here again. */
-    ok(get_refcount(context.device) == reference_refcount + 2, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 2);
-    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+    ok(get_refcount(context.device) == reference_refcount + 2, "Refcount %u != %u\n",
+            get_refcount(context.device), reference_refcount + 2);
+    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", (int)hr);
     ok(state == state2, "Reloading dead PSO must point to same object.\n");
     ID3D12PipelineState_Release(state2);
 
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             graphics_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", (int)hr);
 
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(state);
