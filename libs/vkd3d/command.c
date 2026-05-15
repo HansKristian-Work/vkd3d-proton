@@ -17684,6 +17684,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 break;
             }
 
+            {
+                VkMemoryBarrier2 vk_barrier;
+                VkDependencyInfo dep_info;
+
+                memset(&vk_barrier, 0, sizeof(vk_barrier));
+                memset(&dep_info, 0, sizeof(dep_info));
+                vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+
+                vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                vk_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+                vk_barrier.dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+
+                dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dep_info.memoryBarrierCount = 1;
+                dep_info.pMemoryBarriers = &vk_barrier;
+                VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+            }
+
             VK_CALL(vkCmdTraceRaysIndirect2KHR(list->cmd.vk_command_buffer, scratch.va));
             break;
 
@@ -19940,6 +19959,8 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
     unsigned int i, geometry_index, usage_index;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
 
     if (!rtas_batch->build_info_count && !rtas_batch->omm_build_info_count)
         return;
@@ -19996,6 +20017,27 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
                 rtas_batch->omm_build_info_count, rtas_batch->omm_build_infos));
 
     d3d12_command_list_clear_rtas_batch(list);
+
+    /* Temporary hack. */
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
+    if (list->device->device_info.opacity_micromap_features.micromap)
+    {
+        vk_barrier.srcAccessMask |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
+        vk_barrier.dstAccessMask |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
+    }
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 }
 
 static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3d12_command_list *list,
@@ -20134,8 +20176,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     if ((rtas_batch->build_info_count || rtas_batch->omm_build_info_count) &&
             rtas_batch->build_type != desc->Inputs.Type)
     {
-        d3d12_command_list_flush_rtas_batch(list);
-
         memset(&vk_barrier, 0, sizeof(vk_barrier));
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
         vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
@@ -20156,6 +20196,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
+
+    d3d12_command_list_flush_rtas_batch(list);
 
     rtas_batch->build_type = desc->Inputs.Type;
 
@@ -20499,6 +20541,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     {
         WARN("Failed to update raygen state, ignoring dispatch.\n");
         return;
+    }
+
+    {
+        VkMemoryBarrier2 vk_barrier;
+        VkDependencyInfo dep_info;
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 
     /* TODO: Is DispatchRays predicated? */
