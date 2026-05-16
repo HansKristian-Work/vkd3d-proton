@@ -551,6 +551,9 @@ enum vkd3d_shader_target_extension
 /* Use precise fma instead of the spec correct mad. To workaround issues with invariance. */
 #define VKD3D_SHADER_QUIRK_PRECISE_FMA (1ull << 33)
 
+/* Forces nonuniformEXT for everything in RT. */
+#define VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT (1ull << 34)
+
 typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
