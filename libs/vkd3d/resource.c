@@ -9066,6 +9066,13 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_heap(struct d3d12_descrip
     else
     {
         alloc_size = device->bindless_state.sampler_size;
+
+        /* We have no reasonable way to pass down meta information about number of samplers.
+         * But we can clamp to 2047 which should work "everywhere". */
+        if (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+            if (d3d12_descriptor_heap_require_padding_descriptors(device))
+                descriptor_count = max(descriptor_count, D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE);
+
         alloc_size *= descriptor_count;
 
         if (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
@@ -9170,6 +9177,15 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
             (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
     {
         descriptor_count++;
+    }
+
+    /* We have no reasonable way to pass down meta information about number of samplers.
+     * But we can clamp to 2047 which should work "everywhere". */
+    if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
+        (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) &&
+        d3d12_descriptor_heap_require_padding_descriptors(device))
+    {
+        descriptor_count = max(descriptor_count, D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE);
     }
 
     for (i = 0, set_count = 0; i < device->bindless_state.legacy.set_count; i++)
