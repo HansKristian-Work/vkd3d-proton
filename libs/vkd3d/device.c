@@ -843,6 +843,11 @@ static const struct vkd3d_shader_quirk_info heap_robustness_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
 };
 
+static const struct vkd3d_shader_quirk_info forza6_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS |
+        VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT,
+};
+
 static const struct vkd3d_shader_quirk_hash ac_mirage_hashes[] = {
     /* There is a write-after-read hazard.
      * Index buffer is being read from, and there is a compute shader afterwards
@@ -1097,7 +1102,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
 	/* Spider Man 2 (2651280) */
     { VKD3D_STRING_COMPARE_EXACT, "Spider-Man2.exe", &spiderman2_quirks },
 	/* Forza Horizon 6 (2483190). */
-    { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", &heap_robustness_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", &forza6_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
