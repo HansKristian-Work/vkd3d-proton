@@ -559,6 +559,9 @@ enum vkd3d_shader_target_extension
  * to enable very awkward workarounds. This workaround is expected to go away eventually. */
 #define VKD3D_SHADER_QUIRK_ENABLE_FAIR_SCHEDULING (1ull << 35)
 
+/* Forces nonuniformEXT for everything in RT. */
+#define VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT (1ull << 36)
+
 typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
