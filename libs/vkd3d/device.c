@@ -9549,12 +9549,16 @@ uint32_t d3d12_device_get_max_descriptor_heap_size(struct d3d12_device *device, 
             }
 
         case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
-            if (d3d12_device_use_descriptor_heap(device) && device->memory_info.has_gpu_upload_heap)
+            if (d3d12_device_use_descriptor_heap(device) && device->memory_info.has_gpu_upload_heap &&
+                !d3d12_descriptor_heap_require_padding_descriptors(device))
             {
                 /* Meta shaders need embedded samplers in some cases, so we cannot potentially expose the larger limits. */
                 VkDeviceSize useable_size =
                     device->device_info.descriptor_heap_properties.maxSamplerHeapSize -
                     device->device_info.descriptor_heap_properties.minSamplerHeapReservedRangeWithEmbedded;
+
+                /* For padding scenarios, we rely on allocating 2048 samplers for every heap
+                 * and clamp to 2047 since we cannot sneak in a proper redzone descriptor on NV. */
 
                 /* Don't report ridiculously large numbers here for safety. Limit the number of descriptors. */
                 uint32_t count = min(1000000, useable_size >> device->bindless_state.sampler_size_log2);
