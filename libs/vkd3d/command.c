@@ -19974,19 +19974,10 @@ static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
     rtas_batch->omm_usage_info_count = 0;
 }
 
-static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
+static void d3d12_command_list_fixup_rtas_batch(struct d3d12_command_list *list)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
     unsigned int i, geometry_index, usage_index;
-
-    if (!rtas_batch->build_info_count && !rtas_batch->omm_build_info_count)
-        return;
-
-    d3d12_command_list_check_end_of_command_list_cleanup(list);
-
-    TRACE("list %p, build_info_count %zu, omm_build_info_count %zu.\n", list,
-            rtas_batch->build_info_count, rtas_batch->omm_build_info_count);
 
     if (rtas_batch->build_info_count &&
             !vkd3d_array_reserve((void **)&rtas_batch->range_ptrs, &rtas_batch->range_ptr_size,
@@ -20041,7 +20032,22 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
             }
         }
     }
+}
 
+static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+
+    if (!rtas_batch->build_info_count && !rtas_batch->omm_build_info_count)
+        return;
+
+    d3d12_command_list_check_end_of_command_list_cleanup(list);
+
+    TRACE("list %p, build_info_count %zu, omm_build_info_count %zu.\n", list,
+            rtas_batch->build_info_count, rtas_batch->omm_build_info_count);
+
+    d3d12_command_list_fixup_rtas_batch(list);
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
 
