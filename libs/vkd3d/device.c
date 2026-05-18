@@ -2468,8 +2468,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
 
     if (vulkan_info->KHR_opacity_micromap)
     {
-        info->opacity_micromap_features_khr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, &info->opacity_micromap_features_khr);
+        info->opacity_micromap_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->opacity_micromap_features);
     }
 
     if (vulkan_info->EXT_shader_float8)
@@ -2542,8 +2542,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
-    /* Prefer KHR_opacity_micromap over EXT_opacity_micromap, and only load one. */
-    info->supports_opacity_micromap = info->opacity_micromap_features_khr.micromap;
+    info->supports_opacity_micromap = info->opacity_micromap_features.micromap;
 
     /* if nonzero, this is a layered implementation */
     if (real_driver_props.driverID)
@@ -2959,7 +2958,7 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("    smoothLines: %u\n", info->line_rasterization_features.smoothLines);
 
     TRACE("  VkPhysicalDeviceOpacityMicromapFeaturesKHR:\n");
-    TRACE("    micromap: %#x\n", info->opacity_micromap_features_khr.micromap);
+    TRACE("    micromap: %#x\n", info->opacity_micromap_features.micromap);
 }
 
 static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
