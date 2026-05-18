@@ -122,7 +122,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(
                                                             0 /* raw_params_count */);
 }
 
-CONST_VTBL struct ID3D12GraphicsCommandListExt1Vtbl d3d12_command_list_vkd3d_ext_vtbl =
+CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_vkd3d_ext_QueryInterface,
@@ -135,5 +135,10 @@ CONST_VTBL struct ID3D12GraphicsCommandListExt1Vtbl d3d12_command_list_vkd3d_ext
 
     /* ID3D12GraphicsCommandListExt1 methods */
     d3d12_command_list_vkd3d_ext_LaunchCubinShaderEx,
+
+    /* ID3D12GraphicsCommandListExt2 methods */
+    NULL,
+    NULL,
+    NULL,
 };
 
