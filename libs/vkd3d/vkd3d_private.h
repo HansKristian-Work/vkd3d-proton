@@ -5284,8 +5284,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceOpticalFlowFeaturesNV optical_flow_nv_features;
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features;
     VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT zero_initialize_device_memory_features;
-    VkPhysicalDeviceOpacityMicromapFeaturesEXT opacity_micromap_features_ext;
-    VkPhysicalDeviceOpacityMicromapFeaturesKHR opacity_micromap_features_khr;
+    VkPhysicalDeviceOpacityMicromapFeaturesKHR opacity_micromap_features;
     VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
