@@ -8460,12 +8460,10 @@ cleanup:
         vkd3d_free(usages);
 }
 
-static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
+void d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-
     VkAccelerationStructureTrianglesOpacityMicromapKHR omm_triangles_infos_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -8476,8 +8474,6 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     VkAccelerationStructureGeometryKHR *geometries;
     uint32_t *primitive_counts;
     uint32_t geometry_count;
-
-    TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(device))
     {
@@ -8537,6 +8533,17 @@ cleanup:
         vkd3d_free(geometries);
         vkd3d_free(omm_triangles_infos);
     }
+}
+
+static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
+
+    d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(device, desc, info);
 }
 
 static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_CheckDriverMatchingIdentifier(d3d12_device_iface *iface,

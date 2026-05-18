@@ -457,6 +457,17 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetOpacityMicromapOverrideN
     return TRUE;
 }
 
+static void STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetRaytracingAccelerationStructurePrebuildInfoNVAPI(d3d12_device_vkd3d_ext_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+
+    TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
+
+    d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(device, desc, info);
+}
+
 static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SupportsCubin64bit(d3d12_device_vkd3d_ext_iface *iface)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
@@ -794,7 +805,7 @@ CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl =
 
     /* ID3D12DeviceExt5 methods */
     d3d12_device_vkd3d_ext_SetOpacityMicromapOverrideNVAPI,
-    NULL,
+    d3d12_device_vkd3d_ext_GetRaytracingAccelerationStructurePrebuildInfoNVAPI,
 };
 
 static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(d3d12_dxvk_interop_device_iface *iface)
