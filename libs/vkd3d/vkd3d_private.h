@@ -3864,6 +3864,10 @@ struct d3d12_command_queue
     } sparse;
 };
 
+void d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info);
+
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, uint32_t vk_family_index, struct d3d12_command_queue **queue);
 void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue);
