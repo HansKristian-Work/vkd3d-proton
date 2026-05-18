@@ -156,6 +156,7 @@ struct vkd3d_vulkan_info
     bool KHR_unified_image_layouts;
     bool KHR_present_mode_fifo_latest_ready;
     bool KHR_device_address_commands;
+    bool KHR_opacity_micromap;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -5266,7 +5267,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceOpticalFlowFeaturesNV optical_flow_nv_features;
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features;
     VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT zero_initialize_device_memory_features;
-    VkPhysicalDeviceOpacityMicromapFeaturesEXT opacity_micromap_features;
+    VkPhysicalDeviceOpacityMicromapFeaturesEXT opacity_micromap_features_ext;
+    VkPhysicalDeviceOpacityMicromapFeaturesKHR opacity_micromap_features_khr;
     VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
@@ -5281,6 +5283,10 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR device_address_commands_features;
 
     VkPhysicalDeviceFeatures2 features2;
+
+    /* Logical OR of the KHR and EXT opacity-micromap support flags. */
+    bool supports_opacity_micromap;
+    bool using_khr_opacity_micromap; /* Discriminator KHR / EXT being used. */
 
     /* others, for extensions that have no feature bits */
     uint32_t time_domains;  /* vkd3d_time_domain_flag */

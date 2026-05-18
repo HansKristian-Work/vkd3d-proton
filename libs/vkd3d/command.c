@@ -6383,7 +6383,7 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                     *access |= VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
                             VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
 
-                    if (d3d12_device_supports_ray_tracing_tier_1_2(device))
+                    if (device->device_info.opacity_micromap_features_ext.micromap)
                     {
                         *stages |= VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
                         *access |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT |
@@ -6401,7 +6401,7 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                     *access |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR |
                             VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
 
-                    if (d3d12_device_supports_ray_tracing_tier_1_2(device))
+                    if (device->device_info.opacity_micromap_features_ext.micromap)
                     {
                         *stages |= VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
                         *access |= VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT |
@@ -6434,7 +6434,7 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                      * They access SHADER_READ_BIT in Vulkan, so just need to add the stage. */
                     *stages |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
 
-                    if (d3d12_device_supports_ray_tracing_tier_1_2(device))
+                    if (device->device_info.opacity_micromap_features_ext.micromap)
                         *stages |= VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
                 }
                 break;
@@ -20207,7 +20207,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
         vk_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
 
-        if (list->device->device_info.opacity_micromap_features.micromap)
+        if (list->device->device_info.opacity_micromap_features_ext.micromap)
         {
             vk_barrier.srcAccessMask |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
             vk_barrier.dstAccessMask |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
