@@ -740,7 +740,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Ark Ascended (2399830). Very broken FSR3 usage where the entire thing is freed. We can retain the resources automatically
      * but descriptor heap is not named, so we cannot auto-detect. Similar story for the PSOs. */
     { VKD3D_STRING_COMPARE_EXACT, "ArkAscended.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.RETAIN_DESCRIPTOR_HEAPS = 1, .RETAIN_PSOS = 1) },
+        VKD3D_CONFIG_FLAG_INIT_STATIC(.RETAIN_PSOS = 1) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
