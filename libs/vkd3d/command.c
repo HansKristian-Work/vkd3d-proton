@@ -2321,7 +2321,7 @@ static void d3d12_command_list_update_conditional_rendering_state(struct d3d12_c
     }
 }
 
-static void d3d12_command_list_check_render_pass_validation(
+void d3d12_command_list_check_render_pass_validation(
         struct d3d12_command_list *list, const char *user_driven_tag, bool action_command)
 {
     if (user_driven_tag && list->is_inside_render_pass)
@@ -20726,18 +20726,13 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     VKD3D_BREADCRUMB_COMMAND(BUILD_RTAS);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
+void d3d12_command_list_build_raytracing_acceleration_structure_common(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
     bool assume_hazard;
 
-    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
-            iface, desc, num_postbuild_info_descs, postbuild_info_descs);
-
-    d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
@@ -20783,6 +20778,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
                 desc, num_postbuild_info_descs, postbuild_info_descs);
 
     rtas_batch->pending_rtas_work = true;
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
+            iface, desc, num_postbuild_info_descs, postbuild_info_descs);
+
+    d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
+
+    d3d12_command_list_build_raytracing_acceleration_structure_common(list,
+        desc, num_postbuild_info_descs, postbuild_info_descs);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,

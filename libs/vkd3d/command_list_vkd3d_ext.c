@@ -123,6 +123,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(
                                                             0 /* raw_params_count */);
 }
 
+static void STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_BuildRaytracingAccelerationStructureNVAPI(d3d12_command_list_vkd3d_ext_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc,
+        UINT num_postbuild_info_descs,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
+{
+    struct d3d12_command_list *list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
+    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
+            iface, desc, num_postbuild_info_descs, postbuild_info_descs);
+
+    d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructureNVAPI called within a render pass.\n", true);
+
+    d3d12_command_list_build_raytracing_acceleration_structure_common(list,
+        desc, num_postbuild_info_descs, postbuild_info_descs);
+}
+
 CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
@@ -138,7 +153,7 @@ CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext
     d3d12_command_list_vkd3d_ext_LaunchCubinShaderEx,
 
     /* ID3D12GraphicsCommandListExt2 methods */
-    NULL,
+    d3d12_command_list_vkd3d_ext_BuildRaytracingAccelerationStructureNVAPI,
     NULL,
     NULL,
 };
