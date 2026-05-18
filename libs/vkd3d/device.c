@@ -4517,7 +4517,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt1)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt2)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt3)
-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt4))
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt4)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt5))
     {
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
