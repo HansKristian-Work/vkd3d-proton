@@ -1154,7 +1154,6 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
-#if 0
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_OPACITY_MICROMAP)
             {
                 static const dxil_spv_option_opacity_micromap helper =
@@ -1165,7 +1164,6 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
-#endif
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_WMMA_FP8)
             {
                 float8.wmma_fp8 = DXIL_SPV_TRUE;
