@@ -2776,6 +2776,11 @@ uint32_t d3d12_command_allocator_allocate_meta_index(
 
 struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *iface);
 void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list);
+void d3d12_command_list_check_render_pass_validation(
+        struct d3d12_command_list *list, const char *user_driven_tag, bool action_command);
+void d3d12_command_list_build_raytracing_acceleration_structure_common(struct d3d12_command_list *list,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs);
 
 struct vkd3d_scratch_allocation
 {
