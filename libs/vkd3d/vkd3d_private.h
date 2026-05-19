@@ -2811,6 +2811,9 @@ void d3d12_command_list_check_render_pass_validation(
 void d3d12_command_list_build_raytracing_acceleration_structure_common(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs);
+void d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data);
 
 struct vkd3d_scratch_allocation
 {

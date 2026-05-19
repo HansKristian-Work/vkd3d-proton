@@ -138,6 +138,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_BuildRaytracingAccele
         desc, num_postbuild_info_descs, postbuild_info_descs);
 }
 
+static void STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_EmitRaytracingAccelerationStructurePostbuildInfoNVAPI(
+        d3d12_command_list_vkd3d_ext_iface *iface,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
+{
+    struct d3d12_command_list *list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
+    TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
+            iface, desc, num_acceleration_structures, src_data);
+
+    d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfoNVAPI called within a render pass.\n", true);
+
+    d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(list, desc, num_acceleration_structures,
+        src_data);
+}
+
 CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
@@ -154,7 +169,7 @@ CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext
 
     /* ID3D12GraphicsCommandListExt2 methods */
     d3d12_command_list_vkd3d_ext_BuildRaytracingAccelerationStructureNVAPI,
-    NULL,
+    d3d12_command_list_vkd3d_ext_EmitRaytracingAccelerationStructurePostbuildInfoNVAPI,
     NULL,
 };
 
