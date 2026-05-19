@@ -153,6 +153,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_EmitRaytracingAcceler
         src_data);
 }
 
+static BOOL STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_VerifyOpacityMicromapArrayNVAPI(d3d12_command_list_vkd3d_ext_iface *iface,
+    D3D12_GPU_VIRTUAL_ADDRESS opacity_micromap_array)
+{
+    struct d3d12_command_list *list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
+    enum vkd3d_rtas_kind rtas_kind;
+    VkAccelerationStructureKHR as;
+
+    TRACE("iface %p, opacity_micromap_array %#"PRIx64".\n", iface, opacity_micromap_array);
+
+    vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map, list->device,
+                opacity_micromap_array, &as, &rtas_kind);
+    return as != VK_NULL_HANDLE && (rtas_kind == VKD3D_RTAS_KIND_NON_TLAS || rtas_kind == VKD3D_RTAS_KIND_MUTATED);
+}
+
 CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
@@ -170,6 +184,6 @@ CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext
     /* ID3D12GraphicsCommandListExt2 methods */
     d3d12_command_list_vkd3d_ext_BuildRaytracingAccelerationStructureNVAPI,
     d3d12_command_list_vkd3d_ext_EmitRaytracingAccelerationStructurePostbuildInfoNVAPI,
-    NULL,
+    d3d12_command_list_vkd3d_ext_VerifyOpacityMicromapArrayNVAPI,
 };
 
