@@ -4441,6 +4441,7 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA = (1u << 10),
     VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED     = (1u << 11),
     VKD3D_BINDLESS_HEAP                             = (1u << 12),
+    VKD3D_BINDLESS_NULL_BUFFER_SIBLINGS             = (1u << 13),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8

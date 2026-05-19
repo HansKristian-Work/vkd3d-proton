@@ -8076,6 +8076,16 @@ static HRESULT vkd3d_bindless_state_init_heap(struct vkd3d_bindless_state *bindl
             max(bindless_state->heap.storage_texel_buffer_size, bindless_state->heap.uniform_texel_buffer_size),
             device->device_info.descriptor_heap_properties.bufferDescriptorAlignment);
 
+    if (VKD3D_CONFIG_FLAG_IS_SET(AVOID_IMAGE_BUFFER_ALIASING))
+    {
+        /* Try to avoid direct aliasing to workaround horrible game bugs + AMD HW behavior which isn't as robust
+         * as we'd hope. Essentially, get RDNA2 64b desc behavior if possible.
+         * On NV/Intel, this path should do nothing. */
+        minimum_buffer_offset = max(bindless_state->heap.storage_image_size, minimum_buffer_offset);
+        minimum_buffer_offset = align(minimum_buffer_offset,
+            device->device_info.descriptor_heap_properties.bufferDescriptorAlignment);
+    }
+
     minimum_unified_buffer_descriptor_size_log2 = align(minimum_buffer_offset + bindless_state->heap.ssbo_size,
             max(device->device_info.descriptor_heap_properties.imageDescriptorAlignment,
                 device->device_info.descriptor_heap_properties.bufferDescriptorAlignment));
@@ -8349,9 +8359,14 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         return E_NOTIMPL;
     }
 
-    if (SUCCEEDED(vkd3d_bindless_state_init_heap(bindless_state, device)))
-        return S_OK;
-    return vkd3d_bindless_state_init_legacy(bindless_state, device);
+    if (FAILED(vkd3d_bindless_state_init_heap(bindless_state, device)))
+        if (FAILED(vkd3d_bindless_state_init_legacy(bindless_state, device)))
+            return E_NOTIMPL;
+
+    if (VKD3D_CONFIG_FLAG_IS_SET(NULL_BUFFER_SIBLINGS))
+        bindless_state->flags |= VKD3D_BINDLESS_NULL_BUFFER_SIBLINGS;
+
+    return S_OK;
 }
 
 void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
