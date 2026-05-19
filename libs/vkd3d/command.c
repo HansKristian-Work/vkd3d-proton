@@ -20788,15 +20788,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         desc, num_postbuild_info_descs, postbuild_info_descs);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
+void d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
         const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
 {
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
-            iface, desc, num_acceleration_structures, src_data);
-
-    d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
@@ -20812,6 +20807,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
             desc, num_acceleration_structures, src_data);
 
     VKD3D_BREADCRUMB_COMMAND(EMIT_RTAS_POSTBUILD);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
+            iface, desc, num_acceleration_structures, src_data);
+
+    d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n", true);
+
+    d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(list,
+        desc, num_acceleration_structures,
+        src_data);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
