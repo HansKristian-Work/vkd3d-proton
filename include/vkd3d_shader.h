@@ -1053,6 +1053,8 @@ struct vkd3d_shader_node_input_push_signature
     VkDeviceAddress local_root_signature_bda;
     uint32_t node_payload_output_offset;
     uint32_t node_remaining_recursion_levels;
+    /* Used by heap path. */
+    VkDeviceAddress root_parameter_bda;
 };
 
 struct vkd3d_shader_node_input_data
@@ -1191,7 +1193,8 @@ vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
         const struct vkd3d_shader_compile_arguments *args,
         vkd3d_shader_hash_t hash, const char *entry);
 
-uint64_t vkd3d_shader_get_revision(void);
+/* Also returns global shader quirks which are added through config files. */
+uint64_t vkd3d_shader_get_revision(vkd3d_shader_quirks_t *aux_quirks);
 
 int vkd3d_shader_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc,

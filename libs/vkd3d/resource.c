@@ -7283,6 +7283,9 @@ VkDeviceAddress vkd3d_get_acceleration_structure_device_address(struct d3d12_dev
     return VK_CALL(vkGetAccelerationStructureDeviceAddressKHR(device->vk_device, &address_info));
 }
 
+/* For DLSS integration. */
+extern VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info;
+
 static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_device *device,
         struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
@@ -7330,6 +7333,12 @@ static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, stru
     else
     {
         memset(&view, 0, sizeof(view));
+    }
+
+    if (d3d12_uav_info)
+    {
+        d3d12_uav_info->gpuVAStart = view.va;
+        d3d12_uav_info->gpuVASize = view.range;
     }
 
     is_typed = desc->Format && !(desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
@@ -10156,6 +10165,12 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
                 object->cpu_va.ptr = (SIZE_T)object->descriptor_buffer.host_allocation;
                 if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
                     object->cpu_va.ptr += device->bindless_state.heap.redzone_size;
+
+                if ((desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) && device->vk_info.NVX_image_view_handle)
+                {
+                    vkd3d_va_map_insert_descriptor_heap(&device->memory_allocator.va_map, object->cpu_va.ptr,
+                        descriptor_size * desc->NumDescriptors, desc->Type);
+                }
             }
             else
             {
@@ -10260,6 +10275,15 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
             pthread_mutex_destroy(&descriptor_heap->meta_descriptor_lock);
             vkd3d_free(descriptor_heap->meta_descriptor_indices);
         }
+
+        if (device->vk_info.NVX_image_view_handle &&
+            (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) &&
+            (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+                descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER))
+        {
+            vkd3d_va_map_remove_descriptor_heap(&device->memory_allocator.va_map,
+                descriptor_heap->cpu_va.ptr, descriptor_heap->desc.Type);
+        }
     }
 
     vkd3d_descriptor_debug_unregister_heap(descriptor_heap->cookie);
@@ -10267,7 +10291,8 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
 
 bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *device)
 {
-    uint32_t quirks;
+    vkd3d_shader_quirks_t aux_quirks;
+    vkd3d_shader_quirks_t quirks;
     unsigned int i;
 
     if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
@@ -10278,6 +10303,9 @@ bool d3d12_descriptor_heap_require_padding_descriptors(struct d3d12_device *devi
     quirks = device->workarounds.quirks.default_quirks | device->workarounds.quirks.global_quirks;
     for (i = 0; i < device->workarounds.quirks.num_entry_points; i++)
         quirks |= device->workarounds.quirks.entry_points[i].quirks;
+
+    vkd3d_shader_get_revision(&aux_quirks);
+    quirks |= aux_quirks;
     return !!(quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS);
 }
 

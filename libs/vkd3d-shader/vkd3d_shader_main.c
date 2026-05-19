@@ -509,8 +509,9 @@ vkd3d_shader_quirks_t vkd3d_shader_compile_arguments_select_quirks(
         return quirks;
 }
 
-uint64_t vkd3d_shader_get_revision(void)
+uint64_t vkd3d_shader_get_revision(vkd3d_shader_quirks_t *aux_quirks)
 {
+    vkd3d_shader_quirks_t quirks = 0;
     uint64_t quirk_hash = 0;
     size_t i;
 
@@ -524,6 +525,7 @@ uint64_t vkd3d_shader_get_revision(void)
             quirk_hash = hash_fnv1_iterate_u64(quirk_hash, vkd3d_shader_quirk_entries[i].lo);
             quirk_hash = hash_fnv1_iterate_u64(quirk_hash, vkd3d_shader_quirk_entries[i].hi);
             quirk_hash = hash_fnv1_iterate_u64(quirk_hash, vkd3d_shader_quirk_entries[i].quirks);
+            quirks |= vkd3d_shader_quirk_entries[i].quirks;
         }
     }
 
@@ -531,6 +533,9 @@ uint64_t vkd3d_shader_get_revision(void)
      * Might get nuked later ...
      * It's not immediately useful for invalidating pipeline caches, since that would mostly be covered
      * by vkd3d-proton Git hash. */
+    if (aux_quirks)
+        *aux_quirks = quirks;
+
     return quirk_hash ^ 1;
 }
 

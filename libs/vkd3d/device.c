@@ -6247,6 +6247,8 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView_default(d3d1
     d3d12_desc_create_srv(descriptor.ptr, device, impl_from_ID3D12Resource(resource), desc);
 }
 
+VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
+
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_heap(d3d12_device_iface *iface,
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
@@ -6260,7 +6262,33 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_heap(d3d12_
             device, d3d12_resource_,
             impl_from_ID3D12Resource(counter_resource), desc);
 
-    /* TODO: Plumb d3d12_uav_info through later. */
+    /* d3d12_uav_info stores the pointer to data from previous call to d3d12_device_vkd3d_ext_CaptureUAVInfo().
+     * Below code will update the data. */
+    if (d3d12_uav_info)
+    {
+        /* Buffer VAs are updated in vkd3d_create_buffer_uav_heap since we cannot rely on metadata. */
+
+        if (!desc || desc->ViewDimension != D3D12_UAV_DIMENSION_BUFFER)
+        {
+            d3d12_uav_info->surfaceHandle = d3d12_device_find_shader_visible_descriptor_heap_offset(device, descriptor.ptr,
+                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+            if (d3d12_uav_info->surfaceHandle == UINT32_MAX)
+            {
+                /* Older DLSS DLLs call this on a CPU descriptor heap.
+                 * It's meaningless to report a heap index for these, but those DLLs expect
+                 * the index we return to at least be valid. Just return a dummy index that points
+                 * to the last redzone descriptor. We apparently have to return 0 here for it to work. */
+                d3d12_uav_info->surfaceHandle = 0;
+            }
+
+            /* Is this even used? */
+            d3d12_uav_info->gpuVAStart = 0;
+            d3d12_uav_info->gpuVASize = 0;
+        }
+
+        d3d12_uav_info = NULL;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_embedded(d3d12_device_iface *iface,
@@ -6278,8 +6306,6 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_embedded(d3
 
     /* Unknown at this time if we can support magic d3d12_uav_info with embedded mutable. */
 }
-
-VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_default(d3d12_device_iface *iface,
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
@@ -9916,8 +9942,9 @@ bool d3d12_device_supports_workgraphs(const struct d3d12_device *device)
 {
     /* Thread nodes currently need wave32 to function correctly since the API limits for thread nodes
      * match wave32 expectations (8 nodes per thread * 32 threads = 256 max nodes). */
-    return (VKD3D_CONFIG_FLAG_IS_SET(ENABLE_EXPERIMENTAL_FEATURES) /* ||
-            vkd3d_debug_control_is_test_suite() */) &&
+    return (VKD3D_CONFIG_FLAG_IS_SET(ENABLE_EXPERIMENTAL_FEATURES) ||
+            vkd3d_debug_control_is_test_suite()) &&
+            d3d12_device_use_descriptor_heap(device) &&
             device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence &&
             device->device_info.vulkan_1_2_features.vulkanMemoryModel &&
             device->device_info.vulkan_1_3_features.subgroupSizeControl &&
@@ -10565,7 +10592,7 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
     /* Technically, any changes in vkd3d-shader will be reflected in the vkd3d-proton Git hash,
      * but it is useful to be able to modify the internal revision while developing since
      * we have no mechanism for emitting dirty Git revisions. */
-    key = hash_fnv1_iterate_u64(key, vkd3d_shader_get_revision());
+    key = hash_fnv1_iterate_u64(key, vkd3d_shader_get_revision(NULL));
     key = hash_fnv1_iterate_u32(key, device->device_info.vulkan_1_3_properties.minSubgroupSize);
     key = hash_fnv1_iterate_u32(key, device->device_info.vulkan_1_3_properties.maxSubgroupSize);
     key = hash_fnv1_iterate_u32(key, device->bindless_state.flags);
@@ -10576,6 +10603,15 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
         key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.supports_universal_structured_ssbo);
         key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.uav_counter_embedded_offset);
         key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.min_ssbo_alignment);
+
+        /* We only get to know this very late after we've checked quirk override files and workaround setup. */
+        if (!d3d12_descriptor_heap_require_padding_descriptors(device) &&
+                !device->bindless_state.heap.uav_counter_embedded_offset)
+        {
+            INFO("Disabling heap redzone.\n");
+            device->bindless_state.heap.redzone_size = 0;
+        }
+
         key = hash_fnv1_iterate_u32(key, device->bindless_state.heap.redzone_size);
     }
     else

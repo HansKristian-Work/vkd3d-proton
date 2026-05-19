@@ -362,6 +362,12 @@ struct vkd3d_va_range
     VkDeviceSize size;
 };
 
+struct vkd3d_descriptor_heap_mapping
+{
+    uintptr_t va;
+    size_t range;
+};
+
 struct vkd3d_va_map
 {
     struct vkd3d_va_tree va_tree;
@@ -371,6 +377,14 @@ struct vkd3d_va_map
     struct vkd3d_unique_resource **small_entries;
     size_t small_entries_size;
     size_t small_entries_count;
+
+    struct vkd3d_descriptor_heap_mapping *resource_mappings;
+    size_t resource_mappings_count;
+    size_t resource_mappings_size;
+
+    struct vkd3d_descriptor_heap_mapping *sampler_mappings;
+    size_t sampler_mappings_count;
+    size_t sampler_mappings_size;
 };
 
 void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct vkd3d_unique_resource *resource);
@@ -388,6 +402,12 @@ VkMicromapEXT vkd3d_va_map_place_opacity_micromap(struct vkd3d_va_map *va_map,
         VkDeviceAddress va);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
+void vkd3d_va_map_insert_descriptor_heap(struct vkd3d_va_map *va_map,
+        uintptr_t va, size_t range, D3D12_DESCRIPTOR_HEAP_TYPE type);
+void vkd3d_va_map_remove_descriptor_heap(struct vkd3d_va_map *va_map,
+        uintptr_t va, D3D12_DESCRIPTOR_HEAP_TYPE type);
+size_t vkd3d_va_map_query_descriptor_heap_offset(struct vkd3d_va_map *va_map,
+        uintptr_t va, D3D12_DESCRIPTOR_HEAP_TYPE type);
 
 struct vkd3d_private_store
 {
@@ -1666,6 +1686,8 @@ void d3d12_descriptor_heap_dec_ref(struct d3d12_descriptor_heap *heap);
 
 uint32_t d3d12_descriptor_heap_allocate_meta_index(struct d3d12_descriptor_heap *heap);
 void d3d12_descriptor_heap_free_meta_index(struct d3d12_descriptor_heap *heap, uint32_t index);
+uint32_t d3d12_device_find_shader_visible_descriptor_heap_offset(
+        struct d3d12_device *device, vkd3d_cpu_descriptor_va_t va, D3D12_DESCRIPTOR_HEAP_TYPE type);
 
 static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
 {
@@ -2061,8 +2083,6 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
         enum vkd3d_pipeline_type pipeline_type);
 HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_root_signature *root_signature,
         VkDescriptorSetLayout vk_set_layout, VkPipelineLayout *vk_pipeline_layout);
-HRESULT d3d12_root_signature_create_work_graph_layout(struct d3d12_root_signature *root_signature,
-        VkDescriptorSetLayout *vk_push_set_layout, VkPipelineLayout *vk_pipeline_layout);
 HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
         unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
         unsigned int push_constant_count, const VkPushConstantRange *push_constants,
@@ -5946,12 +5966,12 @@ static inline ULONG d3d12_device_release(struct d3d12_device *device)
     return refcount;
 }
 
-static inline bool d3d12_device_use_descriptor_heap(struct d3d12_device *device)
+static inline bool d3d12_device_use_descriptor_heap(const struct d3d12_device *device)
 {
     return (device->bindless_state.flags & VKD3D_BINDLESS_HEAP) != 0;
 }
 
-static inline bool d3d12_device_use_embedded_mutable_descriptors(struct d3d12_device *device)
+static inline bool d3d12_device_use_embedded_mutable_descriptors(const struct d3d12_device *device)
 {
     return (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED) != 0;
 }
@@ -6306,6 +6326,17 @@ HRESULT d3d12_rt_state_object_create(struct d3d12_device *device, const D3D12_ST
 HRESULT d3d12_rt_state_object_add(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
         struct d3d12_rt_state_object *parent,
         struct d3d12_rt_state_object **object);
+
+struct vkd3d_fused_root_signature_mappings
+{
+    VkShaderDescriptorSetAndBindingMappingInfoEXT mapping_info;
+    VkDescriptorSetAndBindingMappingEXT mappings[];
+};
+
+struct vkd3d_fused_root_signature_mappings *d3d12_state_object_fuse_root_signature_mappings(
+        struct d3d12_root_signature *global, struct d3d12_root_signature *local);
+struct vkd3d_fused_root_signature_mappings *d3d12_state_object_build_workgraph_root_signature_mappings(
+        struct d3d12_root_signature *global, struct d3d12_root_signature *local);
 
 static inline struct d3d12_rt_state_object *rt_impl_from_ID3D12StateObject(ID3D12StateObject *iface)
 {
