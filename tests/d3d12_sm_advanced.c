@@ -7097,3 +7097,83 @@ void test_nvx_cubin(void)
         ID3D12Resource_Release(tex[i]);
     destroy_test_context(&context);
 }
+
+void test_frog(void)
+{
+    struct test_context context;
+    ID3D12DescriptorHeap *cpu_heap;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *tex;
+    ID3D12Resource *input;
+    ID3D12Resource *output;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    D3D12_DESCRIPTOR_RANGE rs_range;
+    D3D12_CONSTANT_BUFFER_VIEW_DESC cbv;
+    struct resource_readback rb;
+
+#include "shaders/sm_advanced/headers/blah.h"
+
+    static const uint32_t d[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_range, 0, sizeof(rs_range));
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].DescriptorTable.NumDescriptorRanges = 1;
+    rs_param[1].DescriptorTable.pDescriptorRanges = &rs_range;
+    rs_range.NumDescriptors = 1;
+    rs_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, blah_dxil);
+
+    tex = create_default_texture2d(context.device, 100, 100, 1, 1, DXGI_FORMAT_R32_UINT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    input = create_upload_buffer(context.device, sizeof(d), d);
+    output = create_default_buffer(context.device, 4096,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    cpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    cbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(input);
+    cbv.SizeInBytes = 256;
+
+    ID3D12Device_CreateShaderResourceView(context.device, tex, NULL, get_cpu_descriptor_handle(&context, cpu_heap, 0));
+    ID3D12Device_CreateConstantBufferView(context.device, &cbv, get_cpu_descriptor_handle(&context, heap, 0));
+
+    /* UB: Write image descriptor to CBV. */
+    ID3D12Device_CopyDescriptorsSimple(context.device, 1, get_cpu_descriptor_handle(&context, heap, 0),
+            get_cpu_descriptor_handle(&context, cpu_heap, 0), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 1, get_gpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (int i = 0; i < 64; i++)
+    {
+        skip("Read value %u = #%08x\n", i, get_readback_uint(&rb, i, 0, 0));
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(tex);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    destroy_test_context(&context);
+}
