@@ -119,7 +119,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         VkAccelerationStructureGeometryKHR *geometry_infos,
         VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
-        uint32_t *primitive_counts)
+        uint32_t *primitive_counts,
+        bool supports_opacity_micromap)
 {
     VkAccelerationStructureGeometryAabbsDataKHR *aabbs;
     const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
@@ -262,7 +263,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                     }
                     have_triangles = true;
 
-                    if (!d3d12_device_supports_ray_tracing_tier_1_2(device))
+                    if (!supports_opacity_micromap)
                     {
                         ERR("Opacity micromap is not supported.\n");
                         return false;
@@ -433,7 +434,8 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         uint32_t count,
-        const D3D12_GPU_VIRTUAL_ADDRESS *addresses)
+        const D3D12_GPU_VIRTUAL_ADDRESS *addresses,
+        bool supports_opacity_micromap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
@@ -468,7 +470,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
             FIXME("Failed to query existing RTAS for VA 0x%"PRIx64"\n", addresses[i]);
             continue;
         }
-        if (is_micromap && !d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+        if (is_micromap && !supports_opacity_micromap)
         {
             FIXME("OMM postbuild on a non-tier-1.2 device at VA 0x%"PRIx64".\n", addresses[i]);
             continue;

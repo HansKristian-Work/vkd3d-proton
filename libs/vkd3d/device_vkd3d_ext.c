@@ -403,7 +403,8 @@ static void STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetRaytracingAccelerationSt
 
     TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
 
-    d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(device, desc, info);
+    d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(device, desc, info,
+            device->device_info.supports_opacity_micromap);
 }
 
 static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SupportsCubin64bit(d3d12_device_vkd3d_ext_iface *iface)
