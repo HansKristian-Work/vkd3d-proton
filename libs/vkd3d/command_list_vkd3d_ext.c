@@ -135,7 +135,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_BuildRaytracingAccele
     d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructureNVAPI called within a render pass.\n", true);
 
     d3d12_command_list_build_raytracing_acceleration_structure_common(list,
-        desc, num_postbuild_info_descs, postbuild_info_descs);
+            desc, num_postbuild_info_descs, postbuild_info_descs, list->device->device_info.supports_opacity_micromap);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_EmitRaytracingAccelerationStructurePostbuildInfoNVAPI(
@@ -149,8 +149,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_EmitRaytracingAcceler
 
     d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfoNVAPI called within a render pass.\n", true);
 
-    d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(list, desc, num_acceleration_structures,
-        src_data);
+    d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(list, desc,
+            num_acceleration_structures, src_data, list->device->device_info.supports_opacity_micromap);
 }
 
 static BOOL STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_VerifyOpacityMicromapArrayNVAPI(d3d12_command_list_vkd3d_ext_iface *iface,

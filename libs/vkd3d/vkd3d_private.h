@@ -2810,10 +2810,12 @@ void d3d12_command_list_check_render_pass_validation(
         struct d3d12_command_list *list, const char *user_driven_tag, bool action_command);
 void d3d12_command_list_build_raytracing_acceleration_structure_common(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs);
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs,
+        bool supports_opacity_micromap);
 void d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
-        const D3D12_GPU_VIRTUAL_ADDRESS *src_data);
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data,
+        bool supports_opacity_micromap);
 
 struct vkd3d_scratch_allocation
 {
@@ -3904,7 +3906,8 @@ struct d3d12_command_queue
 
 void d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info);
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info,
+        bool supports_opacity_micromap);
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, uint32_t vk_family_index, struct d3d12_command_queue **queue);
@@ -6909,7 +6912,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         VkAccelerationStructureGeometryKHR *geometry_infos,
         VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
-        uint32_t *primitive_counts);
+        uint32_t *primitive_counts,
+        bool supports_opacity_micromap);
 bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos);
@@ -6923,7 +6927,8 @@ void vkd3d_acceleration_structure_write_postbuild_info(
 void vkd3d_acceleration_structure_emit_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        uint32_t count, const D3D12_GPU_VIRTUAL_ADDRESS *addresses);
+        uint32_t count, const D3D12_GPU_VIRTUAL_ADDRESS *addresses,
+        bool supports_opacity_micromap);
 void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,

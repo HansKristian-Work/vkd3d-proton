@@ -8463,7 +8463,8 @@ cleanup:
 
 void d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info,
+        bool supports_opacity_micromap)
 {
     VkAccelerationStructureTrianglesOpacityMicromapKHR omm_triangles_infos_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
@@ -8502,7 +8503,8 @@ void d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(str
     }
 
     if (!vkd3d_acceleration_structure_convert_inputs(device,
-            desc, &build_info, geometries, omm_triangles_infos, NULL, primitive_counts))
+            desc, &build_info, geometries, omm_triangles_infos, NULL, primitive_counts,
+            supports_opacity_micromap))
     {
         ERR("Failed to convert inputs.\n");
         memset(info, 0, sizeof(*info));
@@ -8544,7 +8546,8 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
 
     TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
 
-    d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(device, desc, info);
+    d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(device, desc, info,
+            d3d12_device_supports_ray_tracing_tier_1_2(device));
 }
 
 static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_CheckDriverMatchingIdentifier(d3d12_device_iface *iface,
