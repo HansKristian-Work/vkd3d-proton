@@ -266,6 +266,9 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
         dynamic_states = common_dynamic_states;
     }
 
+    /* Silence warnings */
+    memset(shader_stages, 0, sizeof(shader_stages));
+
     vi_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vi_state.pNext = NULL;
     vi_state.flags = 0;
