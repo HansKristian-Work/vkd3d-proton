@@ -82,12 +82,12 @@ static void test_create_instance(void)
 {
     struct vkd3d_instance_create_info create_info;
     struct vkd3d_instance *instance;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
     create_info = instance_default_create_info;
     hr = vkd3d_create_instance(&create_info, &instance);
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", (int)hr);
     refcount = vkd3d_instance_incref(instance);
     ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
     vkd3d_instance_decref(instance);
@@ -97,12 +97,12 @@ static void test_create_instance(void)
     create_info = instance_default_create_info;
     create_info.pfn_signal_event = NULL;
     hr = vkd3d_create_instance(&create_info, &instance);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     create_info = instance_default_create_info;
     create_info.pfn_vkGetInstanceProcAddr = vkGetInstanceProcAddr;
     hr = vkd3d_create_instance(&create_info, &instance);
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", (int)hr);
     refcount = vkd3d_instance_decref(instance);
     ok(!refcount, "Instance has %u references left.\n", refcount);
 }
@@ -197,8 +197,8 @@ static void test_additional_instance_extensions(void)
     uint32_t extension_count;
     PFN_vkVoidFunction pfn;
     VkInstance vk_instance;
+    unsigned int refcount;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(extension_count = check_instance_extensions(enabled_extensions,
@@ -212,7 +212,7 @@ static void test_additional_instance_extensions(void)
     create_info.instance_extensions = enabled_extensions;
     create_info.instance_extension_count = extension_count;
     hr = vkd3d_create_instance(&create_info, &instance);
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", (int)hr);
     vk_instance = vkd3d_instance_get_vk_instance(instance);
     ok(vk_instance != VK_NULL_HANDLE, "Failed to get Vulkan instance.\n");
 
@@ -241,32 +241,32 @@ static void test_create_device(void)
 {
     struct vkd3d_instance *instance, *tmp_instance;
     struct vkd3d_device_create_info create_info;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
     hr = vkd3d_create_device(NULL, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     create_info = device_default_create_info;
     create_info.instance = NULL;
     create_info.instance_create_info = NULL;
     hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     create_info.instance_create_info = &instance_default_create_info;
     hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "Device has %u references left.\n", refcount);
 
     hr = vkd3d_create_instance(&instance_default_create_info, &instance);
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", (int)hr);
 
     create_info.instance = instance;
     create_info.instance_create_info = NULL;
     hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
     refcount = vkd3d_instance_incref(instance);
     ok(refcount >= 3, "Got unexpected refcount %u.\n", refcount);
     vkd3d_instance_decref(instance);
@@ -278,7 +278,7 @@ static void test_create_device(void)
     create_info.instance = instance;
     create_info.instance_create_info = &instance_default_create_info;
     hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     refcount = vkd3d_instance_decref(instance);
     ok(!refcount, "Instance has %u references left.\n", refcount);
@@ -361,20 +361,20 @@ static void test_required_device_extensions(void)
     struct vkd3d_instance_create_info instance_create_info;
     struct vkd3d_device_create_info device_create_info;
     struct vkd3d_instance *instance;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
     instance_create_info = instance_default_create_info;
     instance_create_info.pfn_vkGetInstanceProcAddr = fake_vkGetInstanceProcAddr;
     hr = vkd3d_create_instance(&instance_create_info, &instance);
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", (int)hr);
 
     device_create_info = device_default_create_info;
     device_create_info.instance = instance;
     device_create_info.instance_create_info = NULL;
     hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_FAIL, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == E_FAIL, "Failed to create device, hr %#x.\n", (int)hr);
 
     refcount = vkd3d_instance_decref(instance);
     ok(!refcount, "Instance has %u references left.\n", refcount);
@@ -395,10 +395,10 @@ static void test_additional_device_extensions(void)
     uint32_t extension_count;
     PFN_vkVoidFunction pfn;
     VkInstance vk_instance;
+    unsigned int refcount;
     ID3D12Device *device;
     VkDevice vk_device;
     uint32_t count;
-    ULONG refcount;
     VkResult vr;
     HRESULT hr;
 
@@ -411,10 +411,10 @@ static void test_additional_device_extensions(void)
     instance_create_info.instance_extension_count = extension_count;
     if (FAILED(hr = vkd3d_create_instance(&instance_create_info, &instance)))
     {
-        skip("Failed to create instance, hr %#x.\n", hr);
+        skip("Failed to create instance, hr %#x.\n", (int)hr);
         return;
     }
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", (int)hr);
     vk_instance = vkd3d_instance_get_vk_instance(instance);
     ok(vk_instance != VK_NULL_HANDLE, "Failed to get Vulkan instance.\n");
 
@@ -439,7 +439,7 @@ static void test_additional_device_extensions(void)
     device_create_info.device_extensions = enabled_extensions;
     device_create_info.device_extension_count = extension_count;
     hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
 
     vk_device = vkd3d_get_vk_device(device);
 
@@ -463,13 +463,13 @@ static void test_optional_device_extensions(void)
     struct vkd3d_instance_create_info instance_create_info;
     struct vkd3d_device_create_info device_create_info;
     struct vkd3d_instance *instance;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
     instance_create_info = instance_default_create_info;
     hr = vkd3d_create_instance(&instance_create_info, &instance);
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", (int)hr);
 
     device_create_info = device_default_create_info;
     device_create_info.instance = instance;
@@ -477,14 +477,14 @@ static void test_optional_device_extensions(void)
     device_create_info.device_extensions = extensions;
     device_create_info.device_extension_count = ARRAY_SIZE(extensions);
     hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_FAIL, "Got unexpected hr %#x.\n", (int)hr);
 
     device_create_info.device_extensions = NULL;
     device_create_info.device_extension_count = 0;
     device_create_info.optional_device_extensions = extensions;
     device_create_info.optional_device_extensions = ARRAY_SIZE(extensions);
     hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "Device has %u references left.\n", refcount);
@@ -499,14 +499,14 @@ static void test_physical_device(void)
     VkPhysicalDevice vk_physical_device;
     struct vkd3d_instance *instance;
     VkInstance vk_instance;
+    unsigned int refcount;
     ID3D12Device *device;
     uint32_t i, count;
-    ULONG refcount;
     VkResult vr;
     HRESULT hr;
 
     hr = vkd3d_create_instance(&instance_default_create_info, &instance);
-    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create instance, hr %#x.\n", (int)hr);
     vk_instance = vkd3d_instance_get_vk_instance(instance);
     ok(vk_instance != VK_NULL_HANDLE, "Failed to get Vulkan instance.\n");
 
@@ -515,7 +515,7 @@ static void test_physical_device(void)
     create_info.instance_create_info = NULL;
     create_info.vk_physical_device = VK_NULL_HANDLE;
     hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
     vk_physical_device = vkd3d_get_vk_physical_device(device);
     trace("Default Vulkan physical device %p.\n", vk_physical_device);
     refcount = ID3D12Device_Release(device);
@@ -536,7 +536,7 @@ static void test_physical_device(void)
 
             create_info.vk_physical_device = vk_physical_devices[i];
             hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
-            ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
             vk_physical_device = vkd3d_get_vk_physical_device(device);
             ok(vk_physical_device == vk_physical_devices[i],
                     "Got unexpected Vulkan physical device %p.\n", vk_physical_device);
@@ -557,8 +557,8 @@ static void test_physical_device(void)
 static void test_adapter_luid(void)
 {
     struct vkd3d_device_create_info create_info;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
     LUID luid;
 
@@ -566,7 +566,7 @@ static void test_adapter_luid(void)
     create_info.adapter_luid.HighPart = 0xdeadc0de;
     create_info.adapter_luid.LowPart = 0xdeadbeef;
     hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
 
     luid = ID3D12Device_GetAdapterLuid(device);
     ok(luid.HighPart == 0xdeadc0de && luid.LowPart == 0xdeadbeef,
@@ -626,10 +626,10 @@ static void test_device_parent(void)
 {
     struct vkd3d_device_create_info create_info;
     struct parent parent_impl;
+    unsigned int refcount;
     ID3D12Device *device;
     IUnknown *unknown;
     IUnknown *parent;
-    ULONG refcount;
     HRESULT hr;
 
     parent_impl.IUnknown_iface.lpVtbl = &parent_vtbl;
@@ -642,7 +642,7 @@ static void test_device_parent(void)
     create_info = device_default_create_info;
     create_info.parent = parent;
     hr = vkd3d_create_device(&create_info, &IID_ID3D12Device, (void **)&device);
-    ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create device, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(parent);
     ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
@@ -661,9 +661,9 @@ static void test_vkd3d_queue(void)
 {
     ID3D12CommandQueue *direct_queue, *compute_queue, *copy_queue;
     uint32_t vk_queue_family;
+    unsigned int refcount;
     ID3D12Device *device;
     VkQueue vk_queue;
-    ULONG refcount;
 
     device = create_device();
     ok(device, "Failed to create device.\n");
@@ -702,8 +702,8 @@ static void test_vkd3d_queue(void)
 static void test_resource_internal_refcount(void)
 {
     ID3D12Resource *resource;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
 
     device = create_device();
     ok(device, "Failed to create device.\n");

@@ -114,7 +114,7 @@ void test_primitive_restart_list_topology_stream_output(void)
     pso_desc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
 
     counter_buffer = create_default_buffer(device, 32,
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_STREAM_OUT);
@@ -239,7 +239,7 @@ static void test_vertex_shader_stream_output(bool use_dxil)
         destroy_test_context(&context);
         return;
     }
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     counter = 0;
     upload_buffer = create_upload_buffer(device, sizeof(counter), &counter);
@@ -362,7 +362,7 @@ void test_index_buffer_edge_case_stream_output(void)
         destroy_test_context(&context);
         return;
     }
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     counter = 0;
     upload_buffer = create_upload_buffer(device, sizeof(counter), &counter);

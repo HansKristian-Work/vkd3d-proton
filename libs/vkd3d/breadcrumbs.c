@@ -970,9 +970,9 @@ void vkd3d_breadcrumb_tracer_register_placed_resource(struct d3d12_heap *heap,
                     msg = "Attempting to place opaque resource on heap, placement aliases with other resources.";
 
                 d3d12_resource_report_parameters(report_buffer, sizeof(report_buffer), resource);
-                INFO("\n%s (heap %p)\n  New placement: resource cookie = %"PRIu64", offset = %"PRIu64", size = %"PRIu64", VA = %"PRIx64"\n\t%s\n",
+                INFO("\n%s (heap %p)\n  New placement: resource cookie = %u, offset = %"PRIu64", size = %"PRIu64", VA = %"PRIx64"\n\t%s\n",
                         msg, heap,
-                        resource->res.cookie,
+                        resource->res.cookie.index,
                         heap_offset, required_size, resource->res.va,
                         report_buffer);
 
@@ -980,8 +980,8 @@ void vkd3d_breadcrumb_tracer_register_placed_resource(struct d3d12_heap *heap,
             }
 
             d3d12_resource_report_parameters(report_buffer, sizeof(report_buffer), placement->resource);
-            INFO("\n   Existing aliasing resource : cookie = %"PRIu64", offset = %"PRIu64", size = %"PRIu64".\n\t\t%s\n",
-                    placement->resource->res.cookie, placement->heap_offset, placement->size,
+            INFO("\n   Existing aliasing resource : cookie = %u, offset = %"PRIu64", size = %"PRIu64".\n\t\t%s\n",
+                    placement->resource->res.cookie.index, placement->heap_offset, placement->size,
                     report_buffer);
         }
     }
@@ -989,9 +989,9 @@ void vkd3d_breadcrumb_tracer_register_placed_resource(struct d3d12_heap *heap,
     if (!has_alias)
     {
         d3d12_resource_report_parameters(report_buffer, sizeof(report_buffer), resource);
-        INFO("\nPlacing non-aliased resource (heap %p)\n New placement: resource cookie = %"PRIu64", offset = %"PRIu64", size = %"PRIu64", VA = %"PRIx64"\n\t%s\n",
+        INFO("\nPlacing non-aliased resource (heap %p)\n New placement: resource cookie = %u, offset = %"PRIu64", size = %"PRIu64", VA = %"PRIx64"\n\t%s\n",
                 heap,
-                resource->res.cookie,
+                resource->res.cookie.index,
                 heap_offset, required_size, resource->res.va,
                 report_buffer);
     }

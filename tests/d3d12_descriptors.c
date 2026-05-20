@@ -27,7 +27,7 @@ void test_create_descriptor_heap(void)
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12Device *device, *tmp_device;
     ID3D12DescriptorHeap *heap;
-    ULONG refcount;
+    unsigned int refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -41,16 +41,16 @@ void test_create_descriptor_heap(void)
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     refcount = get_refcount(device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
     hr = ID3D12DescriptorHeap_GetDevice(heap, &IID_ID3D12Device, (void **)&tmp_device);
-    ok(hr == S_OK, "Failed to get device, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to get device, hr %#x.\n", (int)hr);
     refcount = get_refcount(device);
-    ok(refcount == 3, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 3, "Got unexpected refcount %u.\n", refcount);
     refcount = ID3D12Device_Release(tmp_device);
-    ok(refcount == 2, "Got unexpected refcount %u.\n", (unsigned int)refcount);
+    ok(refcount == 2, "Got unexpected refcount %u.\n", refcount);
 
     check_interface(heap, &IID_ID3D12Object, true);
     check_interface(heap, &IID_ID3D12DeviceChild, true);
@@ -58,46 +58,46 @@ void test_create_descriptor_heap(void)
     check_interface(heap, &IID_ID3D12DescriptorHeap, true);
 
     refcount = ID3D12DescriptorHeap_Release(heap);
-    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", refcount);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
-    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", refcount);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
-    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", refcount);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
-    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", refcount);
 
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create descriptor heap, hr %#x.\n", (int)hr);
     refcount = ID3D12DescriptorHeap_Release(heap);
-    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", refcount);
 
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_descriptor_tables(void)
@@ -216,7 +216,7 @@ void test_descriptor_tables(void)
     root_signature_desc.NumParameters = 3;
     root_signature_desc.pParameters = root_parameters;
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
@@ -357,7 +357,7 @@ void test_descriptor_tables_overlapping_bindings(void)
     root_signature_desc.NumParameters = 3;
     root_signature_desc.pParameters = root_parameters;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature, overlapping_bindings_dxbc);
 
@@ -508,7 +508,7 @@ void test_update_root_descriptors(void)
     root_signature_desc.NumParameters = 2;
     root_signature_desc.pParameters = root_parameters;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pipeline_state = create_compute_pipeline_state(device, root_signature, update_root_descriptors_dxil);
 
@@ -600,7 +600,7 @@ void test_update_descriptor_tables(void)
     root_signature_desc.NumStaticSamplers = 1;
     root_signature_desc.pStaticSamplers = &sampler_desc;
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL, &update_descriptor_tables_dxbc, NULL);
@@ -611,12 +611,12 @@ void test_update_descriptor_tables(void)
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     hr = ID3D12Device_CreateDescriptorHeap(context.device, &heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&cpu_heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(textures); ++i)
     {
@@ -763,7 +763,7 @@ void test_update_descriptor_heap_after_closing_command_list(void)
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
     /* Update the descriptor heap used by the closed command list. */
     ID3D12Device_CreateShaderResourceView(context.device, green_texture, NULL, cpu_handle);
@@ -902,7 +902,7 @@ void test_update_compute_descriptor_tables(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     buffer_pso = create_compute_pipeline_state(device, context.root_signature,
         update_compute_descriptor_tables_buffer_dxbc);
@@ -1214,10 +1214,10 @@ void test_update_descriptor_tables_after_root_signature_change(void)
     root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
     root_signature_desc.pParameters = root_parameters;
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
     root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters) - 1;
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature2);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     pipeline_state = create_pipeline_state(context.device,
             root_signature, context.render_target_desc.Format, NULL,
@@ -1619,7 +1619,7 @@ void test_copy_descriptors(void)
     root_signature_desc.NumParameters = 4;
     root_signature_desc.pParameters = root_parameters;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_compute_pipeline_state(device, context.root_signature,
             copy_descriptors_dxbc);
@@ -1995,7 +1995,7 @@ void test_copy_rtv_descriptors(void)
             &heap_properties, D3D12_HEAP_FLAG_NONE, &rt_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
             &IID_ID3D12Resource, (void **)&rt_texture);
-    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 9);
 
@@ -2143,7 +2143,7 @@ void test_descriptors_visibility(void)
     root_signature_desc.NumStaticSamplers = 2;
     root_signature_desc.pStaticSamplers = sampler_desc;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_pipeline_state(device,
             context.root_signature, context.render_target_desc.Format,
@@ -2396,7 +2396,7 @@ void test_create_null_descriptors(void)
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc,
             &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     cbv_desc.BufferLocation = 0;
     cbv_desc.SizeInBytes = 0;
@@ -2488,7 +2488,7 @@ void test_null_cbv(void)
     root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
     root_signature_desc.pParameters = root_parameters;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     context.pipeline_state = create_pipeline_state(context.device,
             context.root_signature, context.render_target_desc.Format, NULL,
@@ -2763,7 +2763,7 @@ void test_null_uav(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     uav_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
@@ -2906,7 +2906,7 @@ void test_cpu_descriptors_lifetime(void)
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&red_resource);
-    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", (int)hr);
     clear_value.Color[0] = 0.0f;
     clear_value.Color[1] = 0.0f;
     clear_value.Color[2] = 1.0f;
@@ -2915,7 +2915,7 @@ void test_cpu_descriptors_lifetime(void)
             &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
             &IID_ID3D12Resource, (void **)&blue_resource);
-    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create texture, hr %#x.\n", (int)hr);
 
     ID3D12Device_CreateRenderTargetView(device, red_resource, NULL, rtv_handle);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, red, 0, NULL);
@@ -2993,9 +2993,9 @@ void test_create_sampler(void)
     unsigned int sampler_increment_size;
     D3D12_SAMPLER_DESC sampler_desc;
     ID3D12DescriptorHeap *heap;
+    unsigned int refcount;
     ID3D12Device *device;
     unsigned int i;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -3014,7 +3014,7 @@ void test_create_sampler(void)
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     memset(&sampler_desc, 0, sizeof(sampler_desc));
@@ -3051,9 +3051,9 @@ void test_create_sampler(void)
     ID3D12Device_CreateSampler(device, &sampler_desc, cpu_handle);
 
     refcount = ID3D12DescriptorHeap_Release(heap);
-    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", refcount);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_sampler2(void)
@@ -3065,8 +3065,8 @@ void test_create_sampler2(void)
     D3D12_SAMPLER_DESC2 sampler_desc;
     ID3D12DescriptorHeap *heap;
     ID3D12Device11 *device11;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -3087,7 +3087,7 @@ void test_create_sampler2(void)
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", (int)hr);
 
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
     memset(&sampler_desc, 0, sizeof(sampler_desc));
@@ -3101,9 +3101,9 @@ void test_create_sampler2(void)
     ID3D12Device11_Release(device11);
 
     refcount = ID3D12DescriptorHeap_Release(heap);
-    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", refcount);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_create_unordered_access_view(void)
@@ -3113,8 +3113,8 @@ void test_create_unordered_access_view(void)
     ID3D12Resource *buffer, *texture;
     unsigned int descriptor_size;
     ID3D12DescriptorHeap *heap;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
 
     if (!(device = create_device()))
     {
@@ -3157,9 +3157,9 @@ void test_create_unordered_access_view(void)
     ID3D12Resource_Release(buffer);
     ID3D12Resource_Release(texture);
     refcount = ID3D12DescriptorHeap_Release(heap);
-    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", refcount);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_sampler_border_color(void)
@@ -3293,7 +3293,7 @@ void test_sampler_border_color(void)
         }
 
         hr = create_root_signature(device, &root_signature_desc, &root_signature);
-        ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
         pipeline_state = create_pipeline_state(device, root_signature,
                 context.render_target_desc.Format, NULL, &sampler_border_color_dxbc, NULL);
@@ -3406,7 +3406,7 @@ static void test_typed_buffers_many_objects(bool use_dxil)
     descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 
     hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     output_buffer = create_default_buffer(context.device, 64 * 1024 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     input_buffer = create_default_buffer(context.device, 64 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -3710,7 +3710,7 @@ void test_view_min_lod(void)
             pso_desc.PS = *tests[i].ps;
             hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                     &IID_ID3D12PipelineState, (void **)&pso);
-            ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+            ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
         }
 
         view_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -3934,7 +3934,7 @@ void test_typed_srv_uav_cast(void)
                     hr = E_FAIL;
                 }
 
-                ok(FAILED(hr), "Unexpected hr %#x\n", hr);
+                ok(FAILED(hr), "Unexpected hr %#x\n", (int)hr);
                 PURGE_CONTEXT();
                 BEGIN();
             }
@@ -3954,7 +3954,7 @@ void test_typed_srv_uav_cast(void)
                     hr = E_FAIL;
                 }
 
-                ok(FAILED(hr), "Unexpected hr %#x\n", hr);
+                ok(FAILED(hr), "Unexpected hr %#x\n", (int)hr);
                 PURGE_CONTEXT();
                 BEGIN();
             }
@@ -3977,14 +3977,14 @@ void test_typed_srv_uav_cast(void)
                     hr = E_FAIL;
                 }
 
-                ok(FAILED(hr), "Unexpected hr %#x\n", hr);
+                ok(FAILED(hr), "Unexpected hr %#x\n", (int)hr);
                 PURGE_CONTEXT();
                 BEGIN();
             }
         }
 
         hr = ID3D12Device_GetDeviceRemovedReason(context.device);
-        ok(SUCCEEDED(hr), "Unexpected hr %#x\n", hr);
+        ok(SUCCEEDED(hr), "Unexpected hr %#x\n", (int)hr);
 
         if (SUCCEEDED(hr))
         {
@@ -5288,7 +5288,7 @@ void test_sampler_non_normalized_coordinates(void)
     rs_desc.Desc_1_2.pStaticSamplers = &static_sampler_desc;
 
     hr = create_versioned_root_signature(context.device, &rs_desc, &rs_static_sampler);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     rs_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_2;
@@ -5296,17 +5296,17 @@ void test_sampler_non_normalized_coordinates(void)
     rs_desc.Desc_1_2.pParameters = rs_params;
 
     hr = create_versioned_root_signature(context.device, &rs_desc, &rs_sampler_descriptor);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pso_desc, rs_static_sampler, DXGI_FORMAT_R8_UNORM, NULL,
             &sampler_non_normalized_coordinates_dxbc, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_static_sampler);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     init_pipeline_state_desc(&pso_desc, rs_sampler_descriptor, DXGI_FORMAT_R8_UNORM, NULL,
             &sampler_non_normalized_coordinates_dxbc, NULL);
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_sampler_descriptor);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
     srv_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
@@ -6507,7 +6507,7 @@ void test_large_buffer_descriptors(void)
     hr = ID3D12Device_CreateReservedResource(context.device, &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&sparse);
     if (is_radv_device(context.device))
         vkd3d_unmute_validation_message("06409");
-    ok(SUCCEEDED(hr), "Failed to create reserved resource, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create reserved resource, hr #%x\n", (int)hr);
 
     memset(&heap_desc, 0, sizeof(heap_desc));
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -6515,11 +6515,11 @@ void test_large_buffer_descriptors(void)
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
     hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", (int)hr);
 
     res_desc.Width = 128 * 1024;
     hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0, &res_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&input);
-    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x\n", (int)hr);
 
     hr = ID3D12Resource_Map(input, 0, NULL, (void **)&ptr);
     ok(SUCCEEDED(hr), "Failed to map buffer.\n");

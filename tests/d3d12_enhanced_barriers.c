@@ -65,26 +65,26 @@ void test_enhanced_barrier_castable_formats_buffer(void)
             &desc1, D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS,
             NULL, NULL,
             0, NULL, &IID_ID3D12Resource, NULL);
-    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", (int)hr);
 
     hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_props, D3D12_HEAP_FLAG_NONE,
             &desc1, D3D12_BARRIER_LAYOUT_UNDEFINED,
             NULL, NULL, 0, NULL, &IID_ID3D12Resource, NULL);
-    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", (int)hr);
 
     /* Castable formats are not allowed for buffers. */
     hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_props, D3D12_HEAP_FLAG_NONE,
             &desc1, D3D12_BARRIER_LAYOUT_UNDEFINED,
             NULL, NULL,
             ARRAY_SIZE(formats0), formats0, &IID_ID3D12Resource, NULL);
-    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", (int)hr);
 
     /* For some reason, this is allowed for buffers. It seems to compare byte size of UNKNOWN vs UNKNOWN (0 == 0) based on validation error above. */
     hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_props, D3D12_HEAP_FLAG_NONE,
             &desc1, D3D12_BARRIER_LAYOUT_UNDEFINED,
             NULL, NULL,
             ARRAY_SIZE(formats1), formats1, &IID_ID3D12Resource, NULL);
-    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", (int)hr);
 
     ID3D12Device_Release(device);
     ID3D12Device10_Release(device10);
@@ -253,7 +253,7 @@ void test_enhanced_barrier_castable_formats_validation(void)
             resource = NULL;
 
         if (tests[i].valid)
-            ok(hr == S_OK, "Unexpected failure in GetResourceAllocationInfo3, hr #%x.\n", hr);
+            ok(hr == S_OK, "Unexpected failure in GetResourceAllocationInfo3, hr #%x.\n", (int)hr);
         else
             ok(hr == E_INVALIDARG, "Unexpected success in GetResourceAllocationInfo3.\n");
 
@@ -265,7 +265,7 @@ void test_enhanced_barrier_castable_formats_validation(void)
                     &IID_ID3D12Resource, NULL);
 
             if (tests[i].valid)
-                ok(hr == S_FALSE, "Unexpected failure in GetResourceAllocationInfo2, hr #%x.\n", hr);
+                ok(hr == S_FALSE, "Unexpected failure in GetResourceAllocationInfo2, hr #%x.\n", (int)hr);
             else
                 ok(hr == E_INVALIDARG, "Unexpected success in GetResourceAllocationInfo2.\n");
         }
@@ -494,7 +494,7 @@ void test_enhanced_barrier_castable_dsv(void)
     desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", (int)hr);
 
     psos[PSO_INDEX_FLOAT] = create_compute_pipeline_state(context.device, context.root_signature, cs_read_float_dxbc);
     psos[PSO_INDEX_UINT] = create_compute_pipeline_state(context.device, context.root_signature, cs_read_uint_dxbc);
@@ -529,7 +529,7 @@ void test_enhanced_barrier_castable_dsv(void)
                 &desc1, D3D12_BARRIER_LAYOUT_COMMON, NULL, NULL,
                 castable_format_count, castable_formats,
                 &IID_ID3D12Resource, (void **)&resource);
-        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
         cpu_h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
 
@@ -728,7 +728,7 @@ void test_enhanced_barrier_castable_formats(void)
             &desc1, D3D12_BARRIER_LAYOUT_COMMON, NULL, NULL,
             ARRAY_SIZE(castable_formats), castable_formats,
             &IID_ID3D12Resource, (void **)&resources[0]);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
     /* Transition to legacy model. */
     transition_resource_state(context.list, resources[0], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -745,12 +745,12 @@ void test_enhanced_barrier_castable_formats(void)
     heap_desc.Properties = heap_props;
     heap_desc.Flags = D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
     hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&place_heap);
-    ok(SUCCEEDED(hr), "Failed to allocate heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to allocate heap, hr #%x.\n", (int)hr);
 
     hr = ID3D12Device12_CreatePlacedResource2(device12, place_heap, 64 * 1024, &desc1,
             D3D12_BARRIER_LAYOUT_COMMON, NULL,
             ARRAY_SIZE(castable_formats), castable_formats, &IID_ID3D12Resource, (void **)&resources[1]);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
     /* Transition to legacy model. */
     transition_resource_state(context.list, resources[1], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -764,7 +764,7 @@ void test_enhanced_barrier_castable_formats(void)
                 NULL, NULL,
                 ARRAY_SIZE(castable_formats), castable_formats,
                 &IID_ID3D12Resource, (void **)&resources[2]);
-        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
         /* Transition to legacy model. */
         transition_resource_state(context.list, resources[2], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -820,7 +820,7 @@ void test_enhanced_barrier_castable_formats(void)
     rs_params[1].Descriptor.ShaderRegister = 2;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", (int)hr);
 
     write_pso = create_compute_pipeline_state(context.device, context.root_signature, cs_write_dxbc);
     read_pso = create_compute_pipeline_state(context.device, context.root_signature, cs_read_dxbc);
@@ -1436,10 +1436,10 @@ void test_enhanced_barrier_discard_behavior(void)
     heap_desc.SizeInBytes = alloc_info.SizeInBytes;
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
     hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", (int)hr);
 
     hr = ID3D12Device10_CreatePlacedResource2(device10, heap, 0, &desc1, D3D12_BARRIER_LAYOUT_RENDER_TARGET, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&rtv);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
     ID3D12Device_CreateRenderTargetView(context.device, rtv, NULL,
@@ -1815,10 +1815,10 @@ void test_enhanced_barrier_self_copy(void)
     heap_desc.SizeInBytes = alloc_info.SizeInBytes;
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
     hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", (int)hr);
 
     hr = ID3D12Device10_CreatePlacedResource2(device10, heap, 0, &desc1, D3D12_BARRIER_LAYOUT_RENDER_TARGET, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&rtv);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", (int)hr);
 
     rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
     ID3D12Device_CreateRenderTargetView(context.device, rtv, NULL,

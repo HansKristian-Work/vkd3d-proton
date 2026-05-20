@@ -88,7 +88,7 @@ bool compare_uint64(uint64_t a, uint64_t b, unsigned int max_diff)
     return delta_uint64(a, b) <= max_diff;
 }
 
-ULONG get_refcount(void *iface)
+unsigned int get_refcount(void *iface)
 {
     IUnknown *unk = iface;
     IUnknown_AddRef(unk);
@@ -103,7 +103,7 @@ void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, bool supp
     expected_hr = supported ? S_OK : E_NOINTERFACE;
 
     hr = IUnknown_QueryInterface(iface, riid, (void **)&unk);
-    ok_(line)(hr == expected_hr, "Got hr %#x, expected %#x.\n", hr, expected_hr);
+    ok_(line)(hr == expected_hr, "Got hr %#x, expected %#x.\n", (int)hr, (int)expected_hr);
     if (SUCCEEDED(hr))
         IUnknown_Release(unk);
 }
@@ -195,7 +195,7 @@ void upload_buffer_data_(unsigned int line, ID3D12Resource *buffer, size_t offse
     HRESULT hr;
 
     hr = ID3D12Resource_GetDevice(buffer, &IID_ID3D12Device, (void **)&device);
-    ok_(line)(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", (int)hr);
 
     upload_buffer = create_upload_buffer_(line, device, size, data);
 
@@ -203,7 +203,7 @@ void upload_buffer_data_(unsigned int line, ID3D12Resource *buffer, size_t offse
             upload_buffer, 0, size);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok_(line)(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
 
@@ -236,7 +236,7 @@ void upload_texture_data_base_(unsigned int line, ID3D12Resource *texture,
 
     resource_desc = ID3D12Resource_GetDesc(texture);
     hr = ID3D12Resource_GetDevice(texture, &IID_ID3D12Device, (void **)&device);
-    ok_(line)(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", (int)hr);
 
     ID3D12Device_GetCopyableFootprints(device, &resource_desc, first_subresource, sub_resource_count,
             0, layouts, row_counts, row_sizes, &required_size);
@@ -244,7 +244,7 @@ void upload_texture_data_base_(unsigned int line, ID3D12Resource *texture,
     upload_buffer = create_upload_buffer_(line, device, required_size, NULL);
 
     hr = ID3D12Resource_Map(upload_buffer, 0, NULL, (void **)&ptr);
-    ok_(line)(SUCCEEDED(hr), "Failed to map upload buffer, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to map upload buffer, hr %#x.\n", (int)hr);
     for (i = 0; i < sub_resource_count; ++i)
     {
         dst_data.pData = (BYTE *)ptr + layouts[i].Offset;
@@ -270,7 +270,7 @@ void upload_texture_data_base_(unsigned int line, ID3D12Resource *texture,
     }
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok_(line)(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
@@ -308,7 +308,7 @@ void init_readback(struct resource_readback *rb, ID3D12Resource *buffer,
     read_range.Begin = 0;
     read_range.End = buffer_size;
     hr = ID3D12Resource_Map(rb->resource, 0, &read_range, &rb->data);
-    ok(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", (int)hr);
 }
 
 void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT format,
@@ -322,7 +322,7 @@ void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT f
     HRESULT hr;
 
     hr = ID3D12Resource_GetDevice(buffer, &IID_ID3D12Device, (void **)&device);
-    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", (int)hr);
 
     resource_desc = ID3D12Resource_GetDesc(buffer);
     assert(resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER);
@@ -342,7 +342,7 @@ void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT f
     }
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
     exec_command_list(queue, command_list);
     wait_queue_idle(device, queue);
@@ -358,7 +358,7 @@ void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT f
     read_range.Begin = 0;
     read_range.End = resource_desc.Width;
     hr = ID3D12Resource_Map(rb_buffer, 0, &read_range, &rb->data);
-    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to map readback buffer, hr %#x.\n", (int)hr);
 }
 
 uint8_t get_readback_uint8(struct resource_readback *rb, unsigned int x, unsigned int y)
@@ -622,7 +622,7 @@ bool is_min_max_filtering_supported(ID3D12Device *device)
     if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
             D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))))
     {
-        trace("Failed to check feature support, hr %#x.\n", hr);
+        trace("Failed to check feature support, hr %#x.\n", (int)hr);
         return false;
     }
 
@@ -638,7 +638,7 @@ D3D12_TILED_RESOURCES_TIER get_tiled_resources_tier(ID3D12Device *device)
     if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
             D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))))
     {
-        trace("Failed to check feature support, hr %#x.\n", hr);
+        trace("Failed to check feature support, hr %#x.\n", (int)hr);
         return D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
     }
 
@@ -653,7 +653,7 @@ bool is_standard_swizzle_64kb_supported(ID3D12Device *device)
     if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
             D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))))
     {
-        trace("Failed to check feature support, hr %#x.\n", hr);
+        trace("Failed to check feature support, hr %#x.\n", (int)hr);
         return false;
     }
 
@@ -669,7 +669,7 @@ bool is_memory_pool_L1_supported(ID3D12Device *device)
     if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ARCHITECTURE,
             &architecture, sizeof(architecture))))
     {
-        trace("Failed to check feature support, hr %#x.\n", hr);
+        trace("Failed to check feature support, hr %#x.\n", (int)hr);
         return false;
     }
 
@@ -687,7 +687,7 @@ bool is_vrs_tier1_supported(ID3D12Device *device, bool *additional_shading_rates
     if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
             D3D12_FEATURE_D3D12_OPTIONS6, &options, sizeof(options))))
     {
-        trace("Failed to check feature support, hr %#x.\n", hr);
+        trace("Failed to check feature support, hr %#x.\n", (int)hr);
         return false;
     }
 
@@ -705,7 +705,7 @@ bool is_vrs_tier2_supported(ID3D12Device *device)
     if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
             D3D12_FEATURE_D3D12_OPTIONS6, &options, sizeof(options))))
     {
-        trace("Failed to check feature support, hr %#x.\n", hr);
+        trace("Failed to check feature support, hr %#x.\n", (int)hr);
         return false;
     }
     return options.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_2;
@@ -730,7 +730,7 @@ ID3D12RootSignature *create_cb_root_signature_(unsigned int line,
     root_signature_desc.pParameters = &root_parameter;
     root_signature_desc.Flags = flags;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     return root_signature;
 }
@@ -755,7 +755,7 @@ ID3D12RootSignature *create_32bit_constants_root_signature_(unsigned int line,
     root_signature_desc.pParameters = &root_parameter;
     root_signature_desc.Flags = flags;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     return root_signature;
 }
@@ -813,7 +813,7 @@ ID3D12RootSignature *create_texture_root_signature_(unsigned int line,
     root_signature_desc.Flags = flags;
 
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     return root_signature;
 }
@@ -833,7 +833,7 @@ ID3D12PipelineState *create_compute_pipeline_state_(unsigned int line, ID3D12Dev
     hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
     if (checked)
-        ok_(line)(SUCCEEDED(hr), "Failed to create compute pipeline state, hr %#x.\n", hr);
+        ok_(line)(SUCCEEDED(hr), "Failed to create compute pipeline state, hr %#x.\n", (int)hr);
     return pipeline_state;
 }
 
@@ -870,7 +870,7 @@ ID3D12CommandSignature *create_command_signature_(unsigned int line,
     signature_desc.NodeMask = 0;
     hr = ID3D12Device_CreateCommandSignature(device, &signature_desc,
             NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok_(line)(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create command signature, hr %#x.\n", (int)hr);
 
     return command_signature;
 }
@@ -902,11 +902,11 @@ bool init_compute_test_context_(unsigned int line, struct test_context *context)
 
     hr = ID3D12Device_CreateCommandAllocator(device, command_list_type,
             &IID_ID3D12CommandAllocator, (void **)&context->allocator);
-    ok_(line)(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create command allocator, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, command_list_type,
             context->allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&context->list);
-    ok_(line)(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
 
     return true;
 }
@@ -917,7 +917,7 @@ bool context_supports_dxil_(unsigned int line, struct test_context *context)
     HRESULT hr;
     model.HighestShaderModel = D3D_SHADER_MODEL_6_0;
     hr = ID3D12Device_CheckFeatureSupport(context->device, D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model));
-    ok_(line)(hr == S_OK, "Failed to query shader model support, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to query shader model support, hr %#x.\n", (int)hr);
 
     if (hr != S_OK)
         return false;
@@ -960,7 +960,7 @@ void init_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds,
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, clear_value,
             &IID_ID3D12Resource, (void **)&ds->texture);
-    ok_(line)(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    ok_(line)(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", (int)hr);
 
     view_desc = NULL;
     if (view_format)

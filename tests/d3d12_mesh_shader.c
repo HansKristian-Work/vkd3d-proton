@@ -129,14 +129,14 @@ void test_mesh_shader_create_pipeline(void)
     root_signature_desc.pStaticSamplers = NULL;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
-    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", (int)hr);
 
     /* On the most basic level, only a root signature and mesh shader are required */
     ms_only_pipeline_desc.root_signature = root_signature_subobject;
     ms_only_pipeline_desc.root_signature.root_signature = root_signature;
     ms_only_pipeline_desc.ms = ms_subobject;
     hr = create_pipeline_state_from_stream(device2, &ms_only_pipeline_desc, &pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create pipeline, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(pipeline_state);
 
     /* Mixing mesh shaders and any part of the old geometry pipelines is not allowed */
@@ -149,7 +149,7 @@ void test_mesh_shader_create_pipeline(void)
     ms_vs_pipeline_desc.rasterizer = rasterizer_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &ms_vs_pipeline_desc, &pipeline_state);
-    ok(hr == E_INVALIDARG, "Unexpected result for pipeline creation, hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected result for pipeline creation, hr %#x.\n", (int)hr);
 
     /* Pixel shaders require a non-trivial mesh shader */
     ms_ps_pipeline_desc.root_signature = root_signature_subobject;
@@ -160,7 +160,7 @@ void test_mesh_shader_create_pipeline(void)
     ms_ps_pipeline_desc.rasterizer = rasterizer_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &ms_ps_pipeline_desc, &pipeline_state);
-    todo ok(hr == E_INVALIDARG, "Unexpected result for pipeline creation, hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Unexpected result for pipeline creation, hr %#x.\n", (int)hr);
 
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(pipeline_state);
@@ -168,7 +168,7 @@ void test_mesh_shader_create_pipeline(void)
     ms_ps_pipeline_desc.ms = ms_nontrivial_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &ms_ps_pipeline_desc, &pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create pipeline, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(pipeline_state);
 
     /* Input assembly and primitive topology are ignored */
@@ -179,7 +179,7 @@ void test_mesh_shader_create_pipeline(void)
     ms_ia_pipeline_desc.input_layout = input_layout_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &ms_ia_pipeline_desc, &pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create pipeline, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr %#x.\n", (int)hr);
     ID3D12PipelineState_Release(pipeline_state);
 
     ID3D12RootSignature_Release(root_signature);
@@ -349,12 +349,12 @@ void test_mesh_shader_rendering(void)
 
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&srv_resource);
-    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", (int)hr);
 
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&uav_resource);
-    ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n", (int)hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.NumParameters = 3;
@@ -372,7 +372,7 @@ void test_mesh_shader_rendering(void)
     root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     /* Test rendering a simple quad using mesh shaders */
     pipeline_desc.root_signature.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE;
@@ -386,7 +386,7 @@ void test_mesh_shader_rendering(void)
     pipeline_desc.blend = blend_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList6_ClearRenderTargetView(command_list6, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList6_OMSetRenderTargets(command_list6, 1, &context.rtv, false, NULL);
@@ -407,7 +407,7 @@ void test_mesh_shader_rendering(void)
     pipeline_desc.ps = ps_interface_matching_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     reset_command_list(context.list, context.allocator);
     upload_buffer_data(uav_resource, 0, sizeof(clear_buffer_data), clear_buffer_data, context.queue, context.list);
@@ -445,7 +445,7 @@ void test_mesh_shader_rendering(void)
     pipeline_desc.ps = ps_culling_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     reset_command_list(context.list, context.allocator);
     upload_buffer_data(srv_resource, 0, sizeof(cull_buffer_data), cull_buffer_data, context.queue, context.list);
@@ -482,7 +482,7 @@ void test_mesh_shader_rendering(void)
     pipeline_desc.ms = ms_cull_primitive_subobject;
     pipeline_desc.ps = ps_culling_subobject;
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     reset_command_list(context.list, context.allocator);
     transition_resource_state(context.list, uav_resource, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -517,7 +517,7 @@ void test_mesh_shader_rendering(void)
     pipeline_desc.ps = ps_simple_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < 2; i++)
     {
@@ -548,7 +548,7 @@ void test_mesh_shader_rendering(void)
     pipeline_desc.ps = ps_system_values_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     reset_command_list(context.list, context.allocator);
     transition_resource_state(context.list, uav_resource, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -592,7 +592,7 @@ void test_mesh_shader_rendering(void)
         pipeline_desc.ps = ps_derivatives_subobject;
 
         hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
         reset_command_list(context.list, context.allocator);
         transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -754,14 +754,14 @@ void test_mesh_shader_execute_indirect(void)
 
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&indirect_buffer);
-    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", (int)hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.NumParameters = 0;
     root_signature_desc.pParameters = NULL;
 
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&command_signature_desc, 0, sizeof(command_signature_desc));
     command_signature_desc.ByteStride = 12;
@@ -772,7 +772,7 @@ void test_mesh_shader_execute_indirect(void)
     indirect_argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
 
     hr = ID3D12Device2_CreateCommandSignature(device2, &command_signature_desc, NULL, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command signature, hr %#x.\n", (int)hr);
 
     pipeline_desc.root_signature.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE;
     pipeline_desc.root_signature.root_signature = root_signature;
@@ -785,7 +785,7 @@ void test_mesh_shader_execute_indirect(void)
     pipeline_desc.blend = blend_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -931,7 +931,7 @@ void test_mesh_shader_execute_indirect_state(void)
     root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
 
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&command_signature_desc, 0, sizeof(command_signature_desc));
     command_signature_desc.ByteStride = sizeof(struct test_data);
@@ -947,7 +947,7 @@ void test_mesh_shader_execute_indirect_state(void)
     indirect_argument_desc[2].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
 
     hr = ID3D12Device2_CreateCommandSignature(device2, &command_signature_desc, root_signature, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr) || hr == E_NOTIMPL, "Failed to create command signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr) || hr == E_NOTIMPL, "Failed to create command signature, hr %#x.\n", (int)hr);
     if (FAILED(hr))
         command_signature = NULL;
     if (hr == E_NOTIMPL)
@@ -960,7 +960,7 @@ void test_mesh_shader_execute_indirect_state(void)
     pipeline_desc.rasterizer = rasterizer_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     output = create_default_buffer(context.device, sizeof(tests) * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -1161,12 +1161,12 @@ void test_amplification_shader(void)
 
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&srv_resource);
-    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", (int)hr);
 
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&uav_resource);
-    ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n", (int)hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.NumParameters = 2;
@@ -1180,7 +1180,7 @@ void test_amplification_shader(void)
     root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     /* Test forwarding a simple payload from an amplification shader */
     pipeline_desc.root_signature.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE;
@@ -1195,7 +1195,7 @@ void test_amplification_shader(void)
     pipeline_desc.blend = blend_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList6_ClearRenderTargetView(command_list6, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList6_OMSetRenderTargets(command_list6, 1, &context.rtv, false, NULL);
@@ -1215,7 +1215,7 @@ void test_amplification_shader(void)
     pipeline_desc.render_targets = render_target_subobject_none;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     reset_command_list(context.list, context.allocator);
     upload_buffer_data(uav_resource, 0, sizeof(clear_buffer_data), clear_buffer_data, context.queue, context.list);
@@ -1384,7 +1384,7 @@ void test_amplification_shader_execute_indirect_state(void)
     root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
 
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
 
     memset(&command_signature_desc, 0, sizeof(command_signature_desc));
     command_signature_desc.ByteStride = sizeof(tests[0].data);
@@ -1400,7 +1400,7 @@ void test_amplification_shader_execute_indirect_state(void)
     indirect_argument_desc[2].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
 
     hr = ID3D12Device2_CreateCommandSignature(device2, &command_signature_desc, root_signature, &IID_ID3D12CommandSignature, (void **)&command_signature);
-    ok(SUCCEEDED(hr) || hr == E_NOTIMPL, "Failed to create command signature, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr) || hr == E_NOTIMPL, "Failed to create command signature, hr %#x.\n", (int)hr);
     if (FAILED(hr))
         command_signature = NULL;
     if (hr == E_NOTIMPL)
@@ -1414,7 +1414,7 @@ void test_amplification_shader_execute_indirect_state(void)
     pipeline_desc.rasterizer = rasterizer_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     output = create_default_buffer(context.device, sizeof(tests) * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 

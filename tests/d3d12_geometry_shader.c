@@ -427,11 +427,11 @@ static void test_geometry_shader(bool use_dxil)
     pso_desc.GS = gs_5_0;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso_5_0);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
     pso_desc.GS = gs;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     vb = create_upload_buffer(context.device, sizeof(vertex), vertex);
     vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
@@ -1005,7 +1005,7 @@ static void test_layered_rendering(bool use_dxil)
     queue = context.queue;
 
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
-    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", (int)hr);
 
     input_layout.pInputElementDescs = layout_desc;
     input_layout.NumElements = ARRAY_SIZE(layout_desc);
@@ -1040,7 +1040,7 @@ static void test_layered_rendering(bool use_dxil)
 
         hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&pipeline_state);
-        ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
         ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 
@@ -1389,7 +1389,7 @@ static void test_ps_layer(bool use_dxil)
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
     hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
 

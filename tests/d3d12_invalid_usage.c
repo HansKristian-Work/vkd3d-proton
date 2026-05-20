@@ -27,11 +27,11 @@ static void recreate_command_list_(unsigned int line, ID3D12Device *device,
     HRESULT hr;
 
     hr = ID3D12CommandAllocator_Reset(allocator);
-    ok_(line)(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", (int)hr);
     ID3D12GraphicsCommandList_Release(*command_list);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)command_list);
-    ok_(line)(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+    ok_(line)(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
 }
 
 static void test_invalid_resource_barriers(void)
@@ -40,8 +40,8 @@ static void test_invalid_resource_barriers(void)
     ID3D12CommandAllocator *command_allocator;
     ID3D12GraphicsCommandList *command_list;
     ID3D12CommandQueue *queue;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -54,11 +54,11 @@ static void test_invalid_resource_barriers(void)
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
 
     texture = create_default_texture(device, 32, 32, DXGI_FORMAT_R8G8B8A8_UNORM,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -69,7 +69,7 @@ static void test_invalid_resource_barriers(void)
     transition_resource_state(command_list, texture,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", (int)hr);
 
     reset_command_list(command_list, command_allocator);
 
@@ -80,7 +80,7 @@ static void test_invalid_resource_barriers(void)
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     /* The returned error code has changed after a Windows update. */
-    ok(hr == S_OK || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (hr == S_OK)
     {
         exec_command_list(queue, command_list);
@@ -97,7 +97,7 @@ static void test_invalid_resource_barriers(void)
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     /* The returned error code has changed after a Windows update. */
-    ok(hr == S_OK || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == S_OK || hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
     if (hr == S_OK)
     {
         exec_command_list(queue, command_list);
@@ -111,7 +111,7 @@ static void test_invalid_resource_barriers(void)
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     recreate_command_list(device, command_allocator, &command_list);
 
@@ -119,7 +119,7 @@ static void test_invalid_resource_barriers(void)
     transition_resource_state(command_list, readback_buffer,
             D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     recreate_command_list(device, command_allocator, &command_list);
 
@@ -127,7 +127,7 @@ static void test_invalid_resource_barriers(void)
     transition_resource_state(command_list, upload_buffer,
             D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_COMMON);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     recreate_command_list(device, command_allocator, &command_list);
 
@@ -135,7 +135,7 @@ static void test_invalid_resource_barriers(void)
     transition_resource_state(command_list, NULL,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     ID3D12CommandAllocator_Release(command_allocator);
     ID3D12CommandQueue_Release(queue);
@@ -144,7 +144,7 @@ static void test_invalid_resource_barriers(void)
     ID3D12Resource_Release(texture);
     ID3D12Resource_Release(upload_buffer);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 static void test_invalid_copy_texture_region(void)
@@ -153,8 +153,8 @@ static void test_invalid_copy_texture_region(void)
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     ID3D12CommandAllocator *command_allocator;
     ID3D12GraphicsCommandList *command_list;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
     D3D12_BOX box;
     HRESULT hr;
 
@@ -166,11 +166,11 @@ static void test_invalid_copy_texture_region(void)
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n", (int)hr);
 
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list);
-    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", (int)hr);
 
     src_buffer = create_upload_buffer(device, 0x40000, NULL);
     dst_buffer = create_default_buffer(device, 0x40000, 0, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -198,7 +198,7 @@ static void test_invalid_copy_texture_region(void)
             &dst_location, 0, 0, 0, &src_location, NULL);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     recreate_command_list(device, command_allocator, &command_list);
 
@@ -210,7 +210,7 @@ static void test_invalid_copy_texture_region(void)
             &dst_location, 0, 3, 0, &src_location, NULL);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     recreate_command_list(device, command_allocator, &command_list);
 
@@ -222,7 +222,7 @@ static void test_invalid_copy_texture_region(void)
             &dst_location, 0, 0, 0, &src_location, NULL);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     recreate_command_list(device, command_allocator, &command_list);
 
@@ -246,7 +246,7 @@ static void test_invalid_copy_texture_region(void)
             &dst_location, 0, 0, 0, &src_location, &box);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     recreate_command_list(device, command_allocator, &command_list);
 
@@ -264,7 +264,7 @@ static void test_invalid_copy_texture_region(void)
             &dst_location, 0, 0, 0, &src_location, &box);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     recreate_command_list(device, command_allocator, &command_list);
 
@@ -276,7 +276,7 @@ static void test_invalid_copy_texture_region(void)
             &dst_location, 0, 0, 0, &src_location, &box);
 
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", (int)hr);
 
     ID3D12CommandAllocator_Release(command_allocator);
     ID3D12GraphicsCommandList_Release(command_list);
@@ -285,7 +285,7 @@ static void test_invalid_copy_texture_region(void)
     ID3D12Resource_Release(src_texture);
     ID3D12Resource_Release(dst_texture);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 static void test_invalid_unordered_access_views(void)
@@ -294,8 +294,8 @@ static void test_invalid_unordered_access_views(void)
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     ID3D12DescriptorHeap *heap;
     ID3D12Resource *buffer;
+    unsigned int refcount;
     ID3D12Device *device;
-    ULONG refcount;
 
     if (!(device = create_device()))
     {
@@ -323,7 +323,7 @@ static void test_invalid_unordered_access_views(void)
     ID3D12DescriptorHeap_Release(heap);
     ID3D12Resource_Release(buffer);
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 START_TEST(d3d12_invalid_usage)

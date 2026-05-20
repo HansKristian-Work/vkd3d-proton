@@ -27,7 +27,7 @@ void test_create_query_heap(void)
     ID3D12Device *device;
     D3D12_QUERY_HEAP_DESC heap_desc;
     ID3D12QueryHeap *query_heap;
-    ULONG refcount;
+    unsigned int refcount;
     unsigned int i;
     HRESULT hr;
 
@@ -51,7 +51,7 @@ void test_create_query_heap(void)
         heap_desc.NodeMask = 0;
 
         hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-        ok(hr == S_OK, "Failed to create query heap, type %u, hr %#x.\n", types[i], hr);
+        ok(hr == S_OK, "Failed to create query heap, type %u, hr %#x.\n", types[i], (int)hr);
 
         ID3D12QueryHeap_Release(query_heap);
     }
@@ -63,7 +63,7 @@ void test_create_query_heap(void)
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
     if (hr != E_NOTIMPL)
     {
-        ok(hr == S_OK, "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
+        ok(hr == S_OK, "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, (int)hr);
         ID3D12QueryHeap_Release(query_heap);
     }
     else
@@ -72,7 +72,7 @@ void test_create_query_heap(void)
     }
 
     refcount = ID3D12Device_Release(device);
-    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
 void test_query_timestamp_write_after_read(void)
@@ -162,13 +162,13 @@ void test_query_timestamp(void)
     queue = context.queue;
 
     hr = ID3D12CommandQueue_GetTimestampFrequency(queue, &timestamp_frequency);
-    ok(SUCCEEDED(hr), "Failed to get timestamp frequency, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get timestamp frequency, hr %#x.\n", (int)hr);
 
     heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
     heap_desc.Count = ARRAY_SIZE(timestamps);
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, (int)hr);
 
     resource = create_readback_buffer(device, sizeof(timestamps));
 
@@ -230,7 +230,7 @@ void test_query_pipeline_statistics(void)
     heap_desc.Count = 2;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, (int)hr);
 
     resource = create_readback_buffer(device, 2 * sizeof(struct D3D12_QUERY_DATA_PIPELINE_STATISTICS));
 
@@ -380,13 +380,13 @@ void test_query_occlusion(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
     heap_desc.Count = ARRAY_SIZE(tests);
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, (int)hr);
 
     resource = create_readback_buffer(device, ARRAY_SIZE(tests) * sizeof(uint64_t));
 
@@ -467,7 +467,7 @@ void test_resolve_non_issued_query_data(void)
     heap_desc.Count = ARRAY_SIZE(initial_data);
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", (int)hr);
 
     readback_buffer = create_readback_buffer(device, sizeof(initial_data));
     upload_buffer = create_upload_buffer(context.device, sizeof(initial_data), initial_data);
@@ -520,7 +520,7 @@ void test_resolve_query_data_in_different_command_list(void)
     heap_desc.Count = 1;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", (int)hr);
 
     readback_buffer = create_readback_buffer(device, readback_buffer_capacity * sizeof(uint64_t));
 
@@ -548,7 +548,7 @@ void test_resolve_query_data_in_different_command_list(void)
                 query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, i * sizeof(uint64_t));
     }
     hr = ID3D12GraphicsCommandList_Close(command_list);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
     exec_command_list(queue, command_list);
     wait_queue_idle(context.device, queue);
 
@@ -596,16 +596,16 @@ void test_resolve_query_data_in_reordered_command_list(void)
 
     hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             &IID_ID3D12CommandAllocator, (void **)&command_allocator);
-    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command allocator, hr %#x.\n", (int)hr);
     hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_lists[1]);
-    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create command list, hr %#x.\n", (int)hr);
 
     heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
     heap_desc.Count = 1;
     heap_desc.NodeMask = 0;
     hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr %#x.\n", (int)hr);
 
     readback_buffer = create_readback_buffer(device, sizeof(uint64_t));
 
@@ -613,7 +613,7 @@ void test_resolve_query_data_in_reordered_command_list(void)
     ID3D12GraphicsCommandList_ResolveQueryData(command_lists[1],
             query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, readback_buffer, 0);
     hr = ID3D12GraphicsCommandList_Close(command_lists[1]);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
     /* Produce query results in the first command list. */
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_lists[0], 1, &context.rtv, false, NULL);
@@ -626,7 +626,7 @@ void test_resolve_query_data_in_reordered_command_list(void)
     ID3D12GraphicsCommandList_DrawInstanced(command_lists[0], 3, 1, 0, 0);
     ID3D12GraphicsCommandList_EndQuery(command_lists[0], query_heap, D3D12_QUERY_TYPE_OCCLUSION, 0);
     hr = ID3D12GraphicsCommandList_Close(command_lists[0]);
-    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to close command list, hr %#x.\n", (int)hr);
 
     ID3D12CommandQueue_ExecuteCommandLists(queue,
             ARRAY_SIZE(command_lists), (ID3D12CommandList **)command_lists);
@@ -707,7 +707,7 @@ void test_virtual_queries(void)
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
 
     heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
     heap_desc.Count = ARRAY_SIZE(expected_results) / 2;
@@ -715,7 +715,7 @@ void test_virtual_queries(void)
     for (i = 0; i < ARRAY_SIZE(query_heaps); i++)
     {
         hr = ID3D12Device_CreateQueryHeap(device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heaps[i]);
-        ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, hr);
+        ok(SUCCEEDED(hr), "Failed to create query heap, type %u, hr %#x.\n", heap_desc.Type, (int)hr);
     }
 
     resource = create_readback_buffer(device, ARRAY_SIZE(expected_results) * sizeof(uint64_t));

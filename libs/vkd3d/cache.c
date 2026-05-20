@@ -1507,7 +1507,7 @@ void d3d12_pipeline_library_dec_ref(struct d3d12_pipeline_library *pipeline_libr
 
 ULONG d3d12_pipeline_library_inc_public_ref(struct d3d12_pipeline_library *pipeline_library)
 {
-    ULONG refcount = InterlockedIncrement(&pipeline_library->refcount);
+    unsigned int refcount = InterlockedIncrement(&pipeline_library->refcount);
     if (refcount == 1)
         d3d12_device_add_ref(pipeline_library->device);
     TRACE("%p increasing refcount to %u.\n", pipeline_library, refcount);
@@ -1517,7 +1517,7 @@ ULONG d3d12_pipeline_library_inc_public_ref(struct d3d12_pipeline_library *pipel
 ULONG d3d12_pipeline_library_dec_public_ref(struct d3d12_pipeline_library *pipeline_library)
 {
     struct d3d12_device *device = pipeline_library->device;
-    ULONG refcount = InterlockedDecrement(&pipeline_library->refcount);
+    unsigned int refcount = InterlockedDecrement(&pipeline_library->refcount);
     TRACE("%p decreasing refcount to %u.\n", pipeline_library, refcount);
     if (!refcount)
     {
@@ -2982,7 +2982,7 @@ static void vkd3d_pipeline_library_disk_cache_merge(struct vkd3d_pipeline_librar
     if (FAILED(hr = d3d12_pipeline_library_validate_stream_format_header(cache->library,
             cache->library->device, mapped_write_cache.mapped, mapped_write_cache.mapped_size)))
     {
-        INFO("Write cache is invalid (hr #%x), nuking it.\n", hr);
+        INFO("Write cache is invalid (hr #%x), nuking it.\n", (int)hr);
         goto out;
     }
 
@@ -3198,7 +3198,7 @@ static void vkd3d_pipeline_library_disk_cache_initial_setup(struct vkd3d_pipelin
         else if (hr == D3D12_ERROR_ADAPTER_NOT_FOUND)
             INFO("Cannot load existing on-disk cache due to driver version mismatch.\n");
         else if (FAILED(hr))
-            INFO("Failed to load driver cache with hr #%x, falling back to empty cache.\n", hr);
+            INFO("Failed to load driver cache with hr #%x, falling back to empty cache.\n", (int)hr);
     }
 
     /* When we add new internal blobs from this point,
@@ -3481,7 +3481,7 @@ static void *vkd3d_pipeline_library_disk_thread_main(void *userarg)
             {
                 /* INVALIDARG is expected for duplicates. */
                 if (hr != E_INVALIDARG)
-                    ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", hr);
+                    ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", (int)hr);
             }
             else if (!dirty)
             {
@@ -3522,7 +3522,7 @@ static void *vkd3d_pipeline_library_disk_thread_main(void *userarg)
         {
             /* INVALIDARG is expected for duplicates. */
             if (hr != E_INVALIDARG)
-                ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", hr);
+                ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", (int)hr);
         }
         else
             dirty = true;
@@ -3536,7 +3536,7 @@ static void *vkd3d_pipeline_library_disk_thread_main(void *userarg)
         {
             /* INVALIDARG is expected for duplicates. */
             if (hr != E_INVALIDARG)
-                ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", hr);
+                ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", (int)hr);
         }
         else
             dirty = true;

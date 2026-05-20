@@ -66,7 +66,7 @@ void test_vrs(void)
     }
 
     hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
-    ok(hr == S_OK, "Couldn't get GraphicsCommandList5, hr %#x.\n", hr);
+    ok(hr == S_OK, "Couldn't get GraphicsCommandList5, hr %#x.\n", (int)hr);
     ID3D12GraphicsCommandList5_Release(command_list);
 
     queue = context.queue;
@@ -76,7 +76,7 @@ void test_vrs(void)
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -170,7 +170,7 @@ void test_vrs_dxil(void)
     }
 
     hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
-    ok(hr == S_OK, "Couldn't get GraphicsCommandList5, hr %#x.\n", hr);
+    ok(hr == S_OK, "Couldn't get GraphicsCommandList5, hr %#x.\n", (int)hr);
     ID3D12GraphicsCommandList5_Release(command_list);
 
     queue = context.queue;
@@ -180,7 +180,7 @@ void test_vrs_dxil(void)
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -254,7 +254,7 @@ void test_vrs_image(void)
     }
 
     hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
-    ok(hr == S_OK, "Couldn't get GraphicsCommandList5, hr %#x.\n", hr);
+    ok(hr == S_OK, "Couldn't get GraphicsCommandList5, hr %#x.\n", (int)hr);
     ID3D12GraphicsCommandList5_Release(command_list);
 
     queue = context.queue;
@@ -264,7 +264,7 @@ void test_vrs_image(void)
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
@@ -378,11 +378,11 @@ void test_vrs_depth_write(bool use_dxil)
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso[0]);
-    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", (int)hr);
 
     pso_desc.PS = use_dxil ? vrs_depth_ps_fixed_dxil : vrs_depth_ps_fixed_dxbc;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso[1]);
-    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(pso); i++)
     {
