@@ -4499,7 +4499,7 @@ void test_raytracing_opacity_micro_map(void)
             va = ID3D12Resource_GetGPUVirtualAddress(test_rtases.omm);
             ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
 
-            postbuild_info.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+            postbuild_info.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
             postbuild_info.DestBuffer = ID3D12Resource_GetGPUVirtualAddress(test_rtases.query) + 64 + 8;
             va = ID3D12Resource_GetGPUVirtualAddress(test_rtases.omm);
             ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
@@ -4509,7 +4509,7 @@ void test_raytracing_opacity_micro_map(void)
             va = ID3D12Resource_GetGPUVirtualAddress(test_rtases.omm_base.rtas);
             ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
 
-            postbuild_info.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+            postbuild_info.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
             postbuild_info.DestBuffer = ID3D12Resource_GetGPUVirtualAddress(test_rtases.query) + 64 + 24;
             va = ID3D12Resource_GetGPUVirtualAddress(test_rtases.omm_base.rtas);
             ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
@@ -4660,9 +4660,9 @@ void test_raytracing_opacity_micro_map(void)
             query_base_size = get_readback_uint64(&rb, 64 / 8 + 3, 0);
 
             /* After compaction, sizes should remain the same. */
-            todo ok(postbuild_compacted == postbuild_size, "Expected %u == %u\n", (unsigned int)postbuild_compacted, (unsigned int)postbuild_size);
-            todo ok(query_compacted == query_size, "Expected %u == %u\n", (unsigned int)query_compacted, (unsigned int)query_size);
-            todo ok(query_base_compacted <= query_base_size, "Expected %u <= %u\n", (unsigned int)query_base_compacted, (unsigned int)query_base_size);
+            ok(postbuild_compacted == postbuild_size, "Expected %u == %u\n", (unsigned int)postbuild_compacted, (unsigned int)postbuild_size);
+            ok(query_compacted == query_size, "Expected %u == %u\n", (unsigned int)query_compacted, (unsigned int)query_size);
+            ok(query_base_compacted <= query_base_size, "Expected %u <= %u\n", (unsigned int)query_base_compacted, (unsigned int)query_base_size);
 
             /* postbuild query and normal query should both work. */
             ok(postbuild_compacted == query_compacted, "Expected %u == %u\n", (unsigned int)postbuild_compacted, (unsigned int)query_compacted);
@@ -4670,14 +4670,14 @@ void test_raytracing_opacity_micro_map(void)
 
             /* Sizes should not be 0. */
             ok(postbuild_compacted != 0, "Expected %u != 0\n", (unsigned int)postbuild_compacted);
-            todo ok(postbuild_size != 0, "Expected %u != 0\n", (unsigned int)postbuild_size);
+            ok(postbuild_size != 0, "Expected %u != 0\n", (unsigned int)postbuild_size);
             ok(query_compacted != 0, "Expected %u != 0\n", (unsigned int)query_compacted);
-            todo ok(query_size != 0, "Expected %u != 0\n", (unsigned int)query_size);
+            ok(query_size != 0, "Expected %u != 0\n", (unsigned int)query_size);
             ok(query_base_compacted != 0, "Expected %u != 0\n", (unsigned int)query_base_compacted);
-            todo ok(query_base_size != 0, "Expected %u != 0\n", (unsigned int)query_base_size);
+            ok(query_base_size != 0, "Expected %u != 0\n", (unsigned int)query_base_size);
 
             /* Expect that size remains invariant after compaction */
-            todo ok(query_size == query_base_compacted, "Expected %u == %u\n", (unsigned int)query_size, (unsigned int)query_base_compacted);
+            ok(query_size == query_base_compacted, "Expected %u == %u\n", (unsigned int)query_size, (unsigned int)query_base_compacted);
 
             release_resource_readback(&rb);
         }
