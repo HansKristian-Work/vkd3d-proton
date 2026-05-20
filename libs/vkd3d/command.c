@@ -21793,14 +21793,6 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
     if (barrier->SyncAfter == D3D12_BARRIER_SYNC_SPLIT)
         return;
 
-    if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumArraySlices == 0)
-        WARN("NumArraySlices == 0 promotes to 1 slice.\n");
-
-    /* Observed in the wild. Earlier testing suggested it was a no-op,
-     * but only way to interpret this based on game behavior is 1 plane. */
-    if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumPlanes == 0)
-        WARN("NumPlanes == 0 promotes to 1 plane.\n");
-
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_DEPTH_STENCIL))
         d3d12_command_list_flush_clears(list, resource, NULL);
 
