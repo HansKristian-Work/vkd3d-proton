@@ -100,6 +100,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
 #endif
+    VK_EXTENSION(KHR_INDEX_TYPE_UINT8, KHR_index_type_uint8),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CONSERVATIVE_RASTERIZATION, EXT_conservative_rasterization),
@@ -134,7 +135,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(EXT_DEVICE_ADDRESS_BINDING_REPORT, EXT_device_address_binding_report, VKD3D_CONFIG_FLAG_STATIC(FAULT)),
     VK_EXTENSION(EXT_DEPTH_BIAS_CONTROL, EXT_depth_bias_control),
     VK_EXTENSION(EXT_ZERO_INITIALIZE_DEVICE_MEMORY, EXT_zero_initialize_device_memory),
-    VK_EXTENSION_COND(EXT_OPACITY_MICROMAP, EXT_opacity_micromap, VKD3D_CONFIG_FLAG_STATIC(DXR_1_2)),
     VK_EXTENSION(EXT_SHADER_FLOAT8, EXT_shader_float8),
     VK_EXTENSION_COND(EXT_DESCRIPTOR_HEAP, EXT_descriptor_heap, VKD3D_CONFIG_FLAG_STATIC(DESCRIPTOR_HEAP)),
     /* AMD extensions */
@@ -2449,14 +2449,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
 
     if (vulkan_info->KHR_opacity_micromap)
     {
-        info->opacity_micromap_features_khr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, &info->opacity_micromap_features_khr);
+        info->opacity_micromap_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->opacity_micromap_features);
     }
 
-    if (vulkan_info->EXT_opacity_micromap)
+    if (vulkan_info->KHR_index_type_uint8)
     {
-        info->opacity_micromap_features_ext.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, &info->opacity_micromap_features_ext);
+        info->index_type_uint8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->index_type_uint8_features);
     }
 
     if (vulkan_info->EXT_shader_float8)
@@ -2529,16 +2529,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 
-    /* TODO: Until KHR is fully plumbed in, we will only support EXT */
-    info->opacity_micromap_features_khr.micromap = VK_FALSE;
-
     /* Prefer KHR_opacity_micromap over EXT_opacity_micromap, and only load one. */
-    info->using_khr_opacity_micromap = info->opacity_micromap_features_khr.micromap;
-
-    if (info->using_khr_opacity_micromap)
-        info->opacity_micromap_features_ext.micromap = VK_FALSE;
-
-    info->supports_opacity_micromap = info->using_khr_opacity_micromap || info->opacity_micromap_features_ext.micromap;
+    info->supports_opacity_micromap = info->opacity_micromap_features.micromap;
 
     /* if nonzero, this is a layered implementation */
     if (real_driver_props.driverID)
@@ -2953,14 +2945,8 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("    rectangularLines: %u\n", info->line_rasterization_features.rectangularLines);
     TRACE("    smoothLines: %u\n", info->line_rasterization_features.smoothLines);
 
-    TRACE("  VkPhysicalDeviceOpacityMicromapFeaturesEXT:\n");
-
-    TRACE("    micromap: %#x\n", info->opacity_micromap_features_ext.micromap);
-    TRACE("    micromapCaptureReplay: %#x\n", info->opacity_micromap_features_ext.micromapCaptureReplay);
-    TRACE("    micromapHostCommands: %#x\n", info->opacity_micromap_features_ext.micromapHostCommands);
-
     TRACE("  VkPhysicalDeviceOpacityMicromapFeaturesKHR:\n");
-    TRACE("    micromap: %#x\n", info->opacity_micromap_features_khr.micromap);
+    TRACE("    micromap: %#x\n", info->opacity_micromap_features.micromap);
 }
 
 static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
@@ -4420,16 +4406,6 @@ static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, uint3
             pool_info.queryCount = 128;
             break;
 
-        case VKD3D_QUERY_TYPE_INDEX_OMM_COMPACTED_SIZE:
-            pool_info.queryType = VK_QUERY_TYPE_MICROMAP_COMPACTED_SIZE_EXT;
-            pool_info.queryCount = 128;
-            break;
-
-        case VKD3D_QUERY_TYPE_INDEX_OMM_SERIALIZE_SIZE:
-            pool_info.queryType = VK_QUERY_TYPE_MICROMAP_SERIALIZATION_SIZE_EXT;
-            pool_info.queryCount = 128;
-            break;
-
         default:
             ERR("Unhandled query type %u.\n", type_index);
             return E_INVALIDARG;
@@ -4541,7 +4517,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt1)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt2)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt3)
-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt4))
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt4)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt5))
     {
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
@@ -8352,11 +8329,13 @@ static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(str
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
 {
+    VkAccelerationStructureGeometryMicromapDataKHR geometry_micromap_data;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMicromapUsageEXT usages_stack[VKD3D_BUILD_INFO_STACK_COUNT];
-    VkMicromapBuildSizesInfoEXT size_info;
-    VkMicromapBuildInfoEXT build_info;
-    VkMicromapUsageEXT *usages;
+    VkMicromapUsageKHR usages_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureBuildGeometryInfoKHR build_info;
+    VkAccelerationStructureBuildSizesInfoKHR size_info;
+    VkAccelerationStructureGeometryKHR geometry_info;
+    VkMicromapUsageKHR *usages;
     uint32_t usages_count;
 
     if (!d3d12_device_supports_ray_tracing_tier_1_2(device))
@@ -8373,7 +8352,8 @@ static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(str
     else
         usages = usages_stack;
 
-    if (!vkd3d_opacity_micromap_convert_inputs_ext(device, desc, &build_info, usages))
+    if (!vkd3d_opacity_micromap_convert_inputs(device, desc, &build_info, &geometry_info,
+            &geometry_micromap_data, usages))
     {
         ERR("Failed to convert inputs.\n");
         memset(info, 0, sizeof(*info));
@@ -8381,13 +8361,12 @@ static void d3d12_device_get_raytracing_opacity_micromap_array_prebuild_info(str
     }
 
     memset(&size_info, 0, sizeof(size_info));
-    size_info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
+    size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 
-    VK_CALL(vkGetMicromapBuildSizesEXT(device->vk_device,
-            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-            &build_info, &size_info));
+    VK_CALL(vkGetAccelerationStructureBuildSizesKHR(device->vk_device,
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info, NULL, &size_info));
 
-    info->ResultDataMaxSizeInBytes = size_info.micromapSize;
+    info->ResultDataMaxSizeInBytes = size_info.accelerationStructureSize;
     info->ScratchDataSizeInBytes = size_info.buildScratchSize;
     info->UpdateScratchDataSizeInBytes = 0;
 
@@ -8400,24 +8379,21 @@ cleanup:
         vkd3d_free(usages);
 }
 
-static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
+void d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info,
+        bool supports_opacity_micromap)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-
-    VkAccelerationStructureTrianglesOpacityMicromapEXT omms_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureTrianglesOpacityMicromapKHR omm_triangles_infos_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     uint32_t primitive_counts_stack[VKD3D_BUILD_INFO_STACK_COUNT];
-    VkAccelerationStructureTrianglesOpacityMicromapEXT *omms;
+    VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos;
     VkAccelerationStructureBuildGeometryInfoKHR build_info;
     VkAccelerationStructureBuildSizesInfoKHR size_info;
     VkAccelerationStructureGeometryKHR *geometries;
     uint32_t *primitive_counts;
     uint32_t geometry_count;
-
-    TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(device))
     {
@@ -8435,17 +8411,18 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(desc);
     primitive_counts = primitive_counts_stack;
     geometries = geometries_stack;
-    omms = omms_stack;
+    omm_triangles_infos = omm_triangles_infos_stack;
 
     if (geometry_count > VKD3D_BUILD_INFO_STACK_COUNT)
     {
         primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
         geometries = vkd3d_malloc(geometry_count * sizeof(*geometries));
-        omms = vkd3d_malloc(geometry_count * sizeof(*omms));
+        omm_triangles_infos = vkd3d_malloc(geometry_count * sizeof(*omm_triangles_infos));
     }
 
     if (!vkd3d_acceleration_structure_convert_inputs(device,
-            desc, &build_info, geometries, omms, NULL, primitive_counts))
+            desc, &build_info, geometries, omm_triangles_infos, NULL, primitive_counts,
+            supports_opacity_micromap))
     {
         ERR("Failed to convert inputs.\n");
         memset(info, 0, sizeof(*info));
@@ -8475,8 +8452,20 @@ cleanup:
     {
         vkd3d_free(primitive_counts);
         vkd3d_free(geometries);
-        vkd3d_free(omms);
+        vkd3d_free(omm_triangles_infos);
     }
+}
+
+static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
+
+    d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(device, desc, info,
+            d3d12_device_supports_ray_tracing_tier_1_2(device));
 }
 
 static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_CheckDriverMatchingIdentifier(d3d12_device_iface *iface,
@@ -10748,7 +10737,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     }
 }
 
-extern CONST_VTBL struct ID3D12DeviceExt4Vtbl d3d12_device_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
@@ -10829,6 +10818,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     device->adapter_luid = create_info->adapter_luid;
     device->removed_reason = S_OK;
+    vkd3d_atomic_uint32_store_explicit(
+            &device->global_ray_tracing_pipeline_create_flags, 0,
+            vkd3d_memory_order_relaxed);
 
     device->vk_device = VK_NULL_HANDLE;
 

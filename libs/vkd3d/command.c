@@ -90,6 +90,18 @@ static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
 
 static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *list);
 
+static bool d3d12_array_reserve_realloced(void **elements, size_t *capacity,
+        size_t element_count, size_t element_size, bool *any_reallocs)
+{
+    void *old_elements = *elements;
+    /* TODO: Consider if vkd3d_array_reserve's default of 4 is good */
+    if (!vkd3d_array_reserve(elements, capacity, element_count, element_size))
+        return false;
+    if (old_elements != *elements)
+        *any_reallocs = true;
+    return true;
+}
+
 static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSemaphore *vk_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2320,7 +2332,7 @@ static void d3d12_command_list_update_conditional_rendering_state(struct d3d12_c
     }
 }
 
-static void d3d12_command_list_check_render_pass_validation(
+void d3d12_command_list_check_render_pass_validation(
         struct d3d12_command_list *list, const char *user_driven_tag, bool action_command)
 {
     if (user_driven_tag && list->is_inside_render_pass)
@@ -6517,13 +6529,6 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                     *stages |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
                     *access |= VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
                             VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-
-                    if (device->device_info.opacity_micromap_features_ext.micromap)
-                    {
-                        *stages |= VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
-                        *access |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT |
-                                VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
-                    }
                 }
                 break;
 
@@ -6535,13 +6540,6 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                             VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
                     *access |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR |
                             VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-
-                    if (device->device_info.opacity_micromap_features_ext.micromap)
-                    {
-                        *stages |= VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
-                        *access |= VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT |
-                                VK_ACCESS_2_MICROMAP_READ_BIT_EXT;
-                    }
                 }
                 break;
 
@@ -6568,9 +6566,6 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                     /* Vertex / index / transform buffer inputs are NON_PIXEL_SHADER_RESOURCES in DXR.
                      * They access SHADER_READ_BIT in Vulkan, so just need to add the stage. */
                     *stages |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-
-                    if (device->device_info.opacity_micromap_features_ext.micromap)
-                        *stages |= VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
                 }
                 break;
 
@@ -6775,7 +6770,8 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
     }
 
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt)
-            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1))
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt2))
     {
         d3d12_command_list_vkd3d_ext_AddRef(&command_list->ID3D12GraphicsCommandListExt_iface);
         *object = &command_list->ID3D12GraphicsCommandListExt_iface;
@@ -20220,25 +20216,17 @@ static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list)
 
     vkd3d_free(rtas_batch->build_infos);
     vkd3d_free(rtas_batch->geometry_infos);
-    vkd3d_free(rtas_batch->omm_infos);
+    vkd3d_free(rtas_batch->omm_triangles_infos);
     vkd3d_free(rtas_batch->range_infos);
     vkd3d_free(rtas_batch->range_ptrs);
-    if (list->device->device_info.using_khr_opacity_micromap)
-    {
-        vkd3d_free(rtas_batch->omm_build_infos.khr);
-        vkd3d_free(rtas_batch->omm_usage_infos.khr);
-    }
-    else
-    {
-        vkd3d_free(rtas_batch->omm_build_infos.ext);
-        vkd3d_free(rtas_batch->omm_usage_infos.ext);
-    }
+    vkd3d_free(rtas_batch->omm_build_infos);
+    vkd3d_free(rtas_batch->omm_usage_infos);
 }
 
 static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_list *list, uint32_t geometry_count,
         VkAccelerationStructureBuildGeometryInfoKHR **build_info,
         VkAccelerationStructureGeometryKHR **geometry_infos,
-        VkAccelerationStructureTrianglesOpacityMicromapEXT **omm_infos,
+        VkAccelerationStructureTrianglesOpacityMicromapKHR **omm_triangles_infos,
         VkAccelerationStructureBuildRangeInfoKHR **range_infos)
 {
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
@@ -20250,19 +20238,23 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
         return false;
     }
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
-            rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->geometry_infos)))
+    if (!d3d12_array_reserve_realloced((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
+            rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->geometry_infos),
+            &rtas_batch->fixup_needed))
     {
         ERR("Failed to allocate geometry info array.\n");
         return false;
     }
 
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device) &&
-            !vkd3d_array_reserve((void **)&rtas_batch->omm_infos, &rtas_batch->omm_info_size,
-            rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->omm_infos)))
+    if (list->device->device_info.supports_opacity_micromap)
     {
-        ERR("Failed to allocate opacity micromap info array.\n");
-        return false;
+        if (!d3d12_array_reserve_realloced((void **)&rtas_batch->omm_triangles_infos, &rtas_batch->omm_triangles_info_size,
+                rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->omm_triangles_infos),
+                &rtas_batch->fixup_needed))
+        {
+            ERR("Failed to allocate opacity micromap info array.\n");
+            return false;
+        }
     }
 
     if (!vkd3d_array_reserve((void **)&rtas_batch->range_infos, &rtas_batch->range_info_size,
@@ -20274,10 +20266,10 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
 
     *build_info = &rtas_batch->build_infos[rtas_batch->build_info_count];
     *geometry_infos = &rtas_batch->geometry_infos[rtas_batch->geometry_info_count];
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
-        *omm_infos = &rtas_batch->omm_infos[rtas_batch->geometry_info_count];
+    if (list->device->device_info.supports_opacity_micromap)
+        *omm_triangles_infos = &rtas_batch->omm_triangles_infos[rtas_batch->geometry_info_count];
     else
-        *omm_infos = NULL;
+        *omm_triangles_infos = NULL;
     *range_infos = &rtas_batch->range_infos[rtas_batch->geometry_info_count];
 
     rtas_batch->build_info_count += 1;
@@ -20286,36 +20278,7 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
     return true;
 }
 
-static bool d3d12_command_list_allocate_omm_build_info_ext(struct d3d12_command_list *list, uint32_t usage_count,
-        VkMicromapBuildInfoEXT **build_info,
-        VkMicromapUsageEXT **usage_infos)
-{
-    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
-
-    if (!vkd3d_array_reserve((void **)&rtas_batch->omm_build_infos.ext, &rtas_batch->omm_build_info_size,
-            rtas_batch->omm_build_info_count + 1, sizeof(*rtas_batch->omm_build_infos.ext)))
-    {
-        ERR("Failed to allocate omm build info array.\n");
-        return false;
-    }
-
-    if (!vkd3d_array_reserve((void **)&rtas_batch->omm_usage_infos.ext, &rtas_batch->omm_usage_info_size,
-            rtas_batch->omm_usage_info_count + usage_count, sizeof(*rtas_batch->omm_usage_infos.ext)))
-    {
-        ERR("Failed to allocate usage array.\n");
-        return false;
-    }
-
-    *build_info = &rtas_batch->omm_build_infos.ext[rtas_batch->omm_build_info_count];
-    *usage_infos = &rtas_batch->omm_usage_infos.ext[rtas_batch->omm_usage_info_count];
-
-    rtas_batch->omm_build_info_count += 1;
-    rtas_batch->omm_usage_info_count += usage_count;
-
-    return true;
-}
-
-static bool d3d12_command_list_allocate_omm_build_info_khr(struct d3d12_command_list *list, uint32_t usage_count,
+static bool d3d12_command_list_allocate_omm_build_info(struct d3d12_command_list *list, uint32_t usage_count,
         VkAccelerationStructureBuildGeometryInfoKHR **build_info,
         VkAccelerationStructureGeometryKHR **geometry_info,
         VkAccelerationStructureGeometryMicromapDataKHR **geometry_micromap_data,
@@ -20330,22 +20293,25 @@ static bool d3d12_command_list_allocate_omm_build_info_khr(struct d3d12_command_
         return false;
     }
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
-            rtas_batch->geometry_info_count + 1, sizeof(*rtas_batch->geometry_infos)))
+    if (!d3d12_array_reserve_realloced((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
+            rtas_batch->geometry_info_count + 1, sizeof(*rtas_batch->geometry_infos),
+            &rtas_batch->fixup_needed))
     {
         ERR("Failed to allocate geometry info array.\n");
         return false;
     }
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->omm_build_infos.khr, &rtas_batch->omm_build_info_size,
-            rtas_batch->omm_build_info_count + 1, sizeof(*rtas_batch->omm_build_infos.khr)))
+    if (!d3d12_array_reserve_realloced((void **)&rtas_batch->omm_build_infos, &rtas_batch->omm_build_info_size,
+            rtas_batch->omm_build_info_count + 1, sizeof(*rtas_batch->omm_build_infos),
+            &rtas_batch->fixup_needed))
     {
         ERR("Failed to allocate omm build info array.\n");
         return false;
     }
 
-    if (!vkd3d_array_reserve((void **)&rtas_batch->omm_usage_infos.khr, &rtas_batch->omm_usage_info_size,
-            rtas_batch->omm_usage_info_count + usage_count, sizeof(*rtas_batch->omm_usage_infos.khr)))
+    if (!d3d12_array_reserve_realloced((void **)&rtas_batch->omm_usage_infos, &rtas_batch->omm_usage_info_size,
+            rtas_batch->omm_usage_info_count + usage_count, sizeof(*rtas_batch->omm_usage_infos),
+            &rtas_batch->fixup_needed))
     {
         ERR("Failed to allocate usage array.\n");
         return false;
@@ -20361,8 +20327,8 @@ static bool d3d12_command_list_allocate_omm_build_info_khr(struct d3d12_command_
 
     *build_info = &rtas_batch->build_infos[rtas_batch->build_info_count];
     *geometry_info = &rtas_batch->geometry_infos[rtas_batch->geometry_info_count];
-    *geometry_micromap_data = &rtas_batch->omm_build_infos.khr[rtas_batch->omm_build_info_count];
-    *usage_infos = &rtas_batch->omm_usage_infos.khr[rtas_batch->omm_usage_info_count];
+    *geometry_micromap_data = &rtas_batch->omm_build_infos[rtas_batch->omm_build_info_count];
+    *usage_infos = &rtas_batch->omm_usage_infos[rtas_batch->omm_usage_info_count];
 
     rtas_batch->build_info_count += 1;
     rtas_batch->geometry_info_count += 1;
@@ -20395,15 +20361,13 @@ static void d3d12_command_list_fixup_rtas_batch(struct d3d12_command_list *list)
         return;
     }
 
-    /* Assign geometry and range pointers */
+    /* Assign range pointers */
     geometry_index = 0;
-
     for (i = 0; i < rtas_batch->build_info_count; i++)
     {
         uint32_t geometry_count = rtas_batch->build_infos[i].geometryCount;
         assert(geometry_index + geometry_count <= rtas_batch->geometry_info_count);
 
-        rtas_batch->build_infos[i].pGeometries = &rtas_batch->geometry_infos[geometry_index];
         if (rtas_batch->geometry_infos[geometry_index].geometryType == VK_GEOMETRY_TYPE_MICROMAP_KHR)
             rtas_batch->range_ptrs[i] = NULL;
         else
@@ -20412,73 +20376,72 @@ static void d3d12_command_list_fixup_rtas_batch(struct d3d12_command_list *list)
         geometry_index += geometry_count;
     }
 
+    if (!rtas_batch->fixup_needed)
+        return;
+    rtas_batch->fixup_needed = false;
+
+    /* Assign geometry */
+    geometry_index = 0;
+
+    for (i = 0; i < rtas_batch->build_info_count; i++)
+    {
+        uint32_t geometry_count = rtas_batch->build_infos[i].geometryCount;
+        assert(geometry_index + geometry_count <= rtas_batch->geometry_info_count);
+
+        rtas_batch->build_infos[i].pGeometries = &rtas_batch->geometry_infos[geometry_index];
+
+        geometry_index += geometry_count;
+    }
+
     if (list->device->device_info.supports_opacity_micromap)
     {
-        if (list->device->device_info.using_khr_opacity_micromap)
+        /* Assign geometry info next pointers */
+        uint32_t omm_index = 0;
+        geometry_index = 0;
+
+        for (i = 0; i < rtas_batch->build_info_count; i++)
         {
-            /* Assign geometry info next pointers */
-            uint32_t omm_index = 0;
-            geometry_index = 0;
+            uint32_t geometry_count = rtas_batch->build_infos[i].geometryCount;
+            assert(geometry_index + geometry_count <= rtas_batch->geometry_info_count);
 
-            for (i = 0; i < rtas_batch->build_info_count; i++)
+            if (rtas_batch->geometry_infos[geometry_index].geometryType == VK_GEOMETRY_TYPE_MICROMAP_KHR)
             {
-                uint32_t geometry_count = rtas_batch->build_infos[i].geometryCount;
-                assert(geometry_index + geometry_count <= rtas_batch->geometry_info_count);
-
-                if (rtas_batch->geometry_infos[geometry_index].geometryType == VK_GEOMETRY_TYPE_MICROMAP_KHR)
-                {
-                    rtas_batch->geometry_infos[geometry_index].pNext = &rtas_batch->omm_build_infos.khr[omm_index];
-                    omm_index += 1;
-                }
-
-                geometry_index += geometry_count;
+                rtas_batch->geometry_infos[geometry_index].pNext = &rtas_batch->omm_build_infos[omm_index];
+                omm_index += 1;
             }
 
-            /* Assign usage count pointers */
-            usage_index = 0;
-
-            for (i = 0; i < rtas_batch->omm_build_info_count; i++)
-            {
-                uint32_t usage_count = rtas_batch->omm_build_infos.khr[i].usageCountsCount;
-                assert(usage_index + usage_count <= rtas_batch->omm_usage_info_count);
-
-                rtas_batch->omm_build_infos.khr[i].pUsageCounts = &rtas_batch->omm_usage_infos.khr[usage_index];
-
-                usage_index += usage_count;
-            }
+            geometry_index += geometry_count;
         }
-        else
+
+        /* Assign usage count pointers */
+        usage_index = 0;
+
+        for (i = 0; i < rtas_batch->omm_build_info_count; i++)
         {
-            /* Assign usage count pointers */
-            usage_index = 0;
+            uint32_t usage_count = rtas_batch->omm_build_infos[i].usageCountsCount;
+            assert(usage_index + usage_count <= rtas_batch->omm_usage_info_count);
 
-            for (i = 0; i < rtas_batch->omm_build_info_count; i++)
+            rtas_batch->omm_build_infos[i].pUsageCounts = &rtas_batch->omm_usage_infos[usage_index];
+
+            usage_index += usage_count;
+        }
+
+        /* pNext pointers on Geometry AS. Currently limited to Opacity micromaps */
+        if (rtas_batch->omm_triangles_infos)
+        {
+            for (i = 0; i < rtas_batch->geometry_info_count; i++)
             {
-                uint32_t usage_count = rtas_batch->omm_build_infos.ext[i].usageCountsCount;
-                assert(usage_index + usage_count <= rtas_batch->omm_usage_info_count);
+                /* oom_infos is cleared to zero if not used. Can use sType as sentinel. */
+                VkAccelerationStructureGeometryKHR *geometry = &rtas_batch->geometry_infos[i];
+                VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_khr = &rtas_batch->omm_triangles_infos[i];
 
-                rtas_batch->omm_build_infos.ext[i].pUsageCounts = &rtas_batch->omm_usage_infos.ext[usage_index];
-
-                usage_index += usage_count;
-            }
-
-            /* pNext pointers on Geometry AS. Currently limited to Opacity micromaps */
-            if (rtas_batch->omm_infos)
-            {
-                for (i = 0; i < rtas_batch->geometry_info_count; i++)
+                if (omm_khr->sType == VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_KHR)
                 {
-                    /* oom_infos is cleared to zero if not used. Can use sType as sentinel. */
-                    VkAccelerationStructureTrianglesOpacityMicromapEXT *omm = &rtas_batch->omm_infos[i];
-                    VkAccelerationStructureGeometryKHR *geometry = &rtas_batch->geometry_infos[i];
-
-                    if (omm->sType == VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT)
-                    {
-                        /* The pNext may have been invalidated. Just verify something is there. */
-                        assert(geometry->geometry.triangles.pNext);
-                        assert(geometry->geometryType == VK_GEOMETRY_TYPE_TRIANGLES_KHR);
-                        geometry->geometry.triangles.pNext = NULL;
-                        vk_prepend_struct(&geometry->geometry.triangles, omm);
-                    }
+                    /* The pNext may have been invalidated. Just verify something is there. */
+                    assert(geometry->geometry.triangles.pNext);
+                    assert(geometry->geometryType == VK_GEOMETRY_TYPE_TRIANGLES_KHR);
+                    geometry->geometry.triangles.pNext = NULL;
+                    vk_prepend_struct(&geometry->geometry.triangles, omm_khr);
                 }
             }
         }
@@ -20490,146 +20453,58 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
 
-    if (!rtas_batch->build_info_count && !rtas_batch->omm_build_info_count)
+    if (!rtas_batch->build_info_count)
         return;
 
     d3d12_command_list_check_end_of_command_list_cleanup(list);
 
-    TRACE("list %p, build_info_count %zu, omm_build_info_count %zu.\n", list,
-            rtas_batch->build_info_count, rtas_batch->omm_build_info_count);
+    TRACE("list %p, build_info_count %zu.\n", list,
+            rtas_batch->build_info_count);
 
     d3d12_command_list_fixup_rtas_batch(list);
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
 
-    if (rtas_batch->build_info_count)
-        VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
-                rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
-
-    if (rtas_batch->omm_build_info_count && !list->device->device_info.using_khr_opacity_micromap)
-        VK_CALL(vkCmdBuildMicromapsEXT(list->cmd.vk_command_buffer,
-                rtas_batch->omm_build_info_count, rtas_batch->omm_build_infos.ext));
+    VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
+            rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
 
     d3d12_command_list_clear_rtas_batch(list);
 }
 
-static bool d3d12_command_list_build_raytracing_opacity_micromap_array_ext(struct d3d12_command_list *list,
+static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs,
-        union vkd3d_opacity_micromap *micromap)
-{
-    VkMicromapBuildInfoEXT *build_info;
-    VkMicromapUsageEXT *usage_infos;
-    uint32_t usage_info_count;
-
-    usage_info_count = desc->Inputs.pOpacityMicromapArrayDesc->NumOmmHistogramEntries;
-
-    if (!d3d12_command_list_allocate_omm_build_info_ext(list, usage_info_count,
-            &build_info, &usage_infos))
-        return false;
-
-    if (!vkd3d_opacity_micromap_convert_inputs_ext(list->device, &desc->Inputs, build_info, usage_infos))
-    {
-        ERR("Failed to convert inputs.\n");
-        return false;
-    }
-
-    micromap->ext = VK_NULL_HANDLE;
-    if (desc->DestAccelerationStructureData)
-    {
-        *micromap = vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData);
-        build_info->dstMicromap = micromap->ext;
-        if (build_info->dstMicromap == VK_NULL_HANDLE)
-        {
-            ERR("Failed to place destMicromap. Dropping call.\n");
-            return false;
-        }
-    }
-
-    build_info->scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
-
-#ifdef VKD3D_ENABLE_BREADCRUMBS
-    /* Immediately record the OMM build command here so that we don't have
-     * to create a deep copy of the entire D3D12 input description */
-    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
-    {
-        d3d12_command_list_flush_rtas_batch(list);
-
-        VKD3D_BREADCRUMB_TAG("OMM build [Dest VA, Scratch VA]");
-        VKD3D_BREADCRUMB_AUX64(desc->DestAccelerationStructureData);
-        VKD3D_BREADCRUMB_AUX64(desc->ScratchAccelerationStructureData);
-        {
-            const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-            VkMicromapBuildSizesInfoEXT size_info;
-            unsigned int i;
-
-            memset(&size_info, 0, sizeof(size_info));
-            size_info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
-
-            VK_CALL(vkGetMicromapBuildSizesEXT(list->device->vk_device,
-                    VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info, &size_info));
-            VKD3D_BREADCRUMB_TAG("Build requirements [Size, Build Scratch, Discardable]");
-            VKD3D_BREADCRUMB_AUX64(size_info.micromapSize);
-            VKD3D_BREADCRUMB_AUX64(size_info.buildScratchSize);
-            VKD3D_BREADCRUMB_AUX32(size_info.discardable);
-
-            VKD3D_BREADCRUMB_TAG("Inputs [Flags, VA, Descs VA, Descs stride]");
-            VKD3D_BREADCRUMB_AUX32(desc->Inputs.Flags);
-            VKD3D_BREADCRUMB_AUX64(desc->Inputs.pOpacityMicromapArrayDesc->InputBuffer);
-            VKD3D_BREADCRUMB_AUX64(desc->Inputs.pOpacityMicromapArrayDesc->PerOmmDescs.StartAddress);
-            VKD3D_BREADCRUMB_AUX64(desc->Inputs.pOpacityMicromapArrayDesc->PerOmmDescs.StrideInBytes);
-
-            for (i = 0; i < desc->Inputs.pOpacityMicromapArrayDesc->NumOmmHistogramEntries; i++)
-            {
-                const D3D12_RAYTRACING_OPACITY_MICROMAP_HISTOGRAM_ENTRY *histogram_entry =
-                        &desc->Inputs.pOpacityMicromapArrayDesc->pOmmHistogram[i];
-
-                VKD3D_BREADCRUMB_TAG("Histogram entry [Count, Subdivision Level, Format]");
-                VKD3D_BREADCRUMB_AUX32(histogram_entry->Count);
-                VKD3D_BREADCRUMB_AUX32(histogram_entry->SubdivisionLevel);
-                VKD3D_BREADCRUMB_AUX32(histogram_entry->Format);
-            }
-        }
-    }
-#endif
-    return true;
-}
-
-static bool d3d12_command_list_build_raytracing_opacity_micromap_array_khr(struct d3d12_command_list *list,
-        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs,
-        union vkd3d_opacity_micromap *micromap)
-{
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
+ {
+    VkAccelerationStructureGeometryMicromapDataKHR *geometry_micromap_data;
     VkAccelerationStructureBuildGeometryInfoKHR *build_info;
     VkAccelerationStructureGeometryKHR *geometry_info;
-    VkAccelerationStructureGeometryMicromapDataKHR *geometry_micromap_data;
+    VkAccelerationStructureKHR micromap;
     VkMicromapUsageKHR *usage_infos;
     uint32_t usage_info_count;
 
     usage_info_count = desc->Inputs.pOpacityMicromapArrayDesc->NumOmmHistogramEntries;
 
-    if (!d3d12_command_list_allocate_omm_build_info_khr(list, usage_info_count,
+    if (!d3d12_command_list_allocate_omm_build_info(list, usage_info_count,
             &build_info, &geometry_info, &geometry_micromap_data, &usage_infos))
-        return false;
+        return;
 
-    if (!vkd3d_opacity_micromap_convert_inputs_khr(list->device, &desc->Inputs, build_info, geometry_info,
+    if (!vkd3d_opacity_micromap_convert_inputs(list->device, &desc->Inputs, build_info, geometry_info,
                 geometry_micromap_data, usage_infos))
     {
         ERR("Failed to convert inputs.\n");
-        return false;
+        return;
     }
 
-    micromap->khr = VK_NULL_HANDLE;
+    micromap = VK_NULL_HANDLE;
     if (desc->DestAccelerationStructureData)
     {
-        *micromap = vkd3d_va_map_place_opacity_micromap(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData);
-        build_info->dstAccelerationStructure = micromap->khr;
+        micromap = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
+                        list->device, desc->DestAccelerationStructureData, true);
+        build_info->dstAccelerationStructure = micromap;
         if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place destMicromap. Dropping call.\n");
-            return false;
+            return;
         }
     }
 
@@ -20679,33 +20554,6 @@ static bool d3d12_command_list_build_raytracing_opacity_micromap_array_khr(struc
         }
     }
 #endif
-    return true;
-}
-
-static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3d12_command_list *list,
-        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
-{
-    union vkd3d_opacity_micromap micromap;
-
-    if (!d3d12_device_supports_ray_tracing_tier_1_2(list->device))
-    {
-        ERR("Opacity micromap is not supported. Calling this is invalid.\n");
-        return;
-    }
-
-    if (list->device->device_info.using_khr_opacity_micromap)
-    {
-        if (!d3d12_command_list_build_raytracing_opacity_micromap_array_khr(list, desc, num_postbuild_info_descs,
-            postbuild_info_descs, &micromap))
-            return;
-    }
-    else
-    {
-        if (!d3d12_command_list_build_raytracing_opacity_micromap_array_ext(list, desc, num_postbuild_info_descs,
-            postbuild_info_descs, &micromap))
-            return;
-    }
 
     if (num_postbuild_info_descs)
     {
@@ -20724,9 +20572,10 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
 
 static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs,
+        bool supports_opacity_micromap)
 {
-    VkAccelerationStructureTrianglesOpacityMicromapEXT *omm_infos = NULL;
+    VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos;
     VkAccelerationStructureBuildGeometryInfoKHR *build_info;
     VkAccelerationStructureBuildRangeInfoKHR *range_infos;
     VkAccelerationStructureGeometryKHR *geometry_infos;
@@ -20741,37 +20590,38 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
 #endif
 
     if (!d3d12_command_list_allocate_rtas_build_info(list, geometry_count,
-            &build_info, &geometry_infos, &omm_infos, &range_infos))
+            &build_info, &geometry_infos, &omm_triangles_infos, &range_infos))
         return;
 
     if (!vkd3d_acceleration_structure_convert_inputs(list->device, &desc->Inputs,
-            build_info, geometry_infos, omm_infos, range_infos, primitive_counts))
+            build_info, geometry_infos, omm_triangles_infos, range_infos, primitive_counts,
+            supports_opacity_micromap))
     {
         ERR("Failed to convert inputs.\n");
         return;
+    }
+
+    if (!vkd3d_acceleration_structure_resolve_omm_va_maps(list->device, &desc->Inputs,
+            omm_triangles_infos))
+        return;
+
+    if (build_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR &&
+            desc->SourceAccelerationStructureData)
+    {
+        build_info->srcAccelerationStructure = vkd3d_va_map_read_rtas(&list->device->memory_allocator.va_map,
+                list->device, desc->SourceAccelerationStructureData, false);
+        if (build_info->srcAccelerationStructure == VK_NULL_HANDLE)
+            return;
     }
 
     if (desc->DestAccelerationStructureData)
     {
         build_info->dstAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData);
+                        list->device, desc->DestAccelerationStructureData, false);
         if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place destAccelerationStructure. Dropping call.\n");
-            return;
-        }
-    }
-
-    if (build_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR &&
-            desc->SourceAccelerationStructureData)
-    {
-        build_info->srcAccelerationStructure =
-                vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->SourceAccelerationStructureData);
-        if (build_info->srcAccelerationStructure == VK_NULL_HANDLE)
-        {
-            ERR("Failed to place srcAccelerationStructure. Dropping call.\n");
             return;
         }
     }
@@ -20872,20 +20722,16 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     VKD3D_BREADCRUMB_COMMAND(BUILD_RTAS);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
+void d3d12_command_list_build_raytracing_acceleration_structure_common(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs,
+        bool supports_opacity_micromap)
 {
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
 
-    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
-            iface, desc, num_postbuild_info_descs, postbuild_info_descs);
-
-    d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
@@ -20899,7 +20745,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     /* Do not batch TLAS and BLAS builds into the same command, since doing so
      * is disallowed if there are data dependencies between the builds. This
      * happens in Cyberpunk 2077, which does not emit appropriate UAV barriers. */
-    if ((rtas_batch->build_info_count || rtas_batch->omm_build_info_count) &&
+    if ((rtas_batch->build_info_count) &&
             rtas_batch->build_type != desc->Inputs.Type)
     {
         d3d12_command_list_flush_rtas_batch(list);
@@ -20910,12 +20756,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         vk_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
         vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
         vk_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-
-        if (list->device->device_info.opacity_micromap_features_ext.micromap)
-        {
-            vk_barrier.srcAccessMask |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
-            vk_barrier.dstAccessMask |= VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
-        }
 
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -20928,22 +20768,38 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     rtas_batch->build_type = desc->Inputs.Type;
 
     if (rtas_batch->build_type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
-        d3d12_command_list_build_raytracing_opacity_micromap_array(list,
-                desc, num_postbuild_info_descs, postbuild_info_descs);
+    {
+        if (!supports_opacity_micromap)
+            ERR("Opacity micromap is not supported");
+        else
+            d3d12_command_list_build_raytracing_opacity_micromap_array(list, desc, num_postbuild_info_descs,
+                    postbuild_info_descs);
+    }
     else
-        d3d12_command_list_build_raytracing_blas_and_tlas(list,
-                desc, num_postbuild_info_descs, postbuild_info_descs);
+        d3d12_command_list_build_raytracing_blas_and_tlas(list, desc, num_postbuild_info_descs,
+                postbuild_info_descs, supports_opacity_micromap);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
-        const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
+static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
-            iface, desc, num_acceleration_structures, src_data);
 
-    d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n", true);
+    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
+            iface, desc, num_postbuild_info_descs, postbuild_info_descs);
+
+    d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
+
+    d3d12_command_list_build_raytracing_acceleration_structure_common(list, desc, num_postbuild_info_descs,
+            postbuild_info_descs, d3d12_device_supports_ray_tracing_tier_1_2(list->device));
+}
+
+void d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data,
+        bool supports_opacity_micromap)
+{
     d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
@@ -20955,10 +20811,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     d3d12_command_list_end_current_render_pass(list, true);
-    vkd3d_acceleration_structure_emit_postbuild_info(list,
-            desc, num_acceleration_structures, src_data);
+    vkd3d_acceleration_structure_emit_postbuild_info(list, desc, num_acceleration_structures, src_data,
+           supports_opacity_micromap);
 
     VKD3D_BREADCRUMB_COMMAND(EMIT_RTAS_POSTBUILD);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
+            iface, desc, num_acceleration_structures, src_data);
+
+    d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n", true);
+
+    d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(list,
+        desc, num_acceleration_structures,
+        src_data, d3d12_device_supports_ray_tracing_tier_1_2(list->device));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
@@ -20966,8 +20837,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    union vkd3d_opacity_micromap src_omm;
     VkAccelerationStructureKHR src_as;
+    bool is_micromap;
 
     TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
           iface, dst_data, src_data, mode);
@@ -20986,46 +20857,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
 
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+    if (!vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map, list->device, src_data, &src_as,
+            &is_micromap))
     {
-        vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
-                list->device, src_data, &src_as, &src_omm);
-
-        if (src_as != VK_NULL_HANDLE)
-        {
-            vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode);
-            VKD3D_BREADCRUMB_AUX64(dst_data);
-            VKD3D_BREADCRUMB_AUX64(src_data);
-            VKD3D_BREADCRUMB_AUX32(mode);
-            VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
-            return;
-        }
-        else if (src_omm.any_handle != (uint64_t)VK_NULL_HANDLE)
-        {
-            vkd3d_opacity_micromap_copy(list, dst_data, src_omm, mode);
-            VKD3D_BREADCRUMB_AUX64(dst_data);
-            VKD3D_BREADCRUMB_AUX64(src_data);
-            VKD3D_BREADCRUMB_AUX32(mode);
-            VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
-            return;
-        }
-        else
-            FIXME("Failed to query existing RTAS for VA 0x%"PRIx64", falling back to placement.\n", src_data);
+        FIXME("Failed to query existing RTAS for VA 0x%"PRIx64".\n", src_data);
+        return;
     }
-
-    src_as = vkd3d_va_map_place_acceleration_structure(
-            &list->device->memory_allocator.va_map, list->device, src_data);
-
-    if (src_as != VK_NULL_HANDLE)
+    if (is_micromap && !d3d12_device_supports_ray_tracing_tier_1_2(list->device))
     {
-        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode);
-        VKD3D_BREADCRUMB_AUX64(dst_data);
-        VKD3D_BREADCRUMB_AUX64(src_data);
-        VKD3D_BREADCRUMB_AUX32(mode);
-        VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
+        FIXME("OMM copy src on non-tier-1.2 at VA 0x%"PRIx64".\n", src_data);
+        return;
     }
+    vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, is_micromap);
+    VKD3D_BREADCRUMB_AUX64(dst_data);
+    VKD3D_BREADCRUMB_AUX64(src_data);
+    VKD3D_BREADCRUMB_AUX32(mode);
+    if (is_micromap)
+        VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
     else
-        ERR("Invalid src address #%"PRIx64" for RTAS copy.\n", src_data);
+        VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command_list_iface *iface,
@@ -22214,7 +22064,7 @@ static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12Comma
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
-extern CONST_VTBL struct ID3D12GraphicsCommandListExt1Vtbl d3d12_command_list_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext_vtbl;
 
 static void d3d12_command_list_init_attachment_info(VkRenderingAttachmentInfo *attachment_info)
 {
