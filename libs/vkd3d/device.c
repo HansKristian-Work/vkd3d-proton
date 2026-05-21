@@ -752,7 +752,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * - Disable sibling descriptors. They cause some weird glitches which likely originate from
      *   bad texel buffer <-> image aliasing. */
     { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(
-        .AVOID_IMAGE_BUFFER_ALIASING = 1, .NULL_BUFFER_SIBLINGS = 1) },
+        .AVOID_IMAGE_BUFFER_ALIASING = 1, .NULL_BUFFER_SIBLINGS = 1, .NO_STAGGERED_SUBMIT = 1) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
