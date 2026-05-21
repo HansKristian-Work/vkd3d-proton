@@ -688,6 +688,7 @@ static const struct vkd3d_quirk_to_dxil_mapping
     { VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS, DXIL_SPV_SHADER_QUIRK_GROUP_SHARED_AUTO_BARRIER },
     { VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST, DXIL_SPV_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST },
     { VKD3D_SHADER_QUIRK_PRECISE_FMA, DXIL_SPV_SHADER_QUIRK_PRECISE_FMA },
+    { VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT, DXIL_SPV_SHADER_QUIRK_FORCE_NONUNIFORM },
 };
 
 static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
@@ -1464,6 +1465,9 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS;
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS;
+
+    /* This quirk should only apply to exports. */
+    quirks &= ~VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT;
 
     stage = dxil_spv_parsed_blob_get_shader_stage(blob);
     if (!dxil_match_shader_stage(stage, shader_interface_info->stage))
