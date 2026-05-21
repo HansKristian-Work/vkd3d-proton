@@ -4863,7 +4863,12 @@ static void vkd3d_view_destroy(struct vkd3d_view *view, struct d3d12_device *dev
             break;
         case VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE_OR_OPACITY_MICROMAP:
             if (view->info.buffer.rtas_is_micromap)
-                VK_CALL(vkDestroyMicromapEXT(device->vk_device, view->vk_micromap.ext, NULL));
+            {
+                if (device->device_info.using_khr_opacity_micromap)
+                    VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, view->vk_micromap.khr, NULL));
+                else
+                    VK_CALL(vkDestroyMicromapEXT(device->vk_device, view->vk_micromap.ext, NULL));
+            }
             else
                 VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, view->vk_acceleration_structure, NULL));
             break;
@@ -5258,27 +5263,45 @@ bool vkd3d_create_opacity_micromap_view(struct d3d12_device *device, const struc
         struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkAccelerationStructureCreateInfo2KHR create_info_khr;
     union vkd3d_opacity_micromap vk_micromap;
-    VkMicromapCreateInfoEXT create_info;
+    VkMicromapCreateInfoEXT create_info_ext;
     struct vkd3d_view *object;
     VkResult vr;
 
-    create_info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
-    create_info.pNext = NULL;
-    create_info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
-    create_info.createFlags = 0;
-    create_info.deviceAddress = 0;
-    create_info.buffer = desc->buffer;
-    create_info.offset = desc->offset;
-    create_info.size = desc->size;
+    if (device->device_info.using_khr_opacity_micromap)
+    {
+        memset(&create_info_khr, 0, sizeof(create_info_khr));
 
-    vr = VK_CALL(vkCreateMicromapEXT(device->vk_device, &create_info, NULL, &vk_micromap.ext));
+        create_info_khr.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_2_KHR;
+        create_info_khr.type = VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR;
+        create_info_khr.addressRange.address = vkd3d_get_buffer_device_address(device, desc->buffer) + desc->offset;
+        create_info_khr.addressRange.size = desc->size;
+
+        vr = VK_CALL(vkCreateAccelerationStructure2KHR(device->vk_device, &create_info_khr, NULL, &vk_micromap.khr));
+    }
+    else
+    {
+        memset(&create_info_ext, 0, sizeof(create_info_ext));
+
+        create_info_ext.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
+        create_info_ext.buffer = desc->buffer;
+        create_info_ext.offset = desc->offset;
+        create_info_ext.size = desc->size;
+        create_info_ext.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+
+        vr = VK_CALL(vkCreateMicromapEXT(device->vk_device, &create_info_ext, NULL, &vk_micromap.ext));
+    }
+
     if (vr != VK_SUCCESS)
         return false;
 
     if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE_OR_OPACITY_MICROMAP)))
     {
-        VK_CALL(vkDestroyMicromapEXT(device->vk_device, vk_micromap.ext, NULL));
+        if (device->device_info.using_khr_opacity_micromap)
+            VK_CALL(vkDestroyAccelerationStructureKHR(device->vk_device, vk_micromap.khr, NULL));
+        else
+            VK_CALL(vkDestroyMicromapEXT(device->vk_device, vk_micromap.ext, NULL));
         return false;
     }
 
