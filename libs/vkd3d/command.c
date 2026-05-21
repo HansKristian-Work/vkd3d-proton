@@ -20477,15 +20477,15 @@ static void d3d12_command_list_fixup_rtas_batch(struct d3d12_command_list *list)
             {
                 for (i = 0; i < rtas_batch->geometry_info_count; i++)
                 {
-                    /* oom_infos is cleared to zero if not used. Can use sType as sentinel. */
                     VkAccelerationStructureGeometryKHR *geometry = &rtas_batch->geometry_infos[i];
                     VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_khr = &rtas_batch->omm_triangles_infos.khr[i];
 
-                    if (omm_khr->sType == VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_KHR)
+                    if (geometry->geometry.triangles.pNext)
                     {
-                        /* The pNext may have been invalidated. Just verify something is there. */
-                        assert(geometry->geometry.triangles.pNext);
+                        assert(geometry->geometry.triangles.sType == VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR);
+                        assert(geometry->sType == VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR);
                         assert(geometry->geometryType == VK_GEOMETRY_TYPE_TRIANGLES_KHR);
+                        assert(omm_khr->sType == VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_KHR);
                         geometry->geometry.triangles.pNext = NULL;
                         vk_prepend_struct(&geometry->geometry.triangles, omm_khr);
                     }
