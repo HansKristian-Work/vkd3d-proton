@@ -2503,15 +2503,18 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
         }
     }
 
+    memset(&flags2, 0, sizeof(flags2));
+    flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+
+    memset(&pipeline_create_info, 0, sizeof(pipeline_create_info));
     pipeline_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
-    pipeline_create_info.pNext = NULL;
 
     /* If we allow state object additions, we must first lower this pipeline to a library, and
      * then link it to itself so we can use it a library in subsequent PSO creations, but we
      * must also be able to trace rays from the library. */
-    pipeline_create_info.flags = (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION ||
-            (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS)) ?
-            VK_PIPELINE_CREATE_LIBRARY_BIT_KHR : 0;
+    if (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION ||
+            (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS))
+        flags2.flags |= VK_PIPELINE_CREATE_2_LIBRARY_BIT_KHR;
 
     if (variant->local_static_sampler.pipeline_layout)
         pipeline_create_info.layout = variant->local_static_sampler.pipeline_layout;
@@ -2530,11 +2533,11 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     pipeline_create_info.maxPipelineRayRecursionDepth = object->pipeline_config.MaxTraceRecursionDepth;
 
     if (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES)
-        pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR;
+        flags2.flags |= VK_PIPELINE_CREATE_2_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR;
     if (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
-        pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_AABBS_BIT_KHR;
+        flags2.flags |= VK_PIPELINE_CREATE_2_RAY_TRACING_SKIP_AABBS_BIT_KHR;
     if (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS)
-        pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT;
+        flags2.flags |= VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT;
 
     library_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
     library_info.pNext = NULL;
@@ -2570,20 +2573,15 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     dynamic_state.dynamicStateCount = 1;
     dynamic_state.pDynamicStates = dynamic_states;
 
-    memset(&flags2, 0, sizeof(flags2));
-    flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
-    creating_library = !!(pipeline_create_info.flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR);
+    creating_library = !!(flags2.flags & VK_PIPELINE_CREATE_2_LIBRARY_BIT_KHR);
 
     if (d3d12_device_use_descriptor_heap(object->device))
-    {
-        flags2.flags = pipeline_create_info.flags | VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
-        pipeline_create_info.flags = 0;
-        vk_prepend_struct(&pipeline_create_info, &flags2);
-    }
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
     else if (d3d12_device_uses_descriptor_buffers(object->device))
-    {
-        pipeline_create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
-    }
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT;
+
+    if (flags2.flags)
+        vk_prepend_struct(&pipeline_create_info, &flags2);
 
     TRACE("Calling vkCreateRayTracingPipelinesKHR.\n");
 
@@ -2595,7 +2593,6 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
             object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
     {
         /* It is valid to inherit pipeline libraries into other pipeline libraries. */
-        pipeline_create_info.flags &= ~VK_PIPELINE_CREATE_LIBRARY_BIT_KHR;
         flags2.flags &= ~VK_PIPELINE_CREATE_2_LIBRARY_BIT_KHR;
 
         pipeline_create_info.pStages = NULL;
