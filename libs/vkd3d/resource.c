@@ -719,7 +719,7 @@ static bool d3d12_device_supports_universal_color_ds_copy(struct d3d12_device *d
 }
 
 static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_HEAP_PROPERTIES *heap_properties,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource,
         UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
         struct vkd3d_image_create_info *create_info)
@@ -1168,7 +1168,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 }
 
 static HRESULT vkd3d_create_image(struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_HEAP_PROPERTIES *heap_properties,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource,
         UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
         VkImage *vk_image)
@@ -1179,7 +1179,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     HRESULT hr;
 
     if (FAILED(hr = vkd3d_get_image_create_info(device, heap_properties,
-            heap_flags, desc, resource, num_castable_formats, castable_formats, &create_info)))
+            desc, resource, num_castable_formats, castable_formats, &create_info)))
         return hr;
 
     /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
@@ -1234,7 +1234,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         desc = &validated_desc;
     }
 
-    if (FAILED(hr = vkd3d_get_image_create_info(device, &heap_properties, 0, desc, NULL,
+    if (FAILED(hr = vkd3d_get_image_create_info(device, &heap_properties, desc, NULL,
             num_castable_formats, castable_formats,
             &create_info)))
         return hr;
@@ -3991,7 +3991,7 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
             resource->desc.MipLevels = max_miplevel_count(&resource->desc);
 
         if (FAILED(hr = vkd3d_create_image(device, heap_properties,
-                D3D12_HEAP_FLAG_NONE, &resource->desc, resource,
+                &resource->desc, resource,
                 num_castable_formats, castable_formats,
                 &resource->res.vk_image)))
             return hr;
