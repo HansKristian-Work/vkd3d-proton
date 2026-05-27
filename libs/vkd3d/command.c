@@ -9314,30 +9314,14 @@ static bool d3d12_command_list_update_index_buffer(struct d3d12_command_list *li
 
     if (list->index_buffer.is_dirty)
     {
-        if (!list->index_buffer.buffer)
-        {
-            if (list->device->device_info.maintenance_6_features.maintenance6)
-            {
-                VK_CALL(vkCmdBindIndexBuffer2KHR(list->cmd.vk_command_buffer, VK_NULL_HANDLE, 0, 0, VK_INDEX_TYPE_UINT16));
-            }
-            else
-            {
-                /* NULL index buffers are expected to behave as if all indices are 0. Since this is only
-                 * observable in edge cases involving streamout or geometry shaders, skip the draw call
-                 * for now if the Vulkan implementation does not support this. */
-                FIXME_ONCE("Application attempts to perform an indexed draw call without index buffer bound.\n");
-                return false;
-            }
-        }
-        else if (list->device->device_info.maintenance_5_features.maintenance5)
+        if (list->index_buffer.buffer)
         {
             VK_CALL(vkCmdBindIndexBuffer2KHR(list->cmd.vk_command_buffer, list->index_buffer.buffer,
                     list->index_buffer.offset, list->index_buffer.size, list->index_buffer.vk_type));
         }
         else
         {
-            VK_CALL(vkCmdBindIndexBuffer(list->cmd.vk_command_buffer, list->index_buffer.buffer,
-                    list->index_buffer.offset, list->index_buffer.vk_type));
+            VK_CALL(vkCmdBindIndexBuffer2KHR(list->cmd.vk_command_buffer, VK_NULL_HANDLE, 0, 0, VK_INDEX_TYPE_UINT16));
         }
         list->index_buffer.is_dirty = false;
     }
