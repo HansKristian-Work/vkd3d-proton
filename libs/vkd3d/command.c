@@ -86,6 +86,7 @@ static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list);
 static inline void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *list, enum vkd3d_batch_type type);
 static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list);
 static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list);
+static void d3d12_command_list_flush_rtas_barrier(struct d3d12_command_list *list);
 static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list);
 
 static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *list);
@@ -7415,6 +7416,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
 #endif
 
     d3d12_command_list_clear_rtas_batch(list);
+    list->rtas_batch.pending_rtas_work = false;
 }
 
 static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
@@ -8515,6 +8517,15 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
     if (!d3d12_command_list_update_raygen_pipeline(list))
         return false;
 
+    if (list->rtas_batch.pending_rtas_work)
+    {
+        /* Speculate that application forgot a barrier before calling trace.
+         * Fixes FH6 sync bugs in the wild and it's plausible that applications rely on some kind of implicit
+         * sync between BuildRTAS and TraceRays. */
+        d3d12_command_list_flush_rtas_batch(list);
+        d3d12_command_list_flush_rtas_barrier(list);
+    }
+
     /* DXR uses compute bind point for descriptors, we will redirect internally to
      * raygen bind point in Vulkan. */
     d3d12_command_list_check_pre_compute_barrier(list, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR);
@@ -9372,6 +9383,10 @@ static void d3d12_command_list_check_pre_compute_barrier(
 {
     vkd3d_descriptor_debug_sync_validation_barrier(list->device->descriptor_qa_global_info,
             list->device, list->cmd.vk_command_buffer);
+
+    /* Flush RTAS but don't sync against it, since the chance of false positive is very high.
+     * Beginning render pass does the same thing. */
+    d3d12_command_list_flush_rtas_batch(list);
 
     if ((list->current_meta_flags & (VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
             VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH |
@@ -13587,7 +13602,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 /* Flush pending RTAS updates in case a scratch buffer or input resource gets transitioned */
                 if (d3d12_resource_is_buffer(preserve_resource) && (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS ||
                         transition->StateBefore == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE))
+                {
                     d3d12_command_list_flush_rtas_batch(list);
+                    list->rtas_batch.pending_rtas_work = false;
+                }
 
                 if (d3d12_resource_is_texture(preserve_resource) && (transition->StateBefore == D3D12_RESOURCE_STATE_RENDER_TARGET ||
                         transition->StateBefore == D3D12_RESOURCE_STATE_DEPTH_WRITE))
@@ -13687,7 +13705,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                 /* Flush pending RTAS builds if the resource could be an RTAS or scratch buffer */
                 if (!preserve_resource || d3d12_resource_is_buffer(preserve_resource))
+                {
                     d3d12_command_list_flush_rtas_batch(list);
+                    list->rtas_batch.pending_rtas_work = false;
+                }
 
                 if (!preserve_resource || d3d12_resource_is_acceleration_structure(preserve_resource))
                     state_mask |= D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
@@ -13730,7 +13751,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 {
                     /* Flush pending RTAS builds if we're disabling a potential input resource, scratch or RTAS buffer */
                     if (!before || d3d12_resource_is_buffer(before))
+                    {
                         d3d12_command_list_flush_rtas_batch(list);
+                        list->rtas_batch.pending_rtas_work = false;
+                    }
 
                     /* Flush pending clears for any resource that may alias with the input */
                     if (!before || d3d12_resource_is_texture(before))
@@ -20422,6 +20446,28 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     d3d12_command_list_clear_rtas_batch(list);
 }
 
+static void d3d12_command_list_flush_rtas_barrier(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    list->rtas_batch.pending_rtas_work = false;
+}
+
 static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
@@ -20676,10 +20722,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
-    VkMemoryBarrier2 vk_barrier;
-    VkDependencyInfo dep_info;
+    bool assume_hazard;
 
     TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
             iface, desc, num_postbuild_info_descs, postbuild_info_descs);
@@ -20697,28 +20741,30 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 
     /* Do not batch TLAS and BLAS builds into the same command, since doing so
      * is disallowed if there are data dependencies between the builds. This
-     * happens in Cyberpunk 2077, which does not emit appropriate UAV barriers. */
-    if ((rtas_batch->build_info_count) &&
-            rtas_batch->build_type != desc->Inputs.Type)
+     * happens in Cyberpunk 2077, which does not emit appropriate UAV barriers.
+     * Also, if we ever transition between the modes, assume we need to resolve the hazard.
+     * Sometimes it's possible that RTAS batch gets flushed without appropriate barriers.
+     * There is no concrete proof of this being required yet, but it's a useful debug config. */
+    if (VKD3D_CONFIG_FLAG_IS_SET(EXTRA_RTAS_SYNC))
+    {
+        assume_hazard = rtas_batch->pending_rtas_work &&
+                        (rtas_batch->build_type != desc->Inputs.Type ||
+                         ((rtas_batch->build_flags ^ desc->Inputs.Flags) &
+                          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE));
+    }
+    else
+    {
+        assume_hazard = rtas_batch->build_info_count && rtas_batch->build_type != desc->Inputs.Type;
+    }
+
+    if (assume_hazard)
     {
         d3d12_command_list_flush_rtas_batch(list);
-
-        memset(&vk_barrier, 0, sizeof(vk_barrier));
-        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        vk_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        vk_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-
-        memset(&dep_info, 0, sizeof(dep_info));
-        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep_info.memoryBarrierCount = 1;
-        dep_info.pMemoryBarriers = &vk_barrier;
-
-        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        d3d12_command_list_flush_rtas_barrier(list);
     }
 
     rtas_batch->build_type = desc->Inputs.Type;
+    rtas_batch->build_flags = desc->Inputs.Flags;
 
     if (rtas_batch->build_type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
         d3d12_command_list_build_raytracing_opacity_micromap_array(list,
@@ -20726,6 +20772,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     else
         d3d12_command_list_build_raytracing_blas_and_tlas(list,
                 desc, num_postbuild_info_descs, postbuild_info_descs);
+
+    rtas_batch->pending_rtas_work = true;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
@@ -20778,6 +20826,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
+
+    if (VKD3D_CONFIG_FLAG_IS_SET(EXTRA_RTAS_SYNC) && list->rtas_batch.pending_rtas_work)
+    {
+        /* Speculate that application forgot a barrier before compaction. */
+        d3d12_command_list_flush_rtas_batch(list);
+        d3d12_command_list_flush_rtas_barrier(list);
+    }
+
+    /* We have not observed broken copy -> trace sync in the wild so far.
+     * Don't consider this pending RTAS work until we have evidence of real-world breakage. */
 
     if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
     {
@@ -21480,7 +21538,10 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
     }
 
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE))
+    {
         d3d12_command_list_flush_rtas_batch(list);
+        list->rtas_batch.pending_rtas_work = false;
+    }
 
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_DEPTH_STENCIL))
         d3d12_command_list_flush_clears(list, NULL, NULL);
