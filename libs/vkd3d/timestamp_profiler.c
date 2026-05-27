@@ -61,12 +61,12 @@ struct vkd3d_timestamp_profiler
 
     /* Ready timestamps to be allocated. */
     uint32_t *vacant_index_pool;
-    size_t vacant_index_count;
+    uint32_t vacant_index_count;
 
     uint32_t *refcount_list;
 
     struct vkd3d_timestamp_profiler_pso_state *pso_states;
-    size_t pso_states_count;
+    uint32_t pso_states_count;
     size_t pso_states_size;
 
     pthread_mutex_t alloc_lock;
