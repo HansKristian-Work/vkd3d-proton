@@ -61,7 +61,7 @@ static void vkd3d_init_profiling_path(const char *path)
     HANDLE file_view;
     char path_pid[_MAX_PATH];
 
-    snprintf(path_pid, sizeof(path_pid), "%s.%u", path, GetCurrentProcessId());
+    snprintf(path_pid, sizeof(path_pid), "%s.%u", path, (unsigned int)GetCurrentProcessId());
     profiling_fd = CreateFileA(path_pid, GENERIC_READ | GENERIC_WRITE,
             FILE_SHARE_READ, NULL, CREATE_ALWAYS,
             FILE_ATTRIBUTE_NORMAL, INVALID_HANDLE_VALUE);
