@@ -6,6 +6,8 @@
                 "VK_KHR_push_descriptor": 1,
                 "VK_KHR_swapchain": 1,
                 "VK_KHR_calibrated_timestamps" : 1,
+                "VK_KHR_maintenance5": 1,
+                "VK_KHR_maintenance6": 1,
                 "VK_EXT_custom_border_color" : 1,
                 "VK_EXT_depth_clip_enable": 1,
                 "VK_EXT_robustness2": 1,
@@ -103,6 +105,12 @@
                 },
                 "VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT": {
                     "dynamicRenderingUnusedAttachments": true
+                },
+                "VkPhysicalDeviceMaintenance5FeaturesKHR": {
+                    "maintenance5": true
+                },
+                "VkPhysicalDeviceMaintenance6FeaturesKHR": {
+                    "maintenance6": true
                 }
             },
             "properties": {
@@ -543,8 +551,6 @@
                 "VK_EXT_image_sliced_view_of_3d": 1,
                 "VK_EXT_memory_priority": 1,
                 "VK_EXT_device_generated_commands": 1,
-                "VK_KHR_maintenance5": 1,
-                "VK_KHR_maintenance6": 1,
                 "VK_KHR_maintenance7": 1,
                 "VK_EXT_depth_bias_control": 1,
                 "VK_EXT_zero_initialize_device_memory" : 1,
@@ -576,12 +582,6 @@
                 "VkPhysicalDeviceVulkan12Features": {
                     "shaderFloat16": true,
                     "shaderSubgroupExtendedTypes": true
-                },
-                "VkPhysicalDeviceMaintenance5FeaturesKHR": {
-                    "maintenance5": true
-                },
-                "VkPhysicalDeviceMaintenance6FeaturesKHR": {
-                    "maintenance6": true
                 },
                 "VkPhysicalDeviceMaintenance7FeaturesKHR": {
                     "maintenance7": true
