@@ -2340,7 +2340,7 @@ struct d3d12_graphics_pipeline_state
     VkPipeline pipeline;
     VkPipeline library;
     VkGraphicsPipelineLibraryFlagsEXT library_flags;
-    VkPipelineCreateFlags library_create_flags;
+    VkPipelineCreateFlags2 library_create_flags;
     struct list compiled_fallback_pipelines;
 
     unsigned int xfb_buffer_count;
