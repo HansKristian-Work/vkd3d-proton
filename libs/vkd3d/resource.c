@@ -108,23 +108,14 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
     VkBufferCreateInfo buffer_info;
     VkResult vr;
 
+    memset(&buffer_info, 0, sizeof(buffer_info));
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buffer_info.pNext = NULL;
-    buffer_info.flags = 0;
     buffer_info.size = size;
 
-    if (device->device_info.maintenance_5_features.maintenance5)
-    {
-        flags2.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO_KHR;
-        flags2.pNext = NULL;
-        flags2.usage = vk_usage_flags;
-        buffer_info.usage = 0;
-        vk_prepend_struct(&buffer_info, &flags2);
-    }
-    else
-    {
-        buffer_info.usage = vk_usage_flags;
-    }
+    memset(&flags2, 0, sizeof(flags2));
+    flags2.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO_KHR;
+    flags2.usage = vk_usage_flags;
+    vk_prepend_struct(&buffer_info, &flags2);
 
     /* Buffers have implicit SIMULTANEOUS_USAGE rules, which imply some level of CONCURRENT access.
      * We'll need to use CONCURRENT here to be fully spec compliant. */
@@ -5134,21 +5125,17 @@ bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         return false;
     }
 
+    memset(&view_desc, 0, sizeof(view_desc));
     view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
-    view_desc.pNext = NULL;
-    view_desc.flags = 0;
     view_desc.buffer = vk_buffer;
     view_desc.format = format->vk_format;
     view_desc.offset = offset;
     view_desc.range = range;
 
-    if (device->device_info.maintenance_5_features.maintenance5)
-    {
-        memset(&flags2, 0, sizeof(flags2));
-        flags2.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO;
-        flags2.usage = usage;
-        vk_prepend_struct(&view_desc, &flags2);
-    }
+    memset(&flags2, 0, sizeof(flags2));
+    flags2.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO;
+    flags2.usage = usage;
+    vk_prepend_struct(&view_desc, &flags2);
 
     if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
         WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
