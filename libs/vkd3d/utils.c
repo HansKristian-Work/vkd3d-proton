@@ -771,6 +771,8 @@ static void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device)
 static HRESULT vkd3d_init_formats(struct d3d12_device *device)
 {
     const struct vkd3d_format_compatibility_list *list;
+    VkFormatProperties3 a8_properties, r8_properties;
+    VkFormatFeatureFlags r8_unique_features;
     struct vkd3d_format *formats, *format;
     VkFormatProperties3 properties;
     DXGI_FORMAT dxgi_format;
@@ -784,35 +786,27 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
             VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
             VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
 
+    static const VkFormatFeatureFlags a8_required_features =
+            VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+            VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
+            VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
+            VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT |
+            VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT;
+
     if (!(formats = vkd3d_calloc(VKD3D_MAX_DXGI_FORMAT + 1, sizeof(*formats))))
         return E_OUTOFMEMORY;
 
-    if (device->device_info.maintenance_5_features.maintenance5)
-    {
-        const VkFormatFeatureFlags a8_required_features =
-                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
-                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
-                VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
-                VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
-                VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
-                VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT |
-                VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT;
+    vkd3d_get_vk_format_properties(device, VK_FORMAT_A8_UNORM_KHR, &a8_properties);
+    vkd3d_get_vk_format_properties(device, VK_FORMAT_R8_UNORM, &r8_properties);
 
-        VkFormatProperties3 a8_properties, r8_properties;
-        VkFormatFeatureFlags r8_unique_features;
+    /* Only use the native A8_UNORM format if support is at least as good
+        * as for the R8_UNORM fallback format for relevant features. */
+    r8_unique_features = (r8_properties.optimalTilingFeatures | r8_properties.bufferFeatures) &
+            ~(a8_properties.optimalTilingFeatures | a8_properties.bufferFeatures);
 
-        vkd3d_get_vk_format_properties(device, VK_FORMAT_A8_UNORM_KHR, &a8_properties);
-        vkd3d_get_vk_format_properties(device, VK_FORMAT_R8_UNORM, &r8_properties);
-
-        /* Only use the native A8_UNORM format if support is at least as good
-         * as for the R8_UNORM fallback format for relevant features. */
-        r8_unique_features = (r8_properties.optimalTilingFeatures | r8_properties.bufferFeatures) &
-                ~(a8_properties.optimalTilingFeatures | a8_properties.bufferFeatures);
-
-        emulate_a8 = (r8_unique_features & a8_required_features) != 0;
-    }
-    else
-        emulate_a8 = true;
+    emulate_a8 = (r8_unique_features & a8_required_features) != 0;
 
     if (emulate_a8)
         WARN("Mapping VK_FORMAT_A8_UNORM_KHR to VK_FORMAT_R8_UNORM.\n");
