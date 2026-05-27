@@ -3369,6 +3369,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
+    if (!physical_device_info->maintenance_5_features.maintenance5 ||
+            !physical_device_info->maintenance_6_features.maintenance6)
+    {
+        ERR("maintenance5 and/or maintenance6 not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
     if (physical_device_info->cooperative_matrix_features.cooperativeMatrix)
     {
         if (!vkd3d_supports_minimum_coopmat_caps(device))
