@@ -191,9 +191,11 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
         return vr;
     }
 
+    memset(&flags2, 0, sizeof(flags2));
+    flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+
+    memset(&pipeline_info, 0, sizeof(pipeline_info));
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipeline_info.pNext = NULL;
-    pipeline_info.flags = 0;
     pipeline_info.layout = layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
@@ -202,7 +204,7 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
         d3d12_device_uses_descriptor_buffers(device) &&
         descriptor_buffer_compatible)
     {
-        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT;
     }
 
     vkd3d_meta_make_shader_stage(&pipeline_info.stage,
@@ -212,15 +214,14 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
 
     if (layout == VK_NULL_HANDLE)
     {
-        memset(&flags2, 0, sizeof(flags2));
-        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
-        flags2.flags = pipeline_info.flags | VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
-        pipeline_info.flags = 0;
-        vk_prepend_struct(&pipeline_info, &flags2);
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
 
         vkd3d_meta_init_heap_mappings(device, &mapping_info);
         vk_prepend_struct(&pipeline_info.stage, &mapping_info.mapping_info);
     }
+
+    if (flags2.flags)
+        vk_prepend_struct(&pipeline_info, &flags2);
 
     cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, pipeline));
@@ -344,10 +345,11 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     cb_state.pAttachments = &blend_attachment;
     memset(&cb_state.blendConstants, 0, sizeof(cb_state.blendConstants));
 
+    memset(&flags2, 0, sizeof(flags2));
+    flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+
+    memset(&pipeline_info, 0, sizeof(pipeline_info));
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.pNext = &rendering_info;
-    pipeline_info.flags = 0;
-    pipeline_info.stageCount = 0;
     pipeline_info.pStages = shader_stages;
     pipeline_info.pVertexInputState = &vi_state;
     pipeline_info.pInputAssemblyState = &ia_state;
@@ -359,16 +361,15 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     pipeline_info.pColorBlendState = rendering_info.colorAttachmentCount ? &cb_state : NULL;
     pipeline_info.pDynamicState = &dyn_state;
     pipeline_info.layout = layout;
-    pipeline_info.renderPass = VK_NULL_HANDLE;
-    pipeline_info.subpass = 0;
-    pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
+
+    vk_prepend_struct(&pipeline_info, &rendering_info);
 
     if (!d3d12_device_use_descriptor_heap(meta_ops->device) &&
         d3d12_device_uses_descriptor_buffers(meta_ops->device) &&
         descriptor_buffer_compatible)
     {
-        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT;
     }
 
     vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
@@ -390,15 +391,14 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
 
     if (layout == VK_NULL_HANDLE)
     {
-        memset(&flags2, 0, sizeof(flags2));
-        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
-        flags2.flags = pipeline_info.flags | VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
-        pipeline_info.flags = 0;
-        vk_prepend_struct(&pipeline_info, &flags2);
+        flags2.flags |= VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
 
         vkd3d_meta_init_heap_mappings(meta_ops->device, &mapping_info);
         vk_prepend_struct(&shader_stages[pipeline_info.stageCount - 1], &mapping_info.mapping_info);
     }
+
+    if (flags2.flags)
+        vk_prepend_struct(&pipeline_info, &flags2);
 
     cookie = vkd3d_queue_timeline_trace_register_pso_compile(&meta_ops->device->queue_timeline_trace);
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(meta_ops->device->vk_device,
