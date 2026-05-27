@@ -61,6 +61,8 @@ WCHAR *vkd3d_wstrdup(const WCHAR *str)
 
     len = vkd3d_wcslen(str) + 1;
 
+    if (len > SIZE_MAX / sizeof(WCHAR))
+        return NULL;
     duped = vkd3d_malloc(len * sizeof(WCHAR));
     if (duped)
         memcpy(duped, str, len * sizeof(WCHAR));
@@ -126,6 +128,8 @@ WCHAR *vkd3d_dup_entry_point_n(const char *str, size_t len)
     WCHAR *duped;
     size_t i;
 
+    if (len >= SIZE_MAX / sizeof(WCHAR))
+        return NULL;
     duped = vkd3d_malloc((len + 1) * sizeof(WCHAR));
     if (!duped)
         return NULL;
