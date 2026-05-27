@@ -4731,9 +4731,9 @@ struct vkd3d_copy_image_ops
 {
     VkDescriptorSetLayout vk_set_layout;
     VkPipelineLayout vk_pipeline_layout;
-    VkShaderModule vk_fs_float_module;
-    VkShaderModule vk_fs_uint_module;
-    VkShaderModule vk_fs_stencil_module;
+    VkShaderModuleCreateInfo vk_fs_float_module;
+    VkShaderModuleCreateInfo vk_fs_uint_module;
+    VkShaderModuleCreateInfo vk_fs_stencil_module;
 
     pthread_mutex_t mutex;
 
@@ -4809,11 +4809,11 @@ struct vkd3d_resolve_image_ops
     VkDescriptorSetLayout vk_compute_set_layout;
     VkPipelineLayout vk_graphics_pipeline_layout;
     VkPipelineLayout vk_compute_pipeline_layout;
-    VkShaderModule vk_fs_float_module;
-    VkShaderModule vk_fs_uint_module;
-    VkShaderModule vk_fs_sint_module;
-    VkShaderModule vk_fs_depth_module;
-    VkShaderModule vk_fs_stencil_module;
+    VkShaderModuleCreateInfo vk_fs_float_module;
+    VkShaderModuleCreateInfo vk_fs_uint_module;
+    VkShaderModuleCreateInfo vk_fs_sint_module;
+    VkShaderModuleCreateInfo vk_fs_depth_module;
+    VkShaderModuleCreateInfo vk_fs_stencil_module;
 
     pthread_mutex_t mutex;
 
@@ -4846,8 +4846,8 @@ struct vkd3d_swapchain_ops
 {
     VkDescriptorSetLayout vk_set_layouts[2];
     VkPipelineLayout vk_pipeline_layouts[2];
-    VkShaderModule vk_vs_module;
-    VkShaderModule vk_fs_module;
+    VkShaderModuleCreateInfo vk_vs_module;
+    VkShaderModuleCreateInfo vk_fs_module;
     VkSampler vk_samplers[2];
 
     pthread_mutex_t mutex;
@@ -5031,8 +5031,8 @@ struct vkd3d_dstorage_ops
 
 struct vkd3d_meta_ops_common
 {
-    VkShaderModule vk_module_fullscreen_vs;
-    VkShaderModule vk_module_fullscreen_gs;
+    VkShaderModuleCreateInfo vk_fullscreen_vs;
+    VkShaderModuleCreateInfo vk_fullscreen_gs;
 };
 
 struct vkd3d_sampler_feedback_resolve_info
