@@ -579,6 +579,13 @@ VkResult vkd3d_queue_wait_submission_timeline(struct vkd3d_queue *queue, uint64_
     return vr;
 }
 
+static void vkd3d_queue_update_observed_cpu_timeline(struct vkd3d_queue *queue, uint64_t timeline)
+{
+    pthread_mutex_lock(&queue->fence_mutex);
+    queue->cpu_observed_timeline_value = max(queue->cpu_observed_timeline_value, timeline);
+    pthread_mutex_unlock(&queue->fence_mutex);
+}
+
 void vkd3d_add_wait_to_all_queues(struct d3d12_device *device, VkSemaphore vk_semaphore, uint64_t value)
 {
     struct vkd3d_queue_family_info *queue_family;
@@ -845,6 +852,8 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
         else
         {
             vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, timeout));
+            if (vr == VK_SUCCESS && fence->fence_info.vk_semaphore == queue->vkd3d_queue->submission_timeline)
+                vkd3d_queue_update_observed_cpu_timeline(queue->vkd3d_queue, fence->fence_info.vk_semaphore_value);
         }
 
         if (vr != VK_SUCCESS)
