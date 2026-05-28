@@ -736,8 +736,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Crimson Desert (3321460).
      * Game advertises being able to run on RDNA1, but when we don't expose some RDNA2+ features,
      * it just exits on startup. It seems to rely on unstable barycentrics, which we can implement on older AMD,
-     * and VRS can be nooped. */
-    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
+     * and VRS can be nooped. Recent game update has broken raw buffer <-> image aliasing. */
+    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", VKD3D_CONFIG_FLAG_STATIC(AVOID_IMAGE_BUFFER_ALIASING), VKD3D_CONFIG_FLAGS_NONE,
         VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY | VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING },
     /* Ark Ascended (2399830). Very broken FSR3 usage where the entire thing is freed. We can retain the resources automatically
      * but descriptor heap is not named, so we cannot auto-detect. Similar story for the PSOs. */
