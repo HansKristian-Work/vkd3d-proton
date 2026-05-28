@@ -3230,56 +3230,6 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
     }
 }
 
-/* This is used for workaround purposes for when some games screw up use-after-free of in-flight resources.
- * If resources are destroyed in-flight that's usually fine since GPU page tables are not updated
- * while a submission is in flight, but since we thread the actual submissions, we might observe behavior
- * that might not happen on Windows.
- * For workaround purposes, it's enough that we just defer the actual final decref until all dependent
- * vkQueueSubmit calls have gone through on CPU timeline.
- * This can be extended as needed to deal with GPU timeline too, but that's only relevant if truly needed,
- * since it will dramatically increase complexity and CPU overhead. */
-void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device *device,
-        void (*inc_call)(void *), void (*dec_call)(void *), void *userdata, bool postpone_decref)
-{
-    struct vkd3d_queue_family_info *queue_family;
-    struct d3d12_command_queue_submission sub;
-    unsigned int i, j, family_index;
-    struct vkd3d_queue *vk_queue;
-
-    for (family_index = 0; family_index < ARRAY_SIZE(device->queue_families); family_index++)
-    {
-        queue_family = device->queue_families[family_index];
-        if (!queue_family)
-            continue;
-
-        /* Only use unique queue families. */
-        for (i = 0; i < family_index; i++)
-            if (device->queue_families[i] == queue_family)
-                break;
-
-        if (i < family_index)
-            continue;
-
-        for (i = 0; i < queue_family->queue_count; i++)
-        {
-            vk_queue = queue_family->queues[i];
-            pthread_mutex_lock(&vk_queue->mutex);
-            for (j = 0; j < vk_queue->command_queue_count; j++)
-            {
-                sub.type = VKD3D_SUBMISSION_CPU_TIMELINE_CALLBACK;
-                sub.callback.callback = dec_call;
-                sub.callback.userdata = userdata;
-                inc_call(userdata);
-                d3d12_command_queue_add_submission(vk_queue->command_queues[j], &sub);
-            }
-            pthread_mutex_unlock(&vk_queue->mutex);
-        }
-    }
-
-    if (!postpone_decref)
-        dec_call(userdata);
-}
-
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
         struct d3d12_command_queue *command_queue)
 {
@@ -22271,13 +22221,18 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
         d3d_destruction_notifier_free(&command_queue->destruction_notifier);
         vkd3d_private_store_destroy(&command_queue->private_store);
 
+        /* It's important to unmap the queue first, before we send the STOP signal.
+         * Once the STOP signal has been received by command queue thread,
+         * it will no longer process commands.
+         * This can be a problem for unrelated code like resource retaining
+         * that attempts to loop over mapped queues and send submits to them. */
+        d3d12_device_unmap_vkd3d_queue(command_queue->vkd3d_queue, command_queue);
+
         d3d12_command_queue_submit_stop(command_queue);
 
         pthread_join(command_queue->submission_thread, NULL);
         pthread_mutex_destroy(&command_queue->queue_lock);
         pthread_cond_destroy(&command_queue->queue_cond);
-
-        d3d12_device_unmap_vkd3d_queue(command_queue->vkd3d_queue, command_queue);
 
         vkd3d_fence_worker_stop(&command_queue->fence_worker, device);
 
@@ -23863,6 +23818,37 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
     /* We should probably trigger DEVICE_REMOVED if we hit any errors in the submission thread. */
 }
 
+struct vkd3d_waiting_fence_defer_release_resource_info
+{
+    struct d3d12_resource *resource;
+};
+
+static void vkd3d_waiting_fence_release_resource(struct vkd3d_fence_worker *worker,
+        void *userdata, bool complete)
+{
+    struct vkd3d_waiting_fence_defer_release_resource_info *info = userdata;
+    d3d12_resource_decref(info->resource);
+}
+
+static void d3d12_command_queue_defer_release_resource(struct d3d12_command_queue *command_queue,
+                                                       struct d3d12_resource *resource)
+{
+    struct vkd3d_waiting_fence_defer_release_resource_info *release_info;
+    struct vkd3d_fence_wait_info fence_info;
+    HRESULT hr;
+
+    memset(&fence_info, 0, sizeof(fence_info));
+    fence_info.vk_semaphore = command_queue->vkd3d_queue->submission_timeline;
+    fence_info.vk_semaphore_value = command_queue->last_submission_timeline_value;
+
+    release_info = vkd3d_waiting_fence_set_callback(&fence_info,
+            &vkd3d_waiting_fence_release_resource, sizeof(*release_info));
+    release_info->resource = resource;
+
+    if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, NULL)))
+        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", (int)hr);
+}
+
 #define VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS 16
 struct d3d12_command_queue_transition_pool
 {
@@ -25082,6 +25068,7 @@ void d3d12_command_queue_enqueue_callback(struct d3d12_command_queue *queue, voi
 void d3d12_command_queue_add_submission_locked(struct d3d12_command_queue *queue,
                                                const struct d3d12_command_queue_submission *sub)
 {
+    vkd3d_atomic_uint32_increment(&queue->inflight_submissions, vkd3d_memory_order_relaxed);
     vkd3d_array_reserve((void**)&queue->submissions, &queue->submissions_size,
                         queue->submissions_count + 1, sizeof(*queue->submissions));
     queue->submissions[queue->submissions_count++] = *sub;
@@ -25297,9 +25284,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             submission.callback.callback(submission.callback.userdata);
             break;
 
-        case VKD3D_SUBMISSION_CPU_TIMELINE_CALLBACK:
-            cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "CPU_CALLBACK");
-            submission.callback.callback(submission.callback.userdata);
+        case VKD3D_SUBMISSION_RESOURCE_RETAIN:
+            d3d12_command_queue_defer_release_resource(queue, submission.resource);
             break;
 
         default:
@@ -25307,6 +25293,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             break;
         }
 
+        vkd3d_atomic_uint32_decrement(&queue->inflight_submissions, vkd3d_memory_order_release);
         vkd3d_queue_timeline_trace_complete_execute(&queue->device->queue_timeline_trace, &queue->fence_worker, cookie);
     }
 
