@@ -3854,27 +3854,6 @@ void d3d12_resource_decref_retained(struct d3d12_resource *resource)
     d3d12_resource_decref(resource);
 }
 
-void d3d12_resource_incref_weak(struct d3d12_resource *resource)
-{
-    vkd3d_atomic_uint32_increment(&resource->weak_count, vkd3d_memory_order_relaxed);
-}
-
-void d3d12_resource_decref_weak(struct d3d12_resource *resource)
-{
-    /* To be able to detect a destroyed resource, we need to hold on to the d3d12_resource memory a bit longer.
-     * Effectively, we have a weak_ptr system in place. Only bother going through this if
-     * we enable the weak_ptr retain path. This should only be enabled in debug builds and/or special workaround
-     * cases. ID3D12GraphicsCommandList can retain a weak reference until it is Reset. */
-#ifdef VKD3D_ENABLE_BREADCRUMBS
-    const bool can_have_weak_references = true;
-#else
-    const bool can_have_weak_references = !!(resource->flags & VKD3D_RESOURCE_RETAINED_GPU_REFERENCE);
-#endif
-
-    if (!can_have_weak_references || vkd3d_atomic_uint32_decrement(&resource->weak_count, vkd3d_memory_order_acq_rel) == 0)
-        vkd3d_free(resource);
-}
-
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -3932,7 +3911,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if (resource->heap)
         d3d12_heap_decref(resource->heap);
 
-    d3d12_resource_decref_weak(resource);
+    vkd3d_free(resource);
 }
 
 static void d3d12_resource_destroy_and_release_device(struct d3d12_resource *resource,
@@ -4101,7 +4080,6 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
 
     object->refcount = 1;
     object->internal_refcount = 1;
-    object->weak_count = 1;
     object->desc = *desc;
     object->desc.Alignment = d3d12_resource_determine_alignment(device, desc, num_castable_formats, castable_formats);
     object->device = device;
