@@ -1158,7 +1158,6 @@ struct d3d12_resource
     d3d12_resource_iface ID3D12Resource_iface;
     LONG refcount;
     LONG internal_refcount;
-    LONG weak_count;
 
     D3D12_RESOURCE_DESC1 desc;
     D3D12_HEAP_PROPERTIES heap_properties;
@@ -1221,10 +1220,6 @@ static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resour
 
 ULONG d3d12_resource_incref(struct d3d12_resource *resource);
 ULONG d3d12_resource_decref(struct d3d12_resource *resource);
-/* Only called by fence worker. Adds detection for use-after-free in debug builds. */
-void d3d12_resource_decref_retained(struct d3d12_resource *resource);
-void d3d12_resource_incref_weak(struct d3d12_resource *resource);
-void d3d12_resource_decref_weak(struct d3d12_resource *resource);
 
 struct vkd3d_cookie vkd3d_allocate_cookie(void);
 UINT vkd3d_allocate_cookie_va_timestamp(void);
@@ -3452,10 +3447,6 @@ struct d3d12_command_list
     size_t query_resolve_count;
     size_t query_resolve_size;
 
-    struct d3d12_resource **retained_resources;
-    size_t retained_resources_size;
-    size_t retained_resources_count;
-
     struct hash_map query_resolve_lut;
 
     struct d3d12_transfer_batch_state transfer_batch;
@@ -3734,9 +3725,6 @@ struct d3d12_command_queue_submission_execute
 
     struct vkd3d_initial_transition *transitions;
     size_t transition_count;
-
-    struct d3d12_resource **retained_resources;
-    UINT num_retained_resources;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* Replays commands in submission order for heavy debug. */
