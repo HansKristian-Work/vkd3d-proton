@@ -3675,8 +3675,8 @@ enum vkd3d_submission_type
     VKD3D_SUBMISSION_BIND_SPARSE,
     VKD3D_SUBMISSION_STOP,
     VKD3D_SUBMISSION_QUEUE_USING_CALLBACK,
-    VKD3D_SUBMISSION_CPU_TIMELINE_CALLBACK,
-    VKD3D_SUBMISSION_DRAIN
+    VKD3D_SUBMISSION_DRAIN,
+    VKD3D_SUBMISSION_RESOURCE_RETAIN
 };
 
 enum vkd3d_sparse_memory_bind_mode
@@ -3763,6 +3763,7 @@ struct d3d12_command_queue_submission
         struct d3d12_command_queue_submission_execute execute;
         struct d3d12_command_queue_submission_bind_sparse bind_sparse;
         struct d3d12_command_queue_submission_callback callback;
+        struct d3d12_resource *resource;
     };
 };
 
@@ -3860,6 +3861,8 @@ struct d3d12_command_queue
     VkSemaphore serializing_semaphore;
     bool serializing_semaphore_signaled;
 
+    uint32_t inflight_submissions;
+
     struct
     {
         uint32_t buffer_binds_count;
@@ -3888,6 +3891,8 @@ HRESULT d3d12_command_queue_create(struct d3d12_device *device,
 void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue);
 void d3d12_command_queue_signal_inline(struct d3d12_command_queue *queue, d3d12_fence_iface *fence, uint64_t value);
 void d3d12_command_queue_enqueue_callback(struct d3d12_command_queue *queue, void (*callback)(void *), void *userdata);
+void d3d12_command_queue_add_submission_locked(struct d3d12_command_queue *queue,
+                                               const struct d3d12_command_queue_submission *sub);
 
 struct vkd3d_execute_indirect_info
 {
@@ -5838,8 +5843,6 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
         uint32_t vk_family_index);
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
         struct d3d12_command_queue *command_queue);
-void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device *device,
-        void (*inc_call)(void *), void (*dec_call)(void *), void *userdata, bool postpone_decref);
 void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue, struct d3d12_command_queue *command_queue);
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,

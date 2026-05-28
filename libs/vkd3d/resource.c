@@ -2243,18 +2243,6 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(d3d12_resource_iface *iface
     return refcount;
 }
 
-static void d3d12_resource_deferred_incref(void *userdata)
-{
-    struct d3d12_resource *resource = userdata;
-    d3d12_resource_incref(resource);
-}
-
-static void d3d12_resource_deferred_decref(void *userdata)
-{
-    struct d3d12_resource *resource = userdata;
-    d3d12_resource_decref(resource);
-}
-
 static void d3d12_device_add_pending_resource_decref(struct d3d12_device *device,
         struct d3d12_resource *resource)
 {
@@ -2273,11 +2261,75 @@ static void d3d12_device_add_pending_resource_decref(struct d3d12_device *device
         d3d12_resource_decref(resource);
 }
 
+/* This is used for workaround purposes when some games screw up use-after-free of in-flight resources.
+ * If resources are destroyed in-flight that's usually fine since GPU page tables are not updated
+ * while a submission is in flight, but since we thread the actual submissions, we might observe behavior
+ * that might not happen on Windows. */
+static void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device *device, struct d3d12_resource *resource)
+{
+    struct vkd3d_queue_family_info *queue_family;
+    unsigned int i, j, family_index;
+    struct vkd3d_queue *vk_queue;
+    uint64_t last_observed;
+
+    for (family_index = 0; family_index < ARRAY_SIZE(device->queue_families); family_index++)
+    {
+        queue_family = device->queue_families[family_index];
+        if (!queue_family)
+            continue;
+
+        /* Only use unique queue families. */
+        for (i = 0; i < family_index; i++)
+            if (device->queue_families[i] == queue_family)
+                break;
+
+        if (i < family_index)
+            continue;
+
+        for (i = 0; i < queue_family->queue_count; i++)
+        {
+            vk_queue = queue_family->queues[i];
+
+            pthread_mutex_lock(&vk_queue->fence_mutex);
+            last_observed = vk_queue->cpu_observed_timeline_value;
+            pthread_mutex_unlock(&vk_queue->fence_mutex);
+
+            pthread_mutex_lock(&vk_queue->command_queue_mutex);
+            for (j = 0; j < vk_queue->command_queue_count; j++)
+            {
+                struct d3d12_command_queue *queue = vk_queue->command_queues[j];
+                struct d3d12_command_queue_submission sub;
+                uint32_t inflight;
+                bool idle_queue;
+
+                inflight = vkd3d_atomic_uint32_load_explicit(&queue->inflight_submissions, vkd3d_memory_order_acquire);
+                idle_queue = inflight == 0;
+
+                /* Most queues will likely be idle. In this case it's pointless to queue up a waiter. */
+                pthread_mutex_lock(&queue->queue_lock);
+                if (idle_queue)
+                    idle_queue = queue->last_submission_timeline_value <= last_observed;
+
+                if (!idle_queue)
+                {
+                    d3d12_resource_incref(resource);
+                    sub.type = VKD3D_SUBMISSION_RESOURCE_RETAIN;
+                    sub.resource = resource;
+                    d3d12_command_queue_add_submission_locked(queue, &sub);
+                }
+                pthread_mutex_unlock(&queue->queue_lock);
+            }
+            pthread_mutex_unlock(&vk_queue->command_queue_mutex);
+        }
+    }
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
     struct d3d12_device *device = resource->device;
     unsigned int refcount;
+    bool retain;
 
     refcount = InterlockedDecrement(&resource->refcount);
 
@@ -2286,25 +2338,24 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *ifac
     if (!refcount)
     {
         d3d_destruction_notifier_notify(&resource->destruction_notifier);
+        retain = (resource->flags & VKD3D_RESOURCE_RETAINED_GPU_REFERENCE) ||
+                 VKD3D_CONFIG_FLAG_IS_SET(DEFER_RESOURCE_DESTRUCTION);
 
-        if (VKD3D_CONFIG_FLAG_IS_SET(DEFER_RESOURCE_DESTRUCTION))
+        if (retain)
         {
-            /* AC: Valhalla seems to trigger use-after-free long
-             * after the resource is destroyed in some cases.
-             * Fortunately, this resource always seems to be a sparse resource,
-             * so it's possible Windows native behavior is to hold on to sparse VA space
-             * longer than we get on Linux for whatever reason, so "indefinitely" post-pone
-             * the release of these resources. The worst cost of this is a little VA space bloat. */
-            bool postpone_decref = !!(resource->flags & VKD3D_RESOURCE_RESERVED);
+            bool sparse = !!(resource->flags & VKD3D_RESOURCE_RESERVED);
 
-            d3d12_device_add_queue_timeline_deferred_decref(
-                    device,
-                    d3d12_resource_deferred_incref,
-                    d3d12_resource_deferred_decref,
-                    resource, postpone_decref);
+            /* Hold a reference on the resource until all pending submissions are complete.
+             * Any further use after free will not work without extremely hacky workarounds. */
+            d3d12_device_add_queue_timeline_deferred_decref(device, resource);
 
-            if (postpone_decref)
+            /* For sparse, we need to be extra conservative in some cases, but sparse
+             * resources don't consume VRAM (outside some page tables), so
+             * we can afford being extra safe. E.g. AC: Valhalla has been known to need this. */
+            if (sparse)
                 d3d12_device_add_pending_resource_decref(device, resource);
+            else
+                d3d12_resource_decref(resource);
         }
         else
         {
