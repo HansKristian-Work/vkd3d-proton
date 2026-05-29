@@ -140,9 +140,18 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
         return hresult_from_errno(rc);
     }
 
+    if ((rc = pthread_mutex_init(&object->command_queue_mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        pthread_mutex_destroy(&object->mutex);
+        vkd3d_free(object);
+        return hresult_from_errno(rc);
+    }
+
     if ((rc = pthread_mutex_init(&object->fence_mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
+        pthread_mutex_destroy(&object->command_queue_mutex);
         pthread_mutex_destroy(&object->mutex);
         vkd3d_free(object);
         return hresult_from_errno(rc);
@@ -152,6 +161,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
     {
         ERR("Failed to initialize cond, error %d.\n", rc);
         pthread_mutex_destroy(&object->mutex);
+        pthread_mutex_destroy(&object->command_queue_mutex);
         pthread_mutex_destroy(&object->fence_mutex);
         vkd3d_free(object);
         return hresult_from_errno(rc);
@@ -227,6 +237,7 @@ fail_free_command_pool:
     VK_CALL(vkDestroyCommandPool(device->vk_device, object->barrier_pool, NULL));
 fail_destroy_mutex:
     pthread_mutex_destroy(&object->mutex);
+    pthread_mutex_destroy(&object->command_queue_mutex);
     pthread_mutex_destroy(&object->fence_mutex);
     pthread_cond_destroy(&object->fence_cond);
     return hr;
@@ -301,6 +312,7 @@ void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device)
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->submission_timeline, NULL));
 
     pthread_mutex_destroy(&queue->mutex);
+    pthread_mutex_destroy(&queue->command_queue_mutex);
     vkd3d_free(queue->command_queues);
     vkd3d_free(queue->wait_semaphores);
 
@@ -3297,7 +3309,7 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_
     unsigned int i;
 
     for (i = 0; i < queue_family->queue_count; i++)
-        pthread_mutex_lock(&queue_family->queues[i]->mutex);
+        pthread_mutex_lock(&queue_family->queues[i]->command_queue_mutex);
 
     /* Select the queue that has the lowest number of virtual queues mapped
      * to it, in order to avoid situations where we map multiple queues to
@@ -3321,7 +3333,7 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_
     }
 
     for (i = 0; i < queue_family->queue_count; i++)
-        pthread_mutex_unlock(&queue_family->queues[i]->mutex);
+        pthread_mutex_unlock(&queue_family->queues[i]->command_queue_mutex);
 
     return queue;
 }
@@ -3330,7 +3342,7 @@ void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue, struct d3d12_comm
 {
     size_t i;
 
-    pthread_mutex_lock(&queue->mutex);
+    pthread_mutex_lock(&queue->command_queue_mutex);
     queue->virtual_queue_count--;
 
     if (command_queue)
@@ -3346,7 +3358,7 @@ void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue, struct d3d12_comm
         }
     }
 
-    pthread_mutex_unlock(&queue->mutex);
+    pthread_mutex_unlock(&queue->command_queue_mutex);
 }
 
 static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
@@ -23355,16 +23367,19 @@ static CONST_VTBL struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
     d3d12_command_queue_GetDesc,
 };
 
-static bool d3d12_command_queue_needs_cpu_waits_locked(struct d3d12_command_queue *command_queue)
+static bool d3d12_command_queue_needs_cpu_waits(struct d3d12_command_queue *command_queue)
 {
     uint64_t current_time_ns, queue_submit_time_ns;
+    bool ret = false;
     unsigned int i;
-
-    if (command_queue->vkd3d_queue->command_queue_count == 1)
-        return false;
 
     if (VKD3D_CONFIG_FLAG_IS_SET(NO_STAGGERED_SUBMIT))
         return false;
+
+    pthread_mutex_lock(&command_queue->vkd3d_queue->command_queue_mutex);
+
+    if (command_queue->vkd3d_queue->command_queue_count == 1)
+        goto unlock;
 
     current_time_ns = vkd3d_get_current_time_ns();
 
@@ -23380,10 +23395,15 @@ static bool d3d12_command_queue_needs_cpu_waits_locked(struct d3d12_command_queu
         queue_submit_time_ns = vkd3d_atomic_uint64_load_explicit(&q->last_submission_time_ns, vkd3d_memory_order_relaxed);
 
         if (queue_submit_time_ns + VKD3D_QUEUE_INACTIVE_THRESHOLD_NS > current_time_ns)
-            return true;
+        {
+            ret = true;
+            goto unlock;
+        }
     }
 
-    return false;
+unlock:
+    pthread_mutex_unlock(&command_queue->vkd3d_queue->command_queue_mutex);
+    return ret;
 }
 
 static void d3d12_command_queue_destroy_serializing_semaphore(struct d3d12_command_queue *command_queue)
@@ -23706,11 +23726,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
     struct vkd3d_queue_timeline_trace_cookie cookie;
     struct d3d12_fence_value fence_value;
     VkSemaphoreWaitInfo wait_info;
-    struct vkd3d_queue *queue;
     bool has_wait;
     VkResult vr;
-
-    queue = command_queue->vkd3d_queue;
 
     assert(!fence->timeline_semaphore);
 
@@ -23738,12 +23755,8 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
     TRACE("queue %p, fence %p, value %#"PRIx64", vk_semaphore %p, vk_semaphore_value %#"PRIx64".\n", command_queue,
             fence, value, fence_value.vk_semaphore, fence_value.vk_semaphore_value);
 
-    pthread_mutex_lock(&queue->mutex);
-
-    if (d3d12_command_queue_needs_cpu_waits_locked(command_queue))
+    if (d3d12_command_queue_needs_cpu_waits(command_queue))
     {
-        pthread_mutex_unlock(&queue->mutex);
-
         d3d12_command_queue_ensure_fence_signal_order(command_queue, fence, fence_value.update_count);
 
         memset(&wait_info, 0, sizeof(wait_info));
@@ -23759,8 +23772,6 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
     }
     else
     {
-        pthread_mutex_unlock(&queue->mutex);
-
         /* Defer the wait to next submit.
          * This is also important, since we have to hold on to a private reference on the fence
          * until we have observed the wait to actually complete. */
@@ -24251,14 +24262,12 @@ static void d3d12_command_queue_wait_staggered_submission(struct d3d12_command_q
         ERR("Failed to wait for semaphore, vr %d.\n", vr);
 }
 
-static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_command_queue *command_queue)
+static bool d3d12_command_queue_needs_staggered_submissions(struct d3d12_command_queue *command_queue)
 {
     uint64_t current_time_ns, queue_submit_time_ns;
     int32_t max_priority;
+    bool ret = false;
     unsigned int i;
-
-    if (command_queue->vkd3d_queue->command_queue_count == 1)
-        return false;
 
     if (VKD3D_CONFIG_FLAG_IS_SET(NO_STAGGERED_SUBMIT))
         return false;
@@ -24266,6 +24275,11 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
     /* Cannot meaningfully stagger submits if we're doing suspend resume style render passes. */
     if (command_queue->device->workarounds.tiler_suspend_resume)
         return false;
+
+    pthread_mutex_lock(&command_queue->vkd3d_queue->command_queue_mutex);
+
+    if (command_queue->vkd3d_queue->command_queue_count == 1)
+        goto unlock;
 
     current_time_ns = vkd3d_get_current_time_ns();
 
@@ -24291,12 +24305,15 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
              * devices with one queue family, or when setting single_queue. */
             if (q->desc.Type != command_queue->desc.Type &&
                     (q->desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT || command_queue->desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT))
-                return true;
+            {
+                ret = true;
+                goto unlock;
+            }
         }
     }
 
     if (command_queue->desc.Priority == max_priority)
-        return false;
+        goto unlock;
 
     /* Otherwise, submit command buffers from this queue one by one in order
      * to allow work from an active high-priority queue to get scheduled sooner.
@@ -24304,7 +24321,11 @@ static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_
      * one graphics queue, since UI composition and presentation are submitted
      * mid-frame without any explicit synchronization between the two graphics
      * queues. */
-    return true;
+    ret = true;
+
+unlock:
+    pthread_mutex_unlock(&command_queue->vkd3d_queue->command_queue_mutex);
+    return ret;
 }
 
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
@@ -24340,6 +24361,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     TRACE("queue %p, command_list_count %u, command_lists %p.\n",
           command_queue, exec->cmd_count, exec->cmd);
 
+    stagger_submissions = d3d12_command_queue_needs_staggered_submissions(command_queue);
+
     if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
     {
         ERR("Failed to acquire queue %p.\n", vkd3d_queue);
@@ -24365,8 +24388,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     else
         debug_capture = false;
 #endif
-
-    stagger_submissions = d3d12_command_queue_needs_staggered_submissions_locked(command_queue);
 
     if (command_queue->stagger_submissions != stagger_submissions)
     {
@@ -25126,8 +25147,8 @@ void d3d12_command_queue_enqueue_callback(struct d3d12_command_queue *queue, voi
     d3d12_command_queue_add_submission(queue, &sub);
 }
 
-static void d3d12_command_queue_add_submission_locked(struct d3d12_command_queue *queue,
-                                                      const struct d3d12_command_queue_submission *sub)
+void d3d12_command_queue_add_submission_locked(struct d3d12_command_queue *queue,
+                                               const struct d3d12_command_queue_submission *sub)
 {
     vkd3d_array_reserve((void**)&queue->submissions, &queue->submissions_size,
                         queue->submissions_count + 1, sizeof(*queue->submissions));
