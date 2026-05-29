@@ -2351,6 +2351,8 @@ static bool d3d12_resource_is_gpu_clear_pending(struct d3d12_resource *resource)
     }
 }
 
+bool vkd3d_debug_control_has_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR behavior);
+
 static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
@@ -2366,7 +2368,8 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *ifac
     {
         d3d_destruction_notifier_notify(&resource->destruction_notifier);
         retain = (resource->flags & VKD3D_RESOURCE_RETAINED_GPU_REFERENCE) ||
-                 VKD3D_CONFIG_FLAG_IS_SET(DEFER_RESOURCE_DESTRUCTION);
+                 VKD3D_CONFIG_FLAG_IS_SET(DEFER_RESOURCE_DESTRUCTION) ||
+                 vkd3d_debug_control_has_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_RESOURCE_USE_AFTER_FREE);
 
         /* If we can trivially prove the resource has never been used on GPU,
          * ignore this. This is mostly relevant for clear queue.
