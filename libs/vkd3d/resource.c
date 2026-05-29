@@ -2324,6 +2324,20 @@ static void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device 
     }
 }
 
+static bool d3d12_resource_is_gpu_idle(struct d3d12_resource *resource)
+{
+    if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.device_allocation.vk_memory &&
+        resource->mem.clear_semaphore_value)
+    {
+        return vkd3d_memory_transfer_queue_poll_allocation_idle(&resource->device->memory_transfers, &resource->mem);
+    }
+    else
+    {
+        /* We cannot possibly know. */
+        return false;
+    }
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
@@ -2340,6 +2354,14 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *ifac
         d3d_destruction_notifier_notify(&resource->destruction_notifier);
         retain = (resource->flags & VKD3D_RESOURCE_RETAINED_GPU_REFERENCE) ||
                  VKD3D_CONFIG_FLAG_IS_SET(DEFER_RESOURCE_DESTRUCTION);
+
+        /* If we can trivially prove the resource has never been used on GPU,
+         * ignore this. This is mostly relevant for clear queue.
+         * We don't want to defer the release, only to have to eat an extra wait on the clear queue.
+         * TODO: Potential improvement is to use deferred release for resources which have yet to be cleared
+         * to avoid the stall on client thread. */
+        if (d3d12_resource_is_gpu_idle(resource))
+            retain = false;
 
         if (retain)
         {

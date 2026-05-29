@@ -966,6 +966,8 @@ HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *qu
 HRESULT vkd3d_memory_transfer_queue_write_subresource(struct vkd3d_memory_transfer_queue *queue,
         struct d3d12_resource *resource, uint32_t subresource_idx, VkOffset3D offset, VkExtent3D extent);
 HRESULT vkd3d_memory_transfer_queue_build_empty_rtas(struct vkd3d_memory_transfer_queue *queue);
+bool vkd3d_memory_transfer_queue_poll_allocation_idle(struct vkd3d_memory_transfer_queue *queue,
+        const struct vkd3d_memory_allocation *allocation);
 
 struct vkd3d_memory_allocator
 {
