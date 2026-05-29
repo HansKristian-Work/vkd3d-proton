@@ -588,6 +588,21 @@ HRESULT vkd3d_memory_transfer_queue_build_empty_rtas(struct vkd3d_memory_transfe
     return S_OK;
 }
 
+bool vkd3d_memory_transfer_queue_poll_allocation_idle(struct vkd3d_memory_transfer_queue *queue,
+        const struct vkd3d_memory_allocation *allocation)
+{
+    bool ret;
+    assert(allocation->clear_semaphore_value);
+    pthread_mutex_lock(&queue->mutex);
+    /* If we haven't performed any ExecuteCommandLists calls since resource was created,
+     * we can prove that the resource cannot possibly be used in a current submit.
+     * The only case where that could happen is a case of use-before-alloc scenarios which is a very theoretical hole,
+     * but our idea of doing clear submits breaks down in that world anyway. */
+    ret = allocation->clear_semaphore_value == queue->next_signal_value;
+    pthread_mutex_unlock(&queue->mutex);
+    return ret;
+}
+
 static void vkd3d_memory_transfer_queue_wait_allocation(struct vkd3d_memory_transfer_queue *queue,
         const struct vkd3d_memory_allocation *allocation)
 {
