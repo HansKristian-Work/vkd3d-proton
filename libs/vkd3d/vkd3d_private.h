@@ -3628,6 +3628,7 @@ struct vkd3d_queue
     uint32_t timestamp_bits;
     uint32_t virtual_queue_count;
 
+    pthread_mutex_t command_queue_mutex;
     struct d3d12_command_queue **command_queues;
     size_t command_queue_size;
     size_t command_queue_count;
