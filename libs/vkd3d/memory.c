@@ -603,6 +603,22 @@ bool vkd3d_memory_transfer_queue_poll_allocation_idle(struct vkd3d_memory_transf
     return ret;
 }
 
+bool vkd3d_memory_transfer_queue_clear_in_flight(struct vkd3d_memory_transfer_queue *queue,
+        const struct vkd3d_memory_allocation *allocation)
+{
+    bool ret;
+    assert(allocation->clear_semaphore_value);
+    pthread_mutex_lock(&queue->mutex);
+    /* We might be able to prove that the resource is in use by our internal clear queue.
+     * In this case, it would be a stall to free the resource, which is unfortunate.
+     * We can use this as a hint to ask the resource to be released in a deferred way. */
+    ret = allocation->clear_semaphore_value < queue->next_signal_value;
+    pthread_mutex_unlock(&queue->mutex);
+    if (ret)
+        ret = !vkd3d_memory_transfer_queue_wait_semaphore(queue, allocation->clear_semaphore_value, 0);
+    return ret;
+}
+
 static void vkd3d_memory_transfer_queue_wait_allocation(struct vkd3d_memory_transfer_queue *queue,
         const struct vkd3d_memory_allocation *allocation)
 {
