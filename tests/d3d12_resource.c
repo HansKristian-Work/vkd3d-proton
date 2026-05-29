@@ -6267,3 +6267,83 @@ void test_buffer_rtv_dsv_usage(void)
 
     destroy_test_context(&context);
 }
+
+void test_resource_retain_workaround(void)
+{
+    struct test_context_desc context_desc;
+    ID3D12Resource *late_idle_outputs;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *outputs[2];
+    ID3D12Resource *inputs[64];
+    float input_data[4096];
+    unsigned int i;
+
+    /* Test bench to demonstrate that the use-after-free workarounds work as intended.
+     * It should pass without VVL complaining about use-after-free errors. */
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_RESOURCE_USE_AFTER_FREE, TRUE);
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    for (i = 0; i < ARRAY_SIZE(input_data); i++)
+        input_data[i] = (float)i + 1.0f;
+
+    /* For internal testing purposes, check that allocating and releasing a resource right away does not hit retain path. */
+    outputs[0] = create_default_buffer(context.device, sizeof(input_data), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource_Release(outputs[0]);
+    /* Try again, but with non-suballocated buffers. */
+    outputs[0] = create_default_buffer(context.device, 4 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12Resource_Release(outputs[0]);
+
+    /* These will be suballocated. */
+    for (i = 0; i < ARRAY_SIZE(inputs); i++)
+        inputs[i] = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    /* Make sure we hit dedicated allocation path. */
+    for (i = 0; i < ARRAY_SIZE(outputs); i++)
+        outputs[i] = create_default_buffer(context.device, 4 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    for (i = 0; i < ARRAY_SIZE(inputs); i++)
+    {
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, outputs[0], i * sizeof(input_data), inputs[i], 0, sizeof(input_data));
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, outputs[1], i * sizeof(input_data), inputs[i], 0, sizeof(input_data));
+    }
+
+    late_idle_outputs = create_default_buffer(context.device, 1 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    /* This flushes memory clears. */
+    exec_command_list(context.queue, context.list);
+    /* This should be retained due to clear being in-flight. */
+    ID3D12Resource_Release(late_idle_outputs);
+
+    /* Deep UB. Use-after-free. This can trigger DEVICE_LOST on Windows AMD at least,
+     * so there is evidence of drivers not doing these hacks by default at least ... */
+    ID3D12Resource_Release(outputs[1]);
+    for (i = 0; i < ARRAY_SIZE(inputs); i++)
+        ID3D12Resource_Release(inputs[i]);
+
+    ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+    transition_resource_state(context.list, outputs[0],
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(outputs[0], DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(input_data) * ARRAY_SIZE(inputs); i++)
+    {
+        float value, expected;
+        value = get_readback_float(&rb, i, 0);
+        expected = (float)(i % ARRAY_SIZE(input_data)) + 1.0f;
+        ok(value == expected, "value %u, expected %f, got %f.\n", i, expected, value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(outputs[0]);
+    destroy_test_context(&context);
+    vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_RESOURCE_USE_AFTER_FREE, FALSE);
+}

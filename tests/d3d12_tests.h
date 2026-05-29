@@ -569,3 +569,4 @@ decl_test(test_copy_queue_depth_stencil_msaa);
 decl_test(test_sample_shading_coverage_mask);
 decl_test(test_render_target_support_validation);
 decl_test(test_descriptor_heap_broken_table_va);
+decl_test(test_resource_retain_workaround);
