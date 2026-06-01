@@ -1324,33 +1324,28 @@ static HRESULT STDMETHODCALLTYPE d3d12_amd_ext_anti_lag_UpdateAntiLagState(
     if (!pData)
     {
         struct vkd3d_queue_timeline_trace_cookie cookie = { 0 };
-        VkAntiLagPresentationInfoAMD present_info;
         VkAntiLagDataAMD anti_lag;
 
-        /* Purely inserts a delay. The API wrapper never seems to pass down anything useful for
-         * frame IDs, so just invent them ourselves. */
-
         memset(&anti_lag, 0, sizeof(anti_lag));
-        memset(&present_info, 0, sizeof(present_info));
         anti_lag.sType = VK_STRUCTURE_TYPE_ANTI_LAG_DATA_AMD;
         anti_lag.mode = device->swapchain_info.mode ? VK_ANTI_LAG_MODE_ON_AMD : VK_ANTI_LAG_MODE_OFF_AMD;
         anti_lag.maxFPS = device->swapchain_info.max_fps;
-        anti_lag.pPresentationInfo = &present_info;
 
-        present_info.sType = VK_STRUCTURE_TYPE_ANTI_LAG_PRESENTATION_INFO_AMD;
-        present_info.frameIndex = device->frame_markers.present + 1;
-        present_info.stage = VK_ANTI_LAG_STAGE_INPUT_AMD;
+        /* The AntiLag API has no useful present IDs we can correlate with.
+         * The Vulkan API allows not passing down presentation information at all, which
+         * means that in this mode we give the driver the full responsibility of figuring out how to
+         * deal with frame boundaries. The expectation is that the driver can use vkQueuePresentKHR as
+         * a split point. Any submits happening after QueuePresentKHR would be assumed to belong to a future frame. */
 
-        TRACE("AntiLag input timeline, frame %"PRIu64".\n", present_info.frameIndex);
+        /* There is no robust way to keep track of frame indices ourselves, since application can do threaded presents
+         * and end up with INPUT -> INPUT -> PRESENT -> PRESENT patterns which just break.
+         * Even if we try to keep track of this, INPUT and PRESENT can get out of sync, which is terrible too. */
+
         if (device->swapchain_info.mode)
-            cookie = vkd3d_queue_timeline_trace_register_low_latency_sleep(&device->queue_timeline_trace, present_info.frameIndex);
+            cookie = vkd3d_queue_timeline_trace_register_low_latency_sleep(&device->queue_timeline_trace, 0);
         VK_CALL(vkAntiLagUpdateAMD(device->vk_device, &anti_lag));
         if (device->swapchain_info.mode)
             vkd3d_queue_timeline_trace_complete_low_latency_sleep(&device->queue_timeline_trace, cookie);
-
-        /* Any present after this point will map to this frameIndex. */
-        vkd3d_atomic_uint64_store_explicit(&device->frame_markers.present,
-                present_info.frameIndex, vkd3d_memory_order_release);
     }
     else if (v1->uiVersion == 1)
     {
