@@ -21719,7 +21719,7 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
         vk_transition.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (barrier->LayoutBefore == D3D12_BARRIER_LAYOUT_UNDEFINED && !(barrier->Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD))
-        FIXME("Transitioning away from UNDEFINED, but there is no DISCARD flag. Uncertain what is expected here. vkd3d-proton will force a discard.\n");
+        FIXME_ONCE("Transitioning away from UNDEFINED, but there is no DISCARD flag. Uncertain what is expected here. vkd3d-proton will force a discard.\n");
 
     d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &vk_transition);
 
