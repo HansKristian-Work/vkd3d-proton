@@ -23,13 +23,19 @@
 
 #define SPIRV_CODE(name) name, sizeof(name)
 
-static void vkd3d_meta_setup_shader_module(VkShaderModuleCreateInfo *create_info,
-        const uint32_t *code, size_t code_size)
+static VkResult vkd3d_meta_create_shader_module(struct d3d12_device *device,
+        const uint32_t *code, size_t code_size, VkShaderModule *module)
 {
-    memset(create_info, 0, sizeof(*create_info));
-    create_info->sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    create_info->codeSize = code_size;
-    create_info->pCode = code;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkShaderModuleCreateInfo shader_module_info;
+
+    shader_module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    shader_module_info.pNext = NULL;
+    shader_module_info.flags = 0;
+    shader_module_info.codeSize = code_size;
+    shader_module_info.pCode = code;
+
+    return VK_CALL(vkCreateShaderModule(device->vk_device, &shader_module_info, NULL, module));
 }
 
 static VkResult vkd3d_meta_create_descriptor_set_layout(struct d3d12_device *device,
@@ -107,12 +113,13 @@ static VkResult vkd3d_meta_create_pipeline_layout(struct d3d12_device *device,
 }
 
 static void vkd3d_meta_make_shader_stage(VkPipelineShaderStageCreateInfo *info, VkShaderStageFlagBits stage,
-        const VkShaderModuleCreateInfo *module_info, const char* entry_point, const VkSpecializationInfo *spec_info)
+        VkShaderModule module, const char* entry_point, const VkSpecializationInfo *spec_info)
 {
-    memset(info, 0, sizeof(*info));
     info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    info->pNext = module_info;
+    info->pNext = NULL;
+    info->flags = 0;
     info->stage = stage;
+    info->module = module;
     info->pName = entry_point;
     info->pSpecializationInfo = spec_info;
 }
@@ -175,10 +182,14 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
     struct vkd3d_queue_timeline_trace_cookie cookie;
     VkComputePipelineCreateInfo pipeline_info;
     VkPipelineCreateFlags2CreateInfo flags2;
-    VkShaderModuleCreateInfo module_info;
+    VkShaderModule module;
     VkResult vr;
 
-    vkd3d_meta_setup_shader_module(&module_info, code, code_size);
+    if ((vr = vkd3d_meta_create_shader_module(device, code, code_size, &module)) < 0)
+    {
+        ERR("Failed to create shader module, vr %d.\n", vr);
+        return vr;
+    }
 
     memset(&flags2, 0, sizeof(flags2));
     flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
@@ -197,9 +208,9 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
     }
 
     vkd3d_meta_make_shader_stage(&pipeline_info.stage,
-            VK_SHADER_STAGE_COMPUTE_BIT, &module_info, "main", specialization_info);
+            VK_SHADER_STAGE_COMPUTE_BIT, module, "main", specialization_info);
 
-    module_info.pNext = required_size;
+    pipeline_info.stage.pNext = required_size;
 
     if (layout == VK_NULL_HANDLE)
     {
@@ -215,13 +226,14 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
     cookie = vkd3d_queue_timeline_trace_register_pso_compile(&device->queue_timeline_trace);
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, pipeline));
     vkd3d_queue_timeline_trace_complete_pso_compile(&device->queue_timeline_trace, cookie, 0, "META COMP");
+    VK_CALL(vkDestroyShaderModule(device->vk_device, module, NULL));
 
     return vr;
 }
 
 static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_ops,
         VkPipelineLayout layout, VkFormat color_format, VkFormat ds_format, VkImageAspectFlags vk_aspect_mask,
-        const VkShaderModuleCreateInfo *vs_module, const VkShaderModuleCreateInfo *fs_module, VkSampleCountFlagBits samples,
+        VkShaderModule vs_module, VkShaderModule fs_module, VkSampleCountFlagBits samples,
         const VkPipelineDepthStencilStateCreateInfo *ds_state, uint32_t dynamic_state_count, const VkDynamicState *dynamic_states,
         const VkSpecializationInfo *spec_info, bool descriptor_buffer_compatible, VkPipeline *vk_pipeline)
 {
@@ -362,13 +374,13 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
 
     vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
             VK_SHADER_STAGE_VERTEX_BIT,
-            vs_module ? vs_module : &meta_ops->common.vk_fullscreen_vs,
+            vs_module ? vs_module : meta_ops->common.vk_module_fullscreen_vs,
             "main", NULL);
 
-    if (meta_ops->common.vk_fullscreen_gs.codeSize && !vs_module)
+    if (meta_ops->common.vk_module_fullscreen_gs && vs_module == VK_NULL_HANDLE)
     {
         vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
-                VK_SHADER_STAGE_GEOMETRY_BIT, &meta_ops->common.vk_fullscreen_gs, "main", NULL);
+                VK_SHADER_STAGE_GEOMETRY_BIT, meta_ops->common.vk_module_fullscreen_gs, "main", NULL);
     }
 
     if (fs_module)
@@ -647,6 +659,9 @@ static void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_
 
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_copy_image_ops->vk_set_layout, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_copy_image_ops->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_float_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_uint_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_stencil_module, NULL));
 
     pthread_mutex_destroy(&meta_copy_image_ops->mutex);
 
@@ -695,13 +710,38 @@ static HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_
         goto fail;
     }
 
-    vkd3d_meta_setup_shader_module(&meta_copy_image_ops->vk_fs_float_module, SPIRV_CODE(fs_copy_image_float));
-    vkd3d_meta_setup_shader_module(&meta_copy_image_ops->vk_fs_uint_module, SPIRV_CODE(fs_copy_image_uint));
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_float),
+            &meta_copy_image_ops->vk_fs_float_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_uint),
+            &meta_copy_image_ops->vk_fs_uint_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
 
     if (device->vk_info.EXT_shader_stencil_export)
-        vkd3d_meta_setup_shader_module(&meta_copy_image_ops->vk_fs_stencil_module, SPIRV_CODE(fs_copy_image_stencil));
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_stencil),
+                &meta_copy_image_ops->vk_fs_stencil_module)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            goto fail;
+        }
+    }
     else
-        vkd3d_meta_setup_shader_module(&meta_copy_image_ops->vk_fs_stencil_module, SPIRV_CODE(fs_copy_image_stencil_no_export));
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_stencil_no_export),
+                &meta_copy_image_ops->vk_fs_stencil_module)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            goto fail;
+        }
+    }
 
     return S_OK;
 
@@ -718,7 +758,7 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
             meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT,
-            &meta_swapchain_ops->vk_vs_module, &meta_swapchain_ops->vk_fs_module, 1,
+            meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
             NULL, 0, NULL, NULL, false, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
@@ -731,9 +771,9 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
 {
     struct vkd3d_copy_image_ops *meta_copy_image_ops = heap ? &meta_ops->copy_image_heap : &meta_ops->copy_image_legacy;
     VkPipelineDepthStencilStateCreateInfo ds_state;
-    const VkShaderModuleCreateInfo *module_info;
     unsigned int dynamic_state_count;
     VkSpecializationInfo spec_info;
+    VkShaderModule vk_module;
     bool has_depth_target;
     VkResult vr;
 
@@ -813,12 +853,12 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     if (key->format->vk_format == VK_FORMAT_R8_UINT)
     {
         /* Special path when copying stencil -> color. */
-        module_info = &meta_copy_image_ops->vk_fs_uint_module;
+        vk_module = meta_copy_image_ops->vk_fs_uint_module;
     }
     else if (key->dst_aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT)
     {
         /* FragStencilRef path. */
-        module_info = &meta_copy_image_ops->vk_fs_stencil_module;
+        vk_module = meta_copy_image_ops->vk_fs_stencil_module;
 
         if (!meta_ops->device->vk_info.EXT_shader_stencil_export)
             dynamic_state_count = ARRAY_SIZE(dynamic_states);
@@ -826,7 +866,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     else
     {
         /* Depth or float color path. */
-        module_info = &meta_copy_image_ops->vk_fs_float_module;
+        vk_module = meta_copy_image_ops->vk_fs_float_module;
     }
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
@@ -834,7 +874,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
             has_depth_target ? VK_FORMAT_UNDEFINED : key->format->vk_format,
             has_depth_target ? key->format->vk_format : VK_FORMAT_UNDEFINED,
             key->format->vk_aspect_mask,
-            VK_NULL_HANDLE, module_info, key->sample_count,
+            VK_NULL_HANDLE, vk_module, key->sample_count,
             has_depth_target ? &ds_state : NULL,
             dynamic_state_count, dynamic_states,
             &spec_info, true, &pipeline->vk_pipeline)) < 0)
@@ -954,6 +994,11 @@ static void vkd3d_resolve_image_ops_cleanup(struct vkd3d_resolve_image_ops *meta
     for (i = 0; i < meta_resolve_image_ops->pipeline_count; i++)
         VK_CALL(vkDestroyPipeline(device->vk_device, meta_resolve_image_ops->pipelines[i].vk_pipeline, NULL));
 
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_float_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_uint_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_sint_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_depth_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_stencil_module, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_resolve_image_ops->vk_graphics_set_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_resolve_image_ops->vk_compute_set_layout, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_resolve_image_ops->vk_graphics_pipeline_layout, NULL));
@@ -1034,15 +1079,52 @@ static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta
         goto fail;
     }
 
-    vkd3d_meta_setup_shader_module(&meta_resolve_image_ops->vk_fs_float_module, SPIRV_CODE(fs_resolve_color_float));
-    vkd3d_meta_setup_shader_module(&meta_resolve_image_ops->vk_fs_uint_module, SPIRV_CODE(fs_resolve_color_uint));
-    vkd3d_meta_setup_shader_module(&meta_resolve_image_ops->vk_fs_sint_module, SPIRV_CODE(fs_resolve_color_sint));
-    vkd3d_meta_setup_shader_module(&meta_resolve_image_ops->vk_fs_depth_module, SPIRV_CODE(fs_resolve_depth));
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_color_float),
+            &meta_resolve_image_ops->vk_fs_float_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_color_uint),
+            &meta_resolve_image_ops->vk_fs_uint_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_color_sint),
+            &meta_resolve_image_ops->vk_fs_sint_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_depth),
+            &meta_resolve_image_ops->vk_fs_depth_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
 
     if (device->vk_info.EXT_shader_stencil_export)
-        vkd3d_meta_setup_shader_module(&meta_resolve_image_ops->vk_fs_stencil_module, SPIRV_CODE(fs_resolve_stencil));
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_stencil),
+                &meta_resolve_image_ops->vk_fs_stencil_module)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            goto fail;
+        }
+    }
     else
-        vkd3d_meta_setup_shader_module(&meta_resolve_image_ops->vk_fs_stencil_module, SPIRV_CODE(fs_resolve_stencil_no_export));
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_stencil_no_export),
+                &meta_resolve_image_ops->vk_fs_stencil_module)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            goto fail;
+        }
+    }
 
     return S_OK;
 
@@ -1058,9 +1140,9 @@ static HRESULT vkd3d_meta_create_resolve_image_graphics_pipeline(struct vkd3d_me
     struct vkd3d_resolve_image_ops *meta_resolve_image_ops =
         heap ? &meta_ops->resolve_image_heap : &meta_ops->resolve_image_legacy;
     VkPipelineDepthStencilStateCreateInfo ds_state;
-    const VkShaderModuleCreateInfo *module_info;
     unsigned int dynamic_state_count;
     VkSpecializationInfo spec_info;
+    VkShaderModule vk_module;
     bool has_depth_target;
     VkResult vr;
 
@@ -1113,14 +1195,14 @@ static HRESULT vkd3d_meta_create_resolve_image_graphics_pipeline(struct vkd3d_me
         ds_state.front.compareOp = VK_COMPARE_OP_ALWAYS;
         ds_state.back = ds_state.front;
 
-        module_info = &meta_resolve_image_ops->vk_fs_stencil_module;
+        vk_module = meta_resolve_image_ops->vk_fs_stencil_module;
 
         if (!meta_ops->device->vk_info.EXT_shader_stencil_export)
             dynamic_state_count = ARRAY_SIZE(dynamic_states);
     }
     else if (key->dst_aspect == VK_IMAGE_ASPECT_DEPTH_BIT)
     {
-        module_info = &meta_resolve_image_ops->vk_fs_depth_module;
+        vk_module = meta_resolve_image_ops->vk_fs_depth_module;
     }
     else
     {
@@ -1131,15 +1213,15 @@ static HRESULT vkd3d_meta_create_resolve_image_graphics_pipeline(struct vkd3d_me
                 return E_INVALIDARG;
 
             case VKD3D_FORMAT_TYPE_SINT:
-                module_info = &meta_resolve_image_ops->vk_fs_sint_module;
+                vk_module = meta_resolve_image_ops->vk_fs_sint_module;
                 break;
 
             case VKD3D_FORMAT_TYPE_UINT:
-                module_info = &meta_resolve_image_ops->vk_fs_uint_module;
+                vk_module = meta_resolve_image_ops->vk_fs_uint_module;
                 break;
 
             default:
-                module_info = &meta_resolve_image_ops->vk_fs_float_module;
+                vk_module = meta_resolve_image_ops->vk_fs_float_module;
                 break;
         }
     }
@@ -1149,7 +1231,7 @@ static HRESULT vkd3d_meta_create_resolve_image_graphics_pipeline(struct vkd3d_me
             has_depth_target ? VK_FORMAT_UNDEFINED : key->format->vk_format,
             has_depth_target ? key->format->vk_format : VK_FORMAT_UNDEFINED,
             key->format->vk_aspect_mask,
-            VK_NULL_HANDLE, module_info, VK_SAMPLE_COUNT_1_BIT,
+            VK_NULL_HANDLE, vk_module, VK_SAMPLE_COUNT_1_BIT,
             has_depth_target ? &ds_state : NULL,
             dynamic_state_count, dynamic_states,
             &spec_info, true, &pipeline->vk_pipeline)) < 0)
@@ -1295,18 +1377,38 @@ HRESULT vkd3d_meta_get_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
     return S_OK;
 }
 
-static void vkd3d_meta_ops_common_init(struct vkd3d_meta_ops_common *meta_ops_common, struct d3d12_device *device)
+static HRESULT vkd3d_meta_ops_common_init(struct vkd3d_meta_ops_common *meta_ops_common, struct d3d12_device *device)
 {
+    VkResult vr;
+
     if (device->device_info.vulkan_1_2_features.shaderOutputViewportIndex &&
             device->device_info.vulkan_1_2_features.shaderOutputLayer)
     {
-        vkd3d_meta_setup_shader_module(&meta_ops_common->vk_fullscreen_vs, SPIRV_CODE(vs_fullscreen_layer));
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen_layer), &meta_ops_common->vk_module_fullscreen_vs)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
     }
     else
     {
-        vkd3d_meta_setup_shader_module(&meta_ops_common->vk_fullscreen_vs, SPIRV_CODE(vs_fullscreen));
-        vkd3d_meta_setup_shader_module(&meta_ops_common->vk_fullscreen_gs, SPIRV_CODE(gs_fullscreen));
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen), &meta_ops_common->vk_module_fullscreen_vs)) < 0 ||
+            (vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(gs_fullscreen), &meta_ops_common->vk_module_fullscreen_gs)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
     }
+
+    return S_OK;
+}
+
+static void vkd3d_meta_ops_common_cleanup(struct vkd3d_meta_ops_common *meta_ops_common, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_ops_common->vk_module_fullscreen_vs, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_ops_common->vk_module_fullscreen_gs, NULL));
 }
 
 static void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapchain_ops, struct d3d12_device *device)
@@ -1326,6 +1428,9 @@ static void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapcha
         VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_swapchain_ops->vk_set_layouts[i], NULL));
         VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_swapchain_ops->vk_pipeline_layouts[i], NULL));
     }
+
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_swapchain_ops->vk_vs_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_swapchain_ops->vk_fs_module, NULL));
 
     pthread_mutex_destroy(&meta_swapchain_ops->mutex);
     vkd3d_free(meta_swapchain_ops->pipelines);
@@ -1375,8 +1480,18 @@ static HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapcha
         }
     }
 
-    vkd3d_meta_setup_shader_module(&meta_swapchain_ops->vk_vs_module, SPIRV_CODE(vs_swapchain_fullscreen));
-    vkd3d_meta_setup_shader_module(&meta_swapchain_ops->vk_fs_module, SPIRV_CODE(fs_swapchain_fullscreen));
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_swapchain_fullscreen), &meta_swapchain_ops->vk_vs_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_swapchain_fullscreen), &meta_swapchain_ops->vk_fs_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
     return S_OK;
 
 fail:
@@ -1885,11 +2000,12 @@ static void vkd3d_dstorage_ops_cleanup(struct vkd3d_dstorage_ops *dstorage_ops, 
 static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_resolve_ops *sampler_feedback_ops,
         struct d3d12_device *device, bool use_heap)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutBinding decode_bindings[2];
     VkDescriptorSetLayoutBinding encode_bindings[3];
-    VkShaderModuleCreateInfo module_info;
     VkPushConstantRange push_range;
     VkPipelineLayout vk_layout;
+    VkShaderModule vk_module;
     VkSampler vk_sampler;
     unsigned int i;
     VkResult vr;
@@ -2027,14 +2143,20 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
         }
         else
         {
-            vkd3d_meta_setup_shader_module(&module_info, pipelines[i].code, pipelines[i].code_size);
+            if ((vr = vkd3d_meta_create_shader_module(device, pipelines[i].code, pipelines[i].code_size, &vk_module)))
+                return hresult_from_vk_result(vr);
 
             if ((vr = vkd3d_meta_create_graphics_pipeline(&device->meta_ops,
                     sampler_feedback_ops->vk_graphics_decode_layout,
-                    VK_FORMAT_R8_UINT, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT, VK_NULL_HANDLE, &module_info,
+                    VK_FORMAT_R8_UINT, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT, VK_NULL_HANDLE, vk_module,
                     VK_SAMPLE_COUNT_1_BIT, NULL, 0, NULL, NULL, true,
                     &sampler_feedback_ops->vk_pipelines[pipelines[i].type])))
+            {
+                VK_CALL(vkDestroyShaderModule(device->vk_device, vk_module, NULL));
                 return hresult_from_vk_result(vr);
+            }
+
+            VK_CALL(vkDestroyShaderModule(device->vk_device, vk_module, NULL));
         }
     }
 
@@ -2229,7 +2351,8 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     memset(meta_ops, 0, sizeof(*meta_ops));
     meta_ops->device = device;
 
-    vkd3d_meta_ops_common_init(&meta_ops->common, device);
+    if (FAILED(hr = vkd3d_meta_ops_common_init(&meta_ops->common, device)))
+        goto fail_common;
 
     if (d3d12_device_use_descriptor_heap(device))
         if (FAILED(hr = vkd3d_clear_uav_ops_init(&meta_ops->clear_uav_heap, device, true)))
@@ -2311,6 +2434,8 @@ fail_copy_image_heap_ops:
 fail_clear_uav_ops_legacy:
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav_heap, device);
 fail_clear_uav_ops_heap:
+    vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
+fail_common:
     return hr;
 }
 
@@ -2331,5 +2456,6 @@ HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_dev
     vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image_legacy, device);
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav_heap, device);
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav_legacy, device);
+    vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
     return S_OK;
 }
