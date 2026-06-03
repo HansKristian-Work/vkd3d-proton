@@ -585,8 +585,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX = 1 << 2,
     VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS = 1 << 3,
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
-    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
-    VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING = 1 << 6,
+    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -738,7 +737,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * it just exits on startup. It seems to rely on unstable barycentrics, which we can implement on older AMD,
      * and VRS can be nooped. Recent game update has broken raw buffer <-> image aliasing. */
     { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", VKD3D_CONFIG_FLAG_STATIC(AVOID_IMAGE_BUFFER_ALIASING), VKD3D_CONFIG_FLAGS_NONE,
-        VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY | VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING },
+        VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY },
     /* Ark Ascended (2399830). Very broken FSR3 usage where the entire thing is freed. We can retain the resources automatically
      * but descriptor heap is not named, so we cannot auto-detect. Similar story for the PSOs. */
     { VKD3D_STRING_COMPARE_EXACT, "ArkAscended.exe",
@@ -752,8 +751,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * forcing 64b descriptors on heap or rely on 64b drirc workaround in RADV for DB path. */
     { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(
         .AVOID_IMAGE_BUFFER_ALIASING = 1, .NO_STAGGERED_SUBMIT = 1) },
-	/* Aces of Thunder (2754090). */
-    { VKD3D_STRING_COMPARE_EXACT, "aces.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
@@ -9713,34 +9710,25 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
             D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE | D3D12_COMMAND_LIST_SUPPORT_FLAG_COPY |
             D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE;
 
-    /* Tilers can take good advantage of multiview, just expose it for them even if we're not quite compliant. */
-    if (vkd3d_debug_control_is_test_suite() ||
-        device->workarounds.tiler_suspend_resume ||
-        (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING) ||
-        VKD3D_CONFIG_FLAG_IS_SET(ENABLE_EXPERIMENTAL_FEATURES))
-    {
-        /* Currently only partially implemented.
-         * TIER_2 is most appropriate since it allows for fast path in certain situations and
-         * fallback in some other cases.
-         * Turnip does not support multiviewGeom/Tess.
-         * This should not come up, so shove it under the rug for now. */
-        options3->ViewInstancingTier =
-                device->device_info.vulkan_1_1_features.multiview &&
-                device->device_info.vulkan_1_2_features.shaderOutputLayer &&
-                device->device_info.vulkan_1_2_features.shaderOutputViewportIndex &&
-                (device->workarounds.tiler_suspend_resume ||
-                        (device->device_info.vulkan_1_1_features.multiviewGeometryShader &&
-                        device->device_info.vulkan_1_1_features.multiviewTessellationShader)) &&
-                (!device->device_info.mesh_shader_features.meshShader ||
-                        device->device_info.mesh_shader_features.multiviewMeshShader) ?
-                D3D12_VIEW_INSTANCING_TIER_2 :
-                D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
-    }
-    else
-    {
-        /* Currently not supported */
-        options3->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
-    }
+    /* This comes up in various games, and there are no known cases of applications needing the edge cases to work.
+     * Just expose view instancing unconditionally even if we cannot make all cases work yet.
+     * Native implementations aren't exactly fully compliant either as our test suite demonstrates.
+     * With descriptor heap, there is a path forward with draw unrolling if we *really* have to at least.
+     *
+     * TIER_2 is most appropriate since it allows for fast path in certain situations and
+     * fallback in some other cases.
+     * Turnip does not support multiviewGeom/Tess. This should not come up, so shove it under the rug for now. */
+    options3->ViewInstancingTier =
+            device->device_info.vulkan_1_1_features.multiview &&
+            device->device_info.vulkan_1_2_features.shaderOutputLayer &&
+            device->device_info.vulkan_1_2_features.shaderOutputViewportIndex &&
+            (device->workarounds.tiler_suspend_resume ||
+                    (device->device_info.vulkan_1_1_features.multiviewGeometryShader &&
+                    device->device_info.vulkan_1_1_features.multiviewTessellationShader)) &&
+            (!device->device_info.mesh_shader_features.meshShader ||
+                    device->device_info.mesh_shader_features.multiviewMeshShader) ?
+            D3D12_VIEW_INSTANCING_TIER_2 :
+            D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
 
     /* We can implement barycentrics with unstable barycentrics.
      * Don't enable on GCN since the affected game breaks. */
