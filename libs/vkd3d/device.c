@@ -752,6 +752,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * forcing 64b descriptors on heap or rely on 64b drirc workaround in RADV for DB path. */
     { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(
         .AVOID_IMAGE_BUFFER_ALIASING = 1, .NO_STAGGERED_SUBMIT = 1) },
+	/* Aces of Thunder (2754090). */
+    { VKD3D_STRING_COMPARE_EXACT, "aces.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_VIEW_INSTANCING },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
