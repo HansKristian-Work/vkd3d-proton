@@ -21644,11 +21644,10 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
     if (barrier->SyncAfter == D3D12_BARRIER_SYNC_SPLIT)
         return;
 
-    if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET |
-        D3D12_BARRIER_SYNC_DEPTH_STENCIL | D3D12_BARRIER_SYNC_DRAW))
-    {
-        d3d12_command_list_flush_clears(list, resource, NULL);
-    }
+    /* Technically, we can be a bit more conservative, but e.g. FH6 is completely broken here
+     * and expects clears to be synced without using appropriate stage flags or even layouts.
+     * There shouldn't be much of a concern to flushing clears here since it's per-resource. */
+    d3d12_command_list_flush_clears(list, resource, NULL);
 
     global_barrier.SyncBefore = barrier->SyncBefore;
     global_barrier.SyncAfter = barrier->SyncAfter;
