@@ -21537,8 +21537,11 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
         list->rtas_batch.pending_rtas_work = false;
     }
 
-    if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_DEPTH_STENCIL))
+    if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET |
+        D3D12_BARRIER_SYNC_DEPTH_STENCIL | D3D12_BARRIER_SYNC_DRAW))
+    {
         d3d12_command_list_flush_clears(list, NULL, NULL);
+    }
 
     d3d12_command_list_merge_copy_tracking_global_barrier(list, barrier, batch);
     d3d12_command_list_barrier_batch_add_global_transition(list, batch,
@@ -21641,8 +21644,11 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
     if (barrier->SyncAfter == D3D12_BARRIER_SYNC_SPLIT)
         return;
 
-    if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_DEPTH_STENCIL))
+    if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_RENDER_TARGET |
+        D3D12_BARRIER_SYNC_DEPTH_STENCIL | D3D12_BARRIER_SYNC_DRAW))
+    {
         d3d12_command_list_flush_clears(list, resource, NULL);
+    }
 
     global_barrier.SyncBefore = barrier->SyncBefore;
     global_barrier.SyncAfter = barrier->SyncAfter;
