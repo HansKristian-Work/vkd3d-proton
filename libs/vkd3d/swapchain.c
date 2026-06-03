@@ -583,6 +583,13 @@ static void dxgi_vk_swap_chain_cleanup_common(struct dxgi_vk_swap_chain *chain)
     for (i = 0; i < ARRAY_SIZE(chain->present.vk_swapchain_fences); i++)
         VK_CALL(vkDestroyFence(chain->queue->device->vk_device, chain->present.vk_swapchain_fences[i], NULL));
 
+    if (chain->queue->device->vk_info.NV_low_latency2 && chain->present.vk_swapchain)
+    {
+        spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
+        chain->queue->device->swapchain_info.vk_swapchain_count--;
+        spinlock_release(&chain->queue->device->low_latency_swapchain_spinlock);
+    }
+
     VK_CALL(vkDestroySwapchainKHR(chain->queue->device->vk_device, chain->present.vk_swapchain, NULL));
 
     for (i = 0; i < ARRAY_SIZE(chain->user.backbuffers); i++)
