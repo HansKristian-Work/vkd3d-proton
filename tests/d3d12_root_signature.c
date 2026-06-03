@@ -1359,6 +1359,9 @@ void test_root_signature_byte_code(void)
             &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
     ok(hr == S_OK, "Failed to create deserializer, hr %#x.\n", (int)hr);
 
+    if (FAILED(hr))
+        return;
+
     check_interface(deserializer, &IID_IUnknown, false);
     check_interface(deserializer, &IID_ID3D12RootSignatureDeserializer, true);
     check_interface(deserializer, &IID_ID3D12VersionedRootSignatureDeserializer, false);
@@ -1620,6 +1623,9 @@ void test_root_signature_byte_code2(void)
     hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(rs_blob_dxbc, sizeof(rs_blob_dxbc),
             &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&deserializer);
     ok(SUCCEEDED(hr), "Got unexpected hr %#x.\n", (int)hr);
+
+    if (FAILED(hr))
+        return;
 
     check_root_signature_deserialization2(&rs_blob, &desc0, &desc1, &desc2);
     check_root_signature_serialization2(&rs_blob, &desc2);
