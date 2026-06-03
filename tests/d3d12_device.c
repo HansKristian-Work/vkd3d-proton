@@ -2541,6 +2541,8 @@ void test_device_configuration(void)
         }
 
         ok(iface, "Failed to create device.\n");
+        if (!iface)
+            continue;
 
         hr = IUnknown_QueryInterface(iface, &IID_ID3D12DeviceConfiguration1, (void **)&device_config1);
         ok(SUCCEEDED(hr), "Failed to query ID3D12DeviceConfiguration1.\n");
