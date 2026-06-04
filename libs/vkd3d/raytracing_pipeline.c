@@ -139,7 +139,7 @@ static void d3d12_state_object_cleanup(struct d3d12_rt_state_object *object)
     object->exports_count = 0;
     object->exports_size = 0;
 
-    vkd3d_free(object->entry_points);
+    vkd3d_shader_dxil_free_library_entry_points(object->entry_points, object->entry_points_count);
     object->entry_points = NULL;
     object->entry_points_count = 0;
     /* This is pilfered from data struct, and we don't copy the size. */
