@@ -8092,8 +8092,14 @@ static HRESULT vkd3d_bindless_state_init_heap(struct vkd3d_bindless_state *bindl
     {
         /* For this path to work, we need to know that the hardware and driver can alias texel buffer and SSBO.
          * TODO: We may need to find some other way on NVK. */
-        if (bindless_state->heap.ssbo_size != bindless_state->heap.storage_texel_buffer_size ||
-            device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
+        if (bindless_state->heap.ssbo_size != bindless_state->heap.storage_texel_buffer_size &&
+            device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_NVK)
+        {
+            FIXME("SSBO/Texel buffer aliasing required, but NVK does not implement that in the current configuration."
+                  "Allowing NVK to pass this check, but SSBO <-> texel buffer aliasing will not work correctly.\n");
+        }
+        else if (bindless_state->heap.ssbo_size != bindless_state->heap.storage_texel_buffer_size ||
+                 device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
         {
             FIXME("SSBO/Texel buffer aliasing required, but not possible to implement heap path on this GPU.\n");
             return E_NOTIMPL;
