@@ -676,7 +676,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * still works around sync issues. */
     { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
     /* World of Warcraft retail. Broken MSAA code where it renders to multi-sampled target with single sampled PSO. */
-    { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_DYNAMIC_MSAA) },
+    /* Descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
+    { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_DYNAMIC_MSAA = 1, .AVOID_IMAGE_BUFFER_ALIASING = 1) },
     /* The Last of Us Part I (1888930). Submits hundreds of command buffers per frame.
      * Some of the lighting shaders are extremely sensitive to tiling layouts, and using thin tiling for 3D UAVs has profound
      * performance effects. */
@@ -1049,6 +1050,15 @@ static const struct vkd3d_shader_quirk_info pragmata_quirks = {
     pragmata_hashes, ARRAY_SIZE(pragmata_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash wow_hashes[] = {
+    /* In addition to needing 64 byte descriptors, this ray query shader causes a heap OOB as well. */
+    { NULL, 0xef2f620cbce5630c, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
+};
+
+static const struct vkd3d_shader_quirk_info wow_quirks = {
+    wow_hashes, ARRAY_SIZE(wow_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1133,6 +1143,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", &pragmata_quirks },
     /* Forza Horizon 6 (2483190). */
     { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", &forza6_quirks },
+    /* World of Warcraft */
+    { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", &wow_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
