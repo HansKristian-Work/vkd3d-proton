@@ -5388,7 +5388,11 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
             ? VKD3D_PIPELINE_TYPE_MESH_GRAPHICS
             : VKD3D_PIPELINE_TYPE_GRAPHICS;
 
+    memset(&io_input_signature, 0, sizeof(io_input_signature));
     memset(&vs_input_signature, 0, sizeof(vs_input_signature));
+    memset(&pc_input_signature, 0, sizeof(pc_input_signature));
+    memset(&pc_output_signature, 0, sizeof(pc_output_signature));
+    memset(&io_output_signature, 0, sizeof(io_output_signature));
 
     for (i = desc->rtv_formats.NumRenderTargets; i < ARRAY_SIZE(desc->rtv_formats.RTFormats); ++i)
     {
@@ -5691,10 +5695,6 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     graphics->patch_vertex_count = 0;
 
     /* Parse interface data from DXBC blobs. */
-    memset(&pc_input_signature, 0, sizeof(pc_input_signature));
-    memset(&pc_output_signature, 0, sizeof(pc_output_signature));
-    memset(&io_output_signature, 0, sizeof(io_output_signature));
-
     curr_stage = VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM;
 
     for (i = 0; i < ARRAY_SIZE(shader_stages_lut); ++i)
@@ -5717,8 +5717,6 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
 
         prev_stage = curr_stage;
         curr_stage = shader_stages_lut[i].stage;
-
-        memset(&io_input_signature, 0, sizeof(io_input_signature));
 
         /* Ignore errors when a signature is not present. If a missing signature
          * leads to compatibility issues, validation will fail later anyway. */
@@ -6038,6 +6036,10 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     return S_OK;
 
 fail:
+    vkd3d_shader_free_shader_signature(&pc_input_signature);
+    vkd3d_shader_free_shader_signature(&pc_output_signature);
+    vkd3d_shader_free_shader_signature(&io_input_signature);
+    vkd3d_shader_free_shader_signature(&io_output_signature);
     vkd3d_shader_free_shader_signature(&vs_input_signature);
     return hr;
 }
