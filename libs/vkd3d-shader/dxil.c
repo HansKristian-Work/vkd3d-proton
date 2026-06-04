@@ -2314,6 +2314,8 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                 subobject = &(*subobjects)[*subobjects_count];
                 vkd3d_shader_dxil_copy_subobject(identifier, subobject, &sub);
                 *subobjects_count += 1;
+                vkd3d_free(ascii_entry);
+                ascii_entry = NULL;
             }
             else
             {
