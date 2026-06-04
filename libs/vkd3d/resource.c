@@ -3890,11 +3890,12 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
 
+    vkd3d_free(resource->sparse.tiles);
+    vkd3d_free(resource->sparse.tilings);
+
     if (resource->flags & VKD3D_RESOURCE_RESERVED)
     {
         vkd3d_free_device_memory(device, &resource->sparse.vk_metadata_memory);
-        vkd3d_free(resource->sparse.tiles);
-        vkd3d_free(resource->sparse.tilings);
 
         if (resource->res.va)
             vkd3d_va_map_remove(&device->memory_allocator.va_map, &resource->res);
