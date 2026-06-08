@@ -1808,3 +1808,269 @@ void test_null_descriptor_mismatch_type(void)
     destroy_test_context(&context);
 }
 
+void test_byte_buffer_addressing_wrap(void)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    bool skip_per_component_wrap_write;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    bool skip_per_component_wrap_read;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    unsigned int buffer_index;
+    ID3D12Resource *indices;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+#include "shaders/robustness/headers/byte_address_wrapping.h"
+
+    static const uint32_t indices_data[] = {
+        /* BAB times 4 case. (uint vectorization). */
+        0x80000008, /* Mult should overflow, giving byte offset of 32. */
+        0x40000009, /* Mult should overflow, giving byte offset of 36. */
+        0x3fffffff, /* Trip robustness. */
+        0xffffffff, /* Overflow, then trip robustness */
+
+        /* BAB times 8 case. (uvec2 vectorization). */
+        0x80000008, /* Mult should overflow, leading to a valid read. */
+        0x40000009, /* Mult should overflow, leading to a valid read. */
+        0x1fffffff, /* Trip robustness. */
+        0xffffffff, /* Overflow, then trip robustness. */
+
+        /* BAB times 12 case. (uvec3 vectorization, only relevant on AMD). */
+        0x80000008, /* BAB, times 12. Clean overflow. */
+        UINT32_MAX / 12 - 1, /* No overflow. Trip robustness cleanly. */
+        UINT32_MAX / 12, /* Trip robustness, but per component behavior might overflow u32 addresses? */
+        UINT32_MAX / 12 + 1, /* Clean overflow. */
+
+        /* BAB times 16 case. (uvec4 vectorization) */
+        0x20000008, /* Mult should overflow, leading to a valid read. */
+        0x10000009, /* Mult should overflow, leading to a valid read. */
+        0x0f000007, /* Trip robustness. */
+        0xffffffff, /* Trip robustness. */
+
+        /* BAB times 20 case. */
+        0x40000008, /* Mult should overflow, leading to a valid read. */
+        0x20000009, /* Mult should not overflow, leading to a robustness. */
+        UINT32_MAX / 20, /* Test weird overflow on unroll scenario. */
+        UINT32_MAX / 20 + 1, /* Test weird overflow on unroll scenario. */
+
+        /* BAB times 24 case. */
+        0x20000008, /* Mult should overflow, leading to a valid read. */
+        0x10000009, /* Mult should not overflow, leading to a robustness. */
+        UINT32_MAX / 24, /* Test weird overflow on unroll scenario. */
+        UINT32_MAX / 24 + 1, /* Test weird overflow on unroll scenario. */
+
+        /* BAB times 28 case. */
+        0x40000008, /* Mult should overflow, leading to a valid read. */
+        0x20000009, /* Mult should not overflow, leading to a robustness. */
+        UINT32_MAX / 28, /* Test weird overflow on unroll scenario. */
+        UINT32_MAX / 28 + 1, /* Test weird overflow on unroll scenario. */
+
+        /* BAB times 32 case (uvec4 vectorization with extra scaling). */
+        0x10000008, /* Mult should overflow, leading to a valid read. */
+        0x08000009, /* Mult should overflow, leading to a valid read. */
+        0x07000007, /* Trip robustness. */
+        0xffffffff, /* Trip robustness. */
+    };
+
+    uint32_t input_data[1024];
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    indices = create_upload_buffer(context.device, sizeof(indices_data), indices_data);
+
+    for (i = 0; i < ARRAY_SIZE(input_data); i++)
+        input_data[i] = i + 1;
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_param, 0, sizeof(rs_param));
+    memset(desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+    rs_param[0].DescriptorTable.pDescriptorRanges = desc_range;
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    desc_range[0].NumDescriptors = 33;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[1].NumDescriptors = 1;
+    desc_range[1].OffsetInDescriptorsFromTableStart = 63;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].Descriptor.RegisterSpace = 1;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, byte_address_wrapping_dxil);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 64);
+
+    output = create_default_buffer(context.device, 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    memset(&uav_desc, 0, sizeof(uav_desc));
+
+    srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+    srv_desc.Buffer.NumElements = ARRAY_SIZE(input_data);
+
+    ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 63));
+
+    uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+
+    for (i = 0; i < 32; i++)
+    {
+        uav_desc.Buffer.FirstElement = 256 * i;
+        uav_desc.Buffer.NumElements = 256;
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, i));
+    }
+
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = 64 * 1024 / sizeof(uint32_t);
+    ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc,
+            get_cpu_descriptor_handle(&context, heap, 32));
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+            get_gpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(indices));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+    transition_resource_state(context.list, output,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* If we're attempting to load byte address buffer beyond u32. NVIDIA does not do wrap per component,
+     * which is in-spec I think. It's ambiguous if application intends to read at offset 0 or >4G offset for those components.
+     * NVIDIA has different behavior here depending on reading or writing which is ... odd.
+     * Given it doesn't wrap for reads, we can conclude there is no hard requirement to perform that wrap. */
+    skip_per_component_wrap_read = is_vk_device_extension_supported(context.device, "VK_NV_raw_access_chains") ||
+            is_intel_windows_device(context.device) ||
+            is_nvidia_windows_device(context.device);
+    skip_per_component_wrap_write = is_vk_device_extension_supported(context.device, "VK_NV_raw_access_chains") ||
+            is_intel_windows_device(context.device);
+
+    /* Validate inputs. */
+    for (buffer_index = 0; buffer_index < 32; buffer_index++)
+    {
+        uint32_t expected_payload[8] = {0};
+        uint32_t payload[8] = {0};
+        bool partial_overflow;
+        uint32_t byte_offset;
+        uint32_t stride_u32;
+
+        stride_u32 = buffer_index / 4 + 1;
+        byte_offset = sizeof(uint32_t) * stride_u32 * indices_data[buffer_index];
+
+        /* Explicitly overflow at u32 */
+        for (i = 0; i < stride_u32; i++)
+        {
+            uint32_t component_offset = byte_offset + i * 4;
+            if (component_offset < sizeof(input_data))
+                expected_payload[i] = component_offset / sizeof(uint32_t) + 1;
+        }
+
+        for (i = 0; i < 8; i++)
+            payload[i] = get_readback_uint(&rb, 32 * 1024 / sizeof(uint32_t) + buffer_index * 8 + i, 0, 0);
+
+        for (i = 0; i < 8; i++)
+        {
+            uint32_t base_component_offset;
+            uint32_t base_component;
+            bool skip_wrapped_read;
+
+            /* >16 byte writes are split in two in the DXIL, and we should observe overflow for those cases.
+             * For 24 byte stride cases, the type is 2x uint3s and that's how things get unrolled. */
+            base_component = i - i % (stride_u32 == 6 ? 3 : 4);
+
+            /* We emit vectorized loads even for BAB on AMD. */
+            skip_wrapped_read = skip_per_component_wrap_read ||
+                    ((is_amd_vulkan_device(context.device) || is_amd_windows_device(context.device)) &&
+                     (stride_u32 <= 4 || stride_u32 == 6));
+
+            /* The unrolled write starts at this offset. */
+            base_component_offset = byte_offset + base_component * 4;
+            partial_overflow = i - base_component < (stride_u32 == 6 ? 3 : 4) && skip_wrapped_read &&
+                ((uint64_t)base_component_offset + (i - base_component) * sizeof(uint32_t) > UINT32_MAX);
+
+            if (partial_overflow)
+                expected_payload[i] = 0;
+
+            ok(expected_payload[i] == payload[i], "reads: buffer_index %u, value %u, expected %u, got %u\n",
+                    buffer_index, i, expected_payload[i], payload[i]);
+        }
+    }
+
+    /* Validate outputs */
+    for (buffer_index = 0; buffer_index < 32; buffer_index++)
+    {
+        uint32_t expected_payload[256] = {0};
+        uint32_t payload[256] = {0};
+        uint32_t byte_offset;
+        uint32_t stride_u32;
+
+        for (i = 0; i < 256; i++)
+            payload[i] = get_readback_uint(&rb, 256 * buffer_index + i, 0, 0);
+
+        stride_u32 = buffer_index / 4 + 1;
+        byte_offset = sizeof(uint32_t) * stride_u32 * indices_data[buffer_index];
+
+        /* Explicitly overflow at u32 */
+        for (i = 0; i < stride_u32; i++)
+        {
+            uint32_t component_offset = byte_offset + i * 4;
+            uint32_t base_component_offset;
+            uint32_t base_component;
+            bool skip_wrapped_write;
+            bool partial_overflow;
+
+            /* >16 byte writes are split in two in the DXIL, and we should observe overflow for those cases.
+             * For 24 byte stride cases, the type is 2x uint3s and that's how things get unrolled. */
+            base_component = i - i % (stride_u32 == 6 ? 3 : 4);
+
+            /* We emit vectorized loads even for BAB on AMD. */
+            skip_wrapped_write = skip_per_component_wrap_write ||
+                    ((is_amd_vulkan_device(context.device) || is_amd_windows_device(context.device)) &&
+                     (stride_u32 <= 4 || stride_u32 == 6));
+
+            /* The unrolled write starts at this offset. */
+            base_component_offset = byte_offset + base_component * 4;
+            partial_overflow = i - base_component < (stride_u32 == 6 ? 3 : 4) && skip_wrapped_write &&
+                ((uint64_t)base_component_offset + (i - base_component) * sizeof(uint32_t) > UINT32_MAX);
+
+            if (component_offset < sizeof(expected_payload) && !partial_overflow)
+                expected_payload[component_offset / sizeof(uint32_t)] = stride_u32 * buffer_index + i + 1;
+        }
+
+        for (i = 0; i < ARRAY_SIZE(expected_payload); i++)
+        {
+            ok(expected_payload[i] == payload[i], "writes: buffer_index %u, value %u, expected %u, got %u\n",
+                    buffer_index, i, expected_payload[i], payload[i]);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(indices);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
