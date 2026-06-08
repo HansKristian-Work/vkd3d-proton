@@ -571,3 +571,4 @@ decl_test(test_render_target_support_validation);
 decl_test(test_descriptor_heap_broken_table_va);
 decl_test(test_resource_retain_workaround);
 decl_test(test_byte_buffer_addressing_wrap);
+decl_test(test_structured_buffer_addressing_wrap);
