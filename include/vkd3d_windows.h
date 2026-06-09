@@ -72,7 +72,7 @@ typedef short INT16;
 typedef unsigned short UINT16;
 typedef int INT32;
 typedef unsigned int UINT32;
-# if defined(__x86_64__) || defined(__WIDL__)
+# if defined(__aarch64__) || defined(__x86_64__) || defined(__WIDL__)
 typedef long INT64;
 typedef unsigned long UINT64;
 # else
