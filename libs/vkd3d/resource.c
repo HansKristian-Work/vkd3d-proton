@@ -1538,7 +1538,8 @@ struct vkd3d_view *vkd3d_view_map_get_view(struct vkd3d_view_map *view_map,
 }
 
 struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
-        struct d3d12_device *device, const struct vkd3d_view_key *key, bool rtas_is_omm)
+        struct d3d12_device *device, const struct vkd3d_view_key *key,
+        enum vkd3d_rtas_kind rtas_kind)
 {
     struct vkd3d_view_entry entry, *e;
     struct vkd3d_view *redundant_view;
@@ -1564,7 +1565,7 @@ struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
             break;
 
         case VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE:
-            success = vkd3d_create_acceleration_structure_view(device, &key->u.buffer, &view, rtas_is_omm);
+            success = vkd3d_create_acceleration_structure_view(device, &key->u.buffer, &view, rtas_kind);
             break;
 
         default:
@@ -5144,13 +5145,13 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device, const struct vkd3d_bu
     object->format = desc->format;
     object->info.buffer.offset = desc->offset;
     object->info.buffer.size = desc->size;
-    object->info.buffer.rtas_is_micromap = 0; /* Pre-publish, no atomic store required */
+    object->info.buffer.rtas_kind = VKD3D_RTAS_KIND_UNKNOWN; /* Pre-publish, no atomic store required */
     *view = object;
     return true;
 }
 
 bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const struct vkd3d_buffer_view_desc *desc,
-        struct vkd3d_view **view, bool rtas_is_micromap)
+        struct vkd3d_view **view, enum vkd3d_rtas_kind rtas_kind)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
@@ -5224,7 +5225,7 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
     object->format = desc->format;
     object->info.buffer.offset = desc->offset;
     object->info.buffer.size = desc->size;
-    object->info.buffer.rtas_is_micromap = rtas_is_micromap; /* Pre-publish, no atomic store required */
+    object->info.buffer.rtas_kind = rtas_kind; /* Pre-publish, no atomic store required */
     *view = object;
     return true;
 }
