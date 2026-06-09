@@ -1965,8 +1965,10 @@ void test_byte_buffer_addressing_wrap(void)
      * Given it doesn't wrap for reads, we can conclude there is no hard requirement to perform that wrap. */
     skip_per_component_wrap_read = is_vk_device_extension_supported(context.device, "VK_NV_raw_access_chains") ||
             is_intel_windows_device(context.device) ||
+            is_adreno_device(context.device) ||
             is_nvidia_windows_device(context.device);
     skip_per_component_wrap_write = is_vk_device_extension_supported(context.device, "VK_NV_raw_access_chains") ||
+            is_adreno_device(context.device) ||
             is_intel_windows_device(context.device);
 
     /* Validate inputs. */
@@ -2232,7 +2234,7 @@ void test_structured_buffer_addressing_wrap(void)
      * before checking for robustness. If native drivers behave like this, we can inherit the bug compatibility since
      * it's more convenient for us that way. */
     broken_byte_addressing = is_nvidia_windows_device(context.device) || is_intel_windows_device(context.device) ||
-        is_vkd3d_proton_device(context.device);
+        (is_vkd3d_proton_device(context.device) && !is_adreno_device(context.device));
 
     /* Validate inputs. */
     for (buffer_index = 0; buffer_index < 32; buffer_index++)
