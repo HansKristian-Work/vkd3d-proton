@@ -31,7 +31,7 @@ struct vkd3d_config_flags_bitfield
 	 * we may end up with stray uninitialized bits which can subtly break bitwise operations later.
 	 * Adding more configs will cause the static assert below to fail,
 	 * which indicates the need to subtract a reserved bit. */
-	uint32_t reserved0 : 31;
+	uint32_t reserved0 : 30;
 };
 
 STATIC_ASSERT(sizeof(struct vkd3d_config_flags_bitfield) == 12);

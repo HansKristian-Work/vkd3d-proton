@@ -166,6 +166,7 @@ static void vkd3d_opacity_micromap_end_barrier(struct d3d12_command_list *list)
 void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkDeviceAddress va,
         VkAccelerationStructureKHR vk_opacity_micromap)
 {
     /* In D3D12 we are supposed to be able to emit without an explicit barrier,
@@ -191,7 +192,8 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     for (i = 0; i < count; i++)
-        vkd3d_acceleration_structure_write_postbuild_info(list, &desc[i], 0, vk_opacity_micromap, true);
+        vkd3d_acceleration_structure_write_postbuild_info(list, &desc[i], 0, vk_opacity_micromap, va,
+                VKD3D_RTAS_KIND_NON_TLAS);
 
     vkd3d_opacity_micromap_end_barrier(list);
 }
@@ -277,7 +279,7 @@ bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *devic
             continue;
 
         omm_triangles_infos[i].micromap = vkd3d_va_map_place_acceleration_structure(
-                &device->memory_allocator.va_map, device, va, true);
+                &device->memory_allocator.va_map, device, va, VKD3D_RTAS_KIND_NON_TLAS);
         if (omm_triangles_infos[i].micromap == VK_NULL_HANDLE)
             return false;
     }

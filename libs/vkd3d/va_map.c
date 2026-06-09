@@ -250,7 +250,7 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
 void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va,
         VkAccelerationStructureKHR *acceleration_structure,
-        bool *is_micromap)
+        enum vkd3d_rtas_kind *rtas_kind)
 {
     const struct vkd3d_unique_resource *resource;
     struct vkd3d_view_map *view_map;
@@ -258,7 +258,7 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
     struct vkd3d_view_key key;
 
     *acceleration_structure = VK_NULL_HANDLE;
-    *is_micromap = false;
+    *rtas_kind = VKD3D_RTAS_KIND_UNKNOWN;
 
     resource = vkd3d_va_map_deref(va_map, va);
     if (!resource || !resource->va)
@@ -280,19 +280,32 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         return;
 
     *acceleration_structure = view->vk_acceleration_structure;
-    *is_micromap =
-            (bool)vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_is_micromap, vkd3d_memory_order_relaxed);
+    *rtas_kind = (enum vkd3d_rtas_kind)
+        vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_kind, vkd3d_memory_order_relaxed);
+}
+
+const char *vkd3d_get_rtas_kind_string(enum vkd3d_rtas_kind rtas_kind)
+{
+    switch (rtas_kind)
+    {
+        case VKD3D_RTAS_KIND_UNKNOWN: return "Unknown";
+        case VKD3D_RTAS_KIND_TLAS: return "TLAS";
+        case VKD3D_RTAS_KIND_NON_TLAS: return "non-TLAS";
+        case VKD3D_RTAS_KIND_MUTATED: return "mutated";
+        default: return "**Invalid**";
+    }
 }
 
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
-        VkDeviceAddress va, bool rtas_is_omm)
+        VkDeviceAddress va,
+        enum vkd3d_rtas_kind rtas_kind)
 {
+    enum vkd3d_rtas_kind previous_rtas_kind, expected_rtas_kind, desired_rtas_kind;
     struct vkd3d_unique_resource *resource;
     struct vkd3d_view_map *old_view_map;
     struct vkd3d_view_map *view_map;
     struct vkd3d_view_key key;
-    bool was_rtas_is_micromap;
     struct vkd3d_view *view;
 
     resource = vkd3d_va_map_deref_mutable(va_map, va);
@@ -333,19 +346,43 @@ VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3
     key.u.buffer.format = NULL;
     key.u.buffer.usage = 0;
 
-    view = vkd3d_view_map_create_view2(view_map, device, &key, rtas_is_omm);
+    view = vkd3d_view_map_create_view2(view_map, device, &key, rtas_kind);
     if (!view)
         return VK_NULL_HANDLE;
 
-    was_rtas_is_micromap =
-            (bool)vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_is_micromap, vkd3d_memory_order_relaxed);
-    if (rtas_is_omm != was_rtas_is_micromap)
-        FIXME("Attempted to place %s on VA #%"PRIx64" previously used by %s.\n",
-                rtas_is_omm ? "OMM" : "RTAS", va,
-                was_rtas_is_micromap ? "OMM" : "RTAS");
+    /* Atomic CAS loop maintaining the rtas_kind state machine:
+     *   UNKNOWN -> TLAS | NON_TLAS  (upgrade on first known place)
+     *   TLAS | NON_TLAS -> MUTATED  (collapse on cross-kind place)
+     *   MUTATED                     (sticky, terminal)
+     * place(UNKNOWN) is a no-op and never overwrites an established kind. */
+    previous_rtas_kind = (enum vkd3d_rtas_kind)
+            vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_kind, vkd3d_memory_order_acquire);
+    for (;;)
+    {
+        expected_rtas_kind = previous_rtas_kind;
+        desired_rtas_kind = rtas_kind == VKD3D_RTAS_KIND_UNKNOWN ? previous_rtas_kind : rtas_kind;
 
-    vkd3d_atomic_uint32_store_explicit(&view->info.buffer.rtas_is_micromap, rtas_is_omm ? 1 : 0,
-            vkd3d_memory_order_relaxed);
+        if (rtas_kind != previous_rtas_kind &&
+                previous_rtas_kind != VKD3D_RTAS_KIND_UNKNOWN &&
+                rtas_kind != VKD3D_RTAS_KIND_UNKNOWN)
+            desired_rtas_kind = VKD3D_RTAS_KIND_MUTATED;
+
+        if (desired_rtas_kind == previous_rtas_kind)
+            break;
+
+        previous_rtas_kind = vkd3d_atomic_uint32_compare_exchange(&view->info.buffer.rtas_kind, expected_rtas_kind,
+                desired_rtas_kind, vkd3d_memory_order_release, vkd3d_memory_order_acquire);
+        if (previous_rtas_kind == expected_rtas_kind)
+        {
+            if (desired_rtas_kind == VKD3D_RTAS_KIND_MUTATED)
+            {
+                WARN("Attempted to place %s on VA #%"PRIx64" previously used by %s, marking mutated.\n",
+                        vkd3d_get_rtas_kind_string(rtas_kind), va,
+                        vkd3d_get_rtas_kind_string(previous_rtas_kind));
+            }
+            break;
+        }
+    }
 
     return view->vk_acceleration_structure;
 }
