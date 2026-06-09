@@ -434,6 +434,11 @@ enum vkd3d_shader_target_extension
     VKD3D_SHADER_TARGET_EXTENSION_EXTENDED_NON_SEMANTIC,
     VKD3D_SHADER_TARGET_EXTENSION_MIXED_FLOAT_DOT_PRODUCT,
     VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_QUAD,
+
+    /* Treat this as an extension similar to ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS.
+     * This avoids lots of jank around ByteAddressBuffer u32 wrapping behavior when
+     * translating to SSBOs. We always need the wrap if we have to fallback to texel buffers however. */
+    VKD3D_SHADER_TARGET_EXTENSION_ASSUME_SSBO_32BIT_WRAPPING,
     VKD3D_SHADER_TARGET_EXTENSION_COUNT,
 };
 

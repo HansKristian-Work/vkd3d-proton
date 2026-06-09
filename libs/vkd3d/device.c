@@ -586,7 +586,8 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX = 1 << 2,
     VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS = 1 << 3,
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
-    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5
+    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
+    VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP = 1 << 6,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -755,6 +756,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
         .AVOID_IMAGE_BUFFER_ALIASING = 1, .NO_STAGGERED_SUBMIT = 1) },
     /* SCP: Secret Laboratory (700330). DCC stores causes glitches with RADV. */
     { VKD3D_STRING_COMPARE_EXACT, "SCPSL.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.DISABLE_UAV_COMPRESSION = 1) },
+    /* PRAGMATA (3357650) */
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
+        VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
@@ -10432,6 +10436,48 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_override_application(device);
 }
 
+static bool vkd3d_driver_id_wraps_ssbo_32bit_before_robustness(VkDriverId driver_id)
+{
+    /* In Vulkan, it's more or less UB when accessing a logical array outside its bounds.
+     * Based on this language, it seems like implementations are allowed to wrap the address space
+     * beyond 4G (and negative offsets) as long as <4G is the maximum descriptor size.
+     * From OpAccessChain in SPIR-V spec:
+     * " - if indexing into a vector, array, or matrix, with the result type being a logical pointer type,
+     * behavior is undefined if not in bounds."
+     */
+
+    /* By default, just assume it's fine as-is. We can evaluate later if we should take (slightly) slower path by default.
+     * Only one game is known to be affected by this. */
+    if (!(vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP) &&
+        !vkd3d_debug_control_is_test_suite())
+        return true;
+
+    switch (driver_id)
+    {
+        case VK_DRIVER_ID_AMD_OPEN_SOURCE:
+        case VK_DRIVER_ID_AMD_PROPRIETARY:
+        case VK_DRIVER_ID_MESA_RADV:
+        case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
+        case VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS:
+        case VK_DRIVER_ID_MESA_NVK:
+        case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
+            /* The major desktop vendors all seem to have same behavior.
+             * NVIDIA is somewhat surprising given how they do robustness, but tests don't lie.
+             * Quirky behavior given how OpAccessChain is defined, but it's actually the most convenient interpretation,
+             * and maps well to D3D12. */
+            return true;
+
+        case VK_DRIVER_ID_MESA_TURNIP:
+        case VK_DRIVER_ID_QUALCOMM_PROPRIETARY:
+            /* Known to implement SSBOs as pseudo-texel buffers, which will not have the desired wrapping behavior. */
+            return false;
+
+        default:
+            /* Conservative, assume it might not. */
+            return false;
+    }
+}
+
 static void vkd3d_init_shader_extensions(struct d3d12_device *device)
 {
     bool allow_denorm_control;
@@ -10605,6 +10651,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_MIXED_FLOAT_DOT_PRODUCT;
+    }
+
+    if (vkd3d_driver_id_wraps_ssbo_32bit_before_robustness(device->device_info.vulkan_1_2_properties.driverID))
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_ASSUME_SSBO_32BIT_WRAPPING;
     }
 }
 
