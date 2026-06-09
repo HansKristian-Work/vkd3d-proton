@@ -2321,7 +2321,7 @@ static void d3d12_command_list_update_conditional_rendering_state(struct d3d12_c
     }
 }
 
-static void d3d12_command_list_check_render_pass_validation(
+void d3d12_command_list_check_render_pass_validation(
         struct d3d12_command_list *list, const char *user_driven_tag, bool action_command)
 {
     if (user_driven_tag && list->is_inside_render_pass)
@@ -6759,7 +6759,8 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
     }
 
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt)
-            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1))
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt1)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt2))
     {
         d3d12_command_list_vkd3d_ext_AddRef(&command_list->ID3D12GraphicsCommandListExt_iface);
         *object = &command_list->ID3D12GraphicsCommandListExt_iface;
@@ -20240,7 +20241,7 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
         return false;
     }
 
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+    if (list->device->device_info.supports_opacity_micromap)
     {
         if (!vkd3d_array_reserve((void **)&rtas_batch->omm_triangles_infos, &rtas_batch->omm_triangles_info_size,
                 rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->omm_triangles_infos)))
@@ -20259,7 +20260,7 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
 
     *build_info = &rtas_batch->build_infos[rtas_batch->build_info_count];
     *geometry_infos = &rtas_batch->geometry_infos[rtas_batch->geometry_info_count];
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+    if (list->device->device_info.supports_opacity_micromap)
         *omm_triangles_infos = &rtas_batch->omm_triangles_infos[rtas_batch->geometry_info_count];
     else
         *omm_triangles_infos = NULL;
@@ -20496,7 +20497,7 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
     if (desc->DestAccelerationStructureData)
     {
         micromap = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData, true);
+                        list->device, desc->DestAccelerationStructureData, VKD3D_RTAS_KIND_NON_TLAS);
         build_info->dstAccelerationStructure = micromap;
         if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
@@ -20559,9 +20560,8 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
          * to the batch. */
         d3d12_command_list_flush_rtas_batch(list);
 
-        vkd3d_opacity_micromap_emit_immediate_postbuild_info(list,
-                num_postbuild_info_descs, postbuild_info_descs,
-                micromap);
+        vkd3d_opacity_micromap_emit_immediate_postbuild_info(list, num_postbuild_info_descs, postbuild_info_descs,
+                desc->DestAccelerationStructureData, micromap);
     }
 
     VKD3D_BREADCRUMB_COMMAND(BUILD_OMM);
@@ -20569,7 +20569,8 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
 
 static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs,
+        bool supports_opacity_micromap)
 {
     VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos;
     VkAccelerationStructureBuildGeometryInfoKHR *build_info;
@@ -20577,6 +20578,7 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     VkAccelerationStructureGeometryKHR *geometry_infos;
     uint32_t *primitive_counts = NULL;
     uint32_t geometry_count;
+    enum vkd3d_rtas_kind rtas_kind;
 
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(&desc->Inputs);
 
@@ -20590,17 +20592,25 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
         return;
 
     if (!vkd3d_acceleration_structure_convert_inputs(list->device, &desc->Inputs,
-            build_info, geometry_infos, omm_triangles_infos, range_infos, primitive_counts))
+            build_info, geometry_infos, omm_triangles_infos, range_infos, primitive_counts,
+            supports_opacity_micromap))
     {
         ERR("Failed to convert inputs.\n");
         return;
     }
 
+    if (!vkd3d_acceleration_structure_resolve_omm_va_maps(list->device, &desc->Inputs,
+            omm_triangles_infos))
+        return;
+
+    rtas_kind = (desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) ?
+        VKD3D_RTAS_KIND_TLAS : VKD3D_RTAS_KIND_NON_TLAS;
+
     if (desc->DestAccelerationStructureData)
     {
         build_info->dstAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData, false);
+                        list->device, desc->DestAccelerationStructureData, rtas_kind);
         if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place destAccelerationStructure. Dropping call.\n");
@@ -20613,7 +20623,7 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     {
         build_info->srcAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->SourceAccelerationStructureData, false);
+                        list->device, desc->SourceAccelerationStructureData, rtas_kind);
         if (build_info->srcAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place srcAccelerationStructure. Dropping call.\n");
@@ -20711,24 +20721,22 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
 
         vkd3d_acceleration_structure_emit_immediate_postbuild_info(list,
                 num_postbuild_info_descs, postbuild_info_descs,
-                build_info->dstAccelerationStructure);
+                build_info->dstAccelerationStructure,
+                desc->DestAccelerationStructureData,
+                rtas_kind);
     }
 
     VKD3D_BREADCRUMB_COMMAND(BUILD_RTAS);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
+void d3d12_command_list_build_raytracing_acceleration_structure_common(struct d3d12_command_list *list,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs,
+        bool supports_opacity_micromap)
 {
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
     bool assume_hazard;
 
-    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
-            iface, desc, num_postbuild_info_descs, postbuild_info_descs);
-
-    d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
@@ -20767,24 +20775,40 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     rtas_batch->build_flags = desc->Inputs.Flags;
 
     if (rtas_batch->build_type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_OPACITY_MICROMAP_ARRAY)
-        d3d12_command_list_build_raytracing_opacity_micromap_array(list,
-                desc, num_postbuild_info_descs, postbuild_info_descs);
+    {
+        if (!supports_opacity_micromap)
+            ERR("Opacity micromap is not supported");
+        else
+            d3d12_command_list_build_raytracing_opacity_micromap_array(list, desc, num_postbuild_info_descs,
+                    postbuild_info_descs);
+    }
     else
-        d3d12_command_list_build_raytracing_blas_and_tlas(list,
-                desc, num_postbuild_info_descs, postbuild_info_descs);
+        d3d12_command_list_build_raytracing_blas_and_tlas(list, desc, num_postbuild_info_descs,
+                postbuild_info_descs, supports_opacity_micromap);
 
     rtas_batch->pending_rtas_work = true;
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
-        const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
+static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
-            iface, desc, num_acceleration_structures, src_data);
 
-    d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n", true);
+    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
+            iface, desc, num_postbuild_info_descs, postbuild_info_descs);
+
+    d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
+
+    d3d12_command_list_build_raytracing_acceleration_structure_common(list, desc, num_postbuild_info_descs,
+            postbuild_info_descs, d3d12_device_supports_ray_tracing_tier_1_2(list->device));
+}
+
+void d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data,
+        bool supports_opacity_micromap)
+{
     d3d12_command_list_flush_dgc_batch(list);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
@@ -20796,10 +20820,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     d3d12_command_list_end_current_render_pass(list, true);
-    vkd3d_acceleration_structure_emit_postbuild_info(list,
-            desc, num_acceleration_structures, src_data);
+    vkd3d_acceleration_structure_emit_postbuild_info(list, desc, num_acceleration_structures, src_data,
+           supports_opacity_micromap);
 
     VKD3D_BREADCRUMB_COMMAND(EMIT_RTAS_POSTBUILD);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
+            iface, desc, num_acceleration_structures, src_data);
+
+    d3d12_command_list_check_render_pass_validation(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n", true);
+
+    d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(list,
+        desc, num_acceleration_structures,
+        src_data, d3d12_device_supports_ray_tracing_tier_1_2(list->device));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
@@ -20808,7 +20847,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     VkAccelerationStructureKHR src_as;
-    bool is_micromap;
+    enum vkd3d_rtas_kind rtas_kind;
 
     TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
           iface, dst_data, src_data, mode);
@@ -20837,37 +20876,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     /* We have not observed broken copy -> trace sync in the wild so far.
      * Don't consider this pending RTAS work until we have evidence of real-world breakage. */
 
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+    vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
+            list->device, src_data, &src_as, &rtas_kind);
+
+    if (src_as == VK_NULL_HANDLE)
     {
-        vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
-                list->device, src_data, &src_as, &is_micromap);
-
-        if (src_as != VK_NULL_HANDLE)
-        {
-            vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, is_micromap);
-            VKD3D_BREADCRUMB_AUX64(dst_data);
-            VKD3D_BREADCRUMB_AUX64(src_data);
-            VKD3D_BREADCRUMB_AUX32(mode);
-            if (is_micromap)
-                VKD3D_BREADCRUMB_COMMAND(COPY_OMM);
-            else
-                VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
-            return;
-        }
-        else
-            FIXME("Failed to query existing RTAS for VA 0x%"PRIx64", falling back to placement.\n", src_data);
+        WARN("Copy placing unknown AS at #%" PRIx64 " future BLP queries may not be reliable.\n", src_data);
+        rtas_kind = VKD3D_RTAS_KIND_UNKNOWN;
+        src_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device,
+                src_data, rtas_kind);
     }
-
-    src_as = vkd3d_va_map_place_acceleration_structure(
-            &list->device->memory_allocator.va_map, list->device, src_data, false);
 
     if (src_as != VK_NULL_HANDLE)
     {
-        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, false);
+        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, rtas_kind);
         VKD3D_BREADCRUMB_AUX64(dst_data);
         VKD3D_BREADCRUMB_AUX64(src_data);
         VKD3D_BREADCRUMB_AUX32(mode);
         VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
+        return;
     }
     else
         ERR("Invalid src address #%"PRIx64" for RTAS copy.\n", src_data);
@@ -22059,7 +22086,7 @@ static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12Comma
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
-extern CONST_VTBL struct ID3D12GraphicsCommandListExt1Vtbl d3d12_command_list_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12GraphicsCommandListExt2Vtbl d3d12_command_list_vkd3d_ext_vtbl;
 
 static void d3d12_command_list_init_attachment_info(VkRenderingAttachmentInfo *attachment_info)
 {

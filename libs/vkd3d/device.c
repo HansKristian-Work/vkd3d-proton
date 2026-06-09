@@ -100,6 +100,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
 #endif
+    VK_EXTENSION(KHR_INDEX_TYPE_UINT8, KHR_index_type_uint8),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CONSERVATIVE_RASTERIZATION, EXT_conservative_rasterization),
@@ -2501,6 +2502,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->opacity_micromap_features);
     }
 
+    if (vulkan_info->KHR_index_type_uint8)
+    {
+        info->index_type_uint8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->index_type_uint8_features);
+    }
+
     if (vulkan_info->EXT_shader_float8)
     {
         info->shader_float8_features.sType =
@@ -4565,7 +4572,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt1)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt2)
             || IsEqualGUID(riid, &IID_ID3D12DeviceExt3)
-            || IsEqualGUID(riid, &IID_ID3D12DeviceExt4))
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt4)
+            || IsEqualGUID(riid, &IID_ID3D12DeviceExt5))
     {
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
@@ -8453,12 +8461,11 @@ cleanup:
         vkd3d_free(usages);
 }
 
-static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
+void d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info,
+        bool supports_opacity_micromap)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-
     VkAccelerationStructureTrianglesOpacityMicromapKHR omm_triangles_infos_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -8469,8 +8476,6 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     VkAccelerationStructureGeometryKHR *geometries;
     uint32_t *primitive_counts;
     uint32_t geometry_count;
-
-    TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(device))
     {
@@ -8498,7 +8503,8 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     }
 
     if (!vkd3d_acceleration_structure_convert_inputs(device,
-            desc, &build_info, geometries, omm_triangles_infos, NULL, primitive_counts))
+            desc, &build_info, geometries, omm_triangles_infos, NULL, primitive_counts,
+            supports_opacity_micromap))
     {
         ERR("Failed to convert inputs.\n");
         memset(info, 0, sizeof(*info));
@@ -8530,6 +8536,18 @@ cleanup:
         vkd3d_free(geometries);
         vkd3d_free(omm_triangles_infos);
     }
+}
+
+static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
+
+    d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(device, desc, info,
+            d3d12_device_supports_ray_tracing_tier_1_2(device));
 }
 
 static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_CheckDriverMatchingIdentifier(d3d12_device_iface *iface,
@@ -10797,7 +10815,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
     }
 }
 
-extern CONST_VTBL struct ID3D12DeviceExt4Vtbl d3d12_device_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12DeviceExt5Vtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 extern CONST_VTBL struct IAmdExtAntiLagApiVtbl d3d_amd_ext_anti_lag_vtbl;
@@ -10878,6 +10896,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     device->adapter_luid = create_info->adapter_luid;
     device->removed_reason = S_OK;
+    vkd3d_atomic_uint32_store_explicit(
+            &device->global_ray_tracing_pipeline_create_flags, 0,
+            vkd3d_memory_order_relaxed);
 
     device->vk_device = VK_NULL_HANDLE;
 

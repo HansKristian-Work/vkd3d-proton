@@ -157,6 +157,7 @@ struct vkd3d_vulkan_info
     bool KHR_present_mode_fifo_latest_ready;
     bool KHR_device_address_commands;
     bool KHR_opacity_micromap;
+    bool KHR_index_type_uint8;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -337,6 +338,16 @@ HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
 
 struct vkd3d_unique_resource;
 
+enum vkd3d_rtas_kind
+{
+    /* The state of the AS is not yet known, happens if an Emit/Copy occurs before a build. */
+    VKD3D_RTAS_KIND_UNKNOWN,
+    VKD3D_RTAS_KIND_TLAS,
+    VKD3D_RTAS_KIND_NON_TLAS,
+    /* This occurs when we cannot know if it is TLAS / non-TLAS, as the AS has been both, terminal state */
+    VKD3D_RTAS_KIND_MUTATED,
+};
+
 struct vkd3d_va_entry
 {
     DECLSPEC_ALIGN(8) VkDeviceAddress va;
@@ -386,16 +397,18 @@ struct vkd3d_va_map
     size_t sampler_mappings_size;
 };
 
+const char *vkd3d_get_rtas_kind_string(enum vkd3d_rtas_kind rtas_kind);
 void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct vkd3d_unique_resource *resource);
 void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_resource *resource);
 const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_map, VkDeviceAddress va);
 void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va,
         VkAccelerationStructureKHR *acceleration_structure,
-        bool *is_micromap);
+        enum vkd3d_rtas_kind *rtas_kind);
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
-        VkDeviceAddress va, bool rtas_is_omm);
+        VkDeviceAddress va,
+        enum vkd3d_rtas_kind rtas_kind);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_insert_descriptor_heap(struct vkd3d_va_map *va_map,
@@ -1320,7 +1333,7 @@ struct vkd3d_view
         {
             VkDeviceSize offset;
             VkDeviceSize size;
-            uint32_t rtas_is_micromap; /* not hashed; accessed atomically */
+            uint32_t rtas_kind; /* not hashed; accessed atomically; stores vkd3d_rtas_kind */
         } buffer;
         struct
         {
@@ -1370,7 +1383,7 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device,
 bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view);
 bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device,
-        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view, bool rtas_is_micromap);
+        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view, enum vkd3d_rtas_kind rtas_kind);
 bool vkd3d_create_texture_view(struct d3d12_device *device,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view);
 
@@ -2793,6 +2806,16 @@ uint32_t d3d12_command_allocator_allocate_meta_index(
 
 struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *iface);
 void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list);
+void d3d12_command_list_check_render_pass_validation(
+        struct d3d12_command_list *list, const char *user_driven_tag, bool action_command);
+void d3d12_command_list_build_raytracing_acceleration_structure_common(struct d3d12_command_list *list,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs,
+        bool supports_opacity_micromap);
+void d3d12_command_list_emit_raytracing_acceleration_structure_postbuild_info_common(struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
+        const D3D12_GPU_VIRTUAL_ADDRESS *src_data,
+        bool supports_opacity_micromap);
 
 struct vkd3d_scratch_allocation
 {
@@ -2972,7 +2995,7 @@ struct vkd3d_rendering_info
 };
 
 /* ID3D12CommandListExt */
-typedef ID3D12GraphicsCommandListExt1 d3d12_command_list_vkd3d_ext_iface;
+typedef ID3D12GraphicsCommandListExt2 d3d12_command_list_vkd3d_ext_iface;
 
 struct d3d12_rt_state_object;
 
@@ -3880,6 +3903,11 @@ struct d3d12_command_queue
         size_t tracked_count;
     } sparse;
 };
+
+void d3d12_device_get_raytracing_acceleration_structure_prebuild_info_common(struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info,
+        bool supports_opacity_micromap);
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, uint32_t vk_family_index, struct d3d12_command_queue **queue);
@@ -5301,6 +5329,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative_matrix_features;
     VkPhysicalDeviceZeroInitializeDeviceMemoryFeaturesEXT zero_initialize_device_memory_features;
     VkPhysicalDeviceOpacityMicromapFeaturesKHR opacity_micromap_features;
+    VkPhysicalDeviceIndexTypeUint8FeaturesKHR index_type_uint8_features;
     VkPhysicalDeviceShaderFloat8FeaturesEXT shader_float8_features;
     VkPhysicalDeviceCooperativeMatrix2FeaturesNV cooperative_matrix2_features_nv;
     VkPhysicalDeviceAntiLagFeaturesAMD anti_lag_amd;
@@ -5428,7 +5457,7 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
 struct vkd3d_timestamp_profiler;
 
 /* ID3D12DeviceExt */
-typedef ID3D12DeviceExt4 d3d12_device_vkd3d_ext_iface;
+typedef ID3D12DeviceExt5 d3d12_device_vkd3d_ext_iface;
 
 /* ID3D12DXVKInteropDevice */
 typedef ID3D12DXVKInteropDevice3 d3d12_dxvk_interop_device_iface;
@@ -5746,6 +5775,11 @@ struct d3d12_device
     IUnknown *parent;
     LUID adapter_luid;
     D3DKMT_HANDLE kmt_local;
+
+    /* Set by SetCreatePipelineStateOptions (NVAPI). NVAPI has no per-pipeline OMM opt-in
+     * (unlike DXR 1.2's ALLOW_OPACITY_MICROMAPS flag), so this global is OR'd into every
+     * RT pipeline creation to implement the device-wide enable/disable semantic. */
+    VkPipelineCreateFlags global_ray_tracing_pipeline_create_flags;
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
@@ -6859,11 +6893,11 @@ struct vkd3d_view_key
 struct vkd3d_view *vkd3d_view_map_get_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key);
 struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
-        struct d3d12_device *device, const struct vkd3d_view_key *key, bool rtas_is_omm);
+        struct d3d12_device *device, const struct vkd3d_view_key *key, enum vkd3d_rtas_kind rtas_kind);
 static inline struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key)
 {
-    return vkd3d_view_map_create_view2(view_map, device, key, false);
+    return vkd3d_view_map_create_view2(view_map, device, key, VKD3D_RTAS_KIND_UNKNOWN);
 }
 
 /* This is not a hard limit, just an arbitrary value which lets us avoid allocation for
@@ -6878,20 +6912,34 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         VkAccelerationStructureGeometryKHR *geometry_infos,
         VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
-        uint32_t *primitive_counts);
+        uint32_t *primitive_counts,
+        bool supports_opacity_micromap);
+bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos);
+void vkd3d_acceleration_structure_write_postbuild_info(
+        struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkDeviceSize desc_offset,
+        VkAccelerationStructureKHR vk_acceleration_structure,
+        VkDeviceAddress va,
+        enum vkd3d_rtas_kind rtas_kind);
 void vkd3d_acceleration_structure_emit_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        uint32_t count, const D3D12_GPU_VIRTUAL_ADDRESS *addresses);
+        uint32_t count, const D3D12_GPU_VIRTUAL_ADDRESS *addresses,
+        bool supports_opacity_micromap);
 void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        VkAccelerationStructureKHR vk_acceleration_structure);
+        VkAccelerationStructureKHR vk_acceleration_structure,
+        VkDeviceAddress va,
+        enum vkd3d_rtas_kind rtas_kind);
 void vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_as,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode,
-        bool rtas_is_omm);
+        enum vkd3d_rtas_kind rtas_kind);
 
 bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
@@ -6899,14 +6947,10 @@ bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
         VkAccelerationStructureGeometryKHR *geometry_info,
         VkAccelerationStructureGeometryMicromapDataKHR *geometry_micromap_data,
         VkMicromapUsageKHR *usages);
-void vkd3d_opacity_micromap_write_postbuild_info(
-        struct d3d12_command_list *list,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        VkDeviceSize desc_offset,
-        VkAccelerationStructureKHR vk_opacity_micromap);
 void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
         struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkDeviceAddress va,
         VkAccelerationStructureKHR vk_opacity_micromap);
 bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *device,
         const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc,
