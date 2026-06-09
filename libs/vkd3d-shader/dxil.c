@@ -1236,6 +1236,20 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_ASSUME_SSBO_32BIT_WRAPPING)
+            {
+                /* raw_access_chains works the same way as normal SSBO on NVIDIA for now.
+                 * Revisit if we need to split the behavior. */
+                static const dxil_spv_option_ssbo_addressing_behavior behavior = {
+                    { DXIL_SPV_OPTION_SSBO_ADDRESSING_BEHAVIOR }, DXIL_SPV_TRUE, DXIL_SPV_TRUE,
+                };
+
+                if (dxil_spv_converter_add_option(converter, &behavior.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support SSBO_ADDRESSING_BEHAVIOR.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
         }
 
         if (compiler_args->driver_version)
