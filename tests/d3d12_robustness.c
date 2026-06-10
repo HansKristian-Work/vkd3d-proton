@@ -89,7 +89,8 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
     heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(output_buffers));
 
     if (is_mesa_intel_device(context.device) ||
-        (is_nvidia_device(context.device) && is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap")))
+        ((is_nvidia_device(context.device) || is_nvk_device(context.device)) &&
+         is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap")))
     {
         /* There appears to be driver issues.
          * SSBO not aligned to the advertised 4 bytes seems to break down for unknown reasons.
@@ -1046,7 +1047,7 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     /* AMD behavior: RAW emits a descriptor without stride. Typed always reads same value at offset = 0.
      * Structured: Passed down as stride to typed. */
     is_amd_win = is_amd_windows_device(context.device);
-    is_nv_heap = is_nvidia_device(context.device) &&
+    is_nv_heap = (is_nvidia_device(context.device) || is_nvk_device(context.device)) &&
             is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap");
 
     /* Validate structured. */
@@ -1338,7 +1339,7 @@ static void test_undefined_typed_read_structured_raw(bool use_dxil)
      * RAW access works as expected, except that robustness is completely disabled. */
     is_amd_win = is_amd_windows_device(context.device);
     is_nv_win = is_nvidia_windows_device(context.device);
-    is_nv_heap = is_nvidia_device(context.device) &&
+    is_nv_heap = (is_nvidia_device(context.device) || is_nvk_device(context.device)) &&
             is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap");
 
     /* Validate the buffer read. */

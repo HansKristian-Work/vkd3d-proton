@@ -4929,7 +4929,7 @@ void test_undefined_descriptor_heap_mismatch_types(void)
 
             /* On current NVIDIA, images are 4 byte, but texel buffers are 16 byte,
              * but we have to alias them together. */
-            if (!is_nvidia_windows_device(context.device) && is_nvidia_device(context.device))
+            if (!is_nvidia_windows_device(context.device) && (is_nvidia_device(context.device) || is_nvk_device(context.device)))
             {
                 if ((access_type == SRV_TEX || access_type == UAV_TEX) &&
                         (descriptor_type == SRV_TYPED_BUFFER || descriptor_type == UAV_TYPED_BUFFER))
