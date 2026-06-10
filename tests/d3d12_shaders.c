@@ -14994,7 +14994,7 @@ static void test_derivative_hoisting(bool use_dxil)
             v = get_readback_vec4(&rb, y * 2 + x, 0);
 
             /* NV is not conformant with D3D11.3 16.8.2 here, so we're justified in app-opting instead of pessimizing all shaders. */
-            is_bug = (is_nvidia_windows_device(context.device) || is_nvidia_device(context.device)) && x + y != 1;
+            is_bug = (is_nvidia_windows_device(context.device) || is_nvidia_device(context.device) || is_nvk_device(context.device)) && x + y != 1;
             bug_if(is_bug)
             ok(compare_vec4(&expected, v, 0), "(%u, %u): Expected (%f, %f, %f, %f), got (%f, %f, %f, %f)\n", x, y,
                 expected.x, expected.y, expected.z, expected.w,
