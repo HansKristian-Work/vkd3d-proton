@@ -753,6 +753,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * forcing 64b descriptors on heap or rely on 64b drirc workaround in RADV for DB path. */
     { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(
         .AVOID_IMAGE_BUFFER_ALIASING = 1, .NO_STAGGERED_SUBMIT = 1) },
+    /* SCP: Secret Laboratory (700330). DCC stores causes glitches with RADV. */
+    { VKD3D_STRING_COMPARE_EXACT, "SCPSL.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.DISABLE_UAV_COMPRESSION = 1) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
