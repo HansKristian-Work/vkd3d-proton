@@ -11195,6 +11195,12 @@ static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list)
 
             if (flush)
             {
+                /* Need to explicitly block resume here since WriteBufferImmediate() can
+                 * normally be called inside a render pass and doesn't get the automatic
+                 * validation that would flag this. AMD_buffer_marker should bypass
+                 * the normal renderpass rules. */
+                list->cmd.suspend_resume.block_resume = true;
+
                 VK_CALL(vkCmdUpdateBuffer(list->cmd.vk_command_buffer,
                         list->wbi_batch.buffers[first], list->wbi_batch.offsets[first],
                         (next - first) * sizeof(uint32_t), &list->wbi_batch.values[first]));
