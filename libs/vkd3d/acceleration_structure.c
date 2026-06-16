@@ -260,7 +260,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                     }
                     have_triangles = true;
 
-                    if (!d3d12_device_supports_ray_tracing_tier_1_2(device))
+                    if (!device->device_info.supports_opacity_micromap)
                     {
                         ERR("Opacity micromap is not supported.\n");
                         return false;

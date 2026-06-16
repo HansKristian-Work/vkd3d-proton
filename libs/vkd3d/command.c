@@ -20218,7 +20218,7 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
         return false;
     }
 
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+    if (list->device->device_info.supports_opacity_micromap)
     {
         if (!vkd3d_array_reserve((void **)&rtas_batch->omm_triangles_infos, &rtas_batch->omm_triangles_info_size,
                 rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->omm_triangles_infos)))
@@ -20237,7 +20237,7 @@ static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_lis
 
     *build_info = &rtas_batch->build_infos[rtas_batch->build_info_count];
     *geometry_infos = &rtas_batch->geometry_infos[rtas_batch->geometry_info_count];
-    if (d3d12_device_supports_ray_tracing_tier_1_2(list->device))
+    if (list->device->device_info.supports_opacity_micromap)
         *omm_triangles_infos = &rtas_batch->omm_triangles_infos[rtas_batch->geometry_info_count];
     else
         *omm_triangles_infos = NULL;
