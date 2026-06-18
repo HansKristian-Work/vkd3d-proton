@@ -1067,6 +1067,19 @@ static const struct vkd3d_shader_quirk_info wow_quirks = {
     wow_hashes, ARRAY_SIZE(wow_hashes), 0,
 };
 
+/* Misses a required RTV -> PIXEL_SHADER_RESOURCE barrier.
+ * The shader is called Opaque_PS and is used all over the place,
+ * so need to narrow it down to hashes.
+ * The draw can sometimes appear in the middle of a render pass, so need a harder barrier.
+ */
+static const struct vkd3d_shader_quirk_hash gotg_hashes[] = {
+    { NULL, 0x1f29288d6150a04e, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW },
+};
+
+static const struct vkd3d_shader_quirk_info gotg_quirks = {
+    gotg_hashes, ARRAY_SIZE(gotg_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1153,6 +1166,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", &forza6_quirks },
     /* World of Warcraft */
     { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", &wow_quirks },
+    /* Guardians of the Galaxy */
+    { VKD3D_STRING_COMPARE_EXACT, "gotg.exe", &gotg_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
