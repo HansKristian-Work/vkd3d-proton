@@ -3543,7 +3543,8 @@ uint32_t d3d12_command_allocator_allocate_meta_index(
     uint32_t index = d3d12_descriptor_heap_allocate_meta_index(heap);
     if (index == UINT32_MAX)
     {
-        WARN("Meta descriptor pressure! Falling back to global heap (potentially slow) ...\n");
+        if (d3d12_device_use_descriptor_heap(heap->device))
+            WARN("Meta descriptor pressure! Falling back to global heap (potentially slow) ...\n");
         return index;
     }
 
