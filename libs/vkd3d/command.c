@@ -12734,6 +12734,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
     }
 
+    if (!state)
+        return;
+
     if (state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
     {
         if (list->dynamic_state.stencil_front.write_mask != state->graphics.ds_desc.front.writeMask ||
