@@ -1493,6 +1493,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS;
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS;
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW;
 
     /* This quirk should only apply to exports. */
     quirks &= ~VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT;

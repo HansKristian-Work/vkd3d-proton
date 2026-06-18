@@ -85,6 +85,7 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX = 1 << 24,
     VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX_FP8 = 1 << 25,
     VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS = 1 << 26,
+    VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW = 1 << 27,
 };
 
 struct vkd3d_shader_meta
@@ -567,6 +568,8 @@ enum vkd3d_shader_target_extension
 
 /* Forces nonuniformEXT for everything in RT. */
 #define VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT (1ull << 36)
+
+#define VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW (1ull << 37)
 
 typedef uint64_t vkd3d_shader_quirks_t;
 
