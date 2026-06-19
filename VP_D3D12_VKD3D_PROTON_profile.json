@@ -493,7 +493,8 @@
                 "VK_EXT_scalar_block_layout": 1,
                 "VK_EXT_swapchain_maintenance1" : 1,
                 "VK_KHR_maintenance9": 1,
-                "VK_KHR_maintenance10": 1
+                "VK_KHR_maintenance10": 1,
+                "VK_KHR_shader_float_controls2" : 1
             },
             "features": {
                 "VkPhysicalDeviceDescriptorBufferFeaturesEXT": {
@@ -533,6 +534,9 @@
                 },
                 "VkPhysicalDeviceMaintenance10FeaturesKHR": {
                     "maintenance10": true
+                },
+                "VkPhysicalDeviceShaderFloatControls2FeaturesKHR": {
+                    "shaderFloatControls2": true
                 }
             },
             "properties": {

@@ -158,6 +158,7 @@ struct vkd3d_vulkan_info
     bool KHR_device_address_commands;
     bool KHR_opacity_micromap;
     bool KHR_index_type_uint8;
+    bool KHR_shader_float_controls2;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -5325,6 +5326,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV ray_tracing_invocation_reorder_features_nv;
     VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptor_heap_features;
     VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR device_address_commands_features;
+    VkPhysicalDeviceShaderFloatControls2FeaturesKHR float_controls2_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
