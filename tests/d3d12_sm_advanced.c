@@ -4991,6 +4991,16 @@ static float quant_fp16(float value)
     return half_to_float(float_to_half(value));
 }
 
+static float quant_fp16_rtz(float value)
+{
+    uint32_t u32;
+    memcpy(&u32, &value, sizeof(u32));
+    /* Chop off mantissa bits, don't care about large normal FP32 values here. */
+    u32 &= ~((1 << (23 - 10)) - 1);
+    memcpy(&value, &u32, sizeof(u32));
+    return half_to_float(float_to_half(value));
+}
+
 static float quant_fp16_fp8(float value)
 {
     /* dxil-spirv implements it like this, which isn't 100% theoretically correct in RTE. */
@@ -7095,5 +7105,119 @@ void test_nvx_cubin(void)
     ID3D12DescriptorHeap_Release(cpu);
     for (i = 0; i < ARRAY_SIZE(tex); i++)
         ID3D12Resource_Release(tex[i]);
+    destroy_test_context(&context);
+}
+
+void test_fp_truncate_roundtrips(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS4 features4;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_fp_truncate_roundtrip.h"
+
+    static const struct test_input
+    {
+        float input_a;
+        float add_a;
+        float input_b;
+        float add_b;
+    } inputs[] = {
+        { 1.0f, 1.0f / (8.0f * 1024.0f), 1.0f, 1.0f / (8.0f * 1024.0f) },
+        /* Verify denorm behavior. We cannot flush FP16 denorms which the old QuantizeFP16 path used. */
+        { 1.0f / (4.0f * 1024.0f * 1024.0f), 0.0f, 1.0f / (4.0f * 1024.0f * 1024.0f), 0.0f },
+        { -1.0f, 1.0f / (8.0f * 1024.0f), -1.0f, 1.0f / (8.0f * 1024.0f) },
+        { -1.0f / (4.0f * 1024.0f * 1024.0f), 0.0f, -1.0f / (4.0f * 1024.0f * 1024.0f), 0.0f },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    input = create_upload_buffer(context.device, sizeof(inputs), inputs);
+    output = create_default_buffer(context.device, sizeof(inputs), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    memset(&features4, 0, sizeof(features4));
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS4,
+        &features4, sizeof(features4))) || !features4.Native16BitShaderOpsSupported)
+    {
+        skip("Native FP16 not supported. Skipping test.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(
+        context.device, context.root_signature, cs_fp_truncate_roundtrip_dxil);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1,
+            ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(inputs); i++)
+    {
+        struct result
+        {
+            float fp32_native;
+            float fp16_native;
+            float fp32_legacy_fast;
+            float fp32_legacy_precise;
+        };
+
+        float a = inputs[i].input_a + inputs[i].add_a;
+        float b = inputs[i].input_b + inputs[i].add_b;
+        const struct result *value;
+
+        value = (const struct result *)get_readback_vec4(&rb, i, 0);
+
+        ok(value->fp32_native == a + b, "FP32 native value %u: Expected %f, got %f\n", i, a + b, value->fp32_native);
+
+        /* D3D12 is a bit messed up and it's unclear if it should be RTZ or RTE since D3D11.3 and LLVM don't agree.
+         * AMD native emits RTZ while NV emits RTE. */
+        ok(value->fp16_native == quant_fp16(a) + quant_fp16(b) ||
+            value->fp16_native == quant_fp16_rtz(a) + quant_fp16_rtz(b),
+            "FP16 native value %u: Expected %.8g (RTE) or %.8g (RTZ), got %.8g\n", i,
+            quant_fp16(a) + quant_fp16(b),
+            quant_fp16_rtz(a) + quant_fp16_rtz(b),
+            value->fp16_native);
+
+        ok(value->fp32_legacy_precise == quant_fp16(a) + quant_fp16(b) ||
+            value->fp32_legacy_precise == quant_fp16_rtz(a) + quant_fp16_rtz(b),
+            "FP16 legacy precise value %u: Expected %.8g (RTE, *shrug*) or %.8g (RTZ, ideal), got %.8g\n", i,
+            quant_fp16(a) + quant_fp16(b),
+            quant_fp16_rtz(a) + quant_fp16_rtz(b),
+            value->fp32_legacy_precise);
+
+        ok(value->fp32_legacy_fast == quant_fp16(a) + quant_fp16(b) ||
+        value->fp32_legacy_fast == quant_fp16_rtz(a) + quant_fp16_rtz(b) ||
+            value->fp32_legacy_fast == a + b,
+            "FP16 legacy fast value %u: Expected %.8g (RTE, *shrug*), or %.8g (RTZ, ideal) or %.8g (dubious), got %.8g\n", i,
+            quant_fp16(a) + quant_fp16(b),
+            quant_fp16_rtz(a) + quant_fp16_rtz(b),
+            a + b, value->fp32_legacy_fast);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
     destroy_test_context(&context);
 }
