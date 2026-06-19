@@ -1887,6 +1887,16 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
             device->device_info.present_timing_features.presentAtAbsoluteTime = VK_FALSE;
             device->device_info.present_timing_features.presentAtRelativeTime = VK_FALSE;
         }
+
+        if (!vkd3d_debug_control_is_test_suite() &&
+            info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+        {
+            /* Float controls2 is broken where we need it to work. Keep using bad QuantizeToFP16 path
+             * until driver works. */
+            WARN("Disabling shader_float_controls2 on NV drivers due to buggy implementation.\n");
+            device->device_info.float_controls2_features.shaderFloatControls2 = VK_FALSE;
+            device->vk_info.KHR_shader_float_controls2 = false;
+        }
     }
 }
 
