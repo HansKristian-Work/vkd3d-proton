@@ -1250,6 +1250,18 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_FLOAT_CONTROLS_2)
+            {
+                static const dxil_spv_options_float_controls_2 fc2 = {
+                    { DXIL_SPV_OPTION_FLOAT_CONTROLS_2 }, DXIL_SPV_TRUE,
+                };
+
+                if (dxil_spv_converter_add_option(converter, &fc2.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support FLOAT_CONTROLS_2.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
         }
 
         if (compiler_args->driver_version)
