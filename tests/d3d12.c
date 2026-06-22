@@ -33,7 +33,7 @@
 
 /* Uncomment when testing against Agility SDK debug layers. */
 #if 0
-__declspec(dllexport) extern const UINT D3D12SDKVersion = 618;
+__declspec(dllexport) extern const UINT D3D12SDKVersion = 619;
 __declspec(dllexport) extern const char *D3D12SDKPath = u8".\\D3D12\\";
 #endif
 
