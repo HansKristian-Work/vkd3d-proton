@@ -8100,7 +8100,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineState(d3d12_device_i
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_device_iface *iface,
-        void *address, REFIID riid, void **heap)
+        const void *address, REFIID riid, void **heap)
 {
 #ifdef _WIN32
     MEMORY_BASIC_INFORMATION info;
@@ -8152,7 +8152,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
     heap_desc.Properties.VisibleNodeMask = 1;
     heap_desc.SizeInBytes = allocation_size;
 
-    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, address, &object)))
+    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, (void *)address, &object)))
     {
         *heap = NULL;
         return hr;

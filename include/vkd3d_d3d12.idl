@@ -5374,7 +5374,7 @@ interface ID3D12Device2 : ID3D12Device1
 ]
 interface ID3D12Device3 : ID3D12Device2
 {
-    HRESULT OpenExistingHeapFromAddress(void *address,
+    HRESULT OpenExistingHeapFromAddress(const void *address,
             REFIID riid, void **heap);
 
     HRESULT OpenExistingHeapFromFileMapping(HANDLE file_mapping,
