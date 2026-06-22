@@ -2567,3 +2567,201 @@ void test_device_configuration(void)
     }
     vkd3d_test_set_context(NULL);
 }
+
+static void test_barrier_layout_feature_checks(ID3D12Device *device)
+{
+    D3D12_FEATURE_DATA_BARRIER_LAYOUT barrier_layout;
+    unsigned int i, j;
+    HRESULT hr;
+
+    /* Specially named layouts only work in provided queues. */
+
+    static const D3D12_BARRIER_LAYOUT direct_queue_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON,
+        D3D12_BARRIER_LAYOUT_RENDER_TARGET,
+        D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ,
+        D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE,
+        D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE,
+        D3D12_BARRIER_LAYOUT_RESOLVE_DEST,
+        D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT compute_queue_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST,
+    };
+
+    static const D3D12_BARRIER_LAYOUT graphics_compute_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_GENERIC_READ,
+        D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS,
+        D3D12_BARRIER_LAYOUT_SHADER_RESOURCE,
+        /* Not allowed in COPY which is ... interesting. Only COMMON is allowed there it seems. */
+        D3D12_BARRIER_LAYOUT_COPY_SOURCE,
+        D3D12_BARRIER_LAYOUT_COPY_DEST,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_process_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_WRITE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_encode_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_WRITE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_decode_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_DECODE_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_DECODE_WRITE,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(direct_queue_only_layouts); i++)
+    {
+        for (j = 0; j < 8; j++)
+        {
+            barrier_layout.CommandListType = (D3D12_COMMAND_LIST_TYPE)j;
+            barrier_layout.Layout = direct_queue_only_layouts[i];
+            hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_BARRIER_LAYOUT, &barrier_layout, sizeof(barrier_layout));
+            ok(hr == S_OK, "Test %u, layout %u: feature check failed\n", i, barrier_layout.Layout);
+            ok(!!barrier_layout.Supported == (barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_DIRECT),
+                "Test %u, layout %u: mismatch\n", i, barrier_layout.Layout);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(compute_queue_only_layouts); i++)
+    {
+        for (j = 0; j < 8; j++)
+        {
+            barrier_layout.CommandListType = (D3D12_COMMAND_LIST_TYPE)j;
+            barrier_layout.Layout = compute_queue_only_layouts[i];
+            hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_BARRIER_LAYOUT, &barrier_layout, sizeof(barrier_layout));
+            ok(hr == S_OK, "Test %u, layout %u: feature check failed\n", i, barrier_layout.Layout);
+            ok(!!barrier_layout.Supported == (barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_COMPUTE),
+                "Test %u, layout %u: mismatch\n", i, barrier_layout.Layout);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(graphics_compute_only_layouts); i++)
+    {
+        for (j = 0; j < 8; j++)
+        {
+            barrier_layout.CommandListType = (D3D12_COMMAND_LIST_TYPE)j;
+            barrier_layout.Layout = graphics_compute_only_layouts[i];
+            hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_BARRIER_LAYOUT, &barrier_layout, sizeof(barrier_layout));
+            ok(hr == S_OK, "Test %u, layout %u: feature check failed\n", i, barrier_layout.Layout);
+            ok(!!barrier_layout.Supported ==
+                (barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_COMPUTE ||
+                    barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_DIRECT),
+                "Test %u, layout %u: mismatch\n", i, barrier_layout.Layout);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(video_process_only_layouts); i++)
+    {
+        for (j = 0; j < 8; j++)
+        {
+            barrier_layout.CommandListType = (D3D12_COMMAND_LIST_TYPE)j;
+            barrier_layout.Layout = video_process_only_layouts[i];
+            hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_BARRIER_LAYOUT, &barrier_layout, sizeof(barrier_layout));
+            ok(hr == S_OK, "Test %u, layout %u: feature check failed\n", i, barrier_layout.Layout);
+            ok(!!barrier_layout.Supported == (barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS),
+                "Test %u, layout %u: mismatch\n", i, barrier_layout.Layout);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(video_encode_only_layouts); i++)
+    {
+        for (j = 0; j < 8; j++)
+        {
+            barrier_layout.CommandListType = (D3D12_COMMAND_LIST_TYPE)j;
+            barrier_layout.Layout = video_encode_only_layouts[i];
+            hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_BARRIER_LAYOUT, &barrier_layout, sizeof(barrier_layout));
+            ok(hr == S_OK, "Test %u, layout %u: feature check failed\n", i, barrier_layout.Layout);
+            ok(!!barrier_layout.Supported == (barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE),
+                "Test %u, layout %u: mismatch\n", i, barrier_layout.Layout);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(video_decode_only_layouts); i++)
+    {
+        for (j = 0; j < 8; j++)
+        {
+            barrier_layout.CommandListType = (D3D12_COMMAND_LIST_TYPE)j;
+            barrier_layout.Layout = video_decode_only_layouts[i];
+            hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_BARRIER_LAYOUT, &barrier_layout, sizeof(barrier_layout));
+            ok(hr == S_OK, "Test %u, layout %u: feature check failed\n", i, barrier_layout.Layout);
+            ok(!!barrier_layout.Supported == (barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE),
+                "Test %u, layout %u: mismatch\n", i, barrier_layout.Layout);
+        }
+    }
+
+    for (i = 0; i < 8; i++)
+    {
+        barrier_layout.CommandListType = (D3D12_COMMAND_LIST_TYPE)j;
+        barrier_layout.Layout = D3D12_BARRIER_LAYOUT_VIDEO_QUEUE_COMMON;
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_BARRIER_LAYOUT, &barrier_layout, sizeof(barrier_layout));
+        ok(hr == S_OK, "Test %u, layout %u: feature check failed\n", i, barrier_layout.Layout);
+        ok(!!barrier_layout.Supported == (barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE ||
+            barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE ||
+            barrier_layout.CommandListType == D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS),
+            "Test %u, layout %u: mismatch\n", i, barrier_layout.Layout);
+    }
+}
+
+void test_misc_agility_sdk_feature_checks(void)
+{
+    D3D12_FEATURE_DATA_APPLICATION_SPECIFIC_DRIVER_STATE driver_state;
+    D3D12_FEATURE_DATA_BYTECODE_BYPASS_HASH_SUPPORTED bytecode_bypass;
+    D3D12_FEATURE_DATA_SHADERCACHE_ABI_SUPPORT shadercache;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS22 options22;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7;
+    D3D12_FEATURE_DATA_PREDICATION predication;
+    D3D12_FEATURE_DATA_HARDWARE_COPY hw_copy;
+    ID3D12Device *device = create_device();
+    HRESULT hr;
+
+    if (!device)
+        return;
+
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_PREDICATION, &predication, sizeof(predication));
+    ok(hr == E_NOTIMPL, "Expected D3D12_FEATURE_PREDICATION to return E_NOTIMPL.\n");
+
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_HARDWARE_COPY, &hw_copy, sizeof(hw_copy));
+    ok(hr == E_NOTIMPL, "Expected D3D12_FEATURE_HARDWARE_COPY to return E_NOTIMPL.\n");
+
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_APPLICATION_SPECIFIC_DRIVER_STATE, &driver_state, sizeof(driver_state));
+    /* Check that we recognize the query. Support doesn't matter. */
+    ok(SUCCEEDED(hr), "Got hr #%x\n", (unsigned int)hr);
+
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_BYTECODE_BYPASS_HASH_SUPPORTED, &bytecode_bypass, sizeof(bytecode_bypass));
+    /* Check that we recognize the query. Support doesn't matter. */
+    ok(SUCCEEDED(hr), "Got hr #%x\n", (unsigned int)hr);
+
+    /* Somewhat a special case, returns E_FAIL on failure. */
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_SHADER_CACHE_ABI_SUPPORT, &shadercache, sizeof(shadercache));
+    ok(hr == S_OK || hr == E_FAIL, "got hr #%x\n", hr);
+
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS22, &options22, sizeof(options22));
+    ok(hr == S_OK, "Unexpected hr #%x\n", hr);
+    ok(options22.Max1DDispatchSize >= 0xffff, "Unexpected dispatch size: %u\n", options22.Max1DDispatchSize);
+
+    if (SUCCEEDED(ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7))) &&
+        options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1)
+        ok(options22.Max1DDispatchMeshSize >= 0xffff, "Unexpected mesh dispatch size: %u\n", options22.Max1DDispatchMeshSize);
+    else
+        ok(options22.Max1DDispatchMeshSize == 0, "Unexpected mesh dispatch size: %u\n", options22.Max1DDispatchMeshSize);
+
+    test_barrier_layout_feature_checks(device);
+
+    ID3D12Device_Release(device);
+}
