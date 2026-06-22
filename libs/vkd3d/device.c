@@ -8325,16 +8325,48 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineState(d3d12_device_i
             &IID_ID3D12PipelineState, riid, pipeline_state);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
+        d3d12_device_iface *iface,
+        const void *address,
+        SIZE_T size,
+        REFIID riid,
+        void **ppHeap)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    D3D12_HEAP_DESC heap_desc;
+    struct d3d12_heap *object;
+    HRESULT hr;
+
+    TRACE("iface %p, address %p, size %zu, iid %s, ppHeap %p\n",
+        iface, address, size, debugstr_guid(riid), ppHeap);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS |
+            (address ? (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
+    heap_desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    heap_desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_desc.Properties.CreationNodeMask = 1;
+    heap_desc.Properties.VisibleNodeMask = 1;
+    heap_desc.SizeInBytes = size;
+
+    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, (void *)address, &object)))
+    {
+        if (ppHeap)
+            *ppHeap = NULL;
+        return hr;
+    }
+
+    return return_interface(&object->ID3D12Heap_iface, &IID_ID3D12Heap, riid, ppHeap);
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_device_iface *iface,
         const void *address, REFIID riid, void **heap)
 {
 #ifdef _WIN32
     MEMORY_BASIC_INFORMATION info;
-    struct d3d12_device *device;
-    struct d3d12_heap *object;
-    D3D12_HEAP_DESC heap_desc;
     size_t allocation_size;
-    HRESULT hr;
 
     TRACE("iface %p, address %p, riid %s, heap %p\n",
           iface, address, debugstr_guid(riid), heap);
@@ -8365,26 +8397,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
         return E_INVALIDARG;
     }
 
-    device = impl_from_ID3D12Device(iface);
-
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS |
-            (address ? (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
-    heap_desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-    heap_desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
-    heap_desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
-    heap_desc.Properties.CreationNodeMask = 1;
-    heap_desc.Properties.VisibleNodeMask = 1;
-    heap_desc.SizeInBytes = allocation_size;
-
-    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, (void *)address, &object)))
-    {
-        *heap = NULL;
-        return hr;
-    }
-
-    return return_interface(&object->ID3D12Heap_iface, &IID_ID3D12Heap, riid, heap);
+    return d3d12_device_OpenExistingHeapFromAddress1(iface, address, allocation_size, riid, heap);
 #else
     FIXME("OpenExistingHeapFromAddress can only be implemented in native Win32.\n");
     return E_NOTIMPL;
@@ -9373,18 +9386,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
         return hr;
 
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
-        d3d12_device_iface *iface,
-        const void *address,
-        SIZE_T size,
-        REFIID riid,
-        void **ppHeap)
-{
-    FIXME("iface %p, address %p, size %zu, iid %s, ppHeap %p stub!\n",
-        iface, address, size, debugstr_guid(riid), ppHeap);
-    return E_NOTIMPL;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignatureFromSubobjectInLibrary(
