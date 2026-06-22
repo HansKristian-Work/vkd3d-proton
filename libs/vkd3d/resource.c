@@ -2445,11 +2445,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *if
 
     /* Disgusting workaround, but we've seen many titles screwing up their FSR implementation
      * with use-after-free. This is set right after resource creation. */
-    const WCHAR fsr_prefix[] = u"FSR3UPSCALER";
+    const WCHAR fsr3_prefix[] = u"FSR3UPSCALER";
+    const WCHAR fsr4_prefix[] = u"FSR4UPSCALER";
 
-    if (vkd3d_wcslen(str) >= 12 && memcmp(fsr_prefix, str, 12 * sizeof(WCHAR)) == 0)
+    if (vkd3d_wcslen(str) >= 12 &&
+            (memcmp(fsr3_prefix, str, 12 * sizeof(WCHAR)) == 0 ||
+             memcmp(fsr4_prefix, str, 12 * sizeof(WCHAR)) == 0))
     {
-        WARN("FSR resource detected. Forcing retained GPU reference to work around broken integration code in either game or UE5.\n");
+        WARN("FSR%c resource detected. Forcing retained GPU reference to work around broken integration code in either game or UE5.\n",
+                (char)str[3]);
         /* Technically not thread safe, but for targeted workaround, this is fine. */
         resource->flags |= VKD3D_RESOURCE_RETAINED_GPU_REFERENCE;
     }
