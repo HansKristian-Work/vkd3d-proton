@@ -1226,6 +1226,9 @@ static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resour
 ULONG d3d12_resource_incref(struct d3d12_resource *resource);
 ULONG d3d12_resource_decref(struct d3d12_resource *resource);
 
+HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC1 *desc,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_RESOURCE_STATES initial_state);
+
 struct vkd3d_cookie vkd3d_allocate_cookie(void);
 UINT vkd3d_allocate_cookie_va_timestamp(void);
 
@@ -5374,6 +5377,7 @@ struct d3d12_caps
     D3D12_FEATURE_DATA_D3D12_OPTIONS19 options19;
     D3D12_FEATURE_DATA_D3D12_OPTIONS20 options20;
     D3D12_FEATURE_DATA_D3D12_OPTIONS21 options21;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS22 options22;
     D3D12_FEATURE_DATA_TIGHT_ALIGNMENT tight_alignment;
 
     D3D_FEATURE_LEVEL max_feature_level;
