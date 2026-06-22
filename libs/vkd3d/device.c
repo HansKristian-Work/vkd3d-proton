@@ -6471,6 +6471,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(d3d12_device_i
             &IID_ID3D12RootSignature, riid, root_signature);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignatureFromSubobjectInLibrary(
+        d3d12_device_iface *iface, UINT node_mask,
+        const void *library_blob, SIZE_T blob_length_in_bytes,
+        LPCWSTR subobject_name, REFIID riid, void **root_signature)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_root_signature *object;
+    HRESULT hr;
+
+    TRACE("iface %p, node_mask %u, library_blob %p, blob_length_in_bytes %zu, subobject_name %s, riid %s, root_signature %p, stub!\n",
+            iface, node_mask, library_blob, blob_length_in_bytes,
+            debugstr_w(subobject_name), debugstr_guid(riid), root_signature);
+
+    debug_ignored_node_mask(node_mask);
+
+    /* NULL subobject_name segfaults on native, so don't need to check it. */
+
+    if (FAILED(hr = d3d12_root_signature_create_from_subobject(device, library_blob, blob_length_in_bytes,
+            subobject_name, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12RootSignature_iface,
+            &IID_ID3D12RootSignature, riid, root_signature);
+}
+
 static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView_heap(d3d12_device_iface *iface,
         const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
@@ -9385,20 +9410,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
         return hr;
 
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignatureFromSubobjectInLibrary(
-        d3d12_device_iface *iface,
-        UINT nodeMask,
-        const void *pLibraryBlob,
-        SIZE_T blobLengthInBytes,
-        LPCWSTR subobjectName,
-        REFIID riid,
-        void **ppvRootSignature)
-{
-    FIXME("iface %p, nodeMask %u, pLibraryBlob %p, blobLengthInBytes %zu, subobjectName %s, riid %s, ppvRootSignature %p, stub!\n",
-        iface, nodeMask, pLibraryBlob, blobLengthInBytes, debugstr_w(subobjectName), debugstr_guid(riid), ppvRootSignature);
-    return E_NOTIMPL;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_RegisterTrimNotificationCallback(

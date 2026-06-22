@@ -2071,6 +2071,8 @@ struct d3d12_root_signature
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *bytecode,
         size_t bytecode_length, struct d3d12_root_signature **root_signature);
+HRESULT d3d12_root_signature_create_from_subobject(struct d3d12_device *device, const void *bytecode,
+        size_t bytecode_length, LPCWSTR subobject, struct d3d12_root_signature **root_signature);
 HRESULT d3d12_root_signature_create_raw(struct d3d12_device *device, const void *payload,
         size_t payload_size, struct d3d12_root_signature **root_signature);
 HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
