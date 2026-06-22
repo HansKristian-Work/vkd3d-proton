@@ -4592,10 +4592,13 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Device10)
             || IsEqualGUID(riid, &IID_ID3D12Device11)
             || IsEqualGUID(riid, &IID_ID3D12Device12)
+            || IsEqualGUID(riid, &IID_ID3D12Device13)
+            || IsEqualGUID(riid, &IID_ID3D12Device14)
+            /*|| IsEqualGUID(riid, &IID_ID3D12Device15) wait with exposing this interface until we have implemented it */
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12Device12_AddRef(iface);
+        ID3D12Device15_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -9371,9 +9374,152 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
+        d3d12_device_iface *iface,
+        const void *address,
+        SIZE_T size,
+        REFIID riid,
+        void **ppHeap)
+{
+    FIXME("iface %p, address %p, size %zu, iid %s, ppHeap %p stub!\n",
+        iface, address, size, debugstr_guid(riid), ppHeap);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignatureFromSubobjectInLibrary(
+        d3d12_device_iface *iface,
+        UINT nodeMask,
+        const void *pLibraryBlob,
+        SIZE_T blobLengthInBytes,
+        LPCWSTR subobjectName,
+        REFIID riid,
+        void **ppvRootSignature)
+{
+    FIXME("iface %p, nodeMask %u, pLibraryBlob %p, blobLengthInBytes %zu, subobjectName %s, riid %s, ppvRootSignature %p, stub!\n",
+        iface, nodeMask, pLibraryBlob, blobLengthInBytes, debugstr_w(subobjectName), debugstr_guid(riid), ppvRootSignature);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_RegisterTrimNotificationCallback(
+        d3d12_device_iface *iface,
+        D3D12_REGISTER_TRIM_NOTIFICATION *pData)
+{
+    FIXME("iface %p, pData %p stub!\n", iface, pData);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_UnregisterTrimNotificationCallback(
+        d3d12_device_iface *iface,
+        DWORD CallbackCookie)
+{
+    FIXME("iface %p, CallbackCookie #%x stub!\n", iface, (unsigned int)CallbackCookie);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateShaderResourceView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *pResource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    FIXME("iface %p, pResource %p, pDesc %p, DestDescriptor #%zx stub!\n",
+        iface, pResource, pDesc, (size_t)DestDescriptor.ptr);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateUnorderedAccessView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *pResource,
+        ID3D12Resource *pCounterResource,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    FIXME("iface %p, pResource %p, pCounterResource %p, pDesc %p, DestDescriptor #%zx stub!\n",
+        iface, pResource, pCounterResource, pDesc, (size_t)DestDescriptor.ptr);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateConstantBufferView(
+        d3d12_device_iface *iface,
+        const D3D12_CONSTANT_BUFFER_VIEW_DESC *pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    FIXME("iface %p, pDesc %p, DestDescriptor #%zx stub!\n",
+        iface, pDesc, (size_t)DestDescriptor.ptr);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateSampler2(
+        d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC2 *pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    FIXME("iface %p, pDesc %p, DestDescriptor #%zx stub!\n",
+        iface, pDesc, (size_t)DestDescriptor.ptr);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateRenderTargetView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *pResource,
+        const D3D12_RENDER_TARGET_VIEW_DESC *pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    FIXME("iface %p, pResource %p, pDesc %p, DestDescriptor #%zx stub!\n",
+        iface, pResource, pDesc, (size_t)DestDescriptor.ptr);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateDepthStencilView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *pResource,
+        const D3D12_DEPTH_STENCIL_VIEW_DESC *pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    FIXME("iface %p, pResource %p, pDesc %p, DestDescriptor #%zx stub!\n",
+        iface, pResource, pDesc, (size_t)DestDescriptor.ptr);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateSamplerFeedbackUnorderedAccessView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *pTargetedResource,
+        ID3D12Resource *pFeedbackResource,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    FIXME("iface %p, pTargetedResource %p, pFeedbackResource %p, DestDescriptor #%zx stub!\n",
+        iface, pTargetedResource, pFeedbackResource, (size_t)DestDescriptor.ptr);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap1(
+        d3d12_device_iface *iface,
+        const D3D12_QUERY_HEAP_DESC *pDesc,
+        D3D12_QUERY_HEAP_FLAGS Flags,
+        REFIID riid,
+        void **ppvHeap)
+{
+    FIXME("iface %p, pDesc %p, Flags #%x, riid %s, ppvHeap %p, stub!\n",
+        iface, pDesc, Flags, debugstr_guid(riid), ppvHeap);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_ResolveQueryData(
+        d3d12_device_iface *iface,
+        ID3D12QueryHeap *pQueryHeap,
+        D3D12_QUERY_TYPE Type,
+        UINT StartIndex,
+        UINT NumQueries,
+        void *pResolvedQueryData)
+{
+    FIXME("iface %p, pQueryHeap %p, Type %u, StartIndex %u, NumQueries %u, pResolvedQueryData %p\n",
+        iface, pQueryHeap, Type, StartIndex, NumQueries, pResolvedQueryData);
+    return E_NOTIMPL;
+}
+
 /* Gotta love C sometimes ... :') */
 #define VKD3D_DECLARE_D3D12_DEVICE_VARIANT(name, create_desc, copy_desc_variant) \
-CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_##name = \
+CONST_VTBL struct ID3D12Device15Vtbl d3d12_device_vtbl_##name = \
 { \
     /* IUnknown methods */ \
     d3d12_device_QueryInterface, \
@@ -9471,6 +9617,22 @@ CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_##name = \
     d3d12_device_CreateSampler2_##create_desc, \
     /* ID3D12Device12 methods */ \
     d3d12_device_GetResourceAllocationInfo3, \
+    /* ID3D12Device13 methods */ \
+    d3d12_device_OpenExistingHeapFromAddress1, \
+    /* ID3D12Device14 methods */ \
+    d3d12_device_CreateRootSignatureFromSubobjectInLibrary, \
+    /* ID3D12Device15 methods */ \
+    d3d12_device_RegisterTrimNotificationCallback, \
+    d3d12_device_UnregisterTrimNotificationCallback, \
+    d3d12_device_TryCreateShaderResourceView, \
+    d3d12_device_TryCreateUnorderedAccessView, \
+    d3d12_device_TryCreateConstantBufferView, \
+    d3d12_device_TryCreateSampler2, \
+    d3d12_device_TryCreateRenderTargetView, \
+    d3d12_device_TryCreateDepthStencilView, \
+    d3d12_device_TryCreateSamplerFeedbackUnorderedAccessView, \
+    d3d12_device_CreateQueryHeap1, \
+    d3d12_device_ResolveQueryData, \
 }
 
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(default, default, default);
