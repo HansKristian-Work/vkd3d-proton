@@ -5335,6 +5335,138 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     return S_OK;
 }
 
+static bool d3d12_device_supports_placed_resource(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties,
+        D3D12_RESOURCE_DIMENSION dimension, DXGI_FORMAT format)
+{
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT data;
+    D3D12_RESOURCE_DESC1 desc;
+
+    memset(&data, 0, sizeof(data));
+    data.Format = format;
+
+    /* Validate that the format is sound. */
+    if (FAILED(d3d12_device_get_format_support(device, &data)))
+        return false;
+    if (dimension == D3D12_RESOURCE_DIMENSION_BUFFER && !(data.Support1 & D3D12_FORMAT_SUPPORT1_BUFFER))
+        return false;
+    if (dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D && !(data.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE1D))
+        return false;
+    if (dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && !(data.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D))
+        return false;
+    if (dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D && !(data.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE3D))
+        return false;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 1;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.Dimension = dimension;
+    desc.Format = format;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = dimension == D3D12_RESOURCE_DIMENSION_BUFFER ?
+        D3D12_TEXTURE_LAYOUT_ROW_MAJOR : D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    if (FAILED(d3d12_resource_validate_heap_properties(&desc, heap_properties, D3D12_RESOURCE_STATE_COMMON)))
+        return false;
+
+    return true;
+}
+
+static bool find_in_barrier_layout_list(D3D12_BARRIER_LAYOUT layout, const D3D12_BARRIER_LAYOUT *layouts, unsigned int count)
+{
+    unsigned int i;
+    for (i = 0; i < count; i++)
+        if (layouts[i] == layout)
+            return true;
+    return false;
+}
+
+static bool d3d12_barrier_layout_is_supported(D3D12_COMMAND_LIST_TYPE type, D3D12_BARRIER_LAYOUT layout)
+{
+    static const D3D12_BARRIER_LAYOUT direct_queue_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON,
+        D3D12_BARRIER_LAYOUT_RENDER_TARGET,
+        D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ,
+        D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE,
+        D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE,
+        D3D12_BARRIER_LAYOUT_RESOLVE_DEST,
+        D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT compute_queue_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST,
+    };
+
+    static const D3D12_BARRIER_LAYOUT graphics_compute_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_GENERIC_READ,
+        D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS,
+        D3D12_BARRIER_LAYOUT_SHADER_RESOURCE,
+        /* Not allowed in COPY which is ... interesting. Only COMMON is allowed there it seems. */
+        D3D12_BARRIER_LAYOUT_COPY_SOURCE,
+        D3D12_BARRIER_LAYOUT_COPY_DEST,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_process_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_WRITE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_encode_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_WRITE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_decode_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_DECODE_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_DECODE_WRITE,
+    };
+
+    /* Runtime ignores bogus command list type. */
+    if (layout == D3D12_BARRIER_LAYOUT_COMMON || layout == D3D12_BARRIER_LAYOUT_UNDEFINED)
+        return true;
+
+#define find_in_list(layouts) find_in_barrier_layout_list(layout, layouts, ARRAY_SIZE(layouts))
+    if (type != D3D12_COMMAND_LIST_TYPE_DIRECT && find_in_list(direct_queue_only_layouts))
+        return false;
+
+    if (type != D3D12_COMMAND_LIST_TYPE_COMPUTE && find_in_list(compute_queue_only_layouts))
+        return false;
+
+    if (type != D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS && find_in_list(video_process_only_layouts))
+        return false;
+    if (type != D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE && find_in_list(video_decode_only_layouts))
+        return false;
+    if (type != D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE && find_in_list(video_encode_only_layouts))
+        return false;
+
+    if (type != D3D12_COMMAND_LIST_TYPE_DIRECT &&
+        type != D3D12_COMMAND_LIST_TYPE_COMPUTE &&
+        find_in_list(graphics_compute_only_layouts))
+        return false;
+
+    if (layout == D3D12_BARRIER_LAYOUT_VIDEO_QUEUE_COMMON &&
+        type != D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS &&
+        type != D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE &&
+        type != D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE)
+        return false;
+
+#undef find_in_list
+
+    return true;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_iface *iface,
         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
 {
@@ -6099,6 +6231,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS22:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS22 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options22;
+
+            TRACE("CreateByteOffsetViewsSupported %u\n", data->CreateByteOffsetViewsSupported);
+            TRACE("Max1DDispatchMeshSize %u\n", data->Max1DDispatchMeshSize);
+            TRACE("Max1DDispatchSize %u\n", data->Max1DDispatchSize);
+            TRACE("ShaderExecutionReorderingActuallyReorders %u\n", data->ShaderExecutionReorderingActuallyReorders);
+
+            return S_OK;
+        }
+
         case D3D12_FEATURE_D3D12_TIGHT_ALIGNMENT:
         {
             D3D12_FEATURE_DATA_TIGHT_ALIGNMENT *data = feature_data;
@@ -6191,6 +6343,77 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
 
             FIXME("Unsupported meta command %s.\n", debugstr_guid(&data->CommandId));
             return E_INVALIDARG;
+        }
+
+        case D3D12_FEATURE_PREDICATION:
+        {
+            /* Unknown what this is referring to. It was added in same agiltitysdk as AV1, so might be video related.
+			 * Native runtime returns E_NOTIMPL here *shrug* */
+            FIXME("Unexpected call to D3D12_FEATURE_PREDICATION. This is completely undocumented it seems.\n");
+            return E_NOTIMPL;
+        }
+
+        case D3D12_FEATURE_HARDWARE_COPY:
+        {
+            /* Unknown what this is referring to. It was added in same agiltitysdk as AV1, so might be video related.
+			 * Native runtime returns E_NOTIMPL here *shrug* */
+            FIXME("Unexpected call for D3D12_FEATURE_HARDWARE_COPY. This is completely undocumented it seems.\n");
+            return E_NOTIMPL;
+        }
+
+        case D3D12_FEATURE_PLACED_RESOURCE_SUPPORT_INFO:
+        {
+            D3D12_FEATURE_DATA_PLACED_RESOURCE_SUPPORT_INFO *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            FIXME("Unexpected call for D3D12_FEATURE_PLACED_RESOURCE_SUPPORT_INFO. This is completely undocumented it seems.\n");
+            data->Supported = d3d12_device_supports_placed_resource(device, &data->DestHeapProperties,
+                data->Dimension, data->Format);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_BYTECODE_BYPASS_HASH_SUPPORTED:
+        {
+            D3D12_FEATURE_DATA_BYTECODE_BYPASS_HASH_SUPPORTED *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* We ignore the DXIL hash, which this is supposed to be for.
+			 * It's only documented in the hlsl proposals repo ?!?!? */
+            data->Supported = TRUE;
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_SHADER_CACHE_ABI_SUPPORT:
+            /* Yes, SHADERCACHE is typoed like that */
+            if (feature_data_size != sizeof(D3D12_FEATURE_DATA_SHADERCACHE_ABI_SUPPORT))
+                return E_INVALIDARG;
+
+		    /* Rather than signaling missing support in the output struct, E_FAIL is supposed to be returned. */
+            return E_FAIL;
+
+        case D3D12_FEATURE_BARRIER_LAYOUT:
+        {
+            D3D12_FEATURE_DATA_BARRIER_LAYOUT *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* This seems to be a simple utility query. */
+            data->Supported = d3d12_barrier_layout_is_supported(data->CommandListType, data->Layout);
+            return S_OK;
         }
 
         default:
@@ -10028,6 +10251,16 @@ static void d3d12_device_caps_init_feature_options21(struct d3d12_device *device
     options21->ExtendedCommandInfoSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_8;
 }
 
+static void d3d12_device_caps_init_feature_options22(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS22 *options22 = &device->d3d12_caps.options22;
+
+    options22->CreateByteOffsetViewsSupported = FALSE; /* TODO: Should be easy */
+    options22->ShaderExecutionReorderingActuallyReorders = FALSE; /* TODO: Forward SER property. */
+    options22->Max1DDispatchSize = device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0];
+    options22->Max1DDispatchMeshSize = device->device_info.mesh_shader_properties.maxMeshWorkGroupCount[0];
+}
+
 static void d3d12_device_caps_init_feature_tight_alignment(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_TIGHT_ALIGNMENT *tight_alignment = &device->d3d12_caps.tight_alignment;
@@ -10456,6 +10689,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options19(device);
     d3d12_device_caps_init_feature_options20(device);
     d3d12_device_caps_init_feature_options21(device);
+    d3d12_device_caps_init_feature_options22(device);
     d3d12_device_caps_init_feature_tight_alignment(device);
     d3d12_device_caps_init_feature_level(device);
 
