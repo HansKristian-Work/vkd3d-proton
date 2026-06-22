@@ -3373,7 +3373,7 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
     return d3d12_validate_resource_flags(desc->Flags);
 }
 
-static HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC1 *desc,
+HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_RESOURCE_STATES initial_state)
 {
     if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD
