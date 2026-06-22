@@ -6271,7 +6271,7 @@ static HRESULT d3d12_pipeline_create_private_root_signature(struct d3d12_device 
         if (!vkd3d_shader_contains_root_signature(bytecode->pShaderBytecode, bytecode->BytecodeLength))
             continue;
 
-        if (FAILED(hr = ID3D12Device12_CreateRootSignature(&device->ID3D12Device_iface, 0,
+        if (FAILED(hr = ID3D12Device15_CreateRootSignature(&device->ID3D12Device_iface, 0,
                 bytecode->pShaderBytecode, bytecode->BytecodeLength,
                 &IID_ID3D12RootSignature, (void **)&object)))
             return hr;

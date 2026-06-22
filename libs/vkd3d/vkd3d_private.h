@@ -5439,7 +5439,7 @@ struct vkd3d_device_frame_markers
 };
 
 /* ID3D12Device */
-typedef ID3D12Device12 d3d12_device_iface;
+typedef ID3D12Device15 d3d12_device_iface;
 
 struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
@@ -5963,7 +5963,7 @@ static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_inf
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
-    return ID3D12Device12_QueryInterface(&device->ID3D12Device_iface, iid, object);
+    return ID3D12Device15_QueryInterface(&device->ID3D12Device_iface, iid, object);
 }
 
 ULONG d3d12_device_add_ref_common(struct d3d12_device *device);
