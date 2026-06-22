@@ -22,6 +22,10 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+#ifndef _WIN32
+#include <sys/mman.h>
+#endif
+
 void test_clock_calibration(void)
 {
 #ifndef _WIN32
@@ -51,16 +55,18 @@ void test_clock_calibration(void)
 
 void test_open_heap_from_address(void)
 {
-#ifdef _WIN32
     ID3D12Resource *readback_resource;
     struct test_context context;
     struct resource_readback rb;
     D3D12_HEAP_DESC heap_desc;
     ID3D12Resource *resource;
+    ID3D12Device13 *device13;
     unsigned int heap_size;
     ID3D12Device3 *device3;
     ID3D12Device *device;
+#ifdef _WIN32
     HANDLE file_handle;
+#endif
     ID3D12Heap *heap;
     unsigned int i;
     uint32_t *addr;
@@ -75,16 +81,28 @@ void test_open_heap_from_address(void)
     hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device3, (void **)&device3);
     ok(hr == S_OK, "Failed to query ID3D12Device3, hr #%x.\n", (int)hr);
 
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12Device13, (void **)&device13)))
+        device13 = NULL;
+
     /* Simple case, import directly from VirtualAlloc. */
     {
         heap_size = 64 * 1024;
+#ifdef _WIN32
         addr = VirtualAlloc(NULL, heap_size, MEM_COMMIT, PAGE_READWRITE);
         ok(!!addr, "Failed to VirtualAllocate.\n");
+#else
+        addr = mmap(NULL, heap_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        ok(addr != MAP_FAILED, "Failed to mmap.\n");
+#endif
 
         for (i = 0; i < heap_size / sizeof(uint32_t); i++)
             addr[i] = i;
 
+#ifdef _WIN32
         hr = ID3D12Device3_OpenExistingHeapFromAddress(device3, addr, &IID_ID3D12Heap, (void **)&heap);
+#else
+        hr = ID3D12Device13_OpenExistingHeapFromAddress1(device13, addr, heap_size, &IID_ID3D12Heap, (void **)&heap);
+#endif
         ok(hr == S_OK, "Failed to open heap from address: hr #%x.\n", (int)hr);
 
         freed = false;
@@ -109,19 +127,26 @@ void test_open_heap_from_address(void)
             reset_command_list(context.list, context.allocator);
             ok(!memcmp(rb.data, addr, heap_size), "Expected exact copy.\n");
             release_resource_readback(&rb);
+#ifdef _WIN32
             freed = VirtualFree(addr, 0, MEM_RELEASE);
             todo ok(!freed, "Expected VirtualFree to fail.\n");
+#endif
             ID3D12Heap_Release(heap);
             ID3D12Resource_Release(readback_resource);
             ID3D12Resource_Release(resource);
         }
         if (!freed)
         {
+#ifdef _WIN32
             freed = VirtualFree(addr, 0, MEM_RELEASE);
             ok(freed, "Expected VirtualFree to succeed.\n");
+#else
+            munmap(addr, heap_size);
+#endif
         }
     }
 
+#ifdef _WIN32
     /* Import at offset, which should fail. */
     {
         heap_size = 64 * 1024;
@@ -175,12 +200,12 @@ void test_open_heap_from_address(void)
         UnmapViewOfFile(addr);
         CloseHandle(file_handle);
     }
+#endif
 
+    if (device13)
+        ID3D12Device13_Release(device13);
     ID3D12Device3_Release(device3);
     destroy_test_context(&context);
-#else
-    skip("Cannot test OpenExistingHeapFrom* on non-native Win32 platforms.\n");
-#endif
 }
 
 void test_write_watch(void)
