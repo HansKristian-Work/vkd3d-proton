@@ -4962,3 +4962,71 @@ void test_raytracing_huge_dispatch(void)
     ID3D12StateObject_Release(rtpso);
     destroy_raytracing_test_context(&context);
 }
+
+void test_raytracing_create_root_signature_from_subobject(void)
+{
+    ID3D12Device *device = create_device();
+    D3D12_SHADER_BYTECODE bytecode;
+    ID3D12Device14 *device14;
+    ID3D12RootSignature *rs;
+    unsigned int refcount;
+    HRESULT hr;
+
+    if (!device)
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12Device14, (void **)&device14)))
+    {
+        skip("ID3D12Device14 not supported.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    /* Test library with multiple root signatures. */
+    bytecode = get_embedded_subobject_rt_lib();
+    {
+        hr = ID3D12Device14_CreateRootSignatureFromSubobjectInLibrary(device14, 0, bytecode.pShaderBytecode,
+                bytecode.BytecodeLength, u"grs", &IID_ID3D12RootSignature, (void **)&rs);
+        ok(SUCCEEDED(hr), "Expected success, got hr #%x.\n", (unsigned int)hr);
+        if (SUCCEEDED(hr))
+            ID3D12RootSignature_Release(rs);
+
+        hr = ID3D12Device14_CreateRootSignatureFromSubobjectInLibrary(device14, 0, bytecode.pShaderBytecode,
+                bytecode.BytecodeLength, u"lrs_raygen", &IID_ID3D12RootSignature, (void **)&rs);
+        ok(SUCCEEDED(hr), "Expected success, got hr #%x.\n", (unsigned int)hr);
+        if (SUCCEEDED(hr))
+            ID3D12RootSignature_Release(rs);
+
+        hr = ID3D12Device14_CreateRootSignatureFromSubobjectInLibrary(device14, 0, bytecode.pShaderBytecode,
+                bytecode.BytecodeLength, u"lrs_doesnotexist", &IID_ID3D12RootSignature, (void **)&rs);
+        ok(hr == E_INVALIDARG, "Expected E_INVALIDARG, got hr #%x.\n", (unsigned int)hr);
+        if (SUCCEEDED(hr))
+            ID3D12RootSignature_Release(rs);
+
+        /* NULL subobject name segfaults. */
+    }
+
+    /* Test library with single root signature. */
+    bytecode = get_embedded_root_signature_subobject_rt_lib();
+    {
+        hr = ID3D12Device14_CreateRootSignatureFromSubobjectInLibrary(device14, 0, bytecode.pShaderBytecode,
+               bytecode.BytecodeLength, u"grs", &IID_ID3D12RootSignature, (void **)&rs);
+        ok(SUCCEEDED(hr), "Expected success, got hr #%x.\n", (unsigned int)hr);
+        if (SUCCEEDED(hr))
+            ID3D12RootSignature_Release(rs);
+
+        /* NULL subobject name segfaults. Verify that empty string isn't used for "default". */
+        hr = ID3D12Device14_CreateRootSignatureFromSubobjectInLibrary(device14, 0, bytecode.pShaderBytecode,
+            bytecode.BytecodeLength, u"", &IID_ID3D12RootSignature, (void **)&rs);
+        ok(hr == E_INVALIDARG, "Expected E_INVALIDARG, got hr #%x.\n", (unsigned int)hr);
+        if (SUCCEEDED(hr))
+            ID3D12RootSignature_Release(rs);
+    }
+
+    ID3D12Device_Release(device);
+    refcount = ID3D12Device14_Release(device14);
+    ok(refcount == 0, "Expected refcount 0, got %u\n", refcount);
+}
