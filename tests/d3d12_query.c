@@ -781,3 +781,99 @@ void test_virtual_queries(void)
     destroy_test_context(&context);
 }
 
+void test_query_heap_cpu_resolve_timestamp(void)
+{
+    struct test_context_desc context_desc;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    struct test_context context;
+    UINT64 before_gpu_timestamp;
+    UINT64 after_gpu_timestamp;
+    ID3D12Device15 *device15;
+    uint64_t query_data[16];
+    ID3D12QueryHeap *heap;
+    UINT64 cpu_timestamp;
+    HRESULT hr;
+    UINT i;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device15, (void **)&device15)))
+    {
+        skip("ID3D12Device15 not supported.\n");
+        destroy_test_context(&context);
+    }
+
+    /* There are no feature bits. Native runtime emulates this as necessary. */
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Count = 1024;
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_NONE,
+            &IID_ID3D12QueryHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, 1, query_data);
+    ok(hr == E_INVALIDARG, "Expected invalidarg, got hr #%x.\n", hr);
+    ID3D12QueryHeap_Release(heap);
+
+    hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE,
+            &IID_ID3D12QueryHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+
+    /* This should be allowed. */
+    memset(query_data, 0xab, sizeof(query_data));
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+        ok(query_data[i] == 0, "Unexpected data %"PRIu64" for query %u.\n", query_data[i], i);
+
+    hr = ID3D12CommandQueue_GetClockCalibration(context.queue, &before_gpu_timestamp, &cpu_timestamp);
+    ok(SUCCEEDED(hr), "Failed to calibrate timestamps, hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data) - 1; i++)
+        ID3D12GraphicsCommandList_EndQuery(context.list, heap, D3D12_QUERY_TYPE_TIMESTAMP, i);
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+
+    /* This should be allowed. Results will be bogus. */
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    wait_queue_idle_no_event(context.device, context.queue);
+    hr = ID3D12CommandQueue_GetClockCalibration(context.queue, &after_gpu_timestamp, &cpu_timestamp);
+    ok(SUCCEEDED(hr), "Failed to calibrate timestamps, hr #%x.\n", hr);
+
+    ok(before_gpu_timestamp <= after_gpu_timestamp, "Unexpected monotonicity, expected %"PRIu64" <= %"PRIu64".\n",
+            before_gpu_timestamp, after_gpu_timestamp);
+
+    /* The last query was never written, but should be allowed to resolve as-is. */
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data) - 1; i++)
+    {
+        ok(query_data[i] >= before_gpu_timestamp, "Unexpected monotonicity, expected %"PRIu64" >= %"PRIu64".\n",
+                query_data[i], before_gpu_timestamp);
+        ok(query_data[i] <= after_gpu_timestamp, "Unexpected monotonicity, expected %"PRIu64" <= %"PRIu64".\n",
+                query_data[i], after_gpu_timestamp);
+
+        if (i != 0)
+        {
+            ok(query_data[i] >= query_data[i - 1], "Unexpected monotonicity, expected %"PRIu64" > %"PRIu64".\n",
+                    query_data[i], query_data[i - 1]);
+        }
+    }
+
+    ID3D12QueryHeap_Release(heap);
+    ID3D12Device15_Release(device15);
+    destroy_test_context(&context);
+}
