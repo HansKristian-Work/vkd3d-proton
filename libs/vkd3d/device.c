@@ -8044,20 +8044,31 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
             sub_resource_count, base_offset, layouts, row_counts, row_sizes, total_bytes);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(d3d12_device_iface *iface,
-        const D3D12_QUERY_HEAP_DESC *desc, REFIID iid, void **heap)
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap1(
+        d3d12_device_iface *iface,
+        const D3D12_QUERY_HEAP_DESC *desc,
+        D3D12_QUERY_HEAP_FLAGS flags,
+        REFIID iid,
+        void **heap)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_query_heap *object;
     HRESULT hr;
 
-    TRACE("iface %p, desc %p, iid %s, heap %p.\n",
-            iface, desc, debugstr_guid(iid), heap);
+    TRACE("iface %p, desc %p, flags #%x, iid %s, heap %p.\n",
+            iface, desc, flags, debugstr_guid(iid), heap);
 
-    if (FAILED(hr = d3d12_query_heap_create(device, desc, &object)))
+    if (FAILED(hr = d3d12_query_heap_create(device, desc, flags, &object)))
         return hr;
 
     return return_interface(&object->ID3D12QueryHeap_iface, &IID_ID3D12QueryHeap, iid, heap);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(d3d12_device_iface *iface,
+        const D3D12_QUERY_HEAP_DESC *desc, REFIID iid, void **heap)
+{
+    TRACE("iface %p, desc %p, iid %s, heap %p.\n", iface, desc, debugstr_guid(iid), heap);
+    return d3d12_device_CreateQueryHeap1(iface, desc, D3D12_QUERY_HEAP_FLAG_NONE, iid, heap);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetStablePowerState(d3d12_device_iface *iface, BOOL enable)
@@ -9504,29 +9515,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateSamplerFeedbackUnorderedA
     return E_NOTIMPL;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap1(
-        d3d12_device_iface *iface,
-        const D3D12_QUERY_HEAP_DESC *pDesc,
-        D3D12_QUERY_HEAP_FLAGS Flags,
-        REFIID riid,
-        void **ppvHeap)
-{
-    FIXME("iface %p, pDesc %p, Flags #%x, riid %s, ppvHeap %p, stub!\n",
-        iface, pDesc, Flags, debugstr_guid(riid), ppvHeap);
-    return E_NOTIMPL;
-}
-
 static HRESULT STDMETHODCALLTYPE d3d12_device_ResolveQueryData(
-        d3d12_device_iface *iface,
-        ID3D12QueryHeap *pQueryHeap,
-        D3D12_QUERY_TYPE Type,
-        UINT StartIndex,
-        UINT NumQueries,
-        void *pResolvedQueryData)
+        d3d12_device_iface *iface, ID3D12QueryHeap *heap_iface, D3D12_QUERY_TYPE type,
+        UINT index, UINT count, void *data)
 {
-    FIXME("iface %p, pQueryHeap %p, Type %u, StartIndex %u, NumQueries %u, pResolvedQueryData %p\n",
-        iface, pQueryHeap, Type, StartIndex, NumQueries, pResolvedQueryData);
-    return E_NOTIMPL;
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(heap_iface);
+    TRACE("iface %p, heap %p, Type %u, StartIndex %u, NumQueries %u, pResolvedQueryData %p\n",
+        iface, heap_iface, type, index, count, data);
+    return d3d12_query_heap_resolve_cpu(heap, type, index, count, data);
 }
 
 /* Gotta love C sometimes ... :') */

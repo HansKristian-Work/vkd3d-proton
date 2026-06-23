@@ -1877,15 +1877,19 @@ struct d3d12_query_heap
     VkDeviceAddress va;
     struct vkd3d_cookie cookie;
     uint32_t initialized;
+    D3D12_QUERY_HEAP_FLAGS flags;
 
     struct d3d12_device *device;
+    void *host_mapped;
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
-        struct d3d12_query_heap **heap);
+        D3D12_QUERY_HEAP_FLAGS flags, struct d3d12_query_heap **heap);
+HRESULT d3d12_query_heap_resolve_cpu(struct d3d12_query_heap *heap, D3D12_QUERY_TYPE type,
+        UINT index, UINT count, void* data);
 
 static inline struct d3d12_query_heap *impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
 {
