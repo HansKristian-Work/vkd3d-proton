@@ -845,3 +845,123 @@ void test_query_heap_cpu_resolve_timestamp(void)
     ID3D12Device15_Release(device15);
     destroy_test_context(&context);
 }
+
+void test_query_heap_cpu_resolve_occlusion(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    struct depth_stencil_resource ds;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    struct test_context context;
+    ID3D12Device15 *device15;
+    uint64_t query_data[16];
+    ID3D12QueryHeap *heap;
+    HRESULT hr;
+    UINT i;
+
+#include "shaders/query/headers/occlusion.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device15, (void **)&device15)))
+    {
+        skip("ID3D12Device15 not supported.\n");
+        destroy_test_context(&context);
+    }
+
+    /* There are no feature bits. Native runtime emulates this as necessary. */
+    init_depth_stencil(&ds, context.device, 16, 16, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    set_viewport(&context.viewport, 0.0f, 0.0f, 16.0f, 16.0f, 0.0f, 1.0f);
+    set_rect(&context.scissor_rect, 0, 0, 16, 16);
+
+    context.root_signature = create_32bit_constants_root_signature(context.device, 0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &occlusion_dxbc, NULL);
+    pso_desc.NumRenderTargets = 0;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = true;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Count = 1024;
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+    hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_NONE,
+            &IID_ID3D12QueryHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, query_data);
+    ok(hr == E_INVALIDARG, "Expected invalidarg, got hr #%x.\n", hr);
+    ID3D12QueryHeap_Release(heap);
+
+    hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE,
+            &IID_ID3D12QueryHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+
+    /* This should be allowed. */
+    memset(query_data, 0xab, sizeof(query_data));
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+        ok(query_data[i] == 0, "Unexpected data %"PRIu64" for query %u.\n", query_data[i], i);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0, 0, 0);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, false, &ds.dsv_handle);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+    {
+        ID3D12GraphicsCommandList_BeginQuery(context.list, heap, D3D12_QUERY_TYPE_OCCLUSION, i);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, i, 0, 0);
+        ID3D12GraphicsCommandList_EndQuery(context.list, heap, D3D12_QUERY_TYPE_OCCLUSION, i);
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+
+    /* This should be allowed. Results will be bogus. */
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    wait_queue_idle_no_event(context.device, context.queue);
+
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+    {
+        ok(query_data[i] == i * 256, "Unexpected query for query %u. Expected %u, got %"PRIu64".\n",
+                i, i * 256, query_data[i]);
+    }
+
+    /* It's allowed to resolve a query in different ways based on the context. */
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+    {
+        ok(query_data[i] == !!i, "Unexpected query for query %u. Expected %u, got %"PRIu64".\n",
+                i, !!i, query_data[i]);
+    }
+
+    destroy_depth_stencil(&ds);
+    ID3D12QueryHeap_Release(heap);
+    ID3D12Device15_Release(device15);
+    destroy_test_context(&context);
+}
