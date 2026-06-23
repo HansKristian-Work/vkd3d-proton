@@ -16756,6 +16756,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
 
+    if (query_heap->flags & D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE)
+    {
+        WARN("ResolveQueryData is not allowed on CPU resolve heaps.\n");
+        return;
+    }
+
     d3d12_command_list_check_render_pass_validation(list, "ResolveQueryData called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
 
