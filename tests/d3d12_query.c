@@ -321,24 +321,8 @@ void test_query_occlusion(void)
     unsigned int i;
     HRESULT hr;
 
-    static const DWORD ps_code[] =
-    {
-#if 0
-        float depth;
+#include "shaders/query/headers/occlusion.h"
 
-        float main() : SV_Depth
-        {
-            return depth;
-        }
-#endif
-        0x43425844, 0x91af6cd0, 0x7e884502, 0xcede4f54, 0x6f2c9326, 0x00000001, 0x000000b0, 0x00000003,
-        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
-        0x00000e01, 0x445f5653, 0x68747065, 0xababab00, 0x52444853, 0x00000038, 0x00000040, 0x0000000e,
-        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x02000065, 0x0000c001, 0x05000036, 0x0000c001,
-        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const struct
     {
         D3D12_QUERY_TYPE type;
@@ -372,7 +356,7 @@ void test_query_occlusion(void)
 
     context.root_signature = create_32bit_constants_root_signature(context.device,
             0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &occlusion_dxbc, NULL);
     pso_desc.NumRenderTargets = 0;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.DepthStencilState.DepthEnable = true;
@@ -662,24 +646,8 @@ void test_virtual_queries(void)
     unsigned int i;
     HRESULT hr;
 
-    static const DWORD ps_code[] =
-    {
-#if 0
-        float depth;
+#include "shaders/query/headers/occlusion.h"
 
-        float main() : SV_Depth
-        {
-            return depth;
-        }
-#endif
-        0x43425844, 0x91af6cd0, 0x7e884502, 0xcede4f54, 0x6f2c9326, 0x00000001, 0x000000b0, 0x00000003,
-        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
-        0x00000e01, 0x445f5653, 0x68747065, 0xababab00, 0x52444853, 0x00000038, 0x00000040, 0x0000000e,
-        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x02000065, 0x0000c001, 0x05000036, 0x0000c001,
-        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const uint32_t expected_results[] = {1,0,1,1,614400,0,307200,307200};
     static const float depth_one = 1.0f;
     static const float depth_zero = 0.0f;
@@ -699,7 +667,7 @@ void test_virtual_queries(void)
 
     context.root_signature = create_32bit_constants_root_signature(context.device,
             0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &occlusion_dxbc, NULL);
     pso_desc.NumRenderTargets = 0;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.DepthStencilState.DepthEnable = true;
