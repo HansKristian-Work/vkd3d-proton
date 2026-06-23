@@ -5221,8 +5221,10 @@ static inline uint32_t vkd3d_meta_get_workgraph_complete_compaction_workgroup_si
 
 enum vkd3d_time_domain_flag
 {
-    VKD3D_TIME_DOMAIN_DEVICE = 0x00000001u,
-    VKD3D_TIME_DOMAIN_QPC    = 0x00000002u,
+    VKD3D_TIME_DOMAIN_DEVICE          = 0x00000001u,
+    VKD3D_TIME_DOMAIN_QPC             = 0x00000002u,
+    /* MONOTONIC is the sensible default for all Unix-likes. */
+    VKD3D_TIME_DOMAIN_CLOCK_MONOTONIC = 0x00000004u,
 };
 
 struct vkd3d_physical_device_info

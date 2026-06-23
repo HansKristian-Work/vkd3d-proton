@@ -1683,6 +1683,9 @@ static uint32_t vkd3d_physical_device_get_time_domains(struct d3d12_device *devi
             case VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR:
                 result |= VKD3D_TIME_DOMAIN_QPC;
                 break;
+            case VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR:
+                result |= VKD3D_TIME_DOMAIN_CLOCK_MONOTONIC;
+                break;
             default:
                 break;
         }
