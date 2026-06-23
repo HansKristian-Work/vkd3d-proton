@@ -10478,8 +10478,61 @@ CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
     d3d12_query_heap_GetDevice,
 };
 
+HRESULT d3d12_query_heap_resolve_cpu(struct d3d12_query_heap *heap, D3D12_QUERY_TYPE type,
+        UINT index, UINT count, void *data)
+{
+    /* Fortunately, there are no synchronization semantics for CPU query resolves. */
+    const struct vkd3d_vk_device_procs *vk_procs = &heap->device->vk_procs;
+    uint32_t query_size;
+    VkResult vr;
+    UINT i;
+
+    if (!(heap->flags & D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE))
+        return E_INVALIDARG;
+
+    query_size = d3d12_query_heap_type_get_data_size(heap->desc.Type);
+
+    if (index + count > heap->desc.Count)
+        return E_INVALIDARG;
+
+    if (!d3d12_query_heap_type_is_inline(heap->desc.Type))
+    {
+        /* If the query is backed by query pool as-is, then we just read that. */
+        vr = VK_CALL(vkGetQueryPoolResults(heap->device->vk_device,
+            heap->vk_query_pool, index, count, query_size * count, data, query_size,
+            VK_QUERY_RESULT_64_BIT));
+
+        /* If the GPU is not done, spec says that returned values are undefined,
+         * so be defensive and memset it. */
+        if (vr == VK_NOT_READY)
+        {
+            memset(data, 0, query_size * count);
+            vr = VK_SUCCESS;
+        }
+
+        return hresult_from_vk_result(vr);
+    }
+    else if (type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
+    {
+        const uint64_t *src = heap->host_mapped;
+        uint64_t *dst = data;
+        src += index;
+
+        for (i = 0; i < count; i++)
+            dst[i] = src[i] ? 1 : 0;
+    }
+    else
+    {
+        /* Application is responsible for sync, so just memcpy over.
+         * We have no indication if GPU is done, but we can just return whatever garbage is in the buffer. */
+        memcpy(data, void_ptr_offset(heap->host_mapped, index * query_size), query_size * count);
+    }
+
+    return S_OK;
+}
+
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
-        struct d3d12_query_heap **heap)
+        D3D12_QUERY_HEAP_FLAGS flags, struct d3d12_query_heap **heap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     D3D12_HEAP_PROPERTIES heap_properties;
@@ -10489,14 +10542,14 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     VkResult vr;
     HRESULT hr;
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    memset(object, 0, sizeof(*object));
     object->ID3D12QueryHeap_iface.lpVtbl = &d3d12_query_heap_vtbl;
     object->refcount = 1;
     object->device = device;
     object->desc = *desc;
+    object->flags = flags;
     object->cookie = vkd3d_allocate_cookie();
 
     if (!d3d12_query_heap_type_is_inline(desc->Type))
@@ -10505,6 +10558,11 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
         pool_info.pNext = NULL;
         pool_info.flags = 0;
         pool_info.queryCount = desc->Count;
+
+        /* It is UB to read a host query before it has been written actually.
+         * AMD drivers can instantly device lost. Just reset the query pool if it's trivial to do so. */
+        if ((flags & D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE) && device->device_info.maintenance_9_features.maintenance9)
+            pool_info.flags |= VK_QUERY_POOL_CREATE_RESET_BIT_KHR;
 
         switch (desc->Type)
         {
@@ -10544,6 +10602,9 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     }
     else
     {
+        VkMemoryPropertyFlags memory_properties;
+        VkMemoryAllocateFlags alloc_flags = 0;
+
         memset(&heap_properties, 0, sizeof(heap_properties));
         heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
@@ -10565,12 +10626,41 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             return hr;
         }
 
-        if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, object->vk_buffer,
-                VK_MEMORY_HEAP_DEVICE_LOCAL_BIT, 0, &object->device_allocation)))
+        if (flags & D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE)
+        {
+            memory_properties = VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+        }
+        else
+        {
+            memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        }
+
+        /* It is UB to read a host query before it has been written actually.
+         * AMD drivers can instantly device lost. Just zero-clear if it's trivial to do so. */
+        if (device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory)
+            alloc_flags |= VK_MEMORY_ALLOCATE_ZERO_INITIALIZE_BIT_EXT;
+
+        hr = vkd3d_allocate_internal_buffer_memory(device, object->vk_buffer,
+                memory_properties, alloc_flags, &object->device_allocation);
+
+        if (FAILED(hr))
         {
             VK_CALL(vkDestroyBuffer(device->vk_device, object->vk_buffer, NULL));
             vkd3d_free(object);
             return hr;
+        }
+
+        if (flags & D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE)
+        {
+            if ((vr = VK_CALL(vkMapMemory(
+                device->vk_device, object->device_allocation.vk_memory, 0, VK_WHOLE_SIZE, 0, &object->host_mapped))))
+            {
+                ERR("Failed to map query heap memory.\n");
+                vkd3d_free_device_memory(device, &object->device_allocation);
+                VK_CALL(vkDestroyBuffer(device->vk_device, object->vk_buffer, NULL));
+                return hresult_from_vk_result(vr);
+            }
         }
 
         object->va = vkd3d_get_buffer_device_address(device, object->vk_buffer);
