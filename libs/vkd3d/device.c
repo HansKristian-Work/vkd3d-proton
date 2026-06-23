@@ -4597,7 +4597,7 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Device12)
             || IsEqualGUID(riid, &IID_ID3D12Device13)
             || IsEqualGUID(riid, &IID_ID3D12Device14)
-            /*|| IsEqualGUID(riid, &IID_ID3D12Device15) wait with exposing this interface until we have implemented it */
+            || IsEqualGUID(riid, &IID_ID3D12Device15)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
