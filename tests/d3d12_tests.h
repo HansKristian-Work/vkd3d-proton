@@ -575,3 +575,4 @@ decl_test(test_structured_buffer_addressing_wrap);
 decl_test(test_fp_truncate_roundtrips);
 decl_test(test_raytracing_create_root_signature_from_subobject);
 decl_test(test_misc_agility_sdk_feature_checks);
+decl_test(test_query_heap_cpu_resolve_timestamp);
