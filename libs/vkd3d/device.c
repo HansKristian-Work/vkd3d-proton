@@ -10428,7 +10428,12 @@ static void d3d12_device_caps_init_feature_options22(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS22 *options22 = &device->d3d12_caps.options22;
 
-    options22->CreateByteOffsetViewsSupported = FALSE; /* TODO: Should be easy */
+    /* Possible to support on super legacy model too, but it's extra effort that is a waste of time.
+     * Dealing with offset buffers is a bit too much of a hassle and that old model is
+     * up for the chopping block soon (tm). */
+    options22->CreateByteOffsetViewsSupported =
+        d3d12_device_use_descriptor_heap(device) || d3d12_device_uses_descriptor_buffers(device);
+
     options22->ShaderExecutionReorderingActuallyReorders = FALSE; /* TODO: Forward SER property. */
     options22->Max1DDispatchSize = device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0];
     options22->Max1DDispatchMeshSize = device->device_info.mesh_shader_properties.maxMeshWorkGroupCount[0];

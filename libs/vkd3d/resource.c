@@ -5305,6 +5305,24 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
 #define VKD3D_VIEW_RAW_BUFFER 0x1
 #define VKD3D_VIEW_BUFFER_SRV 0x2
 
+static void vkd3d_get_metadata_buffer_view_for_resource_heap_byte_offset(struct d3d12_device *device,
+        struct d3d12_resource *resource, DXGI_FORMAT view_format,
+        VkDeviceSize offset, VkDeviceSize size,
+        bool raw, struct vkd3d_descriptor_metadata_buffer_view *view)
+{
+    /* I assume this is just forward looking so that 64-bit descriptors can be supported at some point. */
+    if (size > UINT32_MAX)
+        FIXME("Attempt to use full 64-bit range?\n");
+
+    /* Validating the inputs is left to outer entry point. */
+    if (!size)
+        size = resource->desc.Width - offset;
+    view->va = resource->res.va + offset;
+    view->range = size;
+    view->dxgi_format = raw ? DXGI_FORMAT_UNKNOWN : view_format;
+    view->flags = VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+}
+
 static void vkd3d_get_metadata_buffer_view_for_resource_heap(struct d3d12_device *device,
         struct d3d12_resource *resource, DXGI_FORMAT view_format,
         VkDeviceSize offset, VkDeviceSize size, VkDeviceSize structure_stride,
@@ -5319,6 +5337,30 @@ static void vkd3d_get_metadata_buffer_view_for_resource_heap(struct d3d12_device
     view->range = size * element_size;
     view->dxgi_format = raw ? DXGI_FORMAT_UNKNOWN : view_format;
     view->flags = VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+}
+
+static void vkd3d_get_metadata_buffer_view_for_resource_legacy_byte_offset(struct d3d12_device *device,
+        struct d3d12_resource *resource, DXGI_FORMAT view_format,
+        VkDeviceSize offset, VkDeviceSize size, VkDeviceSize structure_stride,
+        struct vkd3d_descriptor_metadata_buffer_view *view)
+{
+    /* I assume this is just forward looking so that 64-bit descriptors can be supported at some point. */
+    if (size > UINT32_MAX)
+        FIXME("Attempt to use full 64-bit range?\n");
+
+    if (!size)
+        size = resource->desc.Width - offset;
+
+    /* Validating the inputs is left to outer entry point. */
+    view->va = resource->res.va + offset;
+    view->range = size;
+    view->dxgi_format = view_format;
+    view->flags = VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+
+    /* If we would need an SSBO offset buffer for whatever reason, just fallback to a typed view instead. */
+    if (view_format == DXGI_FORMAT_UNKNOWN)
+        if (view->va & (device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment - 1))
+            view->dxgi_format = DXGI_FORMAT_R32_UINT;
 }
 
 static void vkd3d_get_metadata_buffer_view_for_resource_legacy(struct d3d12_device *device,
@@ -6270,22 +6312,6 @@ static bool d3d12_resource_desc_supports_heap_raw_ssbo(struct d3d12_device *devi
         return device->bindless_state.heap.supports_universal_byte_address_ssbo;
 }
 
-static bool d3d12_resource_desc_supports_heap_raw_srv_ssbo(
-        struct d3d12_device *device, const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
-{
-    return d3d12_resource_desc_supports_heap_raw_ssbo(device,
-            desc->Buffer.StructureByteStride,
-            (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0);
-}
-
-static bool d3d12_resource_desc_supports_heap_raw_uav_ssbo(
-        struct d3d12_device *device, const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
-{
-    return d3d12_resource_desc_supports_heap_raw_ssbo(device,
-            desc->Buffer.StructureByteStride,
-            (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0);
-}
-
 static void vkd3d_create_buffer_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
@@ -6327,9 +6353,11 @@ static void vkd3d_create_buffer_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
         desc_range.size = device->device_info.descriptor_heap_properties.bufferDescriptorSize;
         VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
     }
-    else if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
+    else
     {
         bool can_emit_sibling_typed_raw;
+        bool is_byte_address;
+        uint32_t stride;
         bool emit_typed;
         bool is_typed;
         bool emit_raw;
@@ -6337,21 +6365,41 @@ static void vkd3d_create_buffer_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
         /* Ignore metadata for SRV. */
         if (resource)
         {
-            vkd3d_get_metadata_buffer_view_for_resource_heap(device, resource,
-                    desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
-                    desc->Buffer.StructureByteStride, (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0,
-                    &view);
+            if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
+            {
+                vkd3d_get_metadata_buffer_view_for_resource_heap_byte_offset(device, resource,
+                        desc->Format, desc->BufferByteOffset.Offset, desc->BufferByteOffset.Size,
+                        (desc->BufferByteOffset.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0,
+                        &view);
+            }
+            else
+            {
+                vkd3d_get_metadata_buffer_view_for_resource_heap(device, resource,
+                        desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                        desc->Buffer.StructureByteStride, (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0,
+                        &view);
+            }
         }
         else
         {
             memset(&view, 0, sizeof(view));
         }
 
-        is_typed = desc->Format && !(desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+        if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
+        {
+            is_byte_address = !!(desc->BufferByteOffset.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+            stride = desc->BufferByteOffset.StructureByteStride;
+        }
+        else
+        {
+            is_byte_address = !!(desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+            stride = desc->Buffer.StructureByteStride;
+        }
 
+        is_typed = desc->Format && !is_byte_address;
         can_emit_sibling_typed_raw = bindless->packed_raw_buffer_offset >= bindless->heap.uniform_texel_buffer_size;
 
-        if (!is_typed && !d3d12_resource_desc_supports_heap_raw_srv_ssbo(device, desc))
+        if (!is_typed && !d3d12_resource_desc_supports_heap_raw_ssbo(device, stride, is_byte_address))
         {
             is_typed = true;
             view.dxgi_format = DXGI_FORMAT_R32_UINT;
@@ -6373,14 +6421,14 @@ static void vkd3d_create_buffer_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
                 texel_buffer_info.format = vkd3d_internal_get_vk_format(device, view.dxgi_format);
                 if (texel_buffer_info.format == VK_FORMAT_UNDEFINED)
                 {
-                    if (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW)
+                    if (is_byte_address)
                     {
                         texel_buffer_info.format = VK_FORMAT_R32_UINT;
                     }
                     else
                     {
                         texel_buffer_info.format = vkd3d_internal_get_vk_format(device,
-                            vkd3d_structured_srv_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                            vkd3d_structured_srv_to_texel_buffer_dxgi_format(stride));
                     }
                 }
 
@@ -6412,10 +6460,6 @@ static void vkd3d_create_buffer_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
             VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
         }
     }
-    else
-    {
-        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
-    }
 
     memcpy(d.payload, stack_payload, bindless->cbv_srv_uav_size);
 }
@@ -6429,6 +6473,8 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     VkDescriptorAddressInfoEXT addr_info;
     struct d3d12_desc_split_embedded d;
     VkDescriptorGetInfoEXT get_info;
+    bool is_byte_address;
+    uint32_t stride;
 
     if (!desc)
     {
@@ -6451,12 +6497,6 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
         return;
     }
 
-    if (desc->ViewDimension != D3D12_SRV_DIMENSION_BUFFER)
-    {
-        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
-        return;
-    }
-
     if (!resource)
     {
         /* We prepare a packed NULL descriptor that contains both texel buffer and SSBO. */
@@ -6465,10 +6505,25 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
         return;
     }
 
-    /* Ignore metadata for SRV. */
-    vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
-            desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
-            desc->Buffer.StructureByteStride, &view);
+    if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
+    {
+        is_byte_address = !!(desc->BufferByteOffset.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+        stride = desc->BufferByteOffset.StructureByteStride;
+
+        vkd3d_get_metadata_buffer_view_for_resource_legacy_byte_offset(device, resource,
+                desc->Format, desc->BufferByteOffset.Offset, desc->BufferByteOffset.Size,
+                is_byte_address, &view);
+    }
+    else
+    {
+        is_byte_address = !!(desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+        stride = desc->Buffer.StructureByteStride;
+
+        /* Ignore metadata for SRV. */
+        vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
+                desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                stride, &view);
+    }
 
     /* Emit SSBO. */
     get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
@@ -6493,14 +6548,14 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     {
         /* Raw buffer is always emitted as R32_UINT on native.
          * Try to match behavior observed on native drivers as close as possible here. */
-        if (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW)
+        if (is_byte_address)
         {
             addr_info.format = VK_FORMAT_R32_UINT;
         }
         else
         {
             addr_info.format = vkd3d_internal_get_vk_format(device,
-                    vkd3d_structured_srv_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                    vkd3d_structured_srv_to_texel_buffer_dxgi_format(stride));
 
             if (!addr_info.format)
             {
@@ -6532,8 +6587,10 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     uint32_t vk_write_count = 0;
     struct d3d12_desc_split d;
     unsigned int vk_flags;
+    bool is_byte_address;
     uint32_t info_index;
     bool desc_is_raw;
+    uint32_t stride;
     bool emit_typed;
     bool emit_ssbo;
     void *payload;
@@ -6580,15 +6637,20 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         return;
     }
 
-    if (desc->ViewDimension != D3D12_SRV_DIMENSION_BUFFER)
+    mutable_uses_single_descriptor = !!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO);
+
+    if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
     {
-        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
-        return;
+        is_byte_address = !!(desc->BufferByteOffset.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+        stride = desc->BufferByteOffset.StructureByteStride;
+    }
+    else
+    {
+        is_byte_address = !!(desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+        stride = desc->Buffer.StructureByteStride;
     }
 
-    mutable_uses_single_descriptor = !!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO);
-    desc_is_raw = (desc->Format == DXGI_FORMAT_UNKNOWN && desc->Buffer.StructureByteStride) ||
-            (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
+    desc_is_raw = (desc->Format == DXGI_FORMAT_UNKNOWN && stride) || is_byte_address;
     emit_ssbo = (!mutable_uses_single_descriptor || desc_is_raw) && d3d12_device_use_ssbo_raw_buffer(device);
     emit_typed = !mutable_uses_single_descriptor || !desc_is_raw || !emit_ssbo;
 
@@ -6609,9 +6671,19 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     }
 
     d.types->set_info_mask = 0;
-    vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
-            desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
-            desc->Buffer.StructureByteStride, &d.view->info.buffer);
+
+    if (desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET)
+    {
+        vkd3d_get_metadata_buffer_view_for_resource_legacy_byte_offset(device, resource,
+                desc->Format, desc->BufferByteOffset.Offset, desc->BufferByteOffset.Size,
+                is_byte_address, &d.view->info.buffer);
+    }
+    else
+    {
+        vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
+                desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                desc->Buffer.StructureByteStride, &d.view->info.buffer);
+    }
 
     if (emit_ssbo)
     {
@@ -6648,12 +6720,15 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         }
         else
         {
-            VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
+            VkDeviceSize format_stride = desc->Format == DXGI_FORMAT_UNKNOWN
                     ? desc->Buffer.StructureByteStride :
                     vkd3d_get_format(device, desc->Format, false)->byte_count;
 
+            /* We don't expose ByteAddress on dinosaur model. */
+            assert(desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER);
+
             vkd3d_buffer_view_get_bound_range_ssbo(device, resource,
-                    desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
+                    desc->Buffer.FirstElement * format_stride, desc->Buffer.NumElements * format_stride,
                     &descriptor_info[vk_write_count].buffer, &bound_range);
 
             vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
@@ -6693,14 +6768,14 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
             /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
             if (addr_info.format == VK_FORMAT_UNDEFINED)
             {
-                if (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW)
+                if (is_byte_address)
                 {
                     addr_info.format = VK_FORMAT_R32_UINT;
                 }
                 else
                 {
                     addr_info.format = vkd3d_internal_get_vk_format(device,
-                            vkd3d_structured_srv_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                            vkd3d_structured_srv_to_texel_buffer_dxgi_format(stride));
 
                     if (!addr_info.format)
                     {
@@ -6716,6 +6791,9 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         }
         else
         {
+            /* We don't expose ByteAddress on dinosaur model. */
+            assert(desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER);
+
             vk_flags = vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->Buffer.Flags);
             if (!vkd3d_buffer_view_get_aligned_view(device, resource, desc->Format, vk_flags,
                     desc->Buffer.FirstElement, desc->Buffer.NumElements, desc->Buffer.StructureByteStride,
@@ -7192,6 +7270,7 @@ void d3d12_desc_create_srv_heap(vkd3d_cpu_descriptor_va_t desc_va,
     else if (desc)
     {
         is_buffer = desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER ||
+                desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET ||
                 desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
     }
     else
@@ -7219,6 +7298,7 @@ void d3d12_desc_create_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     else if (desc)
     {
         is_buffer = desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER ||
+                desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET ||
                 desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
     }
     else
@@ -7246,6 +7326,7 @@ void d3d12_desc_create_srv(vkd3d_cpu_descriptor_va_t desc_va,
     else if (desc)
     {
         is_buffer = desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER ||
+                desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET ||
                 desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
     }
     else
@@ -7312,7 +7393,9 @@ static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, stru
     VkHostAddressRangeEXT desc_range;
     bool can_emit_sibling_typed;
     bool can_emit_sibling_raw;
+    bool is_byte_address;
     bool emit_typed;
+    uint32_t stride;
     bool is_typed;
     bool emit_raw;
 
@@ -7322,24 +7405,37 @@ static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, stru
         return;
     }
 
-    if (desc->ViewDimension != D3D12_UAV_DIMENSION_BUFFER)
-    {
-        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
-        return;
-    }
-
     memset(&desc_info, 0, sizeof(desc_info));
     desc_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
 
     d = d3d12_desc_decode_embedded_resource_va_with_metadata(desc_va,
             device->bindless_state.packed_metadata_offset, stack_payload);
 
+    if (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
+    {
+        is_byte_address = (desc->BufferByteOffset.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0;
+        stride = desc->BufferByteOffset.StructureByteStride;
+    }
+    else
+    {
+        is_byte_address = (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0;
+        stride = desc->Buffer.StructureByteStride;
+    }
+
     if (resource)
     {
-        vkd3d_get_metadata_buffer_view_for_resource_heap(device, resource,
-                desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
-                desc->Buffer.StructureByteStride, (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0,
-                &view);
+        if (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
+        {
+            vkd3d_get_metadata_buffer_view_for_resource_heap_byte_offset(device, resource,
+                    desc->Format, desc->BufferByteOffset.Offset, desc->BufferByteOffset.Size,
+                    is_byte_address, &view);
+        }
+        else
+        {
+            vkd3d_get_metadata_buffer_view_for_resource_heap(device, resource,
+                    desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                    stride, is_byte_address, &view);
+        }
     }
     else
     {
@@ -7352,13 +7448,13 @@ static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, stru
         d3d12_uav_info->gpuVASize = view.range;
     }
 
-    is_typed = desc->Format && !(desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
+    is_typed = desc->Format && !is_byte_address;
 
     can_emit_sibling_typed =
         bindless->packed_raw_buffer_offset >= bindless->heap.storage_texel_buffer_size && !counter_resource;
     can_emit_sibling_raw = bindless->packed_raw_buffer_offset >= bindless->heap.storage_texel_buffer_size;
 
-    if (!is_typed && !d3d12_resource_desc_supports_heap_raw_uav_ssbo(device, desc))
+    if (!is_typed && !d3d12_resource_desc_supports_heap_raw_ssbo(device, stride, is_byte_address))
     {
         is_typed = true;
         view.dxgi_format = DXGI_FORMAT_R32_UINT;
@@ -7383,14 +7479,14 @@ static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, stru
             texel_buffer_info.format = vkd3d_internal_get_vk_format(device, view.dxgi_format);
             if (texel_buffer_info.format == VK_FORMAT_UNDEFINED)
             {
-                if (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW)
+                if (is_byte_address)
                 {
                     texel_buffer_info.format = VK_FORMAT_R32_UINT;
                 }
                 else
                 {
                     texel_buffer_info.format = vkd3d_internal_get_vk_format(device,
-                        vkd3d_structured_uav_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                        vkd3d_structured_uav_to_texel_buffer_dxgi_format(stride));
                 }
             }
 
@@ -7423,7 +7519,7 @@ static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, stru
         VK_CALL(vkWriteResourceDescriptorsEXT(device->vk_device, 1, &desc_info, &desc_range));
     }
 
-    if (counter_resource && desc->Buffer.StructureByteStride != 0)
+    if (counter_resource && stride != 0)
     {
         desc_info.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
         desc_info.data.pTexelBuffer = &texel_buffer_info;
@@ -7432,7 +7528,14 @@ static void vkd3d_create_buffer_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, stru
          * descriptor buffer path uses texel buffers too. */
         memset(&texel_buffer_info, 0, sizeof(texel_buffer_info));
         texel_buffer_info.sType = VK_STRUCTURE_TYPE_TEXEL_BUFFER_DESCRIPTOR_INFO_EXT;
-        texel_buffer_info.addressRange.address = counter_resource->res.va + desc->Buffer.CounterOffsetInBytes;
+
+        texel_buffer_info.addressRange.address = counter_resource->res.va;
+
+        if (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
+            texel_buffer_info.addressRange.address += desc->BufferByteOffset.CounterOffsetInBytes;
+        else
+            texel_buffer_info.addressRange.address += desc->Buffer.CounterOffsetInBytes;
+
         texel_buffer_info.addressRange.size = sizeof(uint32_t);
         texel_buffer_info.format = VK_FORMAT_R32_UINT;
         desc_range.address = stack_payload;
@@ -7467,16 +7570,13 @@ static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, 
     struct d3d12_desc_split_embedded d;
     struct d3d12_desc_split_metadata m;
     VkDescriptorGetInfoEXT get_info;
+    uint32_t counter_offset;
+    bool is_byte_address;
+    uint32_t stride;
 
     if (!desc)
     {
         FIXME("Default buffer UAV not supported.\n");
-        return;
-    }
-
-    if (desc->ViewDimension != D3D12_UAV_DIMENSION_BUFFER)
-    {
-        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
         return;
     }
 
@@ -7491,9 +7591,26 @@ static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, 
     d = d3d12_desc_decode_embedded_resource_va(desc_va);
     m = d3d12_desc_decode_metadata(device, desc_va);
 
-    vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
-            desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
-            desc->Buffer.StructureByteStride, &view);
+    if (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
+    {
+        is_byte_address = !!(desc->BufferByteOffset.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
+        stride = desc->BufferByteOffset.StructureByteStride;
+        counter_offset = desc->BufferByteOffset.CounterOffsetInBytes;
+
+        vkd3d_get_metadata_buffer_view_for_resource_legacy_byte_offset(device, resource,
+                desc->Format, desc->BufferByteOffset.Offset, desc->BufferByteOffset.Size,
+                stride, &view);
+    }
+    else
+    {
+        is_byte_address = !!(desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
+        stride = desc->Buffer.StructureByteStride;
+        counter_offset = desc->Buffer.CounterOffsetInBytes;
+
+        vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
+                desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                stride, &view);
+    }
 
     if (m.view)
         m.view->info.buffer = view;
@@ -7522,8 +7639,8 @@ static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, 
     if (resource && counter_resource)
     {
         assert(d3d12_resource_is_buffer(counter_resource));
-        assert(desc->Buffer.StructureByteStride);
-        addr_info.address = counter_resource->res.va + desc->Buffer.CounterOffsetInBytes;
+        assert(stride);
+        addr_info.address = counter_resource->res.va + counter_offset;
         addr_info.range = 4;
         addr_info.format = VK_FORMAT_R32_UINT;
     }
@@ -7535,14 +7652,14 @@ static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, 
         {
             /* Raw buffer is always emitted as R32_UINT on native.
              * Try to match behavior observed on native drivers as close as possible here. */
-            if (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW)
+            if (is_byte_address)
             {
                 addr_info.format = VK_FORMAT_R32_UINT;
             }
             else
             {
                 addr_info.format = vkd3d_internal_get_vk_format(device,
-                        vkd3d_structured_uav_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                        vkd3d_structured_uav_to_texel_buffer_dxgi_format(stride));
 
                 if (!addr_info.format)
                 {
@@ -7578,8 +7695,11 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     struct vkd3d_view *view = NULL;
     struct d3d12_desc_split d;
     uint32_t descriptor_index;
+    uint32_t counter_offset;
+    bool is_byte_address;
     uint32_t info_index;
     bool desc_is_raw;
+    uint32_t stride;
     bool emit_typed;
     bool emit_ssbo;
     void *payload;
@@ -7590,15 +7710,21 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         return;
     }
 
-    if (desc->ViewDimension != D3D12_UAV_DIMENSION_BUFFER)
+    if (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
     {
-        WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
-        return;
+        is_byte_address = !!(desc->BufferByteOffset.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
+        stride = desc->BufferByteOffset.StructureByteStride;
+        counter_offset = desc->BufferByteOffset.CounterOffsetInBytes;
+    }
+    else
+    {
+        is_byte_address = !!(desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
+        stride = desc->Buffer.StructureByteStride;
+        counter_offset = desc->Buffer.CounterOffsetInBytes;
     }
 
     mutable_uses_single_descriptor = !!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO);
-    desc_is_raw = (desc->Format == DXGI_FORMAT_UNKNOWN && desc->Buffer.StructureByteStride) ||
-            (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
+    desc_is_raw = (desc->Format == DXGI_FORMAT_UNKNOWN && stride) || is_byte_address;
     emit_ssbo = (!mutable_uses_single_descriptor || desc_is_raw) && d3d12_device_use_ssbo_raw_buffer(device);
     emit_typed = !mutable_uses_single_descriptor || !desc_is_raw || !emit_ssbo;
 
@@ -7623,9 +7749,19 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     /* Handle UAV itself */
     d.types->set_info_mask = 0;
 
-    vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
-            desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
-            desc->Buffer.StructureByteStride, &d.view->info.buffer);
+    if (desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET)
+    {
+        vkd3d_get_metadata_buffer_view_for_resource_legacy_byte_offset(device, resource,
+                desc->Format, desc->BufferByteOffset.Offset, desc->BufferByteOffset.Size,
+                stride, &d.view->info.buffer);
+    }
+    else
+    {
+        vkd3d_get_metadata_buffer_view_for_resource_legacy(device, resource,
+                desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                stride, &d.view->info.buffer);
+    }
+
     d.view->info.buffer.flags |= VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER;
 
     if (emit_ssbo)
@@ -7664,12 +7800,15 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         else
         {
             VkDescriptorBufferInfo *buffer_info = &descriptor_info[vk_write_count].buffer;
-            VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
+            VkDeviceSize format_stride = desc->Format == DXGI_FORMAT_UNKNOWN
                     ? desc->Buffer.StructureByteStride :
                     vkd3d_get_format(device, desc->Format, false)->byte_count;
 
+            /* We don't expose ByteAddress on dinosaur model. */
+            assert(desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER);
+
             vkd3d_buffer_view_get_bound_range_ssbo(device, resource,
-                    desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
+                    desc->Buffer.FirstElement * format_stride, desc->Buffer.NumElements * format_stride,
                     buffer_info, &bound_range);
 
             vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
@@ -7710,14 +7849,14 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
             if (addr_info.format == VK_FORMAT_UNDEFINED)
             {
                 /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
-                if (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW)
+                if (is_byte_address)
                 {
                     addr_info.format = VK_FORMAT_R32_UINT;
                 }
                 else
                 {
                     addr_info.format = vkd3d_internal_get_vk_format(device,
-                            vkd3d_structured_uav_to_texel_buffer_dxgi_format(desc->Buffer.StructureByteStride));
+                            vkd3d_structured_uav_to_texel_buffer_dxgi_format(stride));
 
                     if (!addr_info.format)
                     {
@@ -7734,6 +7873,8 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         }
         else
         {
+            /* We don't expose ByteAddress on dinosaur model. */
+            assert(desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER);
             flags = vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->Buffer.Flags);
 
             if (!vkd3d_buffer_view_get_aligned_view(device, resource, desc->Format, flags,
@@ -7764,9 +7905,9 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     if (resource && counter_resource)
     {
         assert(d3d12_resource_is_buffer(counter_resource));
-        assert(desc->Buffer.StructureByteStride);
+        assert(stride);
 
-        uav_counter_address = counter_resource->res.va + desc->Buffer.CounterOffsetInBytes;
+        uav_counter_address = counter_resource->res.va + counter_offset;
 
         /* This is used to denote that a counter descriptor is present, irrespective of underlying descriptor type. */
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_RAW_VA_BIT;
@@ -8058,7 +8199,8 @@ void d3d12_desc_create_uav_heap(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_
     }
     else if (desc)
     {
-        is_buffer = desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER;
+        is_buffer = desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER ||
+                desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET;
     }
     else
     {
@@ -8087,7 +8229,8 @@ void d3d12_desc_create_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     }
     else if (desc)
     {
-        is_buffer = desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER;
+        is_buffer = desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER ||
+                desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET;
     }
     else
     {
@@ -8116,7 +8259,8 @@ void d3d12_desc_create_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_devic
     }
     else if (desc)
     {
-        is_buffer = desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER;
+        is_buffer = desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER ||
+                desc->ViewDimension == D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET;
     }
     else
     {
