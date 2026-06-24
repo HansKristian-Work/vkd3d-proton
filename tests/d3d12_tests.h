@@ -577,3 +577,4 @@ decl_test(test_raytracing_create_root_signature_from_subobject);
 decl_test(test_misc_agility_sdk_feature_checks);
 decl_test(test_query_heap_cpu_resolve_timestamp);
 decl_test(test_query_heap_cpu_resolve_occlusion);
+decl_test(test_buffer_descriptor_byte_offset);
