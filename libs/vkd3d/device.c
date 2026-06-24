@@ -10652,8 +10652,38 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
 
     if (device->device_info.supports_opacity_micromap)
     {
+        bool ray_query_omm_when_unspecified;
+
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_OPACITY_MICROMAP;
+
+        /* Default-on for NVIDIA for three reasons:
+         *   1. The DXR 1.2 spec leaves the unflagged ray-query case unspecified.
+         *      Worse, Vulkan has no equivalent flag that defers the choice to the
+         *      driver. The choice has to be baked into the SPIR-V at shader-emit
+         *      time.
+         *   2. NV's D3D12 driver on Windows resolves the unflagged case by
+         *      considering OMM; NV hardware traverses OMM cheaply so the cost is
+         *      minimal. Default-on matches the behavior apps observe on
+         *      NVIDIA's D3D12 driver.
+         *   3. NVAPI has no per-ray-query OMM opt-in. NVAPI OMM titles (e.g.
+         *      Black Myth: Wukong) rely on the default-on path because there
+         *      was no other surface for them to request OMM in a ray query.
+         *
+         * Default-off elsewhere; other vendors may take a significant perf hit
+         * when OMM is consulted in the unflagged case. */
+        ray_query_omm_when_unspecified =
+                device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA;
+        if (VKD3D_CONFIG_FLAG_IS_SET(RAY_QUERY_OMM_WHEN_UNSPECIFIED))
+            ray_query_omm_when_unspecified = true;
+        else if (VKD3D_CONFIG_FLAG_IS_SET(NO_RAY_QUERY_OMM_WHEN_UNSPECIFIED))
+            ray_query_omm_when_unspecified = false;
+
+        if (ray_query_omm_when_unspecified)
+        {
+            device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                    VKD3D_SHADER_TARGET_EXTENSION_RAY_QUERY_OMM_WHEN_UNSPECIFIED;
+        }
     }
 
     if (device->device_info.shader_float8_features.shaderFloat8CooperativeMatrix)

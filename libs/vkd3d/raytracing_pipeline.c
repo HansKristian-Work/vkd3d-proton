@@ -2027,6 +2027,9 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
             shader_interface_info.binding_count = 0;
         }
 
+        if (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS)
+            shader_interface_info.flags |= VKD3D_SHADER_INTERFACE_RAYTRACING_OPACITY_MICROMAP;
+
         if (local_signature)
         {
             RT_TRACE("  Local root signature: (hash %016"PRIx64") (compat hash %016"PRIx64").\n",
