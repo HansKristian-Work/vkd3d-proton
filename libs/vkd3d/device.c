@@ -9443,79 +9443,92 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_UnregisterTrimNotificationCallback
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateShaderResourceView(
-        d3d12_device_iface *iface,
-        ID3D12Resource *pResource,
-        const D3D12_SHADER_RESOURCE_VIEW_DESC *pDesc,
+        d3d12_device_iface *iface, ID3D12Resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
-    FIXME("iface %p, pResource %p, pDesc %p, DestDescriptor #%zx stub!\n",
-        iface, pResource, pDesc, (size_t)DestDescriptor.ptr);
-    return E_NOTIMPL;
+    TRACE("iface %p, resource %p, desc %p, DestDescriptor #%zx\n",
+            iface, resource, desc, (size_t)DestDescriptor.ptr);
+
+    /* Don't want to create a million new vtable variants just for this ... */
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateShaderResourceView(iface, resource, desc, DestDescriptor);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateUnorderedAccessView(
         d3d12_device_iface *iface,
-        ID3D12Resource *pResource,
-        ID3D12Resource *pCounterResource,
-        const D3D12_UNORDERED_ACCESS_VIEW_DESC *pDesc,
+        ID3D12Resource *resource, ID3D12Resource *counter,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
-    FIXME("iface %p, pResource %p, pCounterResource %p, pDesc %p, DestDescriptor #%zx stub!\n",
-        iface, pResource, pCounterResource, pDesc, (size_t)DestDescriptor.ptr);
-    return E_NOTIMPL;
+    TRACE("iface %p, resource %p, counter %p, desc %p, DestDescriptor #%zx\n",
+            iface, resource, counter, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateUnorderedAccessView(iface, resource, counter, desc, DestDescriptor);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateConstantBufferView(
-        d3d12_device_iface *iface,
-        const D3D12_CONSTANT_BUFFER_VIEW_DESC *pDesc,
+        d3d12_device_iface *iface, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
-    FIXME("iface %p, pDesc %p, DestDescriptor #%zx stub!\n",
-        iface, pDesc, (size_t)DestDescriptor.ptr);
-    return E_NOTIMPL;
+    TRACE("iface %p, desc %p, DestDescriptor #%zx\n",
+            iface, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateConstantBufferView(iface, desc, DestDescriptor);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateSampler2(
         d3d12_device_iface *iface,
-        const D3D12_SAMPLER_DESC2 *pDesc,
+        const D3D12_SAMPLER_DESC2 *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
-    FIXME("iface %p, pDesc %p, DestDescriptor #%zx stub!\n",
-        iface, pDesc, (size_t)DestDescriptor.ptr);
-    return E_NOTIMPL;
+    TRACE("iface %p, pDesc %p, DestDescriptor #%zx\n",
+            iface, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateSampler2(iface, desc, DestDescriptor);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateRenderTargetView(
         d3d12_device_iface *iface,
-        ID3D12Resource *pResource,
-        const D3D12_RENDER_TARGET_VIEW_DESC *pDesc,
+        ID3D12Resource *resource,
+        const D3D12_RENDER_TARGET_VIEW_DESC *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
-    FIXME("iface %p, pResource %p, pDesc %p, DestDescriptor #%zx stub!\n",
-        iface, pResource, pDesc, (size_t)DestDescriptor.ptr);
-    return E_NOTIMPL;
+    TRACE("iface %p, pResource %p, pDesc %p, DestDescriptor #%zx\n",
+            iface, resource, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateRenderTargetView(iface, resource, desc, DestDescriptor);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateDepthStencilView(
         d3d12_device_iface *iface,
-        ID3D12Resource *pResource,
-        const D3D12_DEPTH_STENCIL_VIEW_DESC *pDesc,
+        ID3D12Resource *resource,
+        const D3D12_DEPTH_STENCIL_VIEW_DESC *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
-    FIXME("iface %p, pResource %p, pDesc %p, DestDescriptor #%zx stub!\n",
-        iface, pResource, pDesc, (size_t)DestDescriptor.ptr);
-    return E_NOTIMPL;
+    TRACE("iface %p, resource %p, desc %p, DestDescriptor #%zx\n",
+            iface, resource, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateDepthStencilView(iface, resource, desc, DestDescriptor);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateSamplerFeedbackUnorderedAccessView(
         d3d12_device_iface *iface,
-        ID3D12Resource *pTargetedResource,
-        ID3D12Resource *pFeedbackResource,
+        ID3D12Resource *target,
+        ID3D12Resource *feedback,
         D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
-    FIXME("iface %p, pTargetedResource %p, pFeedbackResource %p, DestDescriptor #%zx stub!\n",
-        iface, pTargetedResource, pFeedbackResource, (size_t)DestDescriptor.ptr);
-    return E_NOTIMPL;
+    TRACE("iface %p, target %p, feedback %p, DestDescriptor #%zx\n",
+            iface, target, feedback, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateSamplerFeedbackUnorderedAccessView(iface, target, feedback, DestDescriptor);
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_ResolveQueryData(
