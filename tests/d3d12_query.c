@@ -905,14 +905,18 @@ void test_query_heap_cpu_resolve_occlusion(void)
             &IID_ID3D12QueryHeap, (void **)&heap);
     ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
 
-    /* This should be allowed. */
+    /* This should be allowed. Trips device lost on AMD. */
     memset(query_data, 0xab, sizeof(query_data));
-    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
-            0, ARRAY_SIZE(query_data), query_data);
-    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
 
-    for (i = 0; i < ARRAY_SIZE(query_data); i++)
-        ok(query_data[i] == 0, "Unexpected data %"PRIu64" for query %u.\n", query_data[i], i);
+    if (!is_amd_windows_device(context.device))
+    {
+        hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+        ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+        for (i = 0; i < ARRAY_SIZE(query_data); i++)
+            ok(query_data[i] == 0, "Unexpected data %"PRIu64" for query %u.\n", query_data[i], i);
+    }
 
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
@@ -933,9 +937,12 @@ void test_query_heap_cpu_resolve_occlusion(void)
     exec_command_list(context.queue, context.list);
 
     /* This should be allowed. Results will be bogus. */
-    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+    if (!is_amd_windows_device(context.device))
+    {
+        hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
             0, ARRAY_SIZE(query_data), query_data);
-    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+    }
 
     wait_queue_idle_no_event(context.device, context.queue);
 
