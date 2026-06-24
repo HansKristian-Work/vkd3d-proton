@@ -1683,6 +1683,9 @@ static uint32_t vkd3d_physical_device_get_time_domains(struct d3d12_device *devi
             case VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR:
                 result |= VKD3D_TIME_DOMAIN_QPC;
                 break;
+            case VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR:
+                result |= VKD3D_TIME_DOMAIN_CLOCK_MONOTONIC;
+                break;
             default:
                 break;
         }
@@ -4592,10 +4595,13 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Device10)
             || IsEqualGUID(riid, &IID_ID3D12Device11)
             || IsEqualGUID(riid, &IID_ID3D12Device12)
+            || IsEqualGUID(riid, &IID_ID3D12Device13)
+            || IsEqualGUID(riid, &IID_ID3D12Device14)
+            || IsEqualGUID(riid, &IID_ID3D12Device15)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12Device12_AddRef(iface);
+        ID3D12Device15_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -5333,6 +5339,138 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     }
 
     return S_OK;
+}
+
+static bool d3d12_device_supports_placed_resource(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties,
+        D3D12_RESOURCE_DIMENSION dimension, DXGI_FORMAT format)
+{
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT data;
+    D3D12_RESOURCE_DESC1 desc;
+
+    memset(&data, 0, sizeof(data));
+    data.Format = format;
+
+    /* Validate that the format is sound. */
+    if (FAILED(d3d12_device_get_format_support(device, &data)))
+        return false;
+    if (dimension == D3D12_RESOURCE_DIMENSION_BUFFER && !(data.Support1 & D3D12_FORMAT_SUPPORT1_BUFFER))
+        return false;
+    if (dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D && !(data.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE1D))
+        return false;
+    if (dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && !(data.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D))
+        return false;
+    if (dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D && !(data.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE3D))
+        return false;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 1;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.Dimension = dimension;
+    desc.Format = format;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = dimension == D3D12_RESOURCE_DIMENSION_BUFFER ?
+        D3D12_TEXTURE_LAYOUT_ROW_MAJOR : D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    if (FAILED(d3d12_resource_validate_heap_properties(&desc, heap_properties, D3D12_RESOURCE_STATE_COMMON)))
+        return false;
+
+    return true;
+}
+
+static bool find_in_barrier_layout_list(D3D12_BARRIER_LAYOUT layout, const D3D12_BARRIER_LAYOUT *layouts, unsigned int count)
+{
+    unsigned int i;
+    for (i = 0; i < count; i++)
+        if (layouts[i] == layout)
+            return true;
+    return false;
+}
+
+static bool d3d12_barrier_layout_is_supported(D3D12_COMMAND_LIST_TYPE type, D3D12_BARRIER_LAYOUT layout)
+{
+    static const D3D12_BARRIER_LAYOUT direct_queue_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON,
+        D3D12_BARRIER_LAYOUT_RENDER_TARGET,
+        D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ,
+        D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE,
+        D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE,
+        D3D12_BARRIER_LAYOUT_RESOLVE_DEST,
+        D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT compute_queue_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE,
+        D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST,
+    };
+
+    static const D3D12_BARRIER_LAYOUT graphics_compute_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_GENERIC_READ,
+        D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS,
+        D3D12_BARRIER_LAYOUT_SHADER_RESOURCE,
+        /* Not allowed in COPY which is ... interesting. Only COMMON is allowed there it seems. */
+        D3D12_BARRIER_LAYOUT_COPY_SOURCE,
+        D3D12_BARRIER_LAYOUT_COPY_DEST,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_process_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_WRITE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_encode_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_WRITE,
+    };
+
+    static const D3D12_BARRIER_LAYOUT video_decode_only_layouts[] =
+    {
+        D3D12_BARRIER_LAYOUT_VIDEO_DECODE_READ,
+        D3D12_BARRIER_LAYOUT_VIDEO_DECODE_WRITE,
+    };
+
+    /* Runtime ignores bogus command list type. */
+    if (layout == D3D12_BARRIER_LAYOUT_COMMON || layout == D3D12_BARRIER_LAYOUT_UNDEFINED)
+        return true;
+
+#define find_in_list(layouts) find_in_barrier_layout_list(layout, layouts, ARRAY_SIZE(layouts))
+    if (type != D3D12_COMMAND_LIST_TYPE_DIRECT && find_in_list(direct_queue_only_layouts))
+        return false;
+
+    if (type != D3D12_COMMAND_LIST_TYPE_COMPUTE && find_in_list(compute_queue_only_layouts))
+        return false;
+
+    if (type != D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS && find_in_list(video_process_only_layouts))
+        return false;
+    if (type != D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE && find_in_list(video_decode_only_layouts))
+        return false;
+    if (type != D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE && find_in_list(video_encode_only_layouts))
+        return false;
+
+    if (type != D3D12_COMMAND_LIST_TYPE_DIRECT &&
+        type != D3D12_COMMAND_LIST_TYPE_COMPUTE &&
+        find_in_list(graphics_compute_only_layouts))
+        return false;
+
+    if (layout == D3D12_BARRIER_LAYOUT_VIDEO_QUEUE_COMMON &&
+        type != D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS &&
+        type != D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE &&
+        type != D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE)
+        return false;
+
+#undef find_in_list
+
+    return true;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_iface *iface,
@@ -6099,6 +6237,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS22:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS22 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options22;
+
+            TRACE("CreateByteOffsetViewsSupported %u\n", data->CreateByteOffsetViewsSupported);
+            TRACE("Max1DDispatchMeshSize %u\n", data->Max1DDispatchMeshSize);
+            TRACE("Max1DDispatchSize %u\n", data->Max1DDispatchSize);
+            TRACE("ShaderExecutionReorderingActuallyReorders %u\n", data->ShaderExecutionReorderingActuallyReorders);
+
+            return S_OK;
+        }
+
         case D3D12_FEATURE_D3D12_TIGHT_ALIGNMENT:
         {
             D3D12_FEATURE_DATA_TIGHT_ALIGNMENT *data = feature_data;
@@ -6193,6 +6351,77 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return E_INVALIDARG;
         }
 
+        case D3D12_FEATURE_PREDICATION:
+        {
+            /* Unknown what this is referring to. It was added in same agiltitysdk as AV1, so might be video related.
+			 * Native runtime returns E_NOTIMPL here *shrug* */
+            FIXME("Unexpected call to D3D12_FEATURE_PREDICATION. This is completely undocumented it seems.\n");
+            return E_NOTIMPL;
+        }
+
+        case D3D12_FEATURE_HARDWARE_COPY:
+        {
+            /* Unknown what this is referring to. It was added in same agiltitysdk as AV1, so might be video related.
+			 * Native runtime returns E_NOTIMPL here *shrug* */
+            FIXME("Unexpected call for D3D12_FEATURE_HARDWARE_COPY. This is completely undocumented it seems.\n");
+            return E_NOTIMPL;
+        }
+
+        case D3D12_FEATURE_PLACED_RESOURCE_SUPPORT_INFO:
+        {
+            D3D12_FEATURE_DATA_PLACED_RESOURCE_SUPPORT_INFO *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            FIXME("Unexpected call for D3D12_FEATURE_PLACED_RESOURCE_SUPPORT_INFO. This is completely undocumented it seems.\n");
+            data->Supported = d3d12_device_supports_placed_resource(device, &data->DestHeapProperties,
+                data->Dimension, data->Format);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_BYTECODE_BYPASS_HASH_SUPPORTED:
+        {
+            D3D12_FEATURE_DATA_BYTECODE_BYPASS_HASH_SUPPORTED *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* We ignore the DXIL hash, which this is supposed to be for.
+			 * It's only documented in the hlsl proposals repo ?!?!? */
+            data->Supported = TRUE;
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_SHADER_CACHE_ABI_SUPPORT:
+            /* Yes, SHADERCACHE is typoed like that */
+            if (feature_data_size != sizeof(D3D12_FEATURE_DATA_SHADERCACHE_ABI_SUPPORT))
+                return E_INVALIDARG;
+
+		    /* Rather than signaling missing support in the output struct, E_FAIL is supposed to be returned. */
+            return E_FAIL;
+
+        case D3D12_FEATURE_BARRIER_LAYOUT:
+        {
+            D3D12_FEATURE_DATA_BARRIER_LAYOUT *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            /* This seems to be a simple utility query. */
+            data->Supported = d3d12_barrier_layout_is_supported(data->CommandListType, data->Layout);
+            return S_OK;
+        }
+
         default:
             FIXME("Unhandled feature %#x.\n", feature);
             return E_NOTIMPL;
@@ -6239,6 +6468,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(d3d12_device_i
     debug_ignored_node_mask(node_mask);
 
     if (FAILED(hr = d3d12_root_signature_create(device, bytecode, bytecode_length, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12RootSignature_iface,
+            &IID_ID3D12RootSignature, riid, root_signature);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignatureFromSubobjectInLibrary(
+        d3d12_device_iface *iface, UINT node_mask,
+        const void *library_blob, SIZE_T blob_length_in_bytes,
+        LPCWSTR subobject_name, REFIID riid, void **root_signature)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_root_signature *object;
+    HRESULT hr;
+
+    TRACE("iface %p, node_mask %u, library_blob %p, blob_length_in_bytes %zu, subobject_name %s, riid %s, root_signature %p, stub!\n",
+            iface, node_mask, library_blob, blob_length_in_bytes,
+            debugstr_w(subobject_name), debugstr_guid(riid), root_signature);
+
+    debug_ignored_node_mask(node_mask);
+
+    /* NULL subobject_name segfaults on native, so don't need to check it. */
+
+    if (FAILED(hr = d3d12_root_signature_create_from_subobject(device, library_blob, blob_length_in_bytes,
+            subobject_name, &object)))
         return hr;
 
     return return_interface(&object->ID3D12RootSignature_iface,
@@ -7793,20 +8047,31 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
             sub_resource_count, base_offset, layouts, row_counts, row_sizes, total_bytes);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(d3d12_device_iface *iface,
-        const D3D12_QUERY_HEAP_DESC *desc, REFIID iid, void **heap)
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap1(
+        d3d12_device_iface *iface,
+        const D3D12_QUERY_HEAP_DESC *desc,
+        D3D12_QUERY_HEAP_FLAGS flags,
+        REFIID iid,
+        void **heap)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_query_heap *object;
     HRESULT hr;
 
-    TRACE("iface %p, desc %p, iid %s, heap %p.\n",
-            iface, desc, debugstr_guid(iid), heap);
+    TRACE("iface %p, desc %p, flags #%x, iid %s, heap %p.\n",
+            iface, desc, flags, debugstr_guid(iid), heap);
 
-    if (FAILED(hr = d3d12_query_heap_create(device, desc, &object)))
+    if (FAILED(hr = d3d12_query_heap_create(device, desc, flags, &object)))
         return hr;
 
     return return_interface(&object->ID3D12QueryHeap_iface, &IID_ID3D12QueryHeap, iid, heap);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(d3d12_device_iface *iface,
+        const D3D12_QUERY_HEAP_DESC *desc, REFIID iid, void **heap)
+{
+    TRACE("iface %p, desc %p, iid %s, heap %p.\n", iface, desc, debugstr_guid(iid), heap);
+    return d3d12_device_CreateQueryHeap1(iface, desc, D3D12_QUERY_HEAP_FLAG_NONE, iid, heap);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetStablePowerState(d3d12_device_iface *iface, BOOL enable)
@@ -8098,16 +8363,48 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineState(d3d12_device_i
             &IID_ID3D12PipelineState, riid, pipeline_state);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
+        d3d12_device_iface *iface,
+        const void *address,
+        SIZE_T size,
+        REFIID riid,
+        void **ppHeap)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    D3D12_HEAP_DESC heap_desc;
+    struct d3d12_heap *object;
+    HRESULT hr;
+
+    TRACE("iface %p, address %p, size %zu, iid %s, ppHeap %p\n",
+        iface, address, size, debugstr_guid(riid), ppHeap);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS |
+            (address ? (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
+    heap_desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    heap_desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_desc.Properties.CreationNodeMask = 1;
+    heap_desc.Properties.VisibleNodeMask = 1;
+    heap_desc.SizeInBytes = size;
+
+    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, (void *)address, &object)))
+    {
+        if (ppHeap)
+            *ppHeap = NULL;
+        return hr;
+    }
+
+    return return_interface(&object->ID3D12Heap_iface, &IID_ID3D12Heap, riid, ppHeap);
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_device_iface *iface,
-        void *address, REFIID riid, void **heap)
+        const void *address, REFIID riid, void **heap)
 {
 #ifdef _WIN32
     MEMORY_BASIC_INFORMATION info;
-    struct d3d12_device *device;
-    struct d3d12_heap *object;
-    D3D12_HEAP_DESC heap_desc;
     size_t allocation_size;
-    HRESULT hr;
 
     TRACE("iface %p, address %p, riid %s, heap %p\n",
           iface, address, debugstr_guid(riid), heap);
@@ -8138,26 +8435,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
         return E_INVALIDARG;
     }
 
-    device = impl_from_ID3D12Device(iface);
-
-    memset(&heap_desc, 0, sizeof(heap_desc));
-    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS |
-            (address ? (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
-    heap_desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-    heap_desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
-    heap_desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
-    heap_desc.Properties.CreationNodeMask = 1;
-    heap_desc.Properties.VisibleNodeMask = 1;
-    heap_desc.SizeInBytes = allocation_size;
-
-    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, address, &object)))
-    {
-        *heap = NULL;
-        return hr;
-    }
-
-    return return_interface(&object->ID3D12Heap_iface, &IID_ID3D12Heap, riid, heap);
+    return d3d12_device_OpenExistingHeapFromAddress1(iface, address, allocation_size, riid, heap);
 #else
     FIXME("OpenExistingHeapFromAddress can only be implemented in native Win32.\n");
     return E_NOTIMPL;
@@ -9148,9 +9426,124 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_RegisterTrimNotificationCallback(
+        d3d12_device_iface *iface,
+        D3D12_REGISTER_TRIM_NOTIFICATION *pData)
+{
+    FIXME("iface %p, pData %p stub!\n", iface, pData);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_UnregisterTrimNotificationCallback(
+        d3d12_device_iface *iface,
+        DWORD CallbackCookie)
+{
+    FIXME("iface %p, CallbackCookie #%x stub!\n", iface, (unsigned int)CallbackCookie);
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateShaderResourceView(
+        d3d12_device_iface *iface, ID3D12Resource *resource,
+        const D3D12_SHADER_RESOURCE_VIEW_DESC *desc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    TRACE("iface %p, resource %p, desc %p, DestDescriptor #%zx\n",
+            iface, resource, desc, (size_t)DestDescriptor.ptr);
+
+    /* Don't want to create a million new vtable variants just for this ... */
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateShaderResourceView(iface, resource, desc, DestDescriptor);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateUnorderedAccessView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *resource, ID3D12Resource *counter,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    TRACE("iface %p, resource %p, counter %p, desc %p, DestDescriptor #%zx\n",
+            iface, resource, counter, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateUnorderedAccessView(iface, resource, counter, desc, DestDescriptor);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateConstantBufferView(
+        d3d12_device_iface *iface, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    TRACE("iface %p, desc %p, DestDescriptor #%zx\n",
+            iface, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateConstantBufferView(iface, desc, DestDescriptor);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateSampler2(
+        d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC2 *desc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    TRACE("iface %p, pDesc %p, DestDescriptor #%zx\n",
+            iface, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateSampler2(iface, desc, DestDescriptor);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateRenderTargetView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *resource,
+        const D3D12_RENDER_TARGET_VIEW_DESC *desc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    TRACE("iface %p, pResource %p, pDesc %p, DestDescriptor #%zx\n",
+            iface, resource, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateRenderTargetView(iface, resource, desc, DestDescriptor);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateDepthStencilView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *resource,
+        const D3D12_DEPTH_STENCIL_VIEW_DESC *desc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    TRACE("iface %p, resource %p, desc %p, DestDescriptor #%zx\n",
+            iface, resource, desc, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateDepthStencilView(iface, resource, desc, DestDescriptor);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_TryCreateSamplerFeedbackUnorderedAccessView(
+        d3d12_device_iface *iface,
+        ID3D12Resource *target,
+        ID3D12Resource *feedback,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
+{
+    TRACE("iface %p, target %p, feedback %p, DestDescriptor #%zx\n",
+            iface, target, feedback, (size_t)DestDescriptor.ptr);
+    FIXME_ONCE("Incomplete validation\n");
+    ID3D12Device15_CreateSamplerFeedbackUnorderedAccessView(iface, target, feedback, DestDescriptor);
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_ResolveQueryData(
+        d3d12_device_iface *iface, ID3D12QueryHeap *heap_iface, D3D12_QUERY_TYPE type,
+        UINT index, UINT count, void *data)
+{
+    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(heap_iface);
+    TRACE("iface %p, heap %p, Type %u, StartIndex %u, NumQueries %u, pResolvedQueryData %p\n",
+        iface, heap_iface, type, index, count, data);
+    return d3d12_query_heap_resolve_cpu(heap, type, index, count, data);
+}
+
 /* Gotta love C sometimes ... :') */
 #define VKD3D_DECLARE_D3D12_DEVICE_VARIANT(name, create_desc, copy_desc_variant) \
-CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_##name = \
+CONST_VTBL struct ID3D12Device15Vtbl d3d12_device_vtbl_##name = \
 { \
     /* IUnknown methods */ \
     d3d12_device_QueryInterface, \
@@ -9248,6 +9641,22 @@ CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_##name = \
     d3d12_device_CreateSampler2_##create_desc, \
     /* ID3D12Device12 methods */ \
     d3d12_device_GetResourceAllocationInfo3, \
+    /* ID3D12Device13 methods */ \
+    d3d12_device_OpenExistingHeapFromAddress1, \
+    /* ID3D12Device14 methods */ \
+    d3d12_device_CreateRootSignatureFromSubobjectInLibrary, \
+    /* ID3D12Device15 methods */ \
+    d3d12_device_RegisterTrimNotificationCallback, \
+    d3d12_device_UnregisterTrimNotificationCallback, \
+    d3d12_device_TryCreateShaderResourceView, \
+    d3d12_device_TryCreateUnorderedAccessView, \
+    d3d12_device_TryCreateConstantBufferView, \
+    d3d12_device_TryCreateSampler2, \
+    d3d12_device_TryCreateRenderTargetView, \
+    d3d12_device_TryCreateDepthStencilView, \
+    d3d12_device_TryCreateSamplerFeedbackUnorderedAccessView, \
+    d3d12_device_CreateQueryHeap1, \
+    d3d12_device_ResolveQueryData, \
 }
 
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(default, default, default);
@@ -10028,6 +10437,21 @@ static void d3d12_device_caps_init_feature_options21(struct d3d12_device *device
     options21->ExtendedCommandInfoSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_8;
 }
 
+static void d3d12_device_caps_init_feature_options22(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS22 *options22 = &device->d3d12_caps.options22;
+
+    /* Possible to support on super legacy model too, but it's extra effort that is a waste of time.
+     * Dealing with offset buffers is a bit too much of a hassle and that old model is
+     * up for the chopping block soon (tm). */
+    options22->CreateByteOffsetViewsSupported =
+        d3d12_device_use_descriptor_heap(device) || d3d12_device_uses_descriptor_buffers(device);
+
+    options22->ShaderExecutionReorderingActuallyReorders = FALSE; /* TODO: Forward SER property. */
+    options22->Max1DDispatchSize = device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0];
+    options22->Max1DDispatchMeshSize = device->device_info.mesh_shader_properties.maxMeshWorkGroupCount[0];
+}
+
 static void d3d12_device_caps_init_feature_tight_alignment(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_TIGHT_ALIGNMENT *tight_alignment = &device->d3d12_caps.tight_alignment;
@@ -10456,6 +10880,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options19(device);
     d3d12_device_caps_init_feature_options20(device);
     d3d12_device_caps_init_feature_options21(device);
+    d3d12_device_caps_init_feature_options22(device);
     d3d12_device_caps_init_feature_tight_alignment(device);
     d3d12_device_caps_init_feature_level(device);
 

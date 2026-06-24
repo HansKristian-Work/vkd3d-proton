@@ -1226,6 +1226,9 @@ static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resour
 ULONG d3d12_resource_incref(struct d3d12_resource *resource);
 ULONG d3d12_resource_decref(struct d3d12_resource *resource);
 
+HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC1 *desc,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_RESOURCE_STATES initial_state);
+
 struct vkd3d_cookie vkd3d_allocate_cookie(void);
 UINT vkd3d_allocate_cookie_va_timestamp(void);
 
@@ -1874,15 +1877,19 @@ struct d3d12_query_heap
     VkDeviceAddress va;
     struct vkd3d_cookie cookie;
     uint32_t initialized;
+    D3D12_QUERY_HEAP_FLAGS flags;
 
     struct d3d12_device *device;
+    void *host_mapped;
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
 };
 
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
-        struct d3d12_query_heap **heap);
+        D3D12_QUERY_HEAP_FLAGS flags, struct d3d12_query_heap **heap);
+HRESULT d3d12_query_heap_resolve_cpu(struct d3d12_query_heap *heap, D3D12_QUERY_TYPE type,
+        UINT index, UINT count, void* data);
 
 static inline struct d3d12_query_heap *impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
 {
@@ -2068,6 +2075,8 @@ struct d3d12_root_signature
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *bytecode,
         size_t bytecode_length, struct d3d12_root_signature **root_signature);
+HRESULT d3d12_root_signature_create_from_subobject(struct d3d12_device *device, const void *bytecode,
+        size_t bytecode_length, LPCWSTR subobject, struct d3d12_root_signature **root_signature);
 HRESULT d3d12_root_signature_create_raw(struct d3d12_device *device, const void *payload,
         size_t payload_size, struct d3d12_root_signature **root_signature);
 HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
@@ -5212,8 +5221,10 @@ static inline uint32_t vkd3d_meta_get_workgraph_complete_compaction_workgroup_si
 
 enum vkd3d_time_domain_flag
 {
-    VKD3D_TIME_DOMAIN_DEVICE = 0x00000001u,
-    VKD3D_TIME_DOMAIN_QPC    = 0x00000002u,
+    VKD3D_TIME_DOMAIN_DEVICE          = 0x00000001u,
+    VKD3D_TIME_DOMAIN_QPC             = 0x00000002u,
+    /* MONOTONIC is the sensible default for all Unix-likes. */
+    VKD3D_TIME_DOMAIN_CLOCK_MONOTONIC = 0x00000004u,
 };
 
 struct vkd3d_physical_device_info
@@ -5374,6 +5385,7 @@ struct d3d12_caps
     D3D12_FEATURE_DATA_D3D12_OPTIONS19 options19;
     D3D12_FEATURE_DATA_D3D12_OPTIONS20 options20;
     D3D12_FEATURE_DATA_D3D12_OPTIONS21 options21;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS22 options22;
     D3D12_FEATURE_DATA_TIGHT_ALIGNMENT tight_alignment;
 
     D3D_FEATURE_LEVEL max_feature_level;
@@ -5435,7 +5447,7 @@ struct vkd3d_device_frame_markers
 };
 
 /* ID3D12Device */
-typedef ID3D12Device12 d3d12_device_iface;
+typedef ID3D12Device15 d3d12_device_iface;
 
 struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
@@ -5953,7 +5965,7 @@ static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_inf
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
-    return ID3D12Device12_QueryInterface(&device->ID3D12Device_iface, iid, object);
+    return ID3D12Device15_QueryInterface(&device->ID3D12Device_iface, iid, object);
 }
 
 ULONG d3d12_device_add_ref_common(struct d3d12_device *device);

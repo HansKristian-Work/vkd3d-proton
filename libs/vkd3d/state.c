@@ -2218,6 +2218,54 @@ HRESULT d3d12_root_signature_create_raw(struct d3d12_device *device,
     return d3d12_root_signature_create_from_blob(device, payload, payload_length, true, root_signature);
 }
 
+HRESULT d3d12_root_signature_create_from_subobject(struct d3d12_device *device, const void *bytecode,
+        size_t bytecode_length, LPCWSTR subobject_name, struct d3d12_root_signature **root_signature)
+{
+    struct vkd3d_shader_library_entry_point *entry_points = NULL;
+    struct vkd3d_shader_library_subobject *subobjects = NULL;
+    D3D12_DXIL_LIBRARY_DESC dxil_lib;
+    size_t entry_point_count = 0;
+    size_t entry_point_size = 0;
+    size_t subobjects_count = 0;
+    size_t subobjects_size = 0;
+    HRESULT hr = S_OK;
+    size_t i;
+
+    memset(&dxil_lib, 0, sizeof(dxil_lib));
+    dxil_lib.DXILLibrary.pShaderBytecode = bytecode;
+    dxil_lib.DXILLibrary.BytecodeLength = bytecode_length;
+
+    if (vkd3d_shader_dxil_append_library_entry_points_and_subobjects(&dxil_lib, 0,
+            &entry_points, &entry_point_size, &entry_point_count,
+            &subobjects, &subobjects_size, &subobjects_count) < 0)
+    {
+        return E_INVALIDARG;
+    }
+
+    for (i = 0; i < subobjects_count; i++)
+    {
+        if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
+            subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE)
+        {
+            if (vkd3d_export_strequal(subobject_name, subobjects[i].name))
+            {
+                hr = d3d12_root_signature_create_from_blob(device,
+                    subobjects[i].data.payload.data,
+                    subobjects[i].data.payload.size,
+                    true, root_signature);
+                break;
+            }
+        }
+    }
+
+    if (i == subobjects_count)
+        hr = E_INVALIDARG;
+
+    vkd3d_shader_dxil_free_library_entry_points(entry_points, entry_point_count);
+    vkd3d_shader_dxil_free_library_subobjects(subobjects, subobjects_count);
+    return hr;
+}
+
 unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature,
         enum vkd3d_pipeline_type pipeline_type)
 {
@@ -6267,7 +6315,7 @@ static HRESULT d3d12_pipeline_create_private_root_signature(struct d3d12_device 
         if (!vkd3d_shader_contains_root_signature(bytecode->pShaderBytecode, bytecode->BytecodeLength))
             continue;
 
-        if (FAILED(hr = ID3D12Device12_CreateRootSignature(&device->ID3D12Device_iface, 0,
+        if (FAILED(hr = ID3D12Device15_CreateRootSignature(&device->ID3D12Device_iface, 0,
                 bytecode->pShaderBytecode, bytecode->BytecodeLength,
                 &IID_ID3D12RootSignature, (void **)&object)))
             return hr;

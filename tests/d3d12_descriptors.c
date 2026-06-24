@@ -6873,3 +6873,248 @@ void test_descriptor_heap_broken_table_va(void)
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
+
+void test_buffer_descriptor_byte_offset(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS22 options22;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DESCRIPTOR_RANGE rs_range[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+    bool is_vkd3d;
+
+#include "shaders/descriptors/headers/byte_offset_descriptors.h"
+
+    uint32_t input_data[1025];
+    for (i = 0; i < ARRAY_SIZE(input_data); i++)
+        input_data[i] = i;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS22,
+            &options22, sizeof(options22))) || !options22.CreateByteOffsetViewsSupported)
+    {
+        skip("CreateByteOffsetViewsSupported not set.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_range, 0, sizeof(rs_range));
+    memset(rs_param, 0, sizeof(rs_param));
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].Descriptor.ShaderRegister = 6;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_range);
+    rs_param[1].DescriptorTable.pDescriptorRanges = rs_range;
+
+    rs_range[0].NumDescriptors = 6;
+    rs_range[0].OffsetInDescriptorsFromTableStart = 0;
+    rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_range[1].NumDescriptors = 6;
+    rs_range[1].OffsetInDescriptorsFromTableStart = 6;
+    rs_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, byte_offset_descriptors_dxil);
+
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+    output = create_default_buffer(context.device, sizeof(input_data), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_COMMON);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 16);
+
+    ID3D12GraphicsCommandList_CopyResource(context.list, output, input);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    memset(&srv_desc, 0, sizeof(srv_desc));
+
+    is_vkd3d = is_vkd3d_proton_device(context.device);
+
+    {
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET;
+        srv_desc.Format = DXGI_FORMAT_UNKNOWN;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.BufferByteOffset.StructureByteStride = 12;
+        srv_desc.BufferByteOffset.Offset = 4;
+
+        srv_desc.BufferByteOffset.Size = 24;
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, 0));
+
+        /* Implicit size. Question is if we have to align ourselves. The implied size will not be aligned to stride.
+         * Native runtime is totally broken here ... */
+        if (is_vkd3d)
+        {
+            srv_desc.BufferByteOffset.Size = 0;
+        }
+        else
+        {
+            srv_desc.BufferByteOffset.Size = ((sizeof(input_data) - srv_desc.BufferByteOffset.Offset) /
+                srv_desc.BufferByteOffset.StructureByteStride) *
+                srv_desc.BufferByteOffset.StructureByteStride;
+        }
+
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, 3));
+
+        srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        srv_desc.BufferByteOffset.Offset = 16;
+        srv_desc.BufferByteOffset.StructureByteStride = 0;
+        srv_desc.BufferByteOffset.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+
+        srv_desc.BufferByteOffset.Size = 16;
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, 1));
+
+        /* Implicit size. Question is if we have to align ourselves. The implied size will not be aligned to 16b. */
+        /* BAB works ... somehow. */
+        srv_desc.BufferByteOffset.Size = 0;
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, 4));
+
+        srv_desc.Format = DXGI_FORMAT_R32G32B32_UINT;
+        srv_desc.BufferByteOffset.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+        srv_desc.BufferByteOffset.Offset = 4; /* This was not possible to express before, but NPOT formats support this. */
+
+        srv_desc.BufferByteOffset.Size = 12 * 3;
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, 2));
+
+        if (is_vkd3d)
+            srv_desc.BufferByteOffset.Size = 0;
+        else
+            srv_desc.BufferByteOffset.Size = ((sizeof(input_data) - srv_desc.BufferByteOffset.Offset) / 12) * 12;
+
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+                get_cpu_descriptor_handle(&context, heap, 5));
+    }
+
+    {
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET;
+        uav_desc.Format = DXGI_FORMAT_UNKNOWN;
+        uav_desc.BufferByteOffset.StructureByteStride = 12;
+        uav_desc.BufferByteOffset.Offset = 4;
+        uav_desc.BufferByteOffset.CounterOffsetInBytes = is_vkd3d ? D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT : 0;
+
+        uav_desc.BufferByteOffset.Size = 24;
+
+        /* UAV counter offset check seems to be botched on 619 SDK.
+         * Theory is that it still checks Buffer.CounterOffsetInBytes instead, which is not the same thing. */
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, is_vkd3d ? output : NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, 6));
+
+        if (is_vkd3d)
+        {
+            uav_desc.BufferByteOffset.Size = 0;
+        }
+        else
+        {
+            uav_desc.BufferByteOffset.Size = ((sizeof(input_data) - uav_desc.BufferByteOffset.Offset) /
+                uav_desc.BufferByteOffset.StructureByteStride) *
+                uav_desc.BufferByteOffset.StructureByteStride;
+        }
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, is_vkd3d ? output : NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, 9));
+
+        uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav_desc.BufferByteOffset.Offset = 16;
+        uav_desc.BufferByteOffset.StructureByteStride = 0;
+        uav_desc.BufferByteOffset.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        uav_desc.BufferByteOffset.CounterOffsetInBytes = 0;
+
+        uav_desc.BufferByteOffset.Size = 16;
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, 7));
+
+        /* Implicit size. Question is if we have to align ourselves. The implied size will not be aligned to 16b. */
+        uav_desc.BufferByteOffset.Size = 0;
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, 10));
+
+        uav_desc.Format = DXGI_FORMAT_R32_UINT;
+        uav_desc.BufferByteOffset.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+        uav_desc.BufferByteOffset.Offset = 4;
+
+        uav_desc.BufferByteOffset.Size = 4 * 3;
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, 8));
+
+        if (is_vkd3d)
+            uav_desc.BufferByteOffset.Size = 0;
+        else
+            uav_desc.BufferByteOffset.Size = ((sizeof(input_data) - uav_desc.BufferByteOffset.Offset) / 4) * 4;
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc,
+                get_cpu_descriptor_handle(&context, heap, 11));
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(output) + 1024);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 1,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+    transition_resource_state(context.list, output,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    {
+        static const uint32_t expected_data[] = {
+            1 + 3, 2,
+            4 + 1, 16,
+            1 + 3, 3,
+            1 + 3, (sizeof(input_data) - 4) / 12,
+            4 + 1, sizeof(input_data) - 16,
+            1 + 3, (sizeof(input_data) - 4) / 12,
+
+            1 + 3, 2,
+            4 + 1, 16,
+            1 + 1, 3,
+            1 + 3, (sizeof(input_data) - 4) / 12,
+            4 + 1, sizeof(input_data) - 16,
+            1 + 1, (sizeof(input_data) - 4) / 4,
+        };
+
+        uint32_t v = get_readback_uint(&rb, D3D12_UAV_COUNTER_PLACEMENT_ALIGNMENT / sizeof(uint32_t), 0, 0);
+
+        /* Runtime is broken, so cannot test UAV counters. */
+        bug_if(!is_vkd3d) ok(v == 1024 + 4, "Unexpected UAV counter result %u, expected 1028.\n", v);
+
+        for (i = 0; i < ARRAY_SIZE(expected_data); i++)
+        {
+            /* 0 size turns into null desc instead of as specced on AMD ... Works on NV. */
+            bool bugged_bab = !is_vkd3d && (i / 2 == 4 || i / 2 == 10) && is_amd_windows_device(context.device);
+
+            v = get_readback_uint(&rb, 1024 / sizeof(uint32_t) + i, 0, 0);
+            bug_if(bugged_bab)
+            ok(expected_data[i] == v, "Value %u (%s): expected %u, got %u\n",
+                    i / 2, (i % 2 ? "size" : "data"), expected_data[i], v);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}

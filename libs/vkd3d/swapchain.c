@@ -691,7 +691,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetDevice(IDXGIVkSwapChain2 
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p\n", iface);
-    return ID3D12Device12_QueryInterface(&chain->queue->device->ID3D12Device_iface, riid, object);
+    return ID3D12Device15_QueryInterface(&chain->queue->device->ID3D12Device_iface, riid, object);
 }
 
 static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetImage(IDXGIVkSwapChain2 *iface, UINT BufferId, REFIID riid, void **object)

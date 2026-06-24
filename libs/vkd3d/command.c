@@ -16756,6 +16756,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
 
+    if (query_heap->flags & D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE)
+    {
+        WARN("ResolveQueryData is not allowed on CPU resolve heaps.\n");
+        return;
+    }
+
     d3d12_command_list_check_render_pass_validation(list, "ResolveQueryData called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
 
@@ -23200,13 +23206,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D1
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12CommandQueue *iface,
         UINT64 *gpu_timestamp, UINT64 *cpu_timestamp)
 {
-#ifdef _WIN32
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     struct d3d12_device *device = command_queue->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkCalibratedTimestampInfoEXT timestamp_infos[2], *timestamp_info;
     uint64_t max_deviation, timestamps[2];
+#ifdef _WIN32
     LARGE_INTEGER qpc_begin, qpc_end;
+#endif
     uint32_t count = 0;
     VkResult vr;
 
@@ -23239,10 +23246,22 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12C
         timestamp_info->sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR;
         timestamp_info->timeDomain = VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR;
     }
+    else if (device->device_info.time_domains & VKD3D_TIME_DOMAIN_CLOCK_MONOTONIC)
+    {
+        timestamp_info = &timestamp_infos[count++];
+        timestamp_info->sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR;
+        timestamp_info->timeDomain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR;
+    }
     else
     {
+#ifdef _WIN32
         FIXME_ONCE("QPC domain not supported by device, timestamp calibration may be inaccurate.\n");
         QueryPerformanceCounter(&qpc_begin);
+#else
+        /* This is mostly relevant for test code, so we can be a little loose. */
+        FIXME_ONCE("MONOTONIC domain not supported by device.\n");
+        return E_FAIL;
+#endif
     }
 
     if ((vr = VK_CALL(vkGetCalibratedTimestampsKHR(device->vk_device,
@@ -23252,21 +23271,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12C
         return hresult_from_vk_result(vr);
     }
 
+#ifdef _WIN32
     if (!(device->device_info.time_domains & VKD3D_TIME_DOMAIN_QPC))
     {
         QueryPerformanceCounter(&qpc_end);
         timestamps[1] = qpc_begin.QuadPart + (qpc_end.QuadPart - qpc_begin.QuadPart) / 2;
     }
+#endif
 
     *gpu_timestamp = timestamps[0];
     *cpu_timestamp = timestamps[1];
     return S_OK;
-#else
-    FIXME("Calibrated timestamps not supported.\n");
-    *gpu_timestamp = 0;
-    *cpu_timestamp = 0;
-    return S_OK;
-#endif
 }
 
 static D3D12_COMMAND_QUEUE_DESC * STDMETHODCALLTYPE d3d12_command_queue_GetDesc(ID3D12CommandQueue *iface,

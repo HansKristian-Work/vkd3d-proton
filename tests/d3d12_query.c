@@ -321,24 +321,8 @@ void test_query_occlusion(void)
     unsigned int i;
     HRESULT hr;
 
-    static const DWORD ps_code[] =
-    {
-#if 0
-        float depth;
+#include "shaders/query/headers/occlusion.h"
 
-        float main() : SV_Depth
-        {
-            return depth;
-        }
-#endif
-        0x43425844, 0x91af6cd0, 0x7e884502, 0xcede4f54, 0x6f2c9326, 0x00000001, 0x000000b0, 0x00000003,
-        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
-        0x00000e01, 0x445f5653, 0x68747065, 0xababab00, 0x52444853, 0x00000038, 0x00000040, 0x0000000e,
-        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x02000065, 0x0000c001, 0x05000036, 0x0000c001,
-        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const struct
     {
         D3D12_QUERY_TYPE type;
@@ -372,7 +356,7 @@ void test_query_occlusion(void)
 
     context.root_signature = create_32bit_constants_root_signature(context.device,
             0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &occlusion_dxbc, NULL);
     pso_desc.NumRenderTargets = 0;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.DepthStencilState.DepthEnable = true;
@@ -662,24 +646,8 @@ void test_virtual_queries(void)
     unsigned int i;
     HRESULT hr;
 
-    static const DWORD ps_code[] =
-    {
-#if 0
-        float depth;
+#include "shaders/query/headers/occlusion.h"
 
-        float main() : SV_Depth
-        {
-            return depth;
-        }
-#endif
-        0x43425844, 0x91af6cd0, 0x7e884502, 0xcede4f54, 0x6f2c9326, 0x00000001, 0x000000b0, 0x00000003,
-        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
-        0x00000e01, 0x445f5653, 0x68747065, 0xababab00, 0x52444853, 0x00000038, 0x00000040, 0x0000000e,
-        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x02000065, 0x0000c001, 0x05000036, 0x0000c001,
-        0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const uint32_t expected_results[] = {1,0,1,1,614400,0,307200,307200};
     static const float depth_one = 1.0f;
     static const float depth_zero = 0.0f;
@@ -699,7 +667,7 @@ void test_virtual_queries(void)
 
     context.root_signature = create_32bit_constants_root_signature(context.device,
             0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
-    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &occlusion_dxbc, NULL);
     pso_desc.NumRenderTargets = 0;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.DepthStencilState.DepthEnable = true;
@@ -781,3 +749,226 @@ void test_virtual_queries(void)
     destroy_test_context(&context);
 }
 
+void test_query_heap_cpu_resolve_timestamp(void)
+{
+    struct test_context_desc context_desc;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    struct test_context context;
+    UINT64 before_gpu_timestamp;
+    UINT64 after_gpu_timestamp;
+    ID3D12Device15 *device15;
+    uint64_t query_data[16];
+    ID3D12QueryHeap *heap;
+    UINT64 cpu_timestamp;
+    HRESULT hr;
+    UINT i;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device15, (void **)&device15)))
+    {
+        skip("ID3D12Device15 not supported.\n");
+        destroy_test_context(&context);
+    }
+
+    /* There are no feature bits. Native runtime emulates this as necessary. */
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Count = 1024;
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_NONE,
+            &IID_ID3D12QueryHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, 1, query_data);
+    ok(hr == E_INVALIDARG, "Expected invalidarg, got hr #%x.\n", hr);
+    ID3D12QueryHeap_Release(heap);
+
+    hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE,
+            &IID_ID3D12QueryHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+
+    /* This should be allowed. */
+    memset(query_data, 0xab, sizeof(query_data));
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+        ok(query_data[i] == 0, "Unexpected data %"PRIu64" for query %u.\n", query_data[i], i);
+
+    hr = ID3D12CommandQueue_GetClockCalibration(context.queue, &before_gpu_timestamp, &cpu_timestamp);
+    ok(SUCCEEDED(hr), "Failed to calibrate timestamps, hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data) - 1; i++)
+        ID3D12GraphicsCommandList_EndQuery(context.list, heap, D3D12_QUERY_TYPE_TIMESTAMP, i);
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+
+    /* This should be allowed. Results will be bogus. */
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    wait_queue_idle_no_event(context.device, context.queue);
+    hr = ID3D12CommandQueue_GetClockCalibration(context.queue, &after_gpu_timestamp, &cpu_timestamp);
+    ok(SUCCEEDED(hr), "Failed to calibrate timestamps, hr #%x.\n", hr);
+
+    ok(before_gpu_timestamp <= after_gpu_timestamp, "Unexpected monotonicity, expected %"PRIu64" <= %"PRIu64".\n",
+            before_gpu_timestamp, after_gpu_timestamp);
+
+    /* The last query was never written, but should be allowed to resolve as-is. */
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data) - 1; i++)
+    {
+        ok(query_data[i] >= before_gpu_timestamp, "Unexpected monotonicity, expected %"PRIu64" >= %"PRIu64".\n",
+                query_data[i], before_gpu_timestamp);
+        ok(query_data[i] <= after_gpu_timestamp, "Unexpected monotonicity, expected %"PRIu64" <= %"PRIu64".\n",
+                query_data[i], after_gpu_timestamp);
+
+        if (i != 0)
+        {
+            ok(query_data[i] >= query_data[i - 1], "Unexpected monotonicity, expected %"PRIu64" > %"PRIu64".\n",
+                    query_data[i], query_data[i - 1]);
+        }
+    }
+
+    ID3D12QueryHeap_Release(heap);
+    ID3D12Device15_Release(device15);
+    destroy_test_context(&context);
+}
+
+void test_query_heap_cpu_resolve_occlusion(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    struct depth_stencil_resource ds;
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    struct test_context context;
+    ID3D12Device15 *device15;
+    uint64_t query_data[16];
+    ID3D12QueryHeap *heap;
+    HRESULT hr;
+    UINT i;
+
+#include "shaders/query/headers/occlusion.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device15, (void **)&device15)))
+    {
+        skip("ID3D12Device15 not supported.\n");
+        destroy_test_context(&context);
+    }
+
+    /* There are no feature bits. Native runtime emulates this as necessary. */
+    init_depth_stencil(&ds, context.device, 16, 16, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+    set_viewport(&context.viewport, 0.0f, 0.0f, 16.0f, 16.0f, 0.0f, 1.0f);
+    set_rect(&context.scissor_rect, 0, 0, 16, 16);
+
+    context.root_signature = create_32bit_constants_root_signature(context.device, 0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &occlusion_dxbc, NULL);
+    pso_desc.NumRenderTargets = 0;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = true;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", (int)hr);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Count = 1024;
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+    hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_NONE,
+            &IID_ID3D12QueryHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, query_data);
+    ok(hr == E_INVALIDARG, "Expected invalidarg, got hr #%x.\n", hr);
+    ID3D12QueryHeap_Release(heap);
+
+    hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE,
+            &IID_ID3D12QueryHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+
+    /* This should be allowed. Trips device lost on AMD. */
+    memset(query_data, 0xab, sizeof(query_data));
+
+    if (!is_amd_windows_device(context.device))
+    {
+        hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+        ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+        for (i = 0; i < ARRAY_SIZE(query_data); i++)
+            ok(query_data[i] == 0, "Unexpected data %"PRIu64" for query %u.\n", query_data[i], i);
+    }
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0, 0, 0);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, false, &ds.dsv_handle);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+    {
+        ID3D12GraphicsCommandList_BeginQuery(context.list, heap, D3D12_QUERY_TYPE_OCCLUSION, i);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, i, 0, 0);
+        ID3D12GraphicsCommandList_EndQuery(context.list, heap, D3D12_QUERY_TYPE_OCCLUSION, i);
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+
+    /* This should be allowed. Results will be bogus. */
+    if (!is_amd_windows_device(context.device))
+    {
+        hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+        ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+    }
+
+    wait_queue_idle_no_event(context.device, context.queue);
+
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+    {
+        ok(query_data[i] == i * 256, "Unexpected query for query %u. Expected %u, got %"PRIu64".\n",
+                i, i * 256, query_data[i]);
+    }
+
+    /* It's allowed to resolve a query in different ways based on the context. */
+    hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
+            0, ARRAY_SIZE(query_data), query_data);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(query_data); i++)
+    {
+        ok(query_data[i] == !!i, "Unexpected query for query %u. Expected %u, got %"PRIu64".\n",
+                i, !!i, query_data[i]);
+    }
+
+    destroy_depth_stencil(&ds);
+    ID3D12QueryHeap_Release(heap);
+    ID3D12Device15_Release(device15);
+    destroy_test_context(&context);
+}
