@@ -20553,8 +20553,8 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     VkAccelerationStructureBuildRangeInfoKHR *range_infos;
     VkAccelerationStructureGeometryKHR *geometry_infos;
     uint32_t *primitive_counts = NULL;
-    uint32_t geometry_count;
     enum vkd3d_rtas_kind rtas_kind;
+    uint32_t geometry_count;
 
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(&desc->Inputs);
 
