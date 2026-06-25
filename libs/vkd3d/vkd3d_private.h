@@ -398,6 +398,13 @@ struct vkd3d_va_map
     size_t sampler_mappings_size;
 };
 
+enum vkd3d_rtas_meta
+{
+    VKD3D_RTAS_META_ALLOW_UPDATE = 0x1,
+    VKD3D_RTAS_META_ALLOW_COMPACTION = 0x2,
+    VKD3D_RTAS_META_REPLACE = 0x10000, /* If set, replaces the current meta. */
+};
+
 const char *vkd3d_get_rtas_kind_string(enum vkd3d_rtas_kind rtas_kind);
 void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct vkd3d_unique_resource *resource);
 void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_resource *resource);
@@ -405,11 +412,11 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
 void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va,
         VkAccelerationStructureKHR *acceleration_structure,
-        enum vkd3d_rtas_kind *rtas_kind);
+        enum vkd3d_rtas_kind *rtas_kind, uint32_t *rtas_meta);
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va,
-        enum vkd3d_rtas_kind rtas_kind);
+        enum vkd3d_rtas_kind rtas_kind, uint32_t *rtas_meta);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_insert_descriptor_heap(struct vkd3d_va_map *va_map,
@@ -1334,6 +1341,7 @@ struct vkd3d_view
             VkDeviceSize offset;
             VkDeviceSize size;
             uint32_t rtas_kind; /* not hashed; accessed atomically; stores vkd3d_rtas_kind */
+            uint32_t rtas_meta; /* debug tracking */
         } buffer;
         struct
         {
@@ -6919,7 +6927,7 @@ void vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_as,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode,
-        enum vkd3d_rtas_kind rtas_kind);
+        enum vkd3d_rtas_kind rtas_kind, uint32_t rtas_meta);
 
 bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
