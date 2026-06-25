@@ -589,6 +589,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
     VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
     VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP = 1 << 6,
+    VKD3D_APPLICATION_FEATURE_ALLOW_NON_COMPLIANT_FP16 = 1 << 7,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -762,6 +763,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
         VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP },
     { VKD3D_STRING_COMPARE_EXACT, "GoWEDay-Steam.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.NO_STAGGERED_SUBMIT = 1) },
+    /* Hitman World of Assassination (1659040) Hard-requires FP16 opts to work, even when not exposed. */
+    { VKD3D_STRING_COMPARE_EXACT, "HITMAN3.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
+        VKD3D_APPLICATION_FEATURE_ALLOW_NON_COMPLIANT_FP16 },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
@@ -10077,12 +10081,18 @@ uint32_t d3d12_device_get_max_descriptor_heap_size(struct d3d12_device *device, 
 
 static bool d3d12_device_supports_16bit_shader_ops(struct d3d12_device *device)
 {
-    return device->device_info.vulkan_1_2_features.shaderFloat16 &&
-            device->device_info.features2.features.shaderInt16 &&
-            device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
+    bool supports_fp16_denorm_preserve =
             device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16 &&
-            device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE &&
-            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
+            device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
+
+    bool non_compliant_fp16 =
+            !!(vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_ALLOW_NON_COMPLIANT_FP16);
+
+    return device->device_info.vulkan_1_2_features.shaderFloat16 &&
+           device->device_info.features2.features.shaderInt16 &&
+           device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
+           (supports_fp16_denorm_preserve || non_compliant_fp16) &&
+           device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
 
 static bool d3d12_device_supports_relaxed_precision_shader_ops(struct d3d12_device *device)
