@@ -8545,6 +8545,12 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
         goto cleanup;
     }
 
+    if (build_info.type == VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR &&
+        VKD3D_CONFIG_FLAG_IS_SET(RTAS_ALLOW_BLAS_REBUILD_SIZES))
+    {
+        build_info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+    }
+
     build_info.pGeometries = geometries;
 
     memset(&size_info, 0, sizeof(size_info));
@@ -8554,9 +8560,22 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
             VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info,
             primitive_counts, &size_info));
 
+    /* An assumption is made here where RTAS_ALLOW_REBUILD_SIZES config will not make the required RTAS size smaller. */
     info->ResultDataMaxSizeInBytes = size_info.accelerationStructureSize;
     info->ScratchDataSizeInBytes = size_info.buildScratchSize;
-    info->UpdateScratchDataSizeInBytes = size_info.updateScratchSize;
+
+    if (build_info.type == VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR &&
+        VKD3D_CONFIG_FLAG_IS_SET(RTAS_ALLOW_BLAS_REBUILD_SIZES))
+    {
+        /* Pick the conservative result. */
+        info->ScratchDataSizeInBytes = max(size_info.buildScratchSize, size_info.updateScratchSize);
+        info->UpdateScratchDataSizeInBytes = max(size_info.buildScratchSize, size_info.updateScratchSize);
+    }
+    else
+    {
+        /* Default API path. */
+        info->UpdateScratchDataSizeInBytes = size_info.updateScratchSize;
+    }
 
     TRACE("ResultDataMaxSizeInBytes: %"PRIu64".\n", info->ResultDataMaxSizeInBytes);
     TRACE("ScratchDatSizeInBytes: %"PRIu64".\n", info->ScratchDataSizeInBytes);
