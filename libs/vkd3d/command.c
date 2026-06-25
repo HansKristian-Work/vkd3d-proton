@@ -20473,8 +20473,12 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
     micromap = VK_NULL_HANDLE;
     if (desc->DestAccelerationStructureData)
     {
+        uint32_t rtas_meta = VKD3D_RTAS_META_REPLACE;
+        if (build_info->flags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR)
+            rtas_meta |= VKD3D_RTAS_META_ALLOW_COMPACTION;
+
         micromap = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData, VKD3D_RTAS_KIND_NON_TLAS);
+                        list->device, desc->DestAccelerationStructureData, VKD3D_RTAS_KIND_NON_TLAS, &rtas_meta);
         build_info->dstAccelerationStructure = micromap;
         if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
@@ -20555,6 +20559,7 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     uint32_t *primitive_counts = NULL;
     uint32_t geometry_count;
     enum vkd3d_rtas_kind rtas_kind;
+    uint32_t rtas_meta;
 
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(&desc->Inputs);
 
@@ -20580,28 +20585,47 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
 
     rtas_kind = (desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) ?
         VKD3D_RTAS_KIND_TLAS : VKD3D_RTAS_KIND_NON_TLAS;
-
-    if (desc->DestAccelerationStructureData)
-    {
-        build_info->dstAccelerationStructure =
-                vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->DestAccelerationStructureData, rtas_kind);
-        if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
-        {
-            ERR("Failed to place destAccelerationStructure. Dropping call.\n");
-            return;
-        }
-    }
+    rtas_meta = 0;
 
     if (build_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR &&
             desc->SourceAccelerationStructureData)
     {
         build_info->srcAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
-                        list->device, desc->SourceAccelerationStructureData, rtas_kind);
+                        list->device, desc->SourceAccelerationStructureData, rtas_kind, &rtas_meta);
         if (build_info->srcAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place srcAccelerationStructure. Dropping call.\n");
+            return;
+        }
+
+        if (!(rtas_meta & VKD3D_RTAS_META_ALLOW_UPDATE))
+        {
+            WARN("Source %s %"PRIx64" was likely not built with ALLOW_UPDATE.\n",
+                 desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ? "TLAS" : "BLAS",
+                 desc->SourceAccelerationStructureData);
+        }
+    }
+
+    if (desc->DestAccelerationStructureData)
+    {
+        rtas_meta |= VKD3D_RTAS_META_REPLACE;
+
+        if (build_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR ||
+            (build_info->flags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR))
+        {
+            rtas_meta |= VKD3D_RTAS_META_ALLOW_UPDATE;
+        }
+
+        if (build_info->flags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR)
+            rtas_meta |= VKD3D_RTAS_META_ALLOW_COMPACTION;
+
+        build_info->dstAccelerationStructure =
+                vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
+                        list->device, desc->DestAccelerationStructureData, rtas_kind, &rtas_meta);
+        if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
+        {
+            ERR("Failed to place destAccelerationStructure. Dropping call.\n");
             return;
         }
     }
@@ -20796,6 +20820,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     VkAccelerationStructureKHR src_as;
     enum vkd3d_rtas_kind rtas_kind;
+    uint32_t rtas_meta;
 
     TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
           iface, dst_data, src_data, mode);
@@ -20825,19 +20850,26 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
      * Don't consider this pending RTAS work until we have evidence of real-world breakage. */
 
     vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map,
-            list->device, src_data, &src_as, &rtas_kind);
+            list->device, src_data, &src_as, &rtas_kind, &rtas_meta);
 
     if (src_as == VK_NULL_HANDLE)
     {
         WARN("Copy placing unknown AS at #%" PRIx64 " future BLP queries may not be reliable.\n", src_data);
         rtas_kind = VKD3D_RTAS_KIND_UNKNOWN;
         src_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device,
-                src_data, rtas_kind);
+                src_data, rtas_kind, &rtas_meta);
     }
 
     if (src_as != VK_NULL_HANDLE)
     {
-        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, rtas_kind);
+        if (mode == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT &&
+            !(rtas_meta & VKD3D_RTAS_META_ALLOW_COMPACTION))
+        {
+            WARN("Application uses compaction for %"PRIx64" -> %"PRIx64", but ALLOW_COMPACTION was likely not used correctly.\n",
+                 src_data, dst_data);
+        }
+
+        vkd3d_acceleration_structure_copy(list, dst_data, src_as, mode, rtas_kind, rtas_meta);
         VKD3D_BREADCRUMB_AUX64(dst_data);
         VKD3D_BREADCRUMB_AUX64(src_data);
         VKD3D_BREADCRUMB_AUX32(mode);
