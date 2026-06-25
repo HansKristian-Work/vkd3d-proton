@@ -250,7 +250,7 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
 void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
         struct d3d12_device *device, VkDeviceAddress va,
         VkAccelerationStructureKHR *acceleration_structure,
-        enum vkd3d_rtas_kind *rtas_kind)
+        enum vkd3d_rtas_kind *rtas_kind, uint32_t *rtas_meta)
 {
     const struct vkd3d_unique_resource *resource;
     struct vkd3d_view_map *view_map;
@@ -282,6 +282,9 @@ void vkd3d_va_map_try_read_rtas(struct vkd3d_va_map *va_map,
     *acceleration_structure = view->vk_acceleration_structure;
     *rtas_kind = (enum vkd3d_rtas_kind)
         vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_kind, vkd3d_memory_order_relaxed);
+
+    if (rtas_meta)
+        *rtas_meta = vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_meta, vkd3d_memory_order_acquire);
 }
 
 const char *vkd3d_get_rtas_kind_string(enum vkd3d_rtas_kind rtas_kind)
@@ -299,7 +302,7 @@ const char *vkd3d_get_rtas_kind_string(enum vkd3d_rtas_kind rtas_kind)
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va,
-        enum vkd3d_rtas_kind rtas_kind)
+        enum vkd3d_rtas_kind rtas_kind, uint32_t *rtas_meta)
 {
     enum vkd3d_rtas_kind previous_rtas_kind, expected_rtas_kind, desired_rtas_kind;
     struct vkd3d_unique_resource *resource;
@@ -350,6 +353,9 @@ VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3
     if (!view)
         return VK_NULL_HANDLE;
 
+    /* These states are updated on CPU record time, but CPU record time may not reflect true GPU submit time order.
+     * In practice, this should be good enough as a debugging tool to help guide investigations. */
+
     /* Atomic CAS loop maintaining the rtas_kind state machine:
      *   UNKNOWN -> TLAS | NON_TLAS  (upgrade on first known place)
      *   TLAS | NON_TLAS -> MUTATED  (collapse on cross-kind place)
@@ -382,6 +388,14 @@ VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3
             }
             break;
         }
+    }
+
+    if (rtas_meta)
+    {
+        if (*rtas_meta & VKD3D_RTAS_META_REPLACE)
+            *rtas_meta = vkd3d_atomic_uint32_exchange_explicit(&view->info.buffer.rtas_meta, *rtas_meta, vkd3d_memory_order_acq_rel);
+        else
+            *rtas_meta = vkd3d_atomic_uint32_load_explicit(&view->info.buffer.rtas_meta, vkd3d_memory_order_acquire);
     }
 
     return view->vk_acceleration_structure;

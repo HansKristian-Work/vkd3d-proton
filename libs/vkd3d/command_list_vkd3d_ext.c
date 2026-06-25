@@ -133,7 +133,7 @@ static BOOL STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_VerifyOpacityMicromap
     TRACE("iface %p, opacity_micromap_array %#"PRIx64".\n", iface, opacity_micromap_array);
 
     vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map, list->device,
-                opacity_micromap_array, &as, &rtas_kind);
+                opacity_micromap_array, &as, &rtas_kind, NULL);
     return as != VK_NULL_HANDLE && (rtas_kind == VKD3D_RTAS_KIND_NON_TLAS || rtas_kind == VKD3D_RTAS_KIND_MUTATED);
 }
 

@@ -279,7 +279,7 @@ bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *devic
             continue;
 
         omm_triangles_infos[i].micromap = vkd3d_va_map_place_acceleration_structure(
-                &device->memory_allocator.va_map, device, va, VKD3D_RTAS_KIND_NON_TLAS);
+                &device->memory_allocator.va_map, device, va, VKD3D_RTAS_KIND_NON_TLAS, NULL);
         if (omm_triangles_infos[i].micromap == VK_NULL_HANDLE)
             return false;
     }
