@@ -487,7 +487,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
     for (i = 0; i < count; i++)
     {
         vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map, list->device, addresses[i],
-                &vk_acceleration_structure, &rtas_kind);
+                &vk_acceleration_structure, &rtas_kind, NULL);
 
         if (vk_acceleration_structure == VK_NULL_HANDLE)
         {
@@ -496,7 +496,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
             rtas_kind = VKD3D_RTAS_KIND_UNKNOWN;
             vk_acceleration_structure =
                     vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device,
-                    addresses[i], rtas_kind);
+                    addresses[i], rtas_kind, NULL);
         }
         if (vk_acceleration_structure == VK_NULL_HANDLE)
         {
@@ -573,13 +573,15 @@ void vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, VkAccelerationStructureKHR src_as,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode,
-        enum vkd3d_rtas_kind rtas_kind)
+        enum vkd3d_rtas_kind rtas_kind, uint32_t rtas_meta)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkCopyAccelerationStructureInfoKHR info;
     VkAccelerationStructureKHR dst_as;
 
-    dst_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, dst, rtas_kind);
+    rtas_meta |= VKD3D_RTAS_META_REPLACE;
+    dst_as = vkd3d_va_map_place_acceleration_structure(
+            &list->device->memory_allocator.va_map, list->device, dst, rtas_kind, &rtas_meta);
 
     if (dst_as == VK_NULL_HANDLE)
     {
