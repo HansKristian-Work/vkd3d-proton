@@ -450,6 +450,15 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlags
         ray_tracing_pipeline_create_flags = vkd3d_atomic_uint32_or(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
                 VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) |
                 VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+
+        /* Set force_ray_query_omm to true the first time ENABLE_OMM_SUPPORT is set.
+         * This causes any RayQuery shader with SM < 6.9 to consult the OMM.
+         * 1. NVAPI has no way to opt into the OMM on the RayQuery.
+         * 2. Treated as a sticky bit to deal with possible race conditions where the bit is
+         *    set after a PSO using RayQuery has already been created.
+         * 3. There is a small possibility that a PSO could be created with a RayQuery before
+         *    ENABLE_OMM_SUPPORT is set; in that window the RayQuery will not consult the OMM. */
+        vkd3d_atomic_uint32_or(&device->vendor_hacks.force_ray_query_omm, 1u, vkd3d_memory_order_relaxed);
     }
     else
     {

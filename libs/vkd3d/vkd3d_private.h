@@ -5842,6 +5842,12 @@ struct d3d12_device
          * (unlike DXR 1.2's ALLOW_OPACITY_MICROMAPS flag), so this global is OR'd into every
          * RT pipeline creation to implement the device-wide enable/disable semantic. */
         VkPipelineCreateFlags global_ray_tracing_pipeline_create_flags;
+
+        /* Sticky one-way bit: set the first time NVAPI ENABLE_OMM_SUPPORT is observed on this
+         * device and never cleared. Drives the dxil-spirv RayQuery legacy-SM execution-mode
+         * force-on. The semantic is "this device has seen an OMM opt-in at some point, so
+         * conservatively assume any RayQuery in any shader may need OMM consultation." */
+        uint32_t force_ray_query_omm;
     } vendor_hacks;
 
     bool independent_device;

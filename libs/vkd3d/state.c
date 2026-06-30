@@ -2243,6 +2243,10 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
     if (root_signature->heap.redzone_style == VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_INLINE)
         flags |= VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV;
 
+    if (vkd3d_atomic_uint32_load_explicit(&root_signature->device->vendor_hacks.force_ray_query_omm,
+            vkd3d_memory_order_relaxed))
+        flags |= VKD3D_SHADER_INTERFACE_RAY_QUERY_OMM_DEVICE_GLOBAL;
+
     return flags;
 }
 
