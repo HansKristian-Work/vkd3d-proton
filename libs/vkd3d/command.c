@@ -22219,7 +22219,8 @@ HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue 
             || IsEqualGUID(riid, &IID_ID3D12Pageable)
             || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(riid, &IID_ID3D12Object)
-            || IsEqualGUID(riid, &IID_IUnknown))
+            || IsEqualGUID(riid, &IID_IUnknown)
+            || IsEqualGUID(riid, &IID_ID3D12ExtDummyInterface))
     {
         ID3D12CommandQueue_AddRef(iface);
         *object = iface;
