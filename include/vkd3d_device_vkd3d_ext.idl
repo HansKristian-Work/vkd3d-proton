@@ -221,3 +221,16 @@ interface IAmdExtAntiLagApi : IUnknown
 {
     HRESULT UpdateAntiLagState(void *pData);
 }
+
+/* Used to get underlying vkd3d-proton own object from wrapped interface */
+[
+    uuid(cc1419e0-8ca3-4206-bc1f-064e7c7345cc),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12ExtDummyInterface
+{
+    /* This is to keep MSVC compilation happy. */
+    void dummy(void);
+}

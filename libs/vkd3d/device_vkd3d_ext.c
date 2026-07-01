@@ -419,12 +419,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanQueueInfoEx(d3d
     TRACE("iface %p, queue %p, vk_queue %p, vk_queue_index %p, vk_queue_flags %p vk_queue_family %p.\n",
             iface, queue, vk_queue, vk_queue_index, vk_queue_flags, vk_queue_family);
 
+    if (FAILED(ID3D12CommandQueue_QueryInterface(queue, &IID_ID3D12ExtDummyInterface, (void **)&queue)))
+    {
+        ERR("no ID3D12ExtDummyInterface.\n");
+        return E_FAIL;
+    }
     *vk_queue = vkd3d_lock_vk_queue(queue);
     vkd3d_unlock_vk_queue(queue);
 
     *vk_queue_index = vkd3d_get_vk_queue_index(queue);
     *vk_queue_flags = vkd3d_get_vk_queue_flags(queue);
     *vk_queue_family = vkd3d_get_vk_queue_family_index(queue);
+    ID3D12CommandQueue_Release(queue);
     return S_OK;
 }
 
@@ -915,10 +921,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanQueueInfo(d3
 {
     TRACE("iface %p, queue %p, vk_queue %p, vk_queue_family %p.\n", iface, queue, vk_queue, vk_queue_family);
 
+    if (FAILED(ID3D12CommandQueue_QueryInterface(queue, &IID_ID3D12ExtDummyInterface, (void **)&queue)))
+    {
+        ERR("no ID3D12ExtDummyInterface.\n");
+        return E_FAIL;
+    }
+
     *vk_queue = vkd3d_lock_vk_queue(queue);
     vkd3d_unlock_vk_queue(queue);
 
     *vk_queue_family = vkd3d_get_vk_queue_family_index(queue);
+    ID3D12CommandQueue_Release(queue);
     return S_OK;
 }
 
@@ -977,11 +990,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_LockCommandQueue(d3d1
 
     TRACE("iface %p, queue %p.\n", iface, queue);
 
+    if (FAILED(ID3D12CommandQueue_QueryInterface(queue, &IID_ID3D12ExtDummyInterface, (void **)&queue)))
+    {
+        ERR("no ID3D12ExtDummyInterface.\n");
+        return E_FAIL;
+    }
+
     /* Flushing the transfer queue adds a wait to all other queues, and the
      * acquire operation will drain the queue, ensuring that any pending clear
      * or upload happens before D3D11 submissions on the GPU timeline. */
     vkd3d_memory_transfer_queue_flush(&device->memory_transfers);
     vkd3d_acquire_vk_queue(queue);
+    ID3D12CommandQueue_Release(queue);
     return S_OK;
 }
 
@@ -989,7 +1009,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_UnlockCommandQueue(d3
 {
     TRACE("iface %p, queue %p.\n", iface, queue);
 
+    if (FAILED(ID3D12CommandQueue_QueryInterface(queue, &IID_ID3D12ExtDummyInterface, (void **)&queue)))
+    {
+        ERR("no ID3D12ExtDummyInterface.\n");
+        return E_FAIL;
+    }
+
     vkd3d_release_vk_queue(queue);
+    ID3D12CommandQueue_Release(queue);
     return S_OK;
 }
 
@@ -1067,7 +1094,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_LockVulkanQueue(d3d12
 {
     TRACE("iface %p, queue %p.\n", iface, queue);
 
+    if (FAILED(ID3D12CommandQueue_QueryInterface(queue, &IID_ID3D12ExtDummyInterface, (void **)&queue)))
+    {
+        ERR("no ID3D12ExtDummyInterface.\n");
+        return E_FAIL;
+    }
+
     vkd3d_lock_vk_queue(queue);
+    ID3D12CommandQueue_Release(queue);
     return S_OK;
 }
 
@@ -1075,7 +1109,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_UnlockVulkanQueue(d3d
 {
     TRACE("iface %p, queue %p.\n", iface, queue);
 
+    if (FAILED(ID3D12CommandQueue_QueryInterface(queue, &IID_ID3D12ExtDummyInterface, (void **)&queue)))
+    {
+        ERR("no ID3D12ExtDummyInterface.\n");
+        return E_FAIL;
+    }
+
     vkd3d_unlock_vk_queue(queue);
+    ID3D12CommandQueue_Release(queue);
     return S_OK;
 }
 
