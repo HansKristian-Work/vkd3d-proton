@@ -2072,13 +2072,6 @@ static bool vkd3d_memory_info_allow_suballocate(struct d3d12_device *device,
     if (device->d3d12_caps.options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
         return false;
 
-    /* For image-only heaps where heaps are small, it's possible the application wants to use fine-grained memory priorities.
-     * Nixxes ports tend to do that for example. */
-
-    /* Disable suballocation if EXT_pageable is supported, to give apps control over memory priorities. */
-    if (device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory)
-        return false;
-
     if (is_cpu_accessible_system_memory_heap(&info->heap_properties) ||
             !(info->flags & VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION))
     {

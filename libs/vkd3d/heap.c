@@ -293,6 +293,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
         const D3D12_HEAP_DESC *desc, void* host_address)
 {
     struct vkd3d_allocate_heap_memory_info alloc_info;
+    bool accept_small_image_heaps;
     HRESULT hr;
 
     memset(heap, 0, sizeof(*heap));
@@ -320,8 +321,18 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     alloc_info.heap_desc = heap->desc;
     alloc_info.host_ptr = host_address;
 
+    /* If we have pageable support, we want to be able to take advantage of that for smaller heaps,
+     * since it seems to matter for memory management on e.g. Steam Machine.
+     * RADV only recently started supporting pageable.
+     * Also gate it behind zero initial device memory since would have no other way to zero clear the memory
+     * ourselves. */
+    accept_small_image_heaps =
+            device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory &&
+            device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory;
+
     if ((alloc_info.heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
-            device->d3d12_caps.options.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2)
+        !accept_small_image_heaps &&
+        device->d3d12_caps.options.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2)
     {
         alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION;
     }
