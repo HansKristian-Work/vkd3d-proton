@@ -931,8 +931,23 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     }
 
     image_info->usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+    {
         image_info->usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+        /* RDNA2 should be fine with GENERAL layout for non-MSAA.
+         * Feedback loop with MSAA images is not a thing we need to ponder. */
+        if (desc->SampleDesc.Count == 1 &&
+            device->device_info.maintenance_10_features.maintenance10 &&
+            device->device_info.dynamic_rendering_local_read_features.dynamicRenderingLocalRead &&
+            VKD3D_CONFIG_FLAG_IS_SET(REQUIRE_INPUT_ATTACHMENTS))
+        {
+            /* For workaround purposes, we may need to trick drivers into giving us a feedback loop path. */
+            image_info->usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+        }
+    }
+
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
         image_info->usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
@@ -1095,10 +1110,14 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     if (resource)
     {
         /* Cases where we need to force images into GENERAL layout at all times.
-         * Read/WriteFromSubresource essentialy require simultaneous access. */
+         * Read/WriteFromSubresource essentially requires simultaneous access.
+         * Force GENERAL layout if we allow input attachments.
+         * This simplifies a lot of things and avoids us being forced to do layout transitions
+         * in render passes on top. */
         if (d3d12_device_supports_unified_layouts(device) ||
                 (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) ||
                 (image_info->tiling == VK_IMAGE_TILING_LINEAR) ||
+                (image_info->usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) ||
                 (heap_properties && is_cpu_accessible_heap(heap_properties)))
         {
             resource->flags |= VKD3D_RESOURCE_GENERAL_LAYOUT;
@@ -1108,6 +1127,9 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         {
             resource->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
         }
+
+        if (image_info->usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+            resource->flags |= VKD3D_RESOURCE_INPUT_ATTACHMENT;
     }
 
     if (device->device_info.image_alignment_control_features.imageAlignmentControl &&
@@ -8784,6 +8806,12 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     key.view_type = VKD3D_VIEW_TYPE_IMAGE;
     key.u.texture.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+    if (resource->flags & VKD3D_RESOURCE_INPUT_ATTACHMENT)
+    {
+        /* For workaround purposes, we may need to trick drivers into giving us a feedback loop path. */
+        key.u.texture.image_usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+    }
 
     if (desc)
     {

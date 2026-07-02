@@ -159,6 +159,7 @@ struct vkd3d_vulkan_info
     bool KHR_opacity_micromap;
     bool KHR_index_type_uint8;
     bool KHR_shader_float_controls2;
+    bool KHR_dynamic_rendering_local_read;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -1080,6 +1081,7 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_ZERO_INITIALIZED       = (1u << 8),
     VKD3D_RESOURCE_RETAINED_GPU_REFERENCE = (1u << 9),
     VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE  = (1u << 10),
+    VKD3D_RESOURCE_INPUT_ATTACHMENT       = (1u << 11)
 };
 
 #define VKD3D_INVALID_TILE_INDEX (~0u)
@@ -2987,6 +2989,9 @@ struct vkd3d_rendering_info
     VkRenderingFragmentShadingRateAttachmentInfoKHR vrs;
     uint32_t state_flags;
     uint32_t rtv_mask;
+
+    /* For input attachment workaround shenanigans. */
+    VkRenderingAttachmentFlagsInfoKHR rtv_flags[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
 
     /* If true, we have pending work in loadOp/resolveOp which must happen. */
     bool has_pending_render_pass_load_store_work;
@@ -5338,6 +5343,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptor_heap_features;
     VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR device_address_commands_features;
     VkPhysicalDeviceShaderFloatControls2FeaturesKHR float_controls2_features;
+    VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR dynamic_rendering_local_read_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
@@ -5972,6 +5978,19 @@ static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_inf
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
     return ID3D12Device15_QueryInterface(&device->ID3D12Device_iface, iid, object);
+}
+
+static inline VkRenderingFlags d3d12_device_get_rendering_flags(const struct d3d12_device *device)
+{
+    /* Flip per-attachment flags as necessary to enable feedback loops without having to faff around with FEEDBACK_LOOP transitions.
+     * Actually using that layout breaks bindless since we cannot know which layout to use in an SRV.
+     * We could have used VkAttachmentFeedbackLoopInfoEXT to keep images in GENERAL, but it requires unified image layouts,
+     * which RDNA2 does not support. This is the most pragmatic workaround. */
+
+    /* When dynamicRenderingLocalRead is enabled, the maint10 flag absolutely should be used for optimal behavior. */
+    return device->device_info.maintenance_10_features.maintenance10 &&
+           device->device_info.dynamic_rendering_local_read_features.dynamicRenderingLocalRead
+               ? VK_RENDERING_LOCAL_READ_CONCURRENT_ACCESS_CONTROL_BIT_KHR : 0;
 }
 
 ULONG d3d12_device_add_ref_common(struct d3d12_device *device);

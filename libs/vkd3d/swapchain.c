@@ -2432,6 +2432,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
 
     memset(&rendering_info, 0, sizeof(rendering_info));
     rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info.flags = d3d12_device_get_rendering_flags(chain->queue->device);
     rendering_info.renderArea.extent.width = chain->present.backbuffer_width;
     rendering_info.renderArea.extent.height = chain->present.backbuffer_height;
     rendering_info.layerCount = 1;

@@ -86,6 +86,7 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_USES_COOPERATIVE_MATRIX_FP8 = 1 << 25,
     VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS = 1 << 26,
     VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW = 1 << 27,
+    VKD3D_SHADER_META_FLAG_FEEDBACK_LOOP = 1 << 28
 };
 
 struct vkd3d_shader_meta
@@ -572,6 +573,11 @@ enum vkd3d_shader_target_extension
 #define VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT (1ull << 36)
 
 #define VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW (1ull << 37)
+
+/* Forces a draw call to go through a renderpass with feedback loops.
+ * Used to workaround games where an image is rendered to while being sampled as an SRV,
+ * which is highly illegal and only way out of it is to use filthy trickery. */
+#define VKD3D_SHADER_QUIRK_FORCE_FEEDBACK_LOOP (1ull << 38)
 
 typedef uint64_t vkd3d_shader_quirks_t;
 
