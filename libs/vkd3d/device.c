@@ -628,10 +628,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * Invariant workarounds actually cause more issues than they resolve on NV.
      * RADV already has workarounds by default.
      * FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders
-     * are broken enough that normal invariance is not enough.
-     * DCC stores causes glitches when SMAA4x is enabled with RADV. */
+     * are broken enough that normal invariance is not enough. */
     { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .DISABLE_UAV_COMPRESSION = 1, .REQUIRE_INPUT_ATTACHMENTS = 1) },
+        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .REQUIRE_INPUT_ATTACHMENTS = 1) },
     /* Elden Ring (1245620).
      * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
      * It seems to work just fine however to skip the clears. */
@@ -1083,6 +1082,14 @@ static const struct vkd3d_shader_quirk_info gotg_quirks = {
     gotg_hashes, ARRAY_SIZE(gotg_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash sottr_hashes[] = {
+    { NULL, 0x8227f72cbc13591d, VKD3D_SHADER_QUIRK_FORCE_FEEDBACK_LOOP },
+};
+
+static const struct vkd3d_shader_quirk_info sottr_quirks = {
+    sottr_hashes, ARRAY_SIZE(sottr_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1171,6 +1178,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", &wow_quirks },
     /* Guardians of the Galaxy */
     { VKD3D_STRING_COMPARE_EXACT, "gotg.exe", &gotg_quirks },
+    /* Shadow of the Tomb Raider */
+    { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe", &sottr_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
