@@ -54,18 +54,6 @@ jobs:
           meson setup -Denable_tests=True -Denable_extras=True -Dc_args='-Wformat=2 -Wno-format-truncation -Wno-format-nonliteral' --buildtype release build-native-gcc-x64
           ninja -C build-native-gcc-x64
 
-    - name: Build Native Clang x86
-      id: build-native-clang-x86
-      uses: Joshua-Ashton/arch-mingw-github-action@v8
-      with:
-        command: |
-          sudo pacman -Syu --noconfirm lib32-gcc-libs
-          export CC="clang -m32"
-          export CXX="clang++ -m32"
-          export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig"
-          meson setup -Denable_tests=True -Denable_extras=True --buildtype release build-native-clang-x86
-          ninja -C build-native-clang-x86
-
     - name: Build Native Clang x64
       id: build-native-clang-x64
       uses: Joshua-Ashton/arch-mingw-github-action@v8
