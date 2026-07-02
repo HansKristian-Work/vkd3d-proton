@@ -4461,6 +4461,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
 
     memset(&rendering_info, 0, sizeof(rendering_info));
     rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    rendering_info.flags = d3d12_device_get_rendering_flags(list->device);
     rendering_info.renderArea.offset.x = 0;
     rendering_info.renderArea.offset.y = 0;
     rendering_info.renderArea.extent.width = view_extent.width;
@@ -7453,6 +7454,33 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     rendering_info->rtv_mask = 0;
     d3d12_command_list_barrier_batch_init(&barrier);
 
+    if (rendering_info->info.flags & VK_RENDERING_LOCAL_READ_CONCURRENT_ACCESS_CONTROL_BIT_KHR)
+    {
+        if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FEEDBACK_LOOP)
+        {
+            /* Forces implementation to assume there are intra-shader feedback loops
+             * which could mean disabling compression specifically for this render pass. */
+            for (i = 0; i < rendering_info->info.colorAttachmentCount; i++)
+            {
+                rendering_info->rtv_flags[i].flags =
+                    (list->rtvs[i].resource && list->rtvs[i].resource->flags & VKD3D_RESOURCE_INPUT_ATTACHMENT) ?
+                    VK_RENDERING_ATTACHMENT_INPUT_ATTACHMENT_FEEDBACK_BIT_KHR : 0;
+            }
+
+            d3d12_command_list_barrier_batch_add_global_transition(
+                    list, &barrier,
+                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    VK_ACCESS_INPUT_ATTACHMENT_READ_BIT);
+        }
+        else
+        {
+            for (i = 0; i < rendering_info->info.colorAttachmentCount; i++)
+                rendering_info->rtv_flags[i].flags = 0;
+        }
+    }
+
     /* The pipeline has fallback PSO in case we're attempting to render to unbound RTV. */
     for (i = 0; i < rendering_info->info.colorAttachmentCount; i++)
     {
@@ -10155,6 +10183,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         memset(&rendering_info, 0, sizeof(rendering_info));
         rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        rendering_info.flags = d3d12_device_get_rendering_flags(list->device);
         rendering_info.renderArea.offset.x = region->dstOffset.x;
         rendering_info.renderArea.offset.y = region->dstOffset.y;
         rendering_info.renderArea.extent.width = region->extent.width;
@@ -12038,6 +12067,7 @@ cleanup_compute:
 
         memset(&rendering_info, 0, sizeof(rendering_info));
         rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        rendering_info.flags = d3d12_device_get_rendering_flags(list->device);
 
         if (vk_format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
         {
@@ -12740,6 +12770,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
     if (state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
     {
+        bool current_feedback_loop = !!(list->current_meta_flags & VKD3D_SHADER_META_FLAG_FEEDBACK_LOOP);
+
         if (list->dynamic_state.stencil_front.write_mask != state->graphics.ds_desc.front.writeMask ||
                 list->dynamic_state.stencil_back.write_mask != state->graphics.ds_desc.back.writeMask)
         {
@@ -12761,6 +12793,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             d3d12_command_list_emit_workaround_graphics_barrier(list);
             list->current_meta_flags &= ~VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW;
         }
+
+        /* If we change feedback loop state, restart the render pass so we can pick that change up. */
+        if (current_feedback_loop != !!(list->current_meta_flags & VKD3D_SHADER_META_FLAG_FEEDBACK_LOOP))
+            d3d12_command_list_end_current_render_pass(list, false);
     }
     else
     {
@@ -18774,6 +18810,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
         memset(&rendering_info, 0, sizeof(rendering_info));
         rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        rendering_info.flags = d3d12_device_get_rendering_flags(list->device);
         rendering_info.renderArea.offset.x = dst_x;
         rendering_info.renderArea.offset.y = dst_y;
         rendering_info.colorAttachmentCount = 1;
@@ -22058,10 +22095,18 @@ static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, 
     rendering_info->info.pColorAttachments = rendering_info->rtv;
 
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+    {
         d3d12_command_list_init_attachment_info(&rendering_info->rtv[i]);
+        rendering_info->rtv_flags[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_FLAGS_INFO_KHR;
+    }
 
     d3d12_command_list_init_attachment_info(&rendering_info->depth);
     d3d12_command_list_init_attachment_info(&rendering_info->stencil);
+
+    rendering_info->info.flags = d3d12_device_get_rendering_flags(device);
+    if (device->device_info.maintenance_10_features.maintenance10)
+        for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+            rendering_info->rtv[i].pNext = &rendering_info->rtv_flags[i];
 
     if (device->device_info.fragment_shading_rate_features.attachmentFragmentShadingRate)
     {

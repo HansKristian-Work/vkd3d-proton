@@ -102,6 +102,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 #endif
     VK_EXTENSION(KHR_INDEX_TYPE_UINT8, KHR_index_type_uint8),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS_2, KHR_shader_float_controls2),
+    VK_EXTENSION_COND(KHR_DYNAMIC_RENDERING_LOCAL_READ, KHR_dynamic_rendering_local_read, VKD3D_CONFIG_FLAG_STATIC(REQUIRE_INPUT_ATTACHMENTS)),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CONSERVATIVE_RASTERIZATION, EXT_conservative_rasterization),
@@ -630,7 +631,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * are broken enough that normal invariance is not enough.
      * DCC stores causes glitches when SMAA4x is enabled with RADV. */
     { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .DISABLE_UAV_COMPRESSION = 1) },
+        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .DISABLE_UAV_COMPRESSION = 1, .REQUIRE_INPUT_ATTACHMENTS = 1) },
     /* Elden Ring (1245620).
      * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
      * It seems to work just fine however to skip the clears. */
@@ -2610,6 +2611,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->float_controls2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT_CONTROLS_2_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->float_controls2_features);
+    }
+
+    if (vulkan_info->KHR_dynamic_rendering_local_read)
+    {
+        info->dynamic_rendering_local_read_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->dynamic_rendering_local_read_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
