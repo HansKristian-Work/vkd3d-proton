@@ -2075,8 +2075,9 @@ static bool vkd3d_memory_info_allow_suballocate(struct d3d12_device *device,
     /* For image-only heaps where heaps are small, it's possible the application wants to use fine-grained memory priorities.
      * Nixxes ports tend to do that for example. */
 
-    /* We may or may not want to disable this workaround if EXT_pageable is supported,
-     * but it's good to not have two different allocation paths on NVIDIA and RADV for now. */
+    /* Disable suballocation if EXT_pageable is supported, to give apps control over memory priorities. */
+    if (device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory)
+        return false;
 
     if (is_cpu_accessible_system_memory_heap(&info->heap_properties) ||
             !(info->flags & VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION))
