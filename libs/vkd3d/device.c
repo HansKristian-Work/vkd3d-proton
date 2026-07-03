@@ -10550,6 +10550,7 @@ static void d3d12_device_caps_shader_model_override(struct d3d12_device *device)
         { "6_6", D3D_SHADER_MODEL_6_6 },
         { "6_7", D3D_SHADER_MODEL_6_7 },
         { "6_8", D3D_SHADER_MODEL_6_8 },
+        { "6_9", D3D_SHADER_MODEL_6_9 },
     };
 
     if (!vkd3d_get_env_var("VKD3D_SHADER_MODEL", sm_string, sizeof(sm_string)))
