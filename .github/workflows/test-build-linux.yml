@@ -14,11 +14,11 @@ jobs:
         submodules: recursive
 
     - name: Setup problem matcher
-      uses: Joshua-Ashton/gcc-problem-matcher@v3
+      uses: misyltoad/gcc-problem-matcher@v3
 
     - name: Build MinGW x86
       id: build-mingw-x86
-      uses: Joshua-Ashton/arch-mingw-github-action@v8
+      uses: misyltoad/arch-mingw-github-action@v8
       with:
         command: |
           meson setup -Denable_tests=True -Denable_extras=True --cross-file=build-win32.txt --buildtype release build-mingw-x86
@@ -26,7 +26,7 @@ jobs:
 
     - name: Build MinGW x64
       id: build-mingw-x64
-      uses: Joshua-Ashton/arch-mingw-github-action@v8
+      uses: misyltoad/arch-mingw-github-action@v8
       with:
         command: |
           meson setup -Denable_tests=True -Denable_extras=True --cross-file=build-win64.txt --buildtype release build-mingw-x64
@@ -34,7 +34,7 @@ jobs:
 
     - name: Build Native GCC x86
       id: build-native-gcc-x86
-      uses: Joshua-Ashton/arch-mingw-github-action@v8
+      uses: misyltoad/arch-mingw-github-action@v8
       with:
         command: |
           sudo pacman -Syu --noconfirm lib32-gcc-libs
@@ -46,7 +46,7 @@ jobs:
 
     - name: Build Native GCC x64
       id: build-native-gcc-x64
-      uses: Joshua-Ashton/arch-mingw-github-action@v8
+      uses: misyltoad/arch-mingw-github-action@v8
       with:
         command: |
           export CC="gcc"
@@ -56,7 +56,7 @@ jobs:
 
     - name: Build Native Clang x64
       id: build-native-clang-x64
-      uses: Joshua-Ashton/arch-mingw-github-action@v8
+      uses: misyltoad/arch-mingw-github-action@v8
       with:
         command: |
           export CC="clang"
