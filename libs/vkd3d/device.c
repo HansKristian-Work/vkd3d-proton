@@ -10106,7 +10106,7 @@ static bool d3d12_device_supports_16bit_shader_ops(struct d3d12_device *device)
 
     return device->device_info.vulkan_1_2_features.shaderFloat16 &&
            device->device_info.features2.features.shaderInt16 &&
-           device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
+           device->device_info.vulkan_1_1_features.storageBuffer16BitAccess &&
            (supports_fp16_denorm_preserve || non_compliant_fp16) &&
            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
