@@ -133,6 +133,38 @@ ninja -C build-aarch64 install
 cp build-aarch64/tests/d3d12 /tmp/vkd3d-proton-aarch64/bin
 ```
 
+#### Building on Windows
+
+NOTE: Building directly on Windows (instead of cross compiling) is only expected to be used for testing and development.
+The primary use case is to develop tests and run them against native drivers, not to run real applications.
+This requires decent debugger support, so MSVC is supported as a compiler,
+although we do not stress test these builds at all.
+
+##### Building with MSVC
+
+This mostly involves installing the dependencies first (except for mingw-w64).
+Then, enter a MSVC development shell (usually called "x64 Native Tools Command Prompt for VS 2022" or something similar. Navigate to vkd3d-proton checkout, and run:
+
+```
+mkdir build
+cd build
+meson .. --backend vs2022 --buildtype release -Denable_tests=true # change as needed
+msbuild.exe vkd3d-proton.sln # or open in Visual Studio
+```
+
+##### Building with mingw (UCRT)
+
+In the ucrt64 shell of msys2, make sure to install ucrt packages of gcc toolchain, meson, glslang, python, ninja, etc.
+
+```
+# The explicit path seems to be important in some cases. It may complain about mismatching python.
+# Unlike cross compilation, do not use a cross file here.
+mkdir build
+cd build
+/ucrt64/bin/meson --buildtype release -Denable_tests=true
+ninja
+```
+
 ## Using vkd3d-proton
 
 The intended way to use vkd3d-proton is as native Win32 DLLs (d3d12.dll and d3d12core.dll).
