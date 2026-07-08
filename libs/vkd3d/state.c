@@ -1194,8 +1194,8 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         const VkPushConstantRange *push_constant_range, struct vkd3d_descriptor_set_context *context,
         VkDescriptorSetLayout *vk_set_layout)
 {
+    VkDescriptorSetLayoutBinding *vk_binding = NULL, *vk_binding_info = NULL;
     bool heap = d3d12_device_use_descriptor_heap(root_signature->device);
-    VkDescriptorSetLayoutBinding *vk_binding, *vk_binding_info = NULL;
     VkDescriptorSetAndBindingMappingEXT *vk_mapping;
     struct vkd3d_descriptor_hoist_desc *hoist_desc;
     struct vkd3d_shader_resource_binding *binding;

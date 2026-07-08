@@ -784,26 +784,26 @@ void test_query_heap_cpu_resolve_timestamp(void)
     heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
     hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_NONE,
             &IID_ID3D12QueryHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", (int)hr);
     hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, 1, query_data);
-    ok(hr == E_INVALIDARG, "Expected invalidarg, got hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Expected invalidarg, got hr #%x.\n", (int)hr);
     ID3D12QueryHeap_Release(heap);
 
     hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE,
             &IID_ID3D12QueryHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", (int)hr);
 
     /* This should be allowed. */
     memset(query_data, 0xab, sizeof(query_data));
     hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
             0, ARRAY_SIZE(query_data), query_data);
-    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(query_data); i++)
         ok(query_data[i] == 0, "Unexpected data %"PRIu64" for query %u.\n", query_data[i], i);
 
     hr = ID3D12CommandQueue_GetClockCalibration(context.queue, &before_gpu_timestamp, &cpu_timestamp);
-    ok(SUCCEEDED(hr), "Failed to calibrate timestamps, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to calibrate timestamps, hr #%x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(query_data) - 1; i++)
         ID3D12GraphicsCommandList_EndQuery(context.list, heap, D3D12_QUERY_TYPE_TIMESTAMP, i);
@@ -813,11 +813,11 @@ void test_query_heap_cpu_resolve_timestamp(void)
     /* This should be allowed. Results will be bogus. */
     hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
             0, ARRAY_SIZE(query_data), query_data);
-    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", (int)hr);
 
     wait_queue_idle_no_event(context.device, context.queue);
     hr = ID3D12CommandQueue_GetClockCalibration(context.queue, &after_gpu_timestamp, &cpu_timestamp);
-    ok(SUCCEEDED(hr), "Failed to calibrate timestamps, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to calibrate timestamps, hr #%x.\n", (int)hr);
 
     ok(before_gpu_timestamp <= after_gpu_timestamp, "Unexpected monotonicity, expected %"PRIu64" <= %"PRIu64".\n",
             before_gpu_timestamp, after_gpu_timestamp);
@@ -825,7 +825,7 @@ void test_query_heap_cpu_resolve_timestamp(void)
     /* The last query was never written, but should be allowed to resolve as-is. */
     hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_TIMESTAMP,
             0, ARRAY_SIZE(query_data), query_data);
-    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(query_data) - 1; i++)
     {
@@ -896,14 +896,14 @@ void test_query_heap_cpu_resolve_occlusion(void)
     heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
     hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_NONE,
             &IID_ID3D12QueryHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", (int)hr);
     hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_OCCLUSION, 0, 1, query_data);
-    ok(hr == E_INVALIDARG, "Expected invalidarg, got hr #%x.\n", hr);
+    ok(hr == E_INVALIDARG, "Expected invalidarg, got hr #%x.\n", (int)hr);
     ID3D12QueryHeap_Release(heap);
 
     hr = ID3D12Device15_CreateQueryHeap1(device15, &heap_desc, D3D12_QUERY_HEAP_FLAG_CPU_RESOLVE,
             &IID_ID3D12QueryHeap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create query heap, hr #%x.\n", (int)hr);
 
     /* This should be allowed. Trips device lost on AMD. */
     memset(query_data, 0xab, sizeof(query_data));
@@ -912,7 +912,7 @@ void test_query_heap_cpu_resolve_occlusion(void)
     {
         hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
             0, ARRAY_SIZE(query_data), query_data);
-        ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", (int)hr);
 
         for (i = 0; i < ARRAY_SIZE(query_data); i++)
             ok(query_data[i] == 0, "Unexpected data %"PRIu64" for query %u.\n", query_data[i], i);
@@ -941,14 +941,14 @@ void test_query_heap_cpu_resolve_occlusion(void)
     {
         hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
             0, ARRAY_SIZE(query_data), query_data);
-        ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+        ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", (int)hr);
     }
 
     wait_queue_idle_no_event(context.device, context.queue);
 
     hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_OCCLUSION,
             0, ARRAY_SIZE(query_data), query_data);
-    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(query_data); i++)
     {
@@ -959,7 +959,7 @@ void test_query_heap_cpu_resolve_occlusion(void)
     /* It's allowed to resolve a query in different ways based on the context. */
     hr = ID3D12Device15_ResolveQueryData(device15, heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION,
             0, ARRAY_SIZE(query_data), query_data);
-    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Unexpected failure, got hr #%x.\n", (int)hr);
 
     for (i = 0; i < ARRAY_SIZE(query_data); i++)
     {
