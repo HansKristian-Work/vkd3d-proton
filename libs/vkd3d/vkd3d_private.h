@@ -5993,6 +5993,38 @@ static inline VkRenderingFlags d3d12_device_get_rendering_flags(const struct d3d
                ? VK_RENDERING_LOCAL_READ_CONCURRENT_ACCESS_CONTROL_BIT_KHR : 0;
 }
 
+static inline bool d3d12_device_supports_dedicated_allocation_dynamic_memory_priorities(const struct d3d12_device *device)
+{
+    /* Need to support zero initialize, otherwise we have no way to do zerovram stuff for allocated resources.
+     * Any relevant implementation that supports pageable also supports this, and we want to reduce the implementation variance.
+     * Dedicated allocations is only valuable if we can use memory priorities. Otherwise we prefer suballocation for perf. */
+    return device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory &&
+            device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory;
+}
+
+/* Allow suballocation has tradeoffs. We get less overhead in allocation,
+ * but can damage our ability to do memory management via priorities. */
+static inline bool d3d12_device_allow_committed_texture_suballocation(const struct d3d12_device *device)
+{
+    /* Default is chosen due to Diablo 4 regressing CPU perf massively when we don't suballocate committed textures.
+     * It's unclear what the default should be. */
+    return !VKD3D_CONFIG_FLAG_IS_SET(DISALLOW_COMMITTED_TEXTURE_SUBALLOCATION) ||
+            !d3d12_device_supports_dedicated_allocation_dynamic_memory_priorities(device);
+}
+
+static inline bool d3d12_device_allow_image_heap_suballocation(const struct d3d12_device *device)
+{
+    /* Need global buffer aliasing to be able to do initialization. */
+    if (device->d3d12_caps.options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
+        return false;
+
+    /* If we have pageable support, we want to be able to take advantage of that for smaller heaps,
+     * since it seems to matter for memory management on e.g. Steam Machine.
+     * RADV only recently started supporting pageable. */
+    return !d3d12_device_supports_dedicated_allocation_dynamic_memory_priorities(device) ||
+            VKD3D_CONFIG_FLAG_IS_SET(ALLOW_IMAGE_HEAP_SUBALLOCATION);
+}
+
 ULONG d3d12_device_add_ref_common(struct d3d12_device *device);
 ULONG d3d12_device_release_common(struct d3d12_device *device);
 

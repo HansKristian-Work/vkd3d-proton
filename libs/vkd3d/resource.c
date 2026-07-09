@@ -4442,8 +4442,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         }
         else
         {
-            if (!device->device_info.zero_initialize_device_memory_features.zeroInitializeDeviceMemory ||
-                !device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory)
+            if (d3d12_device_allow_committed_texture_suballocation(device))
             {
                 /* We want to allow suballocations and we need the allocation to
                  * be cleared to zero, which only works if we allow buffers */
