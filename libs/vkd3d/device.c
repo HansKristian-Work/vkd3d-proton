@@ -766,6 +766,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Hitman World of Assassination (1659040) Hard-requires FP16 opts to work, even when not exposed. */
     { VKD3D_STRING_COMPARE_EXACT, "HITMAN3.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
         VKD3D_APPLICATION_FEATURE_ALLOW_NON_COMPLIANT_FP16 },
+    /* World of Warcraft Classic */
+    /* Like in retail WoW, descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
+    { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", VKD3D_CONFIG_FLAG_STATIC(AVOID_IMAGE_BUFFER_ALIASING) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
@@ -1094,6 +1097,15 @@ static const struct vkd3d_shader_quirk_info sottr_quirks = {
     sottr_hashes, ARRAY_SIZE(sottr_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash wow_classic_hashes[] = {
+    /* The same ray query shader from retail WoW causes a heap OOB here as well. */
+    { NULL, 0xef2f620cbce5630c, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
+};
+
+static const struct vkd3d_shader_quirk_info wow_classic_quirks = {
+    wow_classic_hashes, ARRAY_SIZE(wow_classic_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1185,6 +1197,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Shadow of the Tomb Raider */
     { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe", &sottr_quirks },
     /* MSVC fails to compile empty array. */
+    /* World of Warcraft Classic */
+    { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", &wow_classic_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
 
