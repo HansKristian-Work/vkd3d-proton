@@ -82,6 +82,7 @@ vkd3d_src = [
   'debug_ring.c',
   'va_map.c',
   'vkd3d_main.c',
+  'vkd3d_dstorage.c',
   'raytracing_pipeline.c',
   'state_object_common.c',
   'acceleration_structure.c',

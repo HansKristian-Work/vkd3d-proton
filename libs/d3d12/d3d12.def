@@ -10,3 +10,12 @@ EXPORTS
     D3D12SerializeRootSignature
     D3D12SerializeVersionedRootSignature
     D3D12GetInterface
+
+    ; DirectStorage integration (vkd3d_dstorage)
+    vkd3d_dstorage_get_version
+    vkd3d_dstorage_get_vk_buffer
+    vkd3d_dstorage_get_vk_device
+    vkd3d_dstorage_get_compute_queue
+    vkd3d_dstorage_export_dma_buf
+    vkd3d_dstorage_signal_fence
+    vkd3d_dstorage_submit_compute
