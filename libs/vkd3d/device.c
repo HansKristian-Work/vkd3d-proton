@@ -728,6 +728,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Borderlands 4. Also UE, but uses different name. */
     { VKD3D_STRING_COMPARE_EXACT, "Borderlands4.exe",
             VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1) },
+    /* New halo is UE, but doesn't use standard UE naming. */
+    { VKD3D_STRING_COMPARE_EXACT, "HaloCampaignEvolved.exe",
+            VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1) },
     /* Rise of the Tomb Raider. Game renders and samples a texture at the same time */
     { VKD3D_STRING_COMPARE_EXACT, "ROTTR.exe", VKD3D_CONFIG_FLAG_STATIC(DISABLE_COLOR_COMPRESSION) },
     /* Death Stranding (Director's Cut and original). Massive CPU overhead due to reading from HVV in certain scenarios. */
