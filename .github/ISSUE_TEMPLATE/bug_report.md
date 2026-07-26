@@ -7,7 +7,7 @@ assignees: ''
 
 ---
 
-Please describe your issue as accurately as possible. Include screenshots or videos if relevant
+Please describe your issue as accurately as possible without being overly verbose (no wall of AI/LLM output). Include screenshots or videos if relevant
 
 ### Software information
 Name of the game, settings used etc.
