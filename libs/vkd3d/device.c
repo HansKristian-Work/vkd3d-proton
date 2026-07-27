@@ -3912,6 +3912,17 @@ static void d3d12_device_init_vendor_hacks(struct d3d12_device *device)
         if (device->vendor_hacks.amdxc64)
             INFO("Loaded amdxc64.dll successfully.\n");
     }
+
+    if (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_INTEL)
+    {
+        char sysdir[MAX_PATH], path[MAX_PATH];
+        GetSystemDirectoryA(sysdir, sizeof(sysdir));
+        snprintf(path, sizeof(path),
+                "%s\\DriverStore\\FileRepository\\intc_wine\\igd10iumd64.dll", sysdir);
+        device->vendor_hacks.igd10iumd64 = LoadLibraryA(path);
+        if (device->vendor_hacks.igd10iumd64)
+            INFO("Loaded igd10iumd64.dll successfully.\n");
+    }
 #endif
 }
 
@@ -3922,6 +3933,8 @@ static void d3d12_device_cleanup_vendor_hacks(struct d3d12_device *device)
 #ifdef _WIN64
     if (device->vendor_hacks.amdxc64)
         FreeLibrary(device->vendor_hacks.amdxc64);
+    if (device->vendor_hacks.igd10iumd64)
+        FreeLibrary(device->vendor_hacks.igd10iumd64);
 #endif
 }
 
