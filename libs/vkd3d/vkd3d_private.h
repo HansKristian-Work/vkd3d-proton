@@ -5853,6 +5853,7 @@ struct d3d12_device
     {
 #ifdef _WIN64
         HMODULE amdxc64;
+        HMODULE igd10iumd64;
 #endif
         struct vkd3d_nv_shader nv_shader;
 
