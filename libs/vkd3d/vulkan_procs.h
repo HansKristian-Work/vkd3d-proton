@@ -410,7 +410,7 @@ VK_DEVICE_EXT_PFN(vkGetLatencyTimingsNV)
 VK_DEVICE_EXT_PFN(vkQueueNotifyOutOfBandNV)
 
 /* VK_KHR_cooperative_matrix */
-VK_INSTANCE_PFN(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR)
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR)
 
 /* VK_AMD_anti_lag */
 VK_DEVICE_EXT_PFN(vkAntiLagUpdateAMD)
