@@ -24,6 +24,9 @@
 #if defined(_WIN32)
 #define SONAME_LIBVULKAN "vulkan-1.dll"
 #define SONAME_D3D12CORE "d3d12core.dll"
+#elif defined(__ANDROID__)
+#define SONAME_LIBVULKAN "libvulkan.so"
+#define SONAME_D3D12CORE "libvkd3d-proton-d3d12core.so"
 #elif defined(__linux__)
 #define SONAME_LIBVULKAN "libvulkan.so.1"
 #define SONAME_D3D12CORE "libvkd3d-proton-d3d12core.so"

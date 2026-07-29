@@ -66,6 +66,9 @@ bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
 {
     char *name, *p, *real_path = NULL;
 
+#ifdef __ANDROID__
+    name = getprogname();
+#else
     if ((name = strrchr(program_invocation_name, '/')))
     {
         real_path = realpath("/proc/self/exe", NULL);
@@ -87,6 +90,7 @@ bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
     {
         name = program_invocation_name;
     }
+#endif
 
     strncpy(program_name, name, VKD3D_PATH_MAX);
     program_name[VKD3D_PATH_MAX - 1] = '\0';
