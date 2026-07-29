@@ -12360,6 +12360,38 @@ void test_shader_sample_position_dxil(void)
     test_shader_sample_position(true);
 }
 
+static void check_sub_resource_vec4_abs_delta(
+        ID3D12Resource *resource,
+        unsigned int subresource, ID3D12CommandQueue *queue,
+        ID3D12GraphicsCommandList *list,
+        const struct vec4 *expected_vec4, float abs_delta)
+{
+    struct resource_readback rb;
+    uint32_t x, y;
+    get_texture_readback_with_command_list(resource, subresource, &rb, queue, list);
+    for (y = 0; y < rb.height; y++)
+    {
+        for (x = 0; x < rb.width; x++)
+        {
+            const struct vec4 *value = get_readback_vec4(&rb, x, y);
+            const float epsilon = 1e-6f;
+
+            struct vec4 diff = {
+                fabsf(value->x - expected_vec4->x),
+                fabsf(value->y - expected_vec4->y),
+                fabsf(value->z - expected_vec4->z),
+                fabsf(value->w - expected_vec4->w),
+            };
+
+            ok(diff.x < epsilon && diff.y < epsilon && diff.z < epsilon && diff.w < epsilon,
+                 "Exceeded expected epsilon (expected [%g, %g, %g, %g], got [%g, %g, %g, %g].\n",
+                 expected_vec4->x, expected_vec4->y, expected_vec4->z, expected_vec4->w,
+                 value->x, value->y, value->z, value->w);
+        }
+    }
+    release_resource_readback(&rb);
+}
+
 static void test_shader_eval_attribute(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -12777,7 +12809,10 @@ static void test_shader_eval_attribute(bool use_dxil)
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
-    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_vec4, 0);
+
+    /* The shader is not precise, so the arithmetic does not necessarily cancel out to 0.
+     * The epsilon is rather large due to catastrophic cancellation issues. */
+    check_sub_resource_vec4_abs_delta(context.render_target, 0, queue, command_list, &expected_vec4, 1e-6f);
 
     reset_command_list(command_list, context.allocator);
     transition_resource_state(command_list, context.render_target,
@@ -12801,7 +12836,7 @@ static void test_shader_eval_attribute(bool use_dxil)
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
-    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &expected_vec4, 0);
+    check_sub_resource_vec4_abs_delta(context.render_target, 0, queue, command_list, &expected_vec4, 1e-6f);
 
     destroy_test_context(&context);
 }
