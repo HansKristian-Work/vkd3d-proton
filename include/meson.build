@@ -27,7 +27,7 @@ foreach idl_file : vkd3d_idl
   header_file = idl_generator.process(idl_file)
   vkd3d_header_files += header_file
 
-  if target_machine.system() == 'linux'
+  if vkd3d_platform == 'linux' or vkd3d_platform == 'android'
     header_name = idl_file.split('.')[0] + '.h'
     custom_target('install_' + header_name,
         input : header_file,

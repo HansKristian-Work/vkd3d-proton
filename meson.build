@@ -89,7 +89,7 @@ glsl_generator = generator(glsl_compiler,
 
 threads_dep = dependency('threads')
 
-if vkd3d_platform == 'linux'
+if vkd3d_platform == 'linux' or vkd3d_platform == 'android'
   lib_dl           = vkd3d_compiler.find_library('dl')
   vkd3d_extra_libs = [ lib_dl, threads_dep ]
 elif vkd3d_platform == 'windows'
@@ -130,7 +130,7 @@ if cpu_family == 'x86'
 
   # Need to link against libatomic for 64-bit atomic emulation on x86
   # when using clang.
-  if vkd3d_platform == 'linux'
+  if vkd3d_platform == 'linux' or vkd3d_platform == 'android'
     if vkd3d_is_clang
       lib_atomic = vkd3d_compiler.find_library('atomic')
       vkd3d_extra_libs += lib_atomic
@@ -188,7 +188,7 @@ else
   lib_d3d12 = d3d12_dep
 endif
 
-if vkd3d_platform == 'linux'
+if vkd3d_platform == 'linux' or vkd3d_platform == 'android'
   pkg = import('pkgconfig')
   pkg.generate(d3d12_lib, filebase : 'libvkd3d-proton-d3d12', subdirs : 'vkd3d-proton', description : 'The vkd3d-proton D3D12 implementation')
   install_headers('include/vkd3d_vk_includes.h', 'include/vkd3d_types.h', 'include/vkd3d_win32.h', 'include/vkd3d_windows.h', subdir : 'vkd3d-proton')
