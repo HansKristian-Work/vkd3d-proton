@@ -3152,6 +3152,14 @@ struct d3d12_rtas_batch_state
     VkMicromapUsageKHR *omm_usage_infos;
     size_t omm_usage_info_count;
     size_t omm_usage_info_size;
+
+    struct
+    {
+        VkDeviceAddress va_start;
+        VkDeviceAddress va_end;
+    } *scratch_usage;
+    size_t scratch_usage_count;
+    size_t scratch_usage_size;
 };
 
 union vkd3d_descriptor_heap_state
