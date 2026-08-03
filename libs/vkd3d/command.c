@@ -20465,6 +20465,8 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
             rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
 
     d3d12_command_list_clear_rtas_batch(list);
+
+    VKD3D_BREADCRUMB_COMMAND(BUILD_RTAS);
 }
 
 static void d3d12_command_list_flush_rtas_barrier(struct d3d12_command_list *list)
@@ -20660,8 +20662,6 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
      * to create a deep copy of the entire D3D12 input description */
     if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
     {
-        d3d12_command_list_flush_rtas_batch(list);
-
         VKD3D_BREADCRUMB_TAG("RTAS build [Dest VA, Source VA, Scratch VA]");
         VKD3D_BREADCRUMB_AUX64(desc->DestAccelerationStructureData);
         VKD3D_BREADCRUMB_AUX64(desc->SourceAccelerationStructureData);
@@ -20672,9 +20672,14 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
         {
             const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
             VkAccelerationStructureBuildSizesInfoKHR size_info;
+            VkBuildAccelerationStructureFlagsKHR old_flags;
+            VkBuildAccelerationStructureModeKHR old_mode;
 
             memset(&size_info, 0, sizeof(size_info));
             size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+
+            old_flags = build_info->flags;
+            old_mode = build_info->mode;
 
             if (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
             {
@@ -20688,6 +20693,10 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
             VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
                     VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info,
                     primitive_counts, &size_info));
+
+            build_info->flags = old_flags;
+            build_info->mode = old_mode;
+
             VKD3D_BREADCRUMB_TAG("Build requirements [Size, Build Scratch, Update Scratch]");
             VKD3D_BREADCRUMB_AUX64(size_info.accelerationStructureSize);
             VKD3D_BREADCRUMB_AUX64(size_info.buildScratchSize);
@@ -20751,8 +20760,6 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
                 desc->DestAccelerationStructureData,
                 rtas_kind);
     }
-
-    VKD3D_BREADCRUMB_COMMAND(BUILD_RTAS);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
