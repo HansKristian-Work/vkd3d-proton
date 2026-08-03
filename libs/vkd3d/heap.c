@@ -283,6 +283,16 @@ static HRESULT validate_heap_desc(struct d3d12_device *device, const D3D12_HEAP_
         return E_INVALIDARG;
     }
 
+    /* OpenExistingHeapFrom* maps to D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER,
+     * which in turn maps to VK_EXT_external_memory_host.
+     */
+    if ((desc->Flags & D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) &&
+        !device->vk_info.EXT_external_memory_host)
+    {
+        WARN("D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER is not supported.\n");
+        return E_INVALIDARG;
+    }
+
     if (FAILED(hr = d3d12_device_validate_custom_heap_type(device, &desc->Properties)))
         return hr;
 
