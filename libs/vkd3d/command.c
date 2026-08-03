@@ -20237,6 +20237,35 @@ static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list)
     vkd3d_free(rtas_batch->range_ptrs);
     vkd3d_free(rtas_batch->omm_build_infos);
     vkd3d_free(rtas_batch->omm_usage_infos);
+    vkd3d_free(rtas_batch->scratch_usage);
+}
+
+static bool d3d12_command_list_register_rtas_scratch_range(
+        struct d3d12_command_list *list, VkDeviceAddress scratch, VkDeviceSize size)
+{
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+    VkDeviceAddress scratch_end = scratch + size;
+    size_t i;
+
+    for (i = 0; i < rtas_batch->scratch_usage_count; i++)
+    {
+        if (max(rtas_batch->scratch_usage[i].va_start, scratch) < min(rtas_batch->scratch_usage[i].va_end, scratch_end))
+        {
+            /* The last element is already allocated and we cannot submit that quite yet. */
+            list->rtas_batch.build_info_count--;
+
+            WARN("Application bug detected. Attempting to use scratch which is currently in flight on GPU. Flushing batch.\n");
+            d3d12_command_list_flush_rtas_batch(list);
+            return true;
+        }
+    }
+
+    vkd3d_array_reserve((void **)&rtas_batch->scratch_usage, &rtas_batch->scratch_usage_size,
+        rtas_batch->scratch_usage_count + 1, sizeof(*rtas_batch->scratch_usage));
+    rtas_batch->scratch_usage[rtas_batch->scratch_usage_count].va_start = scratch;
+    rtas_batch->scratch_usage[rtas_batch->scratch_usage_count].va_end = scratch_end;
+    rtas_batch->scratch_usage_count++;
+    return false;
 }
 
 static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_list *list, uint32_t geometry_count,
@@ -20357,6 +20386,7 @@ static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
     rtas_batch->geometry_info_count = 0;
     rtas_batch->omm_build_info_count = 0;
     rtas_batch->omm_usage_info_count = 0;
+    rtas_batch->scratch_usage_count = 0;
 }
 
 static void d3d12_command_list_fixup_rtas_batch(struct d3d12_command_list *list)
@@ -20598,19 +20628,24 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
     VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkAccelerationStructureBuildGeometryInfoKHR *build_info;
     VkAccelerationStructureBuildRangeInfoKHR *range_infos;
     VkAccelerationStructureGeometryKHR *geometry_infos;
-    uint32_t *primitive_counts = NULL;
+    VkAccelerationStructureBuildSizesInfoKHR size_info;
+    VkBuildAccelerationStructureFlagsKHR old_flags;
+    VkBuildAccelerationStructureModeKHR old_mode;
+    uint32_t primitive_counts_scratch[64];
     enum vkd3d_rtas_kind rtas_kind;
+    uint32_t *primitive_counts;
     uint32_t geometry_count;
 
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(&desc->Inputs);
 
-#ifdef VKD3D_ENABLE_BREADCRUMBS
-    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS))
+    if (geometry_count <= ARRAY_SIZE(primitive_counts_scratch))
+        primitive_counts = primitive_counts_scratch;
+    else
         primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
-#endif
 
     if (!d3d12_command_list_allocate_rtas_build_info(list, geometry_count,
             &build_info, &geometry_infos, &omm_triangles_infos, &range_infos))
@@ -20656,6 +20691,41 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
     }
 
     build_info->scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
+    memset(&size_info, 0, sizeof(size_info));
+
+    /* Resolve scratch hazards. Stop batching if we detect broken application pattern.
+     * Observed in Witcher 3. Only do this for RTAS. No known issues with OMMs (yet ...). */
+
+    old_flags = build_info->flags;
+    old_mode = build_info->mode;
+
+    if (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
+    {
+        build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        build_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+    }
+
+    /* These pointers are normally not set until flush. */
+    build_info->pGeometries = geometry_infos;
+
+    size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+    VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info,
+            primitive_counts, &size_info));
+
+    build_info->flags = old_flags;
+    build_info->mode = old_mode;
+
+    if (d3d12_command_list_register_rtas_scratch_range(
+            list, desc->ScratchAccelerationStructureData,
+            (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
+                ? size_info.updateScratchSize : size_info.buildScratchSize))
+    {
+        /* The batch is restarted, need to rebuild. */
+        d3d12_command_list_flush_rtas_barrier(list);
+        d3d12_command_list_build_raytracing_blas_and_tlas(list, desc, num_postbuild_info_descs, postbuild_info_descs);
+        return;
+    }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* Immediately record the RTAS build command here so that we don't have
@@ -20670,33 +20740,6 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
                 "Update" : "Create");
         VKD3D_BREADCRUMB_TAG(desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ? "Top" : "Bottom");
         {
-            const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-            VkAccelerationStructureBuildSizesInfoKHR size_info;
-            VkBuildAccelerationStructureFlagsKHR old_flags;
-            VkBuildAccelerationStructureModeKHR old_mode;
-
-            memset(&size_info, 0, sizeof(size_info));
-            size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-
-            old_flags = build_info->flags;
-            old_mode = build_info->mode;
-
-            if (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
-            {
-                build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-                build_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
-            }
-
-            /* These pointers are normally not set until flush. */
-            build_info->pGeometries = geometry_infos;
-
-            VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
-                    VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info,
-                    primitive_counts, &size_info));
-
-            build_info->flags = old_flags;
-            build_info->mode = old_mode;
-
             VKD3D_BREADCRUMB_TAG("Build requirements [Size, Build Scratch, Update Scratch]");
             VKD3D_BREADCRUMB_AUX64(size_info.accelerationStructureSize);
             VKD3D_BREADCRUMB_AUX64(size_info.buildScratchSize);
@@ -20742,10 +20785,11 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
                 }
             }
         }
-
-        vkd3d_free(primitive_counts);
     }
 #endif
+
+    if (primitive_counts != primitive_counts_scratch)
+        vkd3d_free(primitive_counts);
 
     if (num_postbuild_info_descs)
     {
