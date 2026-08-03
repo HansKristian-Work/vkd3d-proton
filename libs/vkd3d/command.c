@@ -20546,6 +20546,10 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
 
             memset(&size_info, 0, sizeof(size_info));
             size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+
+            /* These pointers are normally not set until flush. */
+            build_info->pGeometries = geometry_info;
+
             VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
                     VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info, NULL, &size_info));
 
@@ -20677,6 +20681,10 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
                 build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
                 build_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
             }
+
+            /* These pointers are normally not set until flush. */
+            build_info->pGeometries = geometry_infos;
+
             VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
                     VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info,
                     primitive_counts, &size_info));
