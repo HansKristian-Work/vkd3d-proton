@@ -7147,9 +7147,6 @@ void test_fp_truncate_roundtrips(void)
     rs_desc.NumParameters = ARRAY_SIZE(rs_param);
     rs_desc.pParameters = rs_param;
 
-    input = create_upload_buffer(context.device, sizeof(inputs), inputs);
-    output = create_default_buffer(context.device, sizeof(inputs), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-
     memset(&features4, 0, sizeof(features4));
     if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS4,
         &features4, sizeof(features4))) || !features4.Native16BitShaderOpsSupported)
@@ -7158,6 +7155,9 @@ void test_fp_truncate_roundtrips(void)
         destroy_test_context(&context);
         return;
     }
+
+    input = create_upload_buffer(context.device, sizeof(inputs), inputs);
+    output = create_default_buffer(context.device, sizeof(inputs), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
     context.pipeline_state = create_compute_pipeline_state(
