@@ -3476,6 +3476,11 @@ struct d3d12_command_list
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
 
+    struct
+    {
+        uint64_t copy_count;
+    } workarounds;
+
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int breadcrumb_context_index;
 #endif

@@ -7348,6 +7348,8 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
 
     d3d12_command_list_clear_rtas_batch(list);
     list->rtas_batch.pending_rtas_work = false;
+
+    list->workarounds.copy_count = 0;
 }
 
 static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
@@ -10831,6 +10833,20 @@ static bool vk_image_copy_subresource_can_fuse_aspects(
             orig_copy->dstSubresource.aspectMask == orig_copy->srcSubresource.aspectMask;
 }
 
+static inline bool d3d12_command_list_track_copy_spam_workaround(struct d3d12_command_list *list)
+{
+    if (VKD3D_CONFIG_FLAG_IS_SET(LIMIT_EXTREME_COPY_SPAM))
+    {
+        const uint32_t copy_spam_limit = 100000;
+        list->workarounds.copy_count++;
+        if (list->workarounds.copy_count == copy_spam_limit)
+            WARN("Game has submitted 100000+ copies to a single command list. This is highly likely to cause GPU timeout, skipping any further copies.\n");
+        return list->workarounds.copy_count >= copy_spam_limit;
+    }
+
+    return false;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command_list_iface *iface,
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
@@ -10847,6 +10863,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
     d3d12_command_list_check_render_pass_validation(list, "CopyTextureRegion called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
+
+    if (d3d12_command_list_track_copy_spam_workaround(list))
+        return;
 
     if (src_box && !validate_d3d12_box(src_box))
     {
@@ -10948,6 +10967,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 
     d3d12_command_list_check_render_pass_validation(list, "CopyResource called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
+
+    if (d3d12_command_list_track_copy_spam_workaround(list))
+        return;
 
     vk_procs = &list->device->vk_procs;
 
