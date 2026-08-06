@@ -1109,6 +1109,10 @@ static const struct vkd3d_shader_quirk_info wow_classic_quirks = {
     wow_classic_hashes, ARRAY_SIZE(wow_classic_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_info empire_of_the_ants_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1185,8 +1189,6 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", &crimson_desert_quirks },
     /* Death Stranding 2 (3280350) */
     { VKD3D_STRING_COMPARE_EXACT, "DS2.exe", &ds2_quirks },
-    /* Unreal Engine 4 */
-    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
 	/* Spider Man 2 (2651280) */
     { VKD3D_STRING_COMPARE_EXACT, "Spider-Man2.exe", &spiderman2_quirks },
     /* PRAGMATA (3357650) */
@@ -1202,6 +1204,11 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* MSVC fails to compile empty array. */
     /* World of Warcraft Classic */
     { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", &wow_classic_quirks },
+    /* Empire of the Ants (2287330). With Terrain Tessellation on, some shaders
+     * seem to assume Wave32 by mistake leading to GPU timeout. */
+    { VKD3D_STRING_COMPARE_EXACT, "Empire-Win64-Shipping.exe", &empire_of_the_ants_quirks },
+    /* Unreal Engine 4 */
+    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
 
