@@ -4350,3 +4350,98 @@ void test_graphics_queue_depth_stencil_msaa(void)
 {
     test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE_DIRECT, true);
 }
+
+/* Simulate a certain ridiculous code pattern from Farming Simulator 25. */
+void test_copy_block_spam(void)
+{
+    struct test_context_desc context_desc;
+    D3D12_QUERY_HEAP_DESC query_heap_desc;
+    ID3D12Resource *query_output;
+    struct resource_readback rb;
+    ID3D12QueryHeap *query_heap;
+    struct test_context context;
+    ID3D12Resource *staging;
+    ID3D12Resource *output;
+    uint16_t *map_ptr;
+    unsigned int x, y;
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    staging = create_upload_buffer(context.device, 16 * 1024, NULL);
+    output = create_default_texture2d(context.device, 8192, 8192, 1, 1, DXGI_FORMAT_R16_UINT,
+                                      D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    query_output = create_default_buffer(context.device, 16, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12Resource_Map(staging, 0, NULL, (void **)&map_ptr);
+    for (x = 0; x < 8 * 1024; x++)
+        map_ptr[x] = x;
+    ID3D12Resource_Unmap(staging, 0, NULL);
+
+    memset(&query_heap_desc, 0, sizeof(query_heap_desc));
+    query_heap_desc.Count = 2;
+    query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    ID3D12Device_CreateQueryHeap(context.device, &query_heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+
+    ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0);
+
+    for (y = 0; y < 8192; y += 16)
+    {
+        for (x = 0; x < 8192; x += 16)
+        {
+            D3D12_TEXTURE_COPY_LOCATION dst, src;
+            memset(&dst, 0, sizeof(dst));
+            memset(&src, 0, sizeof(src));
+
+            dst.pResource = output;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+
+            src.pResource = staging;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            src.PlacedFootprint.Footprint.Width = 16;
+            src.PlacedFootprint.Footprint.Height = 16;
+            src.PlacedFootprint.Footprint.Depth = 1;
+            src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R16_UINT;
+            src.PlacedFootprint.Footprint.RowPitch = 256;
+            src.PlacedFootprint.Offset = ((x ^ y) & 7) * 512;
+
+            /* As a cherry on top, there's ping-pong barriers between every 16x16 block ... */
+            transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+                                      D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                      D3D12_RESOURCE_STATE_COPY_DEST);
+
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst, x, y, 0, &src, NULL);
+
+            transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_COPY_DEST,
+                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+                                      D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        }
+    }
+
+    ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 1);
+    ID3D12GraphicsCommandList_ResolveQueryData(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP,
+                                               0, 2, query_output, 0);
+    transition_resource_state(context.list, query_output, D3D12_RESOURCE_STATE_COPY_DEST,
+                              D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(query_output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+    {
+        UINT64 start_ticks = get_readback_uint64(&rb, 0, 0);
+        UINT64 end_ticks = get_readback_uint64(&rb, 1, 0);
+        UINT64 freq;
+        ok(SUCCEEDED(ID3D12CommandQueue_GetTimestampFrequency(context.queue, &freq)), "Failed to get timestamp freq.\n");
+        skip("Copy took %.3f ms\n", 1e3 * (double)(end_ticks - start_ticks) / (double)freq);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(query_output);
+    ID3D12Resource_Release(staging);
+    ID3D12QueryHeap_Release(query_heap);
+    destroy_test_context(&context);
+}
