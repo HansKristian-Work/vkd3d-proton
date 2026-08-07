@@ -957,6 +957,94 @@ void test_copy_texture_bc_rgba(void)
     destroy_test_context(&context);
 }
 
+void test_copy_buffer_texture_bc_rgba(void)
+{
+    D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
+    ID3D12Resource *bc_texture, *upload_buffer;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    struct uvec4 *upload_row;
+    const struct uvec4 *got;
+    struct uvec4 expected;
+    uint8_t *upload_data;
+    unsigned int i, x, y;
+    HRESULT hr;
+
+    static const unsigned int probes[][2] =
+    {
+        { 0, 0 }, { 15, 0 }, { 16, 0 }, { 0, 15 }, { 0, 16 }, { 63, 63 },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    /* Each RGBA32_UINT texel is physically one BC3 block. Keep the source
+     * dimensions large enough that an unconverted Vulkan copy remains valid,
+     * but covers only the upper-left portion of the destination. */
+    upload_buffer = create_upload_buffer(context.device, 64 * 1024, NULL);
+    hr = ID3D12Resource_Map(upload_buffer, 0, NULL, (void **)&upload_data);
+    ok(hr == S_OK, "Failed to map upload buffer, hr %#x.\n", (int)hr);
+    for (y = 0; y < 64; ++y)
+    {
+        upload_row = (struct uvec4 *)(upload_data + y * 1024);
+        for (x = 0; x < 64; ++x)
+        {
+            upload_row[x].x = 0x10000000u | (y << 8) | x;
+            upload_row[x].y = 0x20000000u | (x << 8) | y;
+            upload_row[x].z = 0x30000000u | (y << 16) | x;
+            upload_row[x].w = 0x40000000u | (x << 16) | y;
+        }
+    }
+    ID3D12Resource_Unmap(upload_buffer, 0, NULL);
+
+    bc_texture = create_default_texture(context.device, 256, 256, DXGI_FORMAT_BC3_UNORM,
+            0, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    memset(&src_location, 0, sizeof(src_location));
+    src_location.pResource = upload_buffer;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src_location.PlacedFootprint.Footprint.Width = 64;
+    src_location.PlacedFootprint.Footprint.Height = 64;
+    src_location.PlacedFootprint.Footprint.Depth = 1;
+    src_location.PlacedFootprint.Footprint.RowPitch = 1024;
+    src_location.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+
+    memset(&dst_location, 0, sizeof(dst_location));
+    dst_location.pResource = bc_texture;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    ID3D12GraphicsCommandList_CopyTextureRegion(context.list,
+            &dst_location, 0, 0, 0, &src_location, NULL);
+
+    transition_resource_state(context.list, bc_texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(bc_texture, 0, &rb, context.queue, context.list);
+    for (i = 0; i < ARRAY_SIZE(probes); ++i)
+    {
+        x = probes[i][0];
+        y = probes[i][1];
+        expected.x = 0x10000000u | (y << 8) | x;
+        expected.y = 0x20000000u | (x << 8) | y;
+        expected.z = 0x30000000u | (y << 16) | x;
+        expected.w = 0x40000000u | (x << 16) | y;
+        got = get_readback_uvec4(&rb, x, y);
+        ok(!memcmp(got, &expected, sizeof(*got)),
+                "Got {%#x, %#x, %#x, %#x} at (%u, %u), expected {%#x, %#x, %#x, %#x}.\n",
+                got->x, got->y, got->z, got->w, x, y,
+                expected.x, expected.y, expected.z, expected.w);
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(upload_buffer);
+    ID3D12Resource_Release(bc_texture);
+    destroy_test_context(&context);
+}
+
 void test_copy_texture_mismatch_format(void)
 {
     static const FLOAT gray_unorm[] = { 10.0f / 255.0f, 10.0f / 255.0f, 10.0f / 255.0f, 10.0f / 255.0f };
