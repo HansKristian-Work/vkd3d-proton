@@ -3029,6 +3029,10 @@ struct d3d12_tracked_texture_copy
 {
     VkImage vk_image;
     uint32_t subresource_index; /* If UINT32_MAX, the entire image was touched. */
+    /* For single subresources, track the damage rect.
+     * For UINT32_MAX subresource_index, offsets are ignored. */
+    VkOffset3D top_left_pixel;
+    VkOffset3D bottom_right_pixel;
 };
 
 enum vkd3d_batch_type
