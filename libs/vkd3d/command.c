@@ -10662,6 +10662,14 @@ static inline bool vk_offset_region_overlaps(VkOffset3D a_top_left, VkOffset3D a
             top_left_overlap.z <= bottom_right_overlap.z;
 }
 
+static inline bool vk_offset_extent_region_overlaps(VkOffset3D a_offset, VkExtent3D a_extent,
+    VkOffset3D b_offset, VkExtent3D b_extent)
+{
+    return vk_offset_region_overlaps(
+        a_offset, vk_offset_extent_to_bottom_right_offset(a_offset, a_extent),
+        b_offset, vk_offset_extent_to_bottom_right_offset(b_offset, b_extent));
+}
+
 static void d3d12_command_list_register_pending_transfer_image_write(struct d3d12_command_list *list,
         VkImage vk_image, uint32_t subresource_index, VkOffset3D offset, VkExtent3D extent, VkPipelineStageFlags2 vk_stages)
 {
@@ -11001,7 +11009,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                     other_subres = &other_info->copy.buffer_image.imageSubresource;
                     assert(subres->layerCount == 1 && other_subres->layerCount == 1);
                     alias = vk_image_copy_subresource_overlaps(copy_info.dst.pResource, subres,
-                            other_info->dst.pResource, other_subres);
+                            other_info->dst.pResource, other_subres) &&
+                            vk_offset_extent_region_overlaps(
+                                copy_info.copy.buffer_image.imageOffset,
+                                copy_info.copy.buffer_image.imageExtent,
+                                other_info->copy.buffer_image.imageOffset,
+                                other_info->copy.buffer_image.imageExtent);
                     break;
                 case VKD3D_BATCH_TYPE_COPY_IMAGE:
                     if (!fused_aspect_info && vk_image_copy_subresource_can_fuse_aspects(
@@ -11014,8 +11027,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
                     /* Test for destination aliasing as D3D12 requires serialization on overlapping copies (WAW hazards). */
                     alias = vk_image_copy_subresource_overlaps(
-                            copy_info.dst.pResource, &copy_info.copy.image.dstSubresource,
-                            other_info->dst.pResource, &other_info->copy.image.dstSubresource);
+                                copy_info.dst.pResource, &copy_info.copy.image.dstSubresource,
+                                other_info->dst.pResource, &other_info->copy.image.dstSubresource) &&
+                            vk_offset_extent_region_overlaps(
+                                copy_info.copy.image.dstOffset,
+                                copy_info.copy.image.extent,
+                                other_info->copy.image.dstOffset,
+                                other_info->copy.image.extent);
                     break;
                 default:
                     assert(false);
