@@ -1998,6 +1998,8 @@ void test_renderpass_resolve_suspend_resume(void)
     transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST);
     transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
 
+    vkd3d_mute_validation_message("Suspend", "General suspend-resume shenanigans, we skirt the spec a bit here.");
+
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
         struct
@@ -2120,10 +2122,15 @@ void test_renderpass_resolve_suspend_resume(void)
             check_sub_resource_uint8(ds, 2 + j, context.queue, context.list, test->draw ? 0x23 : 0xe0, 0);
             reset_command_list(context.list, context.allocator);
         }
+
+        transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                D3D12_RESOURCE_STATE_RESOLVE_DEST);
+        transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                D3D12_RESOURCE_STATE_RESOLVE_DEST);
     }
 
-    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
-    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+    vkd3d_test_set_context(NULL);
+    vkd3d_unmute_validation_message("Suspend");
 
     ID3D12Resource_Release(rt_ms);
     ID3D12Resource_Release(ds_ms);
