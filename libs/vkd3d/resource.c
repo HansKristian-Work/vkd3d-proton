@@ -5404,7 +5404,7 @@ static void vkd3d_get_metadata_buffer_view_for_resource_legacy(struct d3d12_devi
     view->flags = VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
 
     /* If we would need an SSBO offset buffer for whatever reason, just fallback to a typed view instead. */
-    if (view_format == DXGI_FORMAT_UNKNOWN)
+    if (view_format == DXGI_FORMAT_UNKNOWN && (view->va & 3) == 0)
         if (view->va & (device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment - 1))
             view->dxgi_format = DXGI_FORMAT_R32_UINT;
 }
