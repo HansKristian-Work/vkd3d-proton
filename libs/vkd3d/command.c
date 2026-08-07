@@ -9837,7 +9837,7 @@ static bool vk_image_copy_from_d3d12(VkImageCopy2 *image_copy,
 
 static void d3d12_command_list_transition_image_layout_with_global_memory_barrier(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch,
-        VkImage vk_image, const VkImageSubresourceLayers *vk_subresource,
+        struct d3d12_resource *resource, const VkImageSubresourceLayers *vk_subresource,
         VkPipelineStageFlags2 src_stages, VkAccessFlags2 src_access, VkImageLayout old_layout,
         VkPipelineStageFlags2 dst_stages, VkAccessFlags2 dst_access, VkImageLayout new_layout,
         VkAccessFlags2 global_src_access, VkAccessFlags2 global_dst_access)
@@ -9855,8 +9855,13 @@ static void d3d12_command_list_transition_image_layout_with_global_memory_barrie
     vk_barrier.newLayout = new_layout;
     vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier.image = vk_image;
+    vk_barrier.image = resource->res.vk_image;
     vk_barrier.subresourceRange = vk_subresource_range_from_layers(vk_subresource);
+
+    /* maint9 quirk. If enabled, and the 3D image is 2D_ARRAY compatible,
+     * layerCount is in terms of slices, so the compatible thing to do is REMAINING_ARRAY_LAYERS. */
+    if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        vk_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
     need_global_barrier = global_src_access || global_dst_access;
 
@@ -9871,12 +9876,12 @@ static void d3d12_command_list_transition_image_layout_with_global_memory_barrie
 
 static void d3d12_command_list_transition_image_layout(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch,
-        VkImage vk_image, const VkImageSubresourceLayers *vk_subresource,
+        struct d3d12_resource *resource, const VkImageSubresourceLayers *vk_subresource,
         VkPipelineStageFlags2 src_stages, VkAccessFlags2 src_access, VkImageLayout old_layout,
         VkPipelineStageFlags2 dst_stages, VkAccessFlags2 dst_access, VkImageLayout new_layout)
 {
     d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch,
-            vk_image, vk_subresource,
+            resource, vk_subresource,
             src_stages, src_access, old_layout,
             dst_stages, dst_access, new_layout,
             0, 0);
@@ -10051,7 +10056,7 @@ static void d3d12_command_list_copy_image_transition_images(struct d3d12_command
         else
             old_layout = dst_resource->common_layout;
 
-        d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
+        d3d12_command_list_transition_image_layout(list, batch, dst_resource,
                 &region->dstSubresource,
                 vk_availability_stages, VK_ACCESS_2_NONE,
                 old_layout,
@@ -10071,7 +10076,7 @@ static void d3d12_command_list_copy_image_transition_images(struct d3d12_command
         else
             old_layout = src_resource->common_layout;
 
-        d3d12_command_list_transition_image_layout(list, batch, src_resource->res.vk_image,
+        d3d12_command_list_transition_image_layout(list, batch, src_resource,
             &region->srcSubresource, vk_availability_stages,
             VK_ACCESS_2_NONE, old_layout,
             barrier.src.stages, barrier.src.access, barrier.src.layout);
@@ -10320,7 +10325,7 @@ cleanup:
         else
             new_layout = dst_resource->common_layout;
 
-        d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
+        d3d12_command_list_transition_image_layout(list, batch, dst_resource,
                 &region->dstSubresource, barrier.dst.stages,
                 barrier.dst.access, barrier.dst.layout,
                 outside_vk_stages, outside_vk_access,
@@ -10336,7 +10341,7 @@ cleanup:
         else
             new_layout = src_resource->common_layout;
 
-        d3d12_command_list_transition_image_layout(list, batch, src_resource->res.vk_image,
+        d3d12_command_list_transition_image_layout(list, batch, src_resource,
             &region->srcSubresource, barrier.src.stages,
             VK_ACCESS_2_NONE, barrier.src.layout,
             outside_vk_stages, outside_vk_access,
@@ -10721,7 +10726,7 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
             list->transfer_batch.tracked_copy_buffer_count = 0;
 
             d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch,
-                    src_resource->res.vk_image,
+                    src_resource,
                     &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
                     src_resource->common_layout, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
                     info->src_layout, global_transfer_access, global_transfer_access);
@@ -10733,7 +10738,7 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
 
         if (!unified || info->writes_full_subresource)
         {
-            d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
+            d3d12_command_list_transition_image_layout(list, batch, dst_resource,
                     &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
                     info->writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
                     VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, info->dst_layout);
@@ -10790,7 +10795,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         if (!unified)
         {
             d3d12_command_list_transition_image_layout(list, batch,
-                    src_resource->res.vk_image,
+                    src_resource,
                     &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
                     info->src_layout, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE, src_resource->common_layout);
         }
@@ -10816,7 +10821,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
 
         if (!unified)
         {
-            d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
+            d3d12_command_list_transition_image_layout(list, batch, dst_resource,
                     &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT,
                     VK_ACCESS_2_TRANSFER_WRITE_BIT, info->dst_layout, VK_PIPELINE_STAGE_2_COPY_BIT,
                     VK_ACCESS_2_NONE, dst_resource->common_layout);
