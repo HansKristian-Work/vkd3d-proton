@@ -3113,6 +3113,23 @@ struct d3d12_transfer_batch_state
 
     /* COPY and RESOLVE are relevant here. */
     VkPipelineStageFlags2 vk_stages;
+
+    /* We defer RESOURCE -> COPY_DEST barriers. The layouts for these are always the common layout,
+     * so there is very little danger in doing so. This allows us to avoid really terrible ping-pong
+     * patterns with repeat(RESOURCE -> COPY_DEST -> COPY -> RESOURCE) patterns in the wild, which completely
+     * break batching otherwise.
+     */
+    VkPipelineStageFlags2 write_after_read_hazard_stages;
+
+    /* Once we flush transfer batches, add a TRANSFER_WRITE -> stage / SHADER_READ barrier to resolve
+     * COPY_DEST -> RESOURCE barrier late. */
+    VkPipelineStageFlags2 read_after_write_hazard_stages;
+
+    /* Used to track if we actually need to submit a WAR barrier.
+     * On the first RESOURCE -> COPY_DEST in a command list, we wouldn't know if the preceding command list
+     * has RESOURCE executions, but after a roundtrip, we can trivially ignore further RESOURCE -> COPY_DEST
+     * if there hasn't been any shader access since the last time. */
+    VkPipelineStageFlags2 shader_resource_execution_stages_are_idle;
 };
 
 #define VKD3D_MAX_WBI_BATCH_SIZE 128
@@ -4265,7 +4282,7 @@ uint32_t vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
 
 #define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) do { \
     if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS)) { \
-        d3d12_command_list_end_transfer_batch(list);          \
+        d3d12_command_list_end_transfer_batch(list, true); \
     } \
 } while(0)
 
