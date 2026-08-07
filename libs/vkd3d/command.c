@@ -80,7 +80,7 @@ static VkImageLayout d3d12_command_list_get_depth_stencil_resource_layout(const 
 static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_list *list,
         const struct d3d12_resource *resource, uint32_t plane_optimal_mask,
         struct d3d12_command_list_barrier_batch *batch);
-static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *list);
+static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *list, bool resolve_shader_resource_barrier);
 static void d3d12_command_list_end_transfer_batch_if_trivial(struct d3d12_command_list *list);
 static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list);
 static inline void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *list, enum vkd3d_batch_type type);
@@ -2561,7 +2561,7 @@ static void d3d12_command_list_copy_queue_fallback(struct d3d12_command_list *li
 {
     if (!list->cmd.iterations[list->cmd.iteration_count - 1].fallback)
     {
-        d3d12_command_list_end_transfer_batch(list);
+        d3d12_command_list_end_transfer_batch(list, false);
         d3d12_command_list_begin_new_sequence(list, true);
     }
 }
@@ -6945,13 +6945,17 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
     return S_OK;
 }
 
+static void d3d12_command_list_begin_transfer(struct d3d12_command_list *list);
+
 void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list)
 {
     /* TODO: Revisit this w.r.t. splitting VkCommandBuffer */
     d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_end_current_render_pass(list, false);
 
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, true);
+    /* Deal with any lingering WAR hazard. */
+    d3d12_command_list_begin_transfer(list);
     d3d12_command_list_flush_rtas_batch(list);
     d3d12_command_list_flush_clears(list, NULL, NULL);
 
@@ -7341,6 +7345,9 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->transfer_batch.vk_stages = 0;
     list->transfer_batch.batch_len = 0;
     list->transfer_batch.batch_type = VKD3D_BATCH_TYPE_NONE;
+    list->transfer_batch.write_after_read_hazard_stages = VK_PIPELINE_STAGE_NONE;
+    list->transfer_batch.read_after_write_hazard_stages = VK_PIPELINE_STAGE_NONE;
+    list->transfer_batch.shader_resource_execution_stages_are_idle = VK_PIPELINE_STAGE_NONE;
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
     list->submit_allocator = NULL;
@@ -9010,7 +9017,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics;
 
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, true);
     d3d12_command_list_flush_rtas_batch(list);
 
     d3d12_command_list_promote_dsv_layout(list);
@@ -9135,7 +9142,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
         return false;
 
     d3d12_command_list_end_current_render_pass(list, false);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, true);
 
     d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
     vk_patch_cmd_buffer = list->cmd.vk_post_indirect_barrier_commands;
@@ -9537,7 +9544,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
             return;
     }
 
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, true);
 
     if (!d3d12_command_list_update_compute_state(list))
     {
@@ -9575,6 +9582,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
 
     d3d12_command_list_check_render_pass_validation(list, "CopyBufferRegion called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
+    d3d12_command_list_begin_transfer(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -9589,7 +9597,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
 
     buffer_copy.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2;
     buffer_copy.pNext = NULL;
@@ -10974,6 +10982,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
     d3d12_command_list_check_render_pass_validation(list, "CopyTextureRegion called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
+    d3d12_command_list_begin_transfer(list);
 
     if (src_box && !validate_d3d12_box(src_box))
     {
@@ -11043,7 +11052,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
     if (alias)
     {
-        d3d12_command_list_end_transfer_batch(list);
+        d3d12_command_list_end_transfer_batch(list, false);
         /* end_transfer_batch resets the batch_type to NONE, so we need to restore it here. */
         list->transfer_batch.batch_type = copy_info.batch_type;
         fused_aspect_info = NULL;
@@ -11110,7 +11119,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     d3d12_command_list_end_current_render_pass(list, false);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
+    d3d12_command_list_begin_transfer(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -11313,20 +11323,59 @@ static void d3d12_command_list_end_transfer_batch_if_trivial(struct d3d12_comman
     }
 }
 
-static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *list)
+static void d3d12_command_list_begin_transfer(struct d3d12_command_list *list)
+{
+    if (list->transfer_batch.write_after_read_hazard_stages & ~list->transfer_batch.shader_resource_execution_stages_are_idle)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VkMemoryBarrier2 vk_memory_barrier;
+        VkDependencyInfo dep_info;
+
+        d3d12_command_list_check_end_of_command_list_cleanup(list);
+        d3d12_command_list_end_current_render_pass(list, true);
+
+        memset(&vk_memory_barrier, 0, sizeof(vk_memory_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_memory_barrier;
+
+        vk_memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_memory_barrier.srcStageMask =
+                list->transfer_batch.write_after_read_hazard_stages &
+                ~list->transfer_batch.shader_resource_execution_stages_are_idle;
+        vk_memory_barrier.srcAccessMask = 0;
+        vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        vk_memory_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+
+        list->transfer_batch.write_after_read_hazard_stages = 0;
+
+        /* Any possible RESOURCE -> COPY_DEST barrier has been resolved now.
+         * Until we observe actual resource work, we can ignore any further RESOURCE -> COPY_DEST barrier. */
+        list->transfer_batch.shader_resource_execution_stages_are_idle |= vk_memory_barrier.srcStageMask;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        d3d12_command_list_debug_mark_label(list, "RESOURCE -> COPY_DEST", 1.0f, 1.0f, 0.0f, 1.0f);
+        VKD3D_BREADCRUMB_TAG("RESOURCE -> COPY_DEST late barrier");
+        VKD3D_BREADCRUMB_COMMAND(BARRIER);
+    }
+}
+
+static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *list, bool resolve_shader_resource_barrier)
 {
     struct d3d12_command_list_barrier_batch barriers;
     bool has_waw_skip = false;
     uint32_t old_count = 0;
     size_t i;
 
-    if (list->transfer_batch.batch_type != VKD3D_BATCH_TYPE_NONE)
+    if (list->transfer_batch.batch_type != VKD3D_BATCH_TYPE_NONE ||
+        (resolve_shader_resource_barrier && list->transfer_batch.read_after_write_hazard_stages))
         d3d12_command_list_check_end_of_command_list_cleanup(list);
 
     switch (list->transfer_batch.batch_type)
     {
         case VKD3D_BATCH_TYPE_NONE:
-            return;
+            break;
         case VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE:
         case VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER:
         case VKD3D_BATCH_TYPE_COPY_IMAGE:
@@ -11398,6 +11447,44 @@ static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *lis
     }
 
     list->transfer_batch.batch_type = VKD3D_BATCH_TYPE_NONE;
+
+    if (resolve_shader_resource_barrier && list->transfer_batch.read_after_write_hazard_stages)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VkMemoryBarrier2 vk_memory_barrier;
+        VkDependencyInfo dep_info;
+
+        d3d12_command_list_end_current_render_pass(list, true);
+
+        memset(&vk_memory_barrier, 0, sizeof(vk_memory_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_memory_barrier;
+
+        vk_memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        /* We only do magic inside COPY_BIT stage. RESOLVES are different beasts. */
+        vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        vk_memory_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        vk_memory_barrier.dstStageMask = list->transfer_batch.read_after_write_hazard_stages;
+        vk_memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+
+        list->transfer_batch.read_after_write_hazard_stages = 0;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        d3d12_command_list_debug_mark_label(list, "COPY_DEST -> RESOURCE", 1.0f, 1.0f, 0.0f, 1.0f);
+        VKD3D_BREADCRUMB_TAG("COPY_DEST -> RESOURCE late barrier");
+        VKD3D_BREADCRUMB_COMMAND(BARRIER);
+    }
+
+    if (resolve_shader_resource_barrier)
+    {
+        /* When this is true, there is upcoming execution which might access shader resources.
+         * Flag that this needs to be synchronized.
+         * TODO: We could be a little smarter here and only "unidle" the exact stages used,
+         * but that gets rather annoying to juggle. */
+        list->transfer_batch.shader_resource_execution_stages_are_idle = VK_PIPELINE_STAGE_NONE;
+    }
 }
 
 static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list)
@@ -11456,7 +11543,7 @@ static void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *
 {
     if (list->transfer_batch.batch_type != type || list->transfer_batch.batch_len == ARRAY_SIZE(list->transfer_batch.batch))
     {
-        d3d12_command_list_end_transfer_batch(list);
+        d3d12_command_list_end_transfer_batch(list, false);
         list->transfer_batch.batch_type = type;
     }
 }
@@ -11492,7 +11579,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     d3d12_command_list_flush_dgc_batch(list);
 
     d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
+    d3d12_command_list_begin_transfer(list);
 
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
@@ -12495,7 +12583,7 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     }
 
     d3d12_command_list_end_current_render_pass(list, false);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
 
     /* If there are WAW hazards on RESOLVE_DEST, handle those. */
     d3d12_command_list_barrier_batch_init(&batch);
@@ -13459,6 +13547,29 @@ static void d3d12_command_list_merge_copy_tracking(struct d3d12_command_list *li
     d3d12_command_list_barrier_batch_add_global_transition(list, batch,
             list->transfer_batch.vk_stages, VK_ACCESS_2_TRANSFER_WRITE_BIT,
             list->transfer_batch.vk_stages, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+    if (list->transfer_batch.vk_stages & VK_PIPELINE_STAGE_2_COPY_BIT)
+    {
+        if (list->transfer_batch.read_after_write_hazard_stages)
+        {
+            /* If we're doing a transfer barrier, fuse in any lingering COPY -> RESOURCE barrier. */
+            d3d12_command_list_barrier_batch_add_global_transition(list, batch,
+                   VK_PIPELINE_STAGE_2_COPY_BIT, 0,
+                   list->transfer_batch.read_after_write_hazard_stages, VK_ACCESS_2_SHADER_READ_BIT);
+            list->transfer_batch.read_after_write_hazard_stages = 0;
+        }
+
+        if (list->transfer_batch.write_after_read_hazard_stages)
+        {
+            /* If we're doing a transfer barrier, fuse in any lingering RESOURCE -> COPY barrier. */
+            d3d12_command_list_barrier_batch_add_global_transition(list, batch,
+                    list->transfer_batch.write_after_read_hazard_stages, 0,
+                    VK_PIPELINE_STAGE_2_COPY_BIT, 0);
+            list->transfer_batch.shader_resource_execution_stages_are_idle |= list->transfer_batch.write_after_read_hazard_stages;
+            list->transfer_batch.write_after_read_hazard_stages = 0;
+        }
+    }
+
     d3d12_command_list_reset_transfer_waw_tracking(list);
 }
 
@@ -13715,6 +13826,61 @@ static const char *vkd3d_barrier_access_to_str(D3D12_BARRIER_ACCESS access)
     return buffer;
 }
 
+static bool d3d12_command_list_check_resource_barrier_trivial_copy_resource(
+    struct d3d12_command_list *list, UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers)
+{
+    VkPipelineStageFlags2 write_after_read_stages = 0;
+    VkPipelineStageFlags2 read_after_write_stages = 0;
+    VkAccessFlags2 dummy = 0;
+    UINT i;
+
+    for (i = 0; i < barrier_count; i++)
+    {
+        const D3D12_RESOURCE_BARRIER *barrier = &barriers[i];
+        const D3D12_RESOURCE_STATES states =
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        struct d3d12_resource *preserve_resource;
+
+        if (barrier->Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION)
+            return false;
+        if (!(preserve_resource = impl_from_ID3D12Resource(barrier->Transition.pResource)))
+            return false;
+        if (barrier->Flags & D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY)
+            return false;
+
+        if (barrier->Transition.StateBefore == D3D12_RESOURCE_STATE_COPY_DEST &&
+            (barrier->Transition.StateAfter & states) == barrier->Transition.StateAfter)
+        {
+            vk_access_and_stage_flags_from_d3d12_resource_state(
+                    list, preserve_resource, barrier->Transition.StateAfter,
+                    list->vk_queue_flags, &read_after_write_stages, &dummy);
+        }
+        else if (barrier->Transition.StateAfter == D3D12_RESOURCE_STATE_COPY_DEST &&
+            (barrier->Transition.StateBefore & states) == barrier->Transition.StateBefore)
+        {
+            vk_access_and_stage_flags_from_d3d12_resource_state(
+                    list, preserve_resource, barrier->Transition.StateBefore,
+                    list->vk_queue_flags, &write_after_read_stages, &dummy);
+        }
+        else
+        {
+            return false;
+        }
+
+        d3d12_command_list_track_resource_usage(list, preserve_resource, true);
+    }
+
+    if (read_after_write_stages)
+        d3d12_command_list_debug_mark_label(list, "Defer COPY_DEST -> RESOURCE", 1.0f, 1.0f, 0.0f, 1.0f);
+    if (write_after_read_stages)
+        d3d12_command_list_debug_mark_label(list, "Defer RESOURCE -> COPY_DEST", 1.0f, 1.0f, 0.0f, 1.0f);
+
+    list->transfer_batch.read_after_write_hazard_stages |= read_after_write_stages;
+    list->transfer_batch.write_after_read_hazard_stages |= write_after_read_stages;
+    return true;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_list_iface *iface,
         UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers)
 {
@@ -13725,9 +13891,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
     TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
 
+    /* Ignore enhanced barriers. They are much harder to reason about due to the transient nature of Vulkan-style
+     * barriers. This is more or less just a workaround too for terribly written games,
+     * so keep it as simple as it can be for now. */
+    if (d3d12_command_list_check_resource_barrier_trivial_copy_resource(list, barrier_count, barriers))
+        return;
+
     d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_end_current_render_pass(list, false);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
     d3d12_command_list_barrier_batch_init(&batch);
 
     d3d12_command_list_debug_mark_begin_region(list, "ResourceBarrier");
@@ -16803,7 +16975,7 @@ static void d3d12_command_list_add_query_resolve(struct d3d12_command_list *list
         const struct vkd3d_query_resolve_entry *entry)
 {
     /* Ensure that other writes to the buffer execute before the resolve */
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
 
     if (!vkd3d_array_reserve((void**)&list->query_resolves, &list->query_resolve_size,
             list->query_resolve_count + 1, sizeof(*list->query_resolves)))
@@ -17998,6 +18170,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     VKD3D_BREADCRUMB_COOKIE(count_impl ? count_impl->res.cookie.index : 0);
     VKD3D_BREADCRUMB_AUX64(count_buffer_offset);
 
+    d3d12_command_list_end_transfer_batch(list, true);
+
     if (sig_impl->requires_state_template)
     {
         d3d12_command_list_execute_indirect_state_template_dgc(list, sig_impl,
@@ -18084,7 +18258,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         scratch.va = arg_impl->res.va + arg_buffer_offset;
     }
 
-    d3d12_command_list_end_transfer_batch(list);
     switch (last_arg_desc->Type)
     {
         case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
@@ -19445,7 +19618,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
             else
             {
                 /* Flush pending transfers first to maintain correct order of operations */
-                d3d12_command_list_end_transfer_batch(list);
+                d3d12_command_list_end_transfer_batch(list, false);
                 d3d12_command_list_flush_rtas_batch(list);
                 d3d12_command_list_end_wbi_batch(list);
             }
@@ -20401,7 +20574,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_com
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
     d3d12_command_list_invalidate_all_state(list);
 
     meta_command_object->init_proc(meta_command_object, list, parameter_data, parameter_size);
@@ -20423,7 +20596,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_comman
     d3d12_command_list_flush_dgc_batch(list);
 
     d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, true);
     d3d12_command_list_invalidate_all_state(list);
 
     meta_command_object->exec_proc(meta_command_object, list, parameter_data, parameter_size);
@@ -20692,7 +20865,7 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
 
     d3d12_command_list_fixup_rtas_batch(list);
     d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
 
     VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
             rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
@@ -21022,6 +21195,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 
     d3d12_command_list_check_render_pass_validation(list, "BuildRaytracingAccelerationStructure called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
+    /* NON_PIXEL_SHADER_RESOURCE can be for VBO/IBO/Transfer buffer. */
+    d3d12_command_list_end_transfer_batch(list, true);
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -21117,7 +21292,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_HIGH;
 
     d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
 
     if (VKD3D_CONFIG_FLAG_IS_SET(EXTRA_RTAS_SYNC) && list->rtas_batch.pending_rtas_work)
     {
@@ -21249,7 +21424,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     hit_table = convert_strided_range(&desc->HitGroupTable);
     callable_table = convert_strided_range(&desc->CallableShaderTable);
 
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, true);
 
     if (!d3d12_command_list_update_raygen_state(list))
     {
@@ -22070,7 +22245,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_ifac
 
     d3d12_command_list_flush_dgc_batch(list);
     d3d12_command_list_end_current_render_pass(list, false);
-    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_end_transfer_batch(list, false);
     d3d12_command_list_barrier_batch_init(&batch);
 
     d3d12_command_list_debug_mark_begin_region(list, "Barrier");
