@@ -7337,6 +7337,10 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->deferred_discard_count = 0;
     list->subresource_tracking_count = 0;
     list->transfer_batch.tracked_copy_buffer_count = 0;
+    list->transfer_batch.tracked_copy_texture_count = 0;
+    list->transfer_batch.vk_stages = 0;
+    list->transfer_batch.batch_len = 0;
+    list->transfer_batch.batch_type = VKD3D_BATCH_TYPE_NONE;
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
     list->submit_allocator = NULL;
