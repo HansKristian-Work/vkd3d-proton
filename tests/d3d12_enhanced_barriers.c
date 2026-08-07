@@ -1618,9 +1618,14 @@ void test_enhanced_barrier_subresource(void)
         }
 
         group[0].NumBarriers = ARRAY_SIZE(barrier);
+
+        /* Later we found that games rely on PlaneCount = 0 to mean something else, so comment this out for
+         * now since it generates VVL errors. */
+#if 0
         ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
         /* This passes validation. */
         ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+#endif
     }
 
     /* NumArraySlices == 0 -> 1 slice (?!?!?!) */
