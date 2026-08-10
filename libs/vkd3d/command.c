@@ -9634,8 +9634,8 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
         const struct vkd3d_format *dst_format, const D3D12_BOX *src_box, unsigned int dst_x,
         unsigned int dst_y, unsigned int dst_z)
 {
-    VkExtent3D src_extent;
     bool convert_block_geometry;
+    VkExtent3D src_extent;
 
     /* D3D12 describes the buffer layout in source-format texels, while Vulkan
      * describes it in destination image texels. Convert through physical
@@ -9653,19 +9653,17 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
         copy->bufferOffset += vkd3d_format_get_data_offset(src_format, footprint->Footprint.RowPitch,
                 row_count * footprint->Footprint.RowPitch, src_box->left, src_box->top, src_box->front);
     }
+
+    /* Compute number of blocks in a row. */
+    copy->bufferRowLength = footprint->Footprint.RowPitch / (src_format->byte_count * src_format->block_byte_count);
+    /* Always represent the row length in terms of destination format. */
+    copy->bufferRowLength *= dst_format->block_width;
+
+    /* Rescale block height as necessary. */
+    copy->bufferImageHeight = align(footprint->Footprint.Height, src_format->block_height);
     if (convert_block_geometry)
-    {
-        copy->bufferRowLength = footprint->Footprint.RowPitch /
-                (dst_format->byte_count * dst_format->block_byte_count) * dst_format->block_width;
-        copy->bufferImageHeight = align(footprint->Footprint.Height, src_format->block_height) /
-                src_format->block_height * dst_format->block_height;
-    }
-    else
-    {
-        copy->bufferRowLength = footprint->Footprint.RowPitch /
-                (src_format->byte_count * src_format->block_byte_count) * src_format->block_width;
-        copy->bufferImageHeight = align(footprint->Footprint.Height, src_format->block_height);
-    }
+        copy->bufferImageHeight = copy->bufferImageHeight / src_format->block_height * dst_format->block_height;
+
     copy->imageSubresource = vk_image_subresource_layers_from_d3d12(
             dst_format, sub_resource_idx, image_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(image_desc));
@@ -9691,9 +9689,12 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
         src_extent.depth = footprint->Footprint.Depth;
     }
 
+    /* Rescale source extent into destination extent as needed. */
     if (convert_block_geometry)
+    {
         src_extent = vkd3d_compute_texel_count_from_blocks(
                 vkd3d_compute_block_count(src_extent, src_format), dst_format);
+    }
 
     copy->imageExtent.width = min(copy->imageExtent.width, src_extent.width);
     copy->imageExtent.height = min(copy->imageExtent.height, src_extent.height);
