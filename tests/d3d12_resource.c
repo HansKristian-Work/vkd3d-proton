@@ -4930,10 +4930,15 @@ void test_large_texel_buffer_view(void)
         uav_desc.Buffer.FirstElement = tests[i].element_count - 1;
         uav_desc.Buffer.NumElements = 1;
 
+        vkd3d_mute_validation_message("12266", "Sibling SSBO won't be aligned in some cases, ignore this.");
+        /* Same VUID, but for descriptor heap */
+        vkd3d_mute_validation_message("12351", "Sibling SSBO won't be aligned in some cases, ignore this.");
         ID3D12Device_CreateUnorderedAccessView(context.device, data_buffer, NULL,
                 &uav_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 3));
         ID3D12Device_CreateUnorderedAccessView(context.device, data_buffer, NULL,
                 &uav_desc, get_cpu_descriptor_handle(&context, descriptor_cpu_heap, 0));
+        vkd3d_unmute_validation_message("12266");
+        vkd3d_unmute_validation_message("12351");
 
         shader_args.offset = tests[i].element_count - 1u;
         shader_args.data = tests[i].element_data;
