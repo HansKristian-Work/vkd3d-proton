@@ -4213,7 +4213,11 @@ static void test_queue_depth_stencil_inner(D3D12_COMMAND_LIST_TYPE type, bool ms
     }
 
     ID3D12GraphicsCommandList_Reset(context.copy_list, context.copy_allocator, NULL);
+    if (type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        vkd3d_mute_validation_message("12449", "Vulkan now bans MSAA depth copies on anything outside graphics queue.");
     ID3D12GraphicsCommandList_CopyResource(context.copy_list, copy_tex, tex);
+    if (type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        vkd3d_unmute_validation_message("12449");
     transition_resource_state(context.copy_list, copy_tex, D3D12_RESOURCE_STATE_COPY_DEST,
         type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_SOURCE);
 
@@ -4260,8 +4264,13 @@ out:
     else
         set_box(&box, 0, 0, 0, 4, 4, 1);
 
+    if (type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        vkd3d_mute_validation_message("12449", "Vulkan now bans MSAA depth copies on anything outside graphics queue.");
     ID3D12GraphicsCommandList_CopyTextureRegion(context.copy_list, &dst, 1, 1, 0, &src, &box);
     ID3D12GraphicsCommandList_Close(context.copy_list);
+    /* Close can flush copy batches. */
+    if (type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        vkd3d_unmute_validation_message("12449");
     exec_command_list(context.copy_queue, context.copy_list);
     ID3D12CommandQueue_Signal(context.copy_queue, fence, 2);
     ID3D12CommandQueue_Wait(context.context.queue, fence, 2);
