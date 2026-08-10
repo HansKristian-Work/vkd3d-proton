@@ -1113,6 +1113,15 @@ static const struct vkd3d_shader_quirk_info empire_of_the_ants_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
 };
 
+static const struct vkd3d_shader_quirk_hash il2_korea_hashes[] = {
+    /* ComputeLightsFirstRef uses a 32-bit atomic through an R16_UINT UAV. */
+    { NULL, 0x7cefa1bc80bb4c70, VKD3D_SHADER_QUIRK_TYPED_UAV_ATOMIC_AS_RAW },
+};
+
+static const struct vkd3d_shader_quirk_info il2_korea_quirks = {
+    il2_korea_hashes, ARRAY_SIZE(il2_korea_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1207,6 +1216,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Empire of the Ants (2287330). With Terrain Tessellation on, some shaders
      * seem to assume Wave32 by mistake leading to GPU timeout. */
     { VKD3D_STRING_COMPARE_EXACT, "Empire-Win64-Shipping.exe", &empire_of_the_ants_quirks },
+    /* IL-2 Sturmovik: Korea (247970). */
+    { VKD3D_STRING_COMPARE_EXACT, "IL2Series.exe", &il2_korea_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },

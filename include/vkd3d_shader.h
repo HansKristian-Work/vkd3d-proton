@@ -267,6 +267,7 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV                  = 0x00002000u,
     VKD3D_SHADER_INTERFACE_RAYTRACING_OPACITY_MICROMAP         = 0x00004000u,
     VKD3D_SHADER_INTERFACE_RAY_QUERY_OMM_DEVICE_GLOBAL         = 0x00008000u,
+    VKD3D_SHADER_INTERFACE_TYPED_BUFFER_RAW_SSBO_ALIAS         = 0x00010000u,
 };
 
 struct vkd3d_shader_stage_io_entry
@@ -578,6 +579,9 @@ enum vkd3d_shader_target_extension
  * Used to workaround games where an image is rendered to while being sampled as an SRV,
  * which is highly illegal and only way out of it is to use filthy trickery. */
 #define VKD3D_SHADER_QUIRK_FORCE_FEEDBACK_LOOP (1ull << 38)
+
+/* Converts 32-bit atomics on typed UAVs to raw buffer atomics. */
+#define VKD3D_SHADER_QUIRK_TYPED_UAV_ATOMIC_AS_RAW (1ull << 39)
 
 typedef uint64_t vkd3d_shader_quirks_t;
 

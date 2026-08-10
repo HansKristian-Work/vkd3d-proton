@@ -710,6 +710,15 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         }
     }
 
+    if ((quirks & VKD3D_SHADER_QUIRK_TYPED_UAV_ATOMIC_AS_RAW) &&
+            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_BUFFER_RAW_SSBO_ALIAS))
+    {
+        const dxil_spv_option_shader_quirk helper =
+                { { DXIL_SPV_OPTION_SHADER_QUIRK }, DXIL_SPV_SHADER_QUIRK_TYPED_UAV_ATOMIC_AS_RAW };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            return false;
+    }
+
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_LOOP)
     {
         struct dxil_spv_option_branch_control helper = { { DXIL_SPV_OPTION_BRANCH_CONTROL } };

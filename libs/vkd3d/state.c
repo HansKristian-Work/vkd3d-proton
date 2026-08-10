@@ -2290,6 +2290,9 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
         flags |= VKD3D_SHADER_INTERFACE_HEAP_LOWERING;
     if (root_signature->heap.redzone_style == VKD3D_ROOT_SIGNATURE_HEAP_REDZONE_STYLE_INLINE)
         flags |= VKD3D_SHADER_INTERFACE_INLINE_REDZONE_CBV;
+    if (d3d12_device_use_ssbo_raw_buffer(root_signature->device) &&
+            !(root_signature->device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO))
+        flags |= VKD3D_SHADER_INTERFACE_TYPED_BUFFER_RAW_SSBO_ALIAS;
 
     if (vkd3d_atomic_uint32_load_explicit(&root_signature->device->vendor_hacks.force_ray_query_omm,
             vkd3d_memory_order_relaxed))
