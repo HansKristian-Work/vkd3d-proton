@@ -119,8 +119,11 @@ void test_buffers_oob_behavior_vectorized_structured_16bit(void)
         uav_desc.Buffer.NumElements = num_elements;
         uav_desc.Buffer.FirstElement = first_element;
         vkd3d_mute_validation_message("12266", "We intentionally do dodgy stuff with alignment in this test.");
+        /* Same VUID, but for descriptor heap */
+        vkd3d_mute_validation_message("12351", "We intentionally do dodgy stuff with alignment in this test.");
         ID3D12Device_CreateUnorderedAccessView(context.device, output_buffers[i], NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, i));
         vkd3d_unmute_validation_message("12266");
+        vkd3d_unmute_validation_message("12351");
     }
 
     context.pipeline_state = create_compute_pipeline_state(context.device,
