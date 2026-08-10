@@ -3306,6 +3306,8 @@ static void test_render_pass_suspend_resume_opts(bool inline_clears)
             ID3D12GraphicsCommandList_Close(cmd);
         }
 
+        vkd3d_mute_validation_message("Suspend", "We intentionally skirt the spec a bit w.r.t. compat.");
+
         ID3D12CommandQueue_ExecuteCommandLists(context.queue, test->num_iterations, submit_list);
         ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
 
@@ -3320,6 +3322,8 @@ static void test_render_pass_suspend_resume_opts(bool inline_clears)
         check_sub_resource_uint8(ds.texture, 1, context.queue, context.list, stencil_reference, 0);
         reset_command_list(context.list, context.allocator);
         transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+        vkd3d_unmute_validation_message("Suspend");
     }
     vkd3d_test_set_context(NULL);
 
