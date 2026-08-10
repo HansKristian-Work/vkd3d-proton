@@ -7348,6 +7348,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
 
     d3d12_command_list_clear_rtas_batch(list);
     list->rtas_batch.pending_rtas_work = false;
+    list->rtas_batch.pending_rtas_uav_barrier = false;
 }
 
 static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
@@ -8467,6 +8468,12 @@ static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *l
     return true;
 }
 
+static bool d3d12_command_list_consider_aggressive_rtas_sync(struct d3d12_command_list *list)
+{
+    return (VKD3D_CONFIG_FLAG_IS_SET(EXTRA_RTAS_SYNC) && list->rtas_batch.pending_rtas_work) ||
+            (VKD3D_CONFIG_FLAG_IS_SET(RTAS_AGGRESSIVE_BATCHING) && list->rtas_batch.pending_rtas_uav_barrier);
+}
+
 static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -8475,7 +8482,7 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
     if (!d3d12_command_list_update_raygen_pipeline(list))
         return false;
 
-    if (list->rtas_batch.pending_rtas_work)
+    if (list->rtas_batch.pending_rtas_work || d3d12_command_list_consider_aggressive_rtas_sync(list))
     {
         /* Speculate that application forgot a barrier before calling trace.
          * Fixes FH6 sync bugs in the wild and it's plausible that applications rely on some kind of implicit
@@ -13549,6 +13556,24 @@ static const char *vkd3d_barrier_access_to_str(D3D12_BARRIER_ACCESS access)
     return buffer;
 }
 
+static bool d3d12_command_list_resource_barrier_filter_rtas_uav_only(struct d3d12_command_list *list,
+        UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers)
+{
+    UINT i;
+    for (i = 0; i < barrier_count; i++)
+        if (barriers[i].Type != D3D12_RESOURCE_BARRIER_TYPE_UAV)
+            return false;
+
+    for (i = 0; i < barrier_count; i++)
+    {
+        struct d3d12_resource *preserve_resource = impl_from_ID3D12Resource(barriers[i].UAV.pResource);
+        if (preserve_resource)
+            d3d12_command_list_track_resource_usage(list, preserve_resource, true);
+    }
+
+    return true;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_list_iface *iface,
         UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers)
 {
@@ -13565,6 +13590,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     d3d12_command_list_barrier_batch_init(&batch);
 
     d3d12_command_list_debug_mark_begin_region(list, "ResourceBarrier");
+
+    if (list->rtas_batch.build_info_count && VKD3D_CONFIG_FLAG_IS_SET(RTAS_AGGRESSIVE_BATCHING) &&
+        d3d12_command_list_resource_barrier_filter_rtas_uav_only(list, barrier_count, barriers))
+    {
+        /* Workaround some degenerate barrier use in CP77 where they end up spamming
+         * UAV barriers between every single RTAS build for no good reason in some cases. */
+
+        /* This deferring of the UAV barrier isn't 100% complete.
+         * It handles any sync between RTAS -> shaders and RTAS -> CopyRTAS.
+         * Inside an RTAS batch it handles hazards like:
+         * - Change in BUILD vs UPDATE state
+         * - Overlapping scratch memory (tracked by default)
+         * - Change between TOP vs BOTTOM (tracked by default)
+         * Overlapped builds of RTAS-es would break in this model.
+         * It is possible to add hazard tracking for that too should the need arise,
+         * but it's very unlikely to be required.
+         */
+        list->rtas_batch.pending_rtas_uav_barrier = true;
+        d3d12_command_list_debug_mark_label(list, "Defer RTAS UAV Barrier", 1.0f, 1.0f, 0.0f, 1.0f);
+        return;
+    }
 
     /* Barriers inside render passes are allowed for timetraveling barrier reasons ... */
     d3d12_command_list_check_render_pass_validation(list, NULL, true);
@@ -20551,6 +20597,9 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     }
 
     d3d12_command_list_clear_rtas_batch(list);
+
+    if (rtas_batch->pending_rtas_uav_barrier)
+        d3d12_command_list_flush_rtas_barrier(list);
 }
 
 static void d3d12_command_list_flush_rtas_barrier(struct d3d12_command_list *list)
@@ -20559,12 +20608,25 @@ static void d3d12_command_list_flush_rtas_barrier(struct d3d12_command_list *lis
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
 
+    if (!list->rtas_batch.pending_rtas_work && !list->rtas_batch.pending_rtas_uav_barrier)
+        return;
+
     memset(&vk_barrier, 0, sizeof(vk_barrier));
     vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
     vk_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
     vk_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
+    if (list->rtas_batch.pending_rtas_uav_barrier)
+    {
+        vk_access_and_stage_flags_from_d3d12_resource_state(
+                list, NULL,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, list->vk_queue_flags,
+                &vk_barrier.dstStageMask, &vk_barrier.dstAccessMask);
+
+        list->rtas_batch.pending_rtas_uav_barrier = false;
+    }
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -20573,6 +20635,7 @@ static void d3d12_command_list_flush_rtas_barrier(struct d3d12_command_list *lis
 
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     list->rtas_batch.pending_rtas_work = false;
+    VKD3D_BREADCRUMB_COMMAND(BARRIER);
 }
 
 static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3d12_command_list *list,
@@ -20903,7 +20966,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
      * Also, if we ever transition between the modes, assume we need to resolve the hazard.
      * Sometimes it's possible that RTAS batch gets flushed without appropriate barriers.
      * There is no concrete proof of this being required yet, but it's a useful debug config. */
-    if (VKD3D_CONFIG_FLAG_IS_SET(EXTRA_RTAS_SYNC))
+    if (d3d12_command_list_consider_aggressive_rtas_sync(list))
     {
         assume_hazard = rtas_batch->pending_rtas_work &&
                         (rtas_batch->build_type != desc->Inputs.Type ||
@@ -21001,7 +21064,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
 
-    if (VKD3D_CONFIG_FLAG_IS_SET(EXTRA_RTAS_SYNC) && list->rtas_batch.pending_rtas_work)
+    if (d3d12_command_list_consider_aggressive_rtas_sync(list))
     {
         /* Speculate that application forgot a barrier before compaction. */
         d3d12_command_list_flush_rtas_batch(list);
