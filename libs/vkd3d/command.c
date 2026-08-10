@@ -42,7 +42,7 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
 
 /* This must be at least twice the number of texture region batches, since we must be able to resolve
  * a source + destination memory barrier per copy without incurring a barrier flush.
- * A barrier flush breaks our ability to eliminate redundant transitions for e.g. source copies. */
+ * A barrier flush breaks our ability to eliminate redundant transitions for e.g. source and dest copies. */
 #define MAX_BATCHED_IMAGE_BARRIERS (VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE * 2)
 struct d3d12_command_list_barrier_batch
 {
@@ -13190,27 +13190,36 @@ static bool vk_subresource_range_overlaps(uint32_t base_a, uint32_t count_a, uin
         return end_b > base_a;
 }
 
-static bool vk_image_barrier_overlaps_subresource(const VkImageMemoryBarrier2 *a, const VkImageMemoryBarrier2 *b,
-        bool *exact_match)
+static bool vk_image_barrier_overlaps_subresource(const VkImageMemoryBarrier2 *new_barrier,
+                                                  const VkImageMemoryBarrier2 *existing_barrier,
+                                                  bool *compatible_match)
 {
-    *exact_match = false;
-    if (a->image != b->image)
-        return false;
-    if (!(a->subresourceRange.aspectMask & b->subresourceRange.aspectMask))
+    *compatible_match = false;
+    if (new_barrier->image != existing_barrier->image)
         return false;
 
-    *exact_match = a->subresourceRange.aspectMask == b->subresourceRange.aspectMask &&
-            a->subresourceRange.baseMipLevel == b->subresourceRange.baseMipLevel &&
-            a->subresourceRange.levelCount == b->subresourceRange.levelCount &&
-            a->subresourceRange.baseArrayLayer == b->subresourceRange.baseArrayLayer &&
-            a->subresourceRange.layerCount == b->subresourceRange.layerCount;
+    /* If we're transitioning a subset of the aspect masks, it's okay as long as everything else is the same.
+     * This approach only works when we're adding one aspect at a time. */
+    assert((new_barrier->subresourceRange.aspectMask & (new_barrier->subresourceRange.aspectMask - 1)) == 0);
+
+    *compatible_match =
+            new_barrier->subresourceRange.baseMipLevel == existing_barrier->subresourceRange.baseMipLevel &&
+            new_barrier->subresourceRange.levelCount == existing_barrier->subresourceRange.levelCount &&
+            new_barrier->subresourceRange.baseArrayLayer == existing_barrier->subresourceRange.baseArrayLayer &&
+            new_barrier->subresourceRange.layerCount == existing_barrier->subresourceRange.layerCount;
+
+    /* We can only fuse aspects if the barriers otherwise overlap exactly.
+     * If we don't have exact match and we try to transition separate aspects, we should treat
+     * them as separate barriers. */
+    if (!*compatible_match && !(new_barrier->subresourceRange.aspectMask & existing_barrier->subresourceRange.aspectMask))
+        return false;
 
     return vk_subresource_range_overlaps(
-            a->subresourceRange.baseMipLevel, a->subresourceRange.levelCount,
-            b->subresourceRange.baseMipLevel, b->subresourceRange.levelCount) &&
+                new_barrier->subresourceRange.baseMipLevel, new_barrier->subresourceRange.levelCount,
+                existing_barrier->subresourceRange.baseMipLevel, existing_barrier->subresourceRange.levelCount) &&
             vk_subresource_range_overlaps(
-                    a->subresourceRange.baseArrayLayer, a->subresourceRange.layerCount,
-                    b->subresourceRange.baseArrayLayer, b->subresourceRange.layerCount);
+                new_barrier->subresourceRange.baseArrayLayer, new_barrier->subresourceRange.layerCount,
+                existing_barrier->subresourceRange.baseArrayLayer, existing_barrier->subresourceRange.layerCount);
 }
 
 static void d3d12_command_list_barrier_batch_add_layout_transition(
@@ -13218,15 +13227,33 @@ static void d3d12_command_list_barrier_batch_add_layout_transition(
         struct d3d12_command_list_barrier_batch *batch,
         const VkImageMemoryBarrier2 *image_barrier)
 {
-    bool layout_match, exact_match, skip_transition;
+    bool layout_match, compatible_match, skip_transition;
     uint32_t i;
+
+    /* To make the fusing as solid as possible, we want to fuse all aspects into one barrier.
+     * To make this algorithm practical, make sure we only transition one aspect at a time. */
+    if ((image_barrier->subresourceRange.aspectMask & (image_barrier->subresourceRange.aspectMask - 1)) != 0)
+    {
+        VkImageAspectFlags aspect_mask = image_barrier->subresourceRange.aspectMask;
+        VkImageMemoryBarrier2 tmp_image_barrier = *image_barrier;
+        while (aspect_mask)
+        {
+            VkImageAspectFlags next_mask = aspect_mask & (aspect_mask - 1);
+            tmp_image_barrier.subresourceRange.aspectMask = aspect_mask & ~next_mask;
+            d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &tmp_image_barrier);
+            aspect_mask = next_mask;
+        }
+
+        return;
+    }
 
     if (batch->image_barrier_count == ARRAY_SIZE(batch->vk_image_barriers))
         d3d12_command_list_barrier_batch_end(list, batch);
 
     for (i = 0; i < batch->image_barrier_count; i++)
     {
-        if (vk_image_barrier_overlaps_subresource(image_barrier, &batch->vk_image_barriers[i], &exact_match))
+        if (vk_image_barrier_overlaps_subresource(image_barrier, &batch->vk_image_barriers[i],
+                &compatible_match))
         {
             /* The barrier batch is used at two places: ResourceBarrier and CopyTextureRegion, which results in
              * different kind of overlaps.
@@ -13244,7 +13271,7 @@ static void d3d12_command_list_barrier_batch_add_layout_transition(
             /* No need to split the barrier if we're not actually doing RMW layout transition. */
             skip_transition = image_barrier->oldLayout == image_barrier->newLayout;
 
-            if (exact_match && layout_match)
+            if (compatible_match && layout_match)
             {
                 /* Exact duplicate, but there may be different stages and accesses in case the application
                  * is doing either illegal or transitive barriers in the same ResourceBarrier().
@@ -13253,6 +13280,9 @@ static void d3d12_command_list_barrier_batch_add_layout_transition(
                 batch->vk_image_barriers[i].srcAccessMask |= image_barrier->srcAccessMask;
                 batch->vk_image_barriers[i].dstStageMask |= image_barrier->dstStageMask;
                 batch->vk_image_barriers[i].dstAccessMask |= image_barrier->dstAccessMask;
+
+                /* If we transition depth and stencil separately, fuse them. */
+                batch->vk_image_barriers[i].subresourceRange.aspectMask |= image_barrier->subresourceRange.aspectMask;
                 return;
             }
             else if (!skip_transition)
