@@ -5018,8 +5018,10 @@ static ID3D12PipelineState *create_wmma_pso(ID3D12Device *device, ID3D12RootSign
     pipeline_state_desc.CS = code;
     pipeline_state_desc.NodeMask = 0;
     pipeline_state_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+    vkd3d_mute_validation_message("10165", "We intentionally skirt the spec w.r.t. 8-bit C matrix.");
     hr = ID3D12Device_CreateComputePipelineState(device, &pipeline_state_desc,
             &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    vkd3d_unmute_validation_message("10165");
     todo ok(SUCCEEDED(hr), "Failed to create compute pipeline state, hr %#x.\n", (int)hr);
     return pipeline_state;
 }
