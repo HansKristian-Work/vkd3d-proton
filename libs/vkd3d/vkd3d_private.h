@@ -3122,6 +3122,15 @@ struct d3d12_wbi_batch_state
     size_t batch_len;
 };
 
+struct vk_acceleration_structure_postbuild_info
+{
+    VkAccelerationStructureKHR rtas_vk;
+    D3D12_GPU_VIRTUAL_ADDRESS rtas_va; /* Should always be set. If rtas_vk is set, this is just used for debug. */
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC desc;
+    bool is_omm; /* Only used for rtas_vk if not null handle. */
+    enum vkd3d_rtas_kind rtas_kind; /* Only used for immediate BLAS or TLAS build. */
+};
+
 struct d3d12_rtas_batch_state
 {
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE build_type;
@@ -3160,6 +3169,10 @@ struct d3d12_rtas_batch_state
     } *scratch_usage;
     size_t scratch_usage_count;
     size_t scratch_usage_size;
+
+    struct vk_acceleration_structure_postbuild_info *postbuild_infos;
+    size_t postbuild_infos_size;
+    size_t postbuild_infos_count;
 };
 
 union vkd3d_descriptor_heap_state
@@ -5929,6 +5942,8 @@ void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vk
 uint64_t d3d12_device_get_descriptor_heap_gpu_va(struct d3d12_device *device, D3D12_DESCRIPTOR_HEAP_TYPE type);
 void d3d12_device_return_descriptor_heap_gpu_va(struct d3d12_device *device, uint64_t va);
 
+VkPipelineStageFlags2 vk_queue_shader_stages(struct d3d12_device *device, VkQueueFlags vk_queue_flags);
+
 static inline bool d3d12_device_uses_descriptor_buffers(const struct d3d12_device *device)
 {
     return device->global_descriptor_buffer.resource.va != 0;
@@ -6976,19 +6991,10 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
 bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos);
+void vkd3d_acceleration_structure_flush_postbuild_batch(struct d3d12_command_list *list,
+        const struct vk_acceleration_structure_postbuild_info *infos, size_t count);
 void vkd3d_acceleration_structure_write_postbuild_info(
         struct d3d12_command_list *list,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        VkDeviceSize desc_offset,
-        VkAccelerationStructureKHR vk_acceleration_structure,
-        VkDeviceAddress va,
-        enum vkd3d_rtas_kind rtas_kind);
-void vkd3d_acceleration_structure_emit_postbuild_info(
-        struct d3d12_command_list *list,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        uint32_t count, const D3D12_GPU_VIRTUAL_ADDRESS *addresses);
-void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
-        struct d3d12_command_list *list, uint32_t count,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkAccelerationStructureKHR vk_acceleration_structure,
         VkDeviceAddress va,

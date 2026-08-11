@@ -301,7 +301,35 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
     return true;
 }
 
-static void vkd3d_acceleration_structure_end_barrier(struct d3d12_command_list *list)
+static void vkd3d_acceleration_structure_begin_query_barrier(struct d3d12_command_list *list, bool uav_incoming)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
+
+    /* We resolve the query in TRANSFER, but DXR expects UNORDERED_ACCESS. */
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    /* The query accesses STRUCTURE_READ_BIT in BUILD_BIT stage. */
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_2_COPY_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+    /* If we're doing the query outside an RTAS build, we don't know which shader stage we might depend on
+     * and a UAV barrier would not have synchronized with COPY stage. */
+    if (uav_incoming)
+        barrier.srcStageMask |= vk_queue_shader_stages(list->device, list->vk_queue_flags);
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+}
+
+static void vkd3d_acceleration_structure_end_query_barrier(struct d3d12_command_list *list)
 {
     /* We resolve the query in TRANSFER, but DXR expects UNORDERED_ACCESS. */
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -312,7 +340,9 @@ static void vkd3d_acceleration_structure_end_barrier(struct d3d12_command_list *
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    /* If there is a future UAV barrier, make sure it picks up transient sync from COPY stage. */
+    barrier.dstStageMask = vk_queue_shader_stages(list->device, list->vk_queue_flags);
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -325,9 +355,8 @@ static void vkd3d_acceleration_structure_end_barrier(struct d3d12_command_list *
 void vkd3d_acceleration_structure_write_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        VkDeviceSize desc_offset,
         VkAccelerationStructureKHR vk_acceleration_structure,
-        VkDeviceAddress va,
+        VkDeviceAddress rtas_va,
         enum vkd3d_rtas_kind rtas_kind)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -349,7 +378,6 @@ void vkd3d_acceleration_structure_write_postbuild_info(
 
     vk_buffer = resource->vk_buffer;
     offset = desc->DestBuffer - resource->va;
-    offset += desc_offset;
 
     if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE)
     {
@@ -410,13 +438,13 @@ void vkd3d_acceleration_structure_write_postbuild_info(
             if (VKD3D_CONFIG_FLAG_IS_SET(ZERO_FILL_BLP))
             {
                 FIXME("Do not know the state of VA #%"PRIx64" (%s) assuming non-TLAS\n",
-                        va, vkd3d_get_rtas_kind_string(rtas_kind));
+                        rtas_va, vkd3d_get_rtas_kind_string(rtas_kind));
                 is_tlas = false;
             }
             else
             {
                 FIXME("Do not know the state of VA #%"PRIx64" (%s) assuming TLAS\n",
-                        va, vkd3d_get_rtas_kind_string(rtas_kind));
+                        rtas_va, vkd3d_get_rtas_kind_string(rtas_kind));
                 is_tlas = true;
             }
         }
@@ -453,102 +481,67 @@ void vkd3d_acceleration_structure_write_postbuild_info(
     }
 }
 
-void vkd3d_acceleration_structure_emit_postbuild_info(
+static void vkd3d_acceleration_structure_emit_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        uint32_t count,
-        const D3D12_GPU_VIRTUAL_ADDRESS *addresses)
+        const D3D12_GPU_VIRTUAL_ADDRESS rtas_va)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
     enum vkd3d_rtas_kind rtas_kind;
-    VkDependencyInfo dep_info;
-    VkMemoryBarrier2 barrier;
-    VkDeviceSize stride;
-    uint32_t i;
 
-    /* We resolve the query in TRANSFER, but DXR expects UNORDERED_ACCESS. */
-    memset(&barrier, 0, sizeof(barrier));
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map, list->device, rtas_va,
+            &vk_acceleration_structure, &rtas_kind);
 
-    memset(&dep_info, 0, sizeof(dep_info));
-    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep_info.memoryBarrierCount = 1;
-    dep_info.pMemoryBarriers = &barrier;
-
-    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
-
-    stride = desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION ?
-            2 * sizeof(uint64_t) : sizeof(uint64_t);
-
-    for (i = 0; i < count; i++)
+    if (vk_acceleration_structure == VK_NULL_HANDLE)
     {
-        vkd3d_va_map_try_read_rtas(&list->device->memory_allocator.va_map, list->device, addresses[i],
-                &vk_acceleration_structure, &rtas_kind);
-
-        if (vk_acceleration_structure == VK_NULL_HANDLE)
-        {
-            WARN("Emit postbuild placing unknown AS at #%" PRIx64 " future BLP queries may not be reliable.\n",
-                    addresses[i]);
-            rtas_kind = VKD3D_RTAS_KIND_UNKNOWN;
-            vk_acceleration_structure =
-                    vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device,
-                    addresses[i], rtas_kind);
-        }
-        if (vk_acceleration_structure == VK_NULL_HANDLE)
-        {
-            ERR("Invalid VA #%"PRIx64" for emit postbuild.\n", addresses[i]);
-            continue;
-        }
-
-        vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure,
-                addresses[i], rtas_kind);
+        WARN("Emit postbuild placing unknown AS at #%" PRIx64 " future BLP queries may not be reliable.\n", rtas_va);
+        rtas_kind = VKD3D_RTAS_KIND_UNKNOWN;
+        vk_acceleration_structure =
+                vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device,
+                rtas_va, rtas_kind);
     }
 
-    vkd3d_acceleration_structure_end_barrier(list);
+    if (vk_acceleration_structure == VK_NULL_HANDLE)
+    {
+        ERR("Invalid VA #%"PRIx64" for emit postbuild.\n", rtas_va);
+        return;
+    }
+
+    vkd3d_acceleration_structure_write_postbuild_info(list, desc, vk_acceleration_structure,
+            rtas_va, rtas_kind);
 }
 
-void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
-        struct d3d12_command_list *list, uint32_t count,
-        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
-        VkAccelerationStructureKHR vk_acceleration_structure,
-        VkDeviceAddress va,
-        enum vkd3d_rtas_kind rtas_kind)
+void vkd3d_acceleration_structure_flush_postbuild_batch(struct d3d12_command_list *list,
+        const struct vk_acceleration_structure_postbuild_info *infos, size_t count)
 {
-    /* In D3D12 we are supposed to be able to emit without an explicit barrier,
-     * but we need to emit them for Vulkan. */
+    bool has_incoming_uav = false;
+    size_t i;
 
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkDependencyInfo dep_info;
-    VkMemoryBarrier2 barrier;
-    uint32_t i;
+    for (i = 0; i < count && !has_incoming_uav; i++)
+        has_incoming_uav = infos[i].rtas_vk == VK_NULL_HANDLE;
 
-    memset(&barrier, 0, sizeof(barrier));
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-    /* The query accesses STRUCTURE_READ_BIT in BUILD_BIT stage. */
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_2_COPY_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
-
-    /* Writing to the result buffer is supposed to happen in UNORDERED_ACCESS on DXR for
-     * some bizarre reason, so we have to satisfy a transfer barrier.
-     * Have to basically do a full stall to make this work ... */
-    memset(&dep_info, 0, sizeof(dep_info));
-    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep_info.memoryBarrierCount = 1;
-    dep_info.pMemoryBarriers = &barrier;
-
-    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
-
-    /* Could optimize a bit by batching more aggressively, but no idea if it's going to help in practice. */
+    vkd3d_acceleration_structure_begin_query_barrier(list, has_incoming_uav);
     for (i = 0; i < count; i++)
-        vkd3d_acceleration_structure_write_postbuild_info(list, &desc[i], 0, vk_acceleration_structure, va, rtas_kind);
+    {
+        const struct vk_acceleration_structure_postbuild_info *info = &infos[i];
 
-    vkd3d_acceleration_structure_end_barrier(list);
+        if (info->rtas_vk == VK_NULL_HANDLE)
+        {
+            /* Generic query path. */
+            vkd3d_acceleration_structure_emit_postbuild_info(list, &info->desc, info->rtas_va);
+        }
+        else if (info->is_omm)
+        {
+            vkd3d_opacity_micromap_emit_immediate_postbuild_info(list, 1, &info->desc,
+                    info->rtas_va, info->rtas_vk);
+        }
+        else
+        {
+            vkd3d_acceleration_structure_write_postbuild_info(
+                    list, &info->desc, info->rtas_vk, info->rtas_va, info->rtas_kind);
+        }
+    }
+    vkd3d_acceleration_structure_end_query_barrier(list);
 }
 
 static bool convert_copy_mode(
