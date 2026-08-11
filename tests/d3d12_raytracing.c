@@ -436,8 +436,8 @@ static void create_acceleration_structure(struct raytracing_test_context *contex
     vkd3d_mute_validation_message("12425", "VVL issue. It wants to see actual TOP_LEVEL, rather than dynamic usage.");
     ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(context->list4, &build_info,
             postbuild_va ? ARRAY_SIZE(postbuild_desc) : 0, postbuild_desc);
-    vkd3d_unmute_validation_message("12425");
     uav_barrier(context->context.list, rtas->rtas);
+    vkd3d_unmute_validation_message("12425");
     uav_barrier(context->context.list, rtas->scratch);
 }
 
@@ -843,6 +843,7 @@ static void init_rt_geometry(struct raytracing_test_context *context, struct tes
      * We test the compacted size later. */
     rt_geom->top_acceleration_structures[0] = rt_geom->top_rtas.rtas;
     ID3D12Resource_AddRef(rt_geom->top_rtas.rtas);
+
     rt_geom->top_acceleration_structures[1] = duplicate_acceleration_structure(context,
             rt_geom->top_acceleration_structures[0], D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
     rt_geom->top_acceleration_structures[2] = duplicate_acceleration_structure(context,
@@ -1805,9 +1806,9 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         /* If fails on the second. We correctly detect that we cannot serialize the BLAS. */
         vkd3d_mute_validation_message("12425", "VVL issue. It wants to see TOP_LEVEL, not generic RTAS.");
         ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(command_list4, &postbuild_desc[2], 2, rtases);
-        vkd3d_unmute_validation_message("12425");
 
         transition_resource_state(command_list, postbuild_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        vkd3d_unmute_validation_message("12425");
         ID3D12GraphicsCommandList_CopyResource(command_list, postbuild_readback, postbuild_buffer);
     }
 
