@@ -192,7 +192,7 @@ void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     for (i = 0; i < count; i++)
-        vkd3d_acceleration_structure_write_postbuild_info(list, &desc[i], 0, vk_opacity_micromap, va,
+        vkd3d_acceleration_structure_write_postbuild_info(list, &desc[i], vk_opacity_micromap, va,
                 VKD3D_RTAS_KIND_NON_TLAS);
 
     vkd3d_opacity_micromap_end_barrier(list);
