@@ -7154,3 +7154,120 @@ void test_buffer_descriptor_byte_offset(void)
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
+
+void test_r16_texel_buffer_atomic(void)
+{
+    /* More UB bullshit exposed by IL-2: Korea */
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    D3D12_DESCRIPTOR_RANGE rs_range;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *output;
+    unsigned int i;
+
+#include "shaders/descriptors/headers/r16_atomic.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_range, 0, sizeof(rs_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].DescriptorTable.NumDescriptorRanges = 1;
+    rs_param[0].DescriptorTable.pDescriptorRanges = &rs_range;
+
+    rs_range.NumDescriptors = 1;
+    rs_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param[1].Constants.Num32BitValues = 2;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, r16_atomic_dxbc);
+
+    output = create_default_buffer(context.device, 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.Format = DXGI_FORMAT_R16_UINT;
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.FirstElement = 0;
+    uav_desc.Buffer.NumElements = 64;
+    ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 0));
+    uav_desc.Buffer.FirstElement = 15;
+    ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 1));
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    for (i = 0; i < 2; i++)
+    {
+        if (i == 1 && !is_nvidia_device(context.device) && !is_nvidia_windows_device(context.device))
+            continue;
+
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, get_gpu_descriptor_handle(&context, heap, i));
+
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 0, 0);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 100000, 1);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        if (i == 1)
+        {
+            ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 1, 0);
+            ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 300000, 1);
+            ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+        }
+
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 2, 0);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 200000, 1);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    {
+        uint32_t value = get_readback_uint(&rb, 0, 0, 0);
+        uint32_t expected = 100000;
+        ok(value == expected, "Value 0, expected %u, got %u\n", expected, value);
+    }
+
+    {
+        /* AMD behavior: value1 is used, likely because the final address is computed to be 4 byte.
+         * NV behavior: value2 is used, likely because it uses SSBO path for texel buffer atomic. */
+        uint32_t value1 = get_readback_uint(&rb, 1, 0, 0);
+        uint32_t value2 = get_readback_uint(&rb, 2, 0, 0);
+        uint32_t expected = 200000;
+        ok(value1 == expected || value2 == expected, "Expected value[1] or value[2] to be 200000.\n");
+    }
+
+    /* Behavior with unaligned atomic seems to be that address rounds down.
+     * On AMD, the GPU hangs. */
+    if (is_nvidia_device(context.device) || is_nvidia_windows_device(context.device))
+    {
+        uint32_t value = get_readback_uint(&rb, 7, 0, 0);
+        uint32_t expected = 100000;
+        ok(value == expected, "Value 7, expected %u, got %u\n", expected, value);
+
+        value = get_readback_uint(&rb, 9, 0, 0);
+        expected = 200000;
+        ok(value == expected, "Value 9, expected %u, got %u\n", expected, value);
+
+        value = get_readback_uint(&rb, 8, 0, 0);
+        expected = 300000;
+        ok(value == expected, "Value 8, expected %u, got %u\n", expected, value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(output);
+    destroy_test_context(&context);
+}
