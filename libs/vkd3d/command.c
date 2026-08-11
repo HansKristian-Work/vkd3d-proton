@@ -4727,7 +4727,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
     d3d12_command_list_debug_mark_end_region(list);
 }
 
-static VkPipelineStageFlags2 vk_queue_shader_stages(struct d3d12_device *device, VkQueueFlags vk_queue_flags)
+VkPipelineStageFlags2 vk_queue_shader_stages(struct d3d12_device *device, VkQueueFlags vk_queue_flags)
 {
     VkPipelineStageFlags2 queue_shader_stages = 0;
 
