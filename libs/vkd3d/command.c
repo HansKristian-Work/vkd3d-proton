@@ -20274,6 +20274,7 @@ static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list)
     vkd3d_free(rtas_batch->omm_build_infos);
     vkd3d_free(rtas_batch->omm_usage_infos);
     vkd3d_free(rtas_batch->scratch_usage);
+    vkd3d_free(rtas_batch->postbuild_infos);
 }
 
 static bool d3d12_command_list_register_rtas_scratch_range(
@@ -20423,6 +20424,7 @@ static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
     rtas_batch->omm_build_info_count = 0;
     rtas_batch->omm_usage_info_count = 0;
     rtas_batch->scratch_usage_count = 0;
+    rtas_batch->postbuild_infos_count = 0;
 }
 
 static void d3d12_command_list_fixup_rtas_batch(struct d3d12_command_list *list)
@@ -20515,24 +20517,40 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
 
-    if (!rtas_batch->build_info_count)
-        return;
+    if (rtas_batch->build_info_count)
+    {
+        d3d12_command_list_check_end_of_command_list_cleanup(list);
 
-    d3d12_command_list_check_end_of_command_list_cleanup(list);
+        TRACE("list %p, build_info_count %zu.\n", list,
+                rtas_batch->build_info_count);
 
-    TRACE("list %p, build_info_count %zu.\n", list,
-            rtas_batch->build_info_count);
+        d3d12_command_list_fixup_rtas_batch(list);
+        d3d12_command_list_end_current_render_pass(list, true);
+        d3d12_command_list_end_transfer_batch(list);
 
-    d3d12_command_list_fixup_rtas_batch(list);
-    d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_end_transfer_batch(list);
+        VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
+                rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
 
-    VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
-            rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
+        VKD3D_BREADCRUMB_COMMAND(BUILD_RTAS);
+    }
+
+    if (rtas_batch->postbuild_infos_count)
+    {
+        d3d12_command_list_check_end_of_command_list_cleanup(list);
+
+        TRACE("list %p, postbuild_infos_count %zu.\n", list,
+                rtas_batch->postbuild_infos_count);
+
+        d3d12_command_list_end_current_render_pass(list, true);
+        d3d12_command_list_end_transfer_batch(list);
+
+        vkd3d_acceleration_structure_flush_postbuild_batch(list,
+                rtas_batch->postbuild_infos, rtas_batch->postbuild_infos_count);
+
+        VKD3D_BREADCRUMB_COMMAND(EMIT_RTAS_POSTBUILD);
+    }
 
     d3d12_command_list_clear_rtas_batch(list);
-
-    VKD3D_BREADCRUMB_COMMAND(BUILD_RTAS);
 }
 
 static void d3d12_command_list_flush_rtas_barrier(struct d3d12_command_list *list)
@@ -20647,13 +20665,20 @@ static void d3d12_command_list_build_raytracing_opacity_micromap_array(struct d3
 
     if (num_postbuild_info_descs)
     {
-        /* This doesn't seem to get used very often, so just record the build command
-         * for now. If this ever becomes a performance issue, we can add postbuild info
-         * to the batch. */
-        d3d12_command_list_flush_rtas_batch(list);
+        uint32_t i;
+        vkd3d_array_reserve((void**)&list->rtas_batch.postbuild_infos, &list->rtas_batch.postbuild_infos_size,
+                            list->rtas_batch.postbuild_infos_count + num_postbuild_info_descs,
+                            sizeof(*list->rtas_batch.postbuild_infos));
 
-        vkd3d_opacity_micromap_emit_immediate_postbuild_info(list, num_postbuild_info_descs, postbuild_info_descs,
-                desc->DestAccelerationStructureData, micromap);
+        for (i = 0; i < num_postbuild_info_descs; i++)
+        {
+            struct vk_acceleration_structure_postbuild_info *info =
+                    &list->rtas_batch.postbuild_infos[list->rtas_batch.postbuild_infos_count++];
+            info->desc = postbuild_info_descs[i];
+            info->rtas_vk = micromap;
+            info->rtas_va = 0;
+            info->is_omm = true;
+        }
     }
 
     VKD3D_BREADCRUMB_COMMAND(BUILD_OMM);
@@ -20829,16 +20854,24 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
 
     if (num_postbuild_info_descs)
     {
-        /* This doesn't seem to get used very often, so just record the build command
-         * for now. If this ever becomes a performance issue, we can add postbuild info
-         * to the batch. */
-        d3d12_command_list_flush_rtas_batch(list);
+        uint32_t i;
+        vkd3d_array_reserve((void**)&list->rtas_batch.postbuild_infos, &list->rtas_batch.postbuild_infos_size,
+                            list->rtas_batch.postbuild_infos_count + num_postbuild_info_descs, sizeof(*list->rtas_batch.postbuild_infos));
 
-        vkd3d_acceleration_structure_emit_immediate_postbuild_info(list,
-                num_postbuild_info_descs, postbuild_info_descs,
-                build_info->dstAccelerationStructure,
-                desc->DestAccelerationStructureData,
-                rtas_kind);
+        /* Postbuild happens in UAV state, so we don't have to consider sync in general.
+         * The only guarantee we get from spec when using this immediate mode of query
+         * is that implementation takes care of the RTAS build -> query write sync internally.
+         * We handle that implicitly when resolving the query since there's a UAV -> TRANSFER barrier. */
+        for (i = 0; i < num_postbuild_info_descs; i++)
+        {
+            struct vk_acceleration_structure_postbuild_info *info =
+                    &list->rtas_batch.postbuild_infos[list->rtas_batch.postbuild_infos_count++];
+            info->desc = postbuild_info_descs[i];
+            info->rtas_vk = build_info->dstAccelerationStructure;
+            info->rtas_va = desc->DestAccelerationStructureData;
+            info->is_omm = false;
+            info->rtas_kind = rtas_kind;
+        }
     }
 }
 
@@ -20905,7 +20938,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
         const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
 {
+    VkDeviceSize stride =
+            desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION ?
+            2 * sizeof(uint64_t) : sizeof(uint64_t);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    uint32_t i;
+
     TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
             iface, desc, num_acceleration_structures, src_data);
 
@@ -20921,10 +20959,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
     list->cmd.estimated_cost += VKD3D_COMMAND_COST_LOW;
 
     d3d12_command_list_end_current_render_pass(list, true);
-    vkd3d_acceleration_structure_emit_postbuild_info(list,
-            desc, num_acceleration_structures, src_data);
 
-    VKD3D_BREADCRUMB_COMMAND(EMIT_RTAS_POSTBUILD);
+    vkd3d_array_reserve((void**)&list->rtas_batch.postbuild_infos, &list->rtas_batch.postbuild_infos_size,
+                        list->rtas_batch.postbuild_infos_count + num_acceleration_structures,
+                        sizeof(*list->rtas_batch.postbuild_infos));
+
+    for (i = 0; i < num_acceleration_structures; i++)
+    {
+        struct vk_acceleration_structure_postbuild_info *info =
+                &list->rtas_batch.postbuild_infos[list->rtas_batch.postbuild_infos_count++];
+        info->desc = *desc;
+        info->desc.DestBuffer += i * stride;
+        info->rtas_va = src_data[i];
+        info->rtas_vk = VK_NULL_HANDLE;
+        info->is_omm = false;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
