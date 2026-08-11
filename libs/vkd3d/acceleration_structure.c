@@ -357,7 +357,7 @@ void vkd3d_acceleration_structure_write_postbuild_info(
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
         VkDeviceSize desc_offset,
         VkAccelerationStructureKHR vk_acceleration_structure,
-        VkDeviceAddress va,
+        VkDeviceAddress rtas_va,
         enum vkd3d_rtas_kind rtas_kind)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -440,13 +440,13 @@ void vkd3d_acceleration_structure_write_postbuild_info(
             if (VKD3D_CONFIG_FLAG_IS_SET(ZERO_FILL_BLP))
             {
                 FIXME("Do not know the state of VA #%"PRIx64" (%s) assuming non-TLAS\n",
-                        va, vkd3d_get_rtas_kind_string(rtas_kind));
+                        rtas_va, vkd3d_get_rtas_kind_string(rtas_kind));
                 is_tlas = false;
             }
             else
             {
                 FIXME("Do not know the state of VA #%"PRIx64" (%s) assuming TLAS\n",
-                        va, vkd3d_get_rtas_kind_string(rtas_kind));
+                        rtas_va, vkd3d_get_rtas_kind_string(rtas_kind));
                 is_tlas = true;
             }
         }
