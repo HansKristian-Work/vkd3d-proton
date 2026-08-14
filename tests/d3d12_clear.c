@@ -649,6 +649,8 @@ void test_clear_unordered_access_view_buffer(void)
                 {0x1234, 0xabcd, 0, 0}, 0xabcd1234},
         {DXGI_FORMAT_R16G16_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x10000, 0, 0, 0}, 0},
+        {DXGI_FORMAT_R16G16B16A16_UINT, { 0, BUFFER_SIZE / sizeof(uint64_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x1234, 0x4567, 0x1234, 0x4567}, 0x45671234},
 
         {DXGI_FORMAT_R16G16_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x1234, 0xabcd, 0, 0}, 0xabcd1234},
@@ -659,11 +661,19 @@ void test_clear_unordered_access_view_buffer(void)
         {DXGI_FORMAT_R16G16_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0xbf800000 /* -1.0f */, 0 /* 0.0f */, 0x3f000000 /* 1.0f */, 0x3f000000 /* 1.0f */}, 0, true},
 
+        {DXGI_FORMAT_R16_FLOAT, { 0, BUFFER_SIZE / sizeof(uint16_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x1234, 0, 0, 0}, 0x12341234},
         {DXGI_FORMAT_R16G16_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x1234, 0xabcd, 0, 0}, 0xabcd1234},
         {DXGI_FORMAT_R16G16_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0, 0}, 0x3c003800, true},
+        {DXGI_FORMAT_R16G16B16A16_FLOAT, { 0, BUFFER_SIZE / sizeof(uint64_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x3f000000 /* 0.5f */, 0x3f800000 /* 1.0f */, 0x3f000000, 0x3f800000}, 0x3c003800, true},
 
+        {DXGI_FORMAT_R8_UINT, { 0, BUFFER_SIZE / sizeof(uint8_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x11, 0x22, 0x33, 0x44}, 0x11111111},
+        {DXGI_FORMAT_R8G8_UINT, { 0, BUFFER_SIZE / sizeof(uint16_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x11, 0x22, 0x33, 0x44}, 0x22112211},
         {DXGI_FORMAT_R8G8B8A8_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x11, 0x22, 0x33, 0x44}, 0x44332211},
         {DXGI_FORMAT_R8G8B8A8_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
@@ -758,12 +768,12 @@ void test_clear_unordered_access_view_buffer(void)
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_TYPELESS, &rb, queue, command_list);
         box.left = 0;
-        box.right = uav_desc.Buffer.FirstElement;
+        box.right = uav_desc.Buffer.FirstElement * format_size(uav_desc.Format) / sizeof(uint32_t);
         check_readback_data_uint(&rb, &box, clear_value[0], 0);
-        box.left = uav_desc.Buffer.FirstElement;
-        box.right = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
+        box.left = uav_desc.Buffer.FirstElement * format_size(uav_desc.Format) / sizeof(uint32_t);
+        box.right = (uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements) * format_size(uav_desc.Format) / sizeof(uint32_t);
         check_readback_data_uint(&rb, &box, tests[i].expected, tests[i].is_float ? 1 : 0);
-        box.left = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
+        box.left = (uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements) * format_size(uav_desc.Format) / sizeof(uint32_t);
         box.right = BUFFER_SIZE / format_size(uav_desc.Format);
         check_readback_data_uint(&rb, &box, clear_value[0], 0);
         release_resource_readback(&rb);
