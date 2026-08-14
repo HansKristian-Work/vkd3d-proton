@@ -16179,7 +16179,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
 static VkClearColorValue vkd3d_fixup_clear_uav_swizzle(struct d3d12_device *device,
         const struct vkd3d_format *clear_format, VkClearColorValue color)
 {
-    if (clear_format->dxgi_format == DXGI_FORMAT_A8_UNORM && clear_format->vk_format != VK_FORMAT_A8_UNORM_KHR)
+    if (clear_format->dxgi_format == DXGI_FORMAT_A8_UNORM && clear_format->vk_format != VK_FORMAT_A8_UNORM)
     {
         VkClearColorValue result;
         result.float32[0] = color.float32[3];
