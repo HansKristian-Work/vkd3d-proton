@@ -16372,6 +16372,316 @@ static void vkd3d_texture_view_desc_convert_from_metadata(
     }
 }
 
+static bool d3d12_command_list_clear_uav_builtin(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const struct vkd3d_clear_uav_info *args, const void *values,
+        UINT rect_count, const D3D12_RECT *rects, bool is_float)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_format *uint_format;
+    const struct vkd3d_format *format;
+    static uint32_t zero_pattern[4];
+
+    format = vkd3d_get_format(list->device, args->clear_dxgi_format, false);
+
+    if (args->clear_dxgi_format)
+        uint_format = vkd3d_clear_uav_find_uint_format(list->device, args->clear_dxgi_format);
+    else
+        uint_format = vkd3d_get_format(list->device, DXGI_FORMAT_R32_UINT, false);
+
+    if (d3d12_resource_is_buffer(resource))
+    {
+        VkDeviceAddress start_va, end_va;
+        uint32_t fill_pattern = 0;
+        VkClearColorValue color;
+        uint32_t i;
+
+        /* CmdFillBuffer must be aligned to 4 bytes. */
+        if ((args->u.buffer.va | args->u.buffer.range) & 3)
+            return false;
+
+        start_va = args->u.buffer.va;
+        end_va = start_va + args->u.buffer.range;
+
+        /* For small formats, the region rects might not align to 4 byte.
+         * Validate this. */
+        if (format->byte_count < 4)
+        {
+            for (i = 0; i < rect_count; i++)
+            {
+                if ((rects[i].left * format->byte_count) & 3)
+                    return false;
+                if ((rects[i].right * format->byte_count) & 3)
+                    return false;
+            }
+        }
+
+        /* Clearing to zero is trivial no matter the format. */
+        if (memcmp(values, zero_pattern, sizeof(zero_pattern)) == 0)
+        {
+            fill_pattern = 0;
+        }
+        else if (is_float)
+        {
+            const float *f32_values = values;
+            memcpy(&fill_pattern, values, sizeof(fill_pattern));
+
+            switch (args->clear_dxgi_format)
+            {
+                case DXGI_FORMAT_R32_FLOAT:
+                    /* Only float format that we can trivially understand how to interpret as u32.
+                     * TYPELESS is not allowed here. */
+                    break;
+
+                case DXGI_FORMAT_R32G32_FLOAT:
+                    /* Multi-component is fine as long as all clear values agree. */
+                    if (f32_values[1] != f32_values[0])
+                        return false;
+                    break;
+
+                case DXGI_FORMAT_R32G32B32A32_FLOAT:
+                    if (f32_values[1] != f32_values[0] ||
+                        f32_values[2] != f32_values[0] ||
+                        f32_values[3] != f32_values[0])
+                    {
+                        return false;
+                    }
+                    break;
+
+                default:
+                    /* TODO: We don't know how to convert the format. Requires spec-accurate rounding behavior.
+                     * For FP formats this is possible, but for UNORM/SNORM we cannot guarantee invariance
+                     * with GPU behavior since rounding rules are not exactly defined. */
+                    FIXME_ONCE("Could have achieved fast buffer clear of format #%x, but no impl is available.\n",
+                             args->clear_dxgi_format);
+                    return false;
+            }
+        }
+        else /* uint path */
+        {
+            /* Format reinterpretation is much easier when working in uint. */
+            uint32_t bytes_per_component;
+            uint32_t num_components;
+
+            if (!uint_format)
+                return false;
+
+            memcpy(color.uint32, values, sizeof(color.uint32));
+
+            if (args->clear_dxgi_format)
+            {
+                color = vkd3d_fixup_clear_uav_uint_color(list->device, args->clear_dxgi_format, color);
+                color = vkd3d_fixup_clear_uav_swizzle(list->device, format, color);
+                vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
+            }
+
+            switch (uint_format->vk_format)
+            {
+                case VK_FORMAT_R32_UINT:
+                    num_components = 1;
+                    bytes_per_component = 4;
+                    break;
+
+                case VK_FORMAT_R32G32_UINT:
+                    num_components = 2;
+                    bytes_per_component = 4;
+                    break;
+
+                case VK_FORMAT_R32G32B32A32_UINT:
+                    num_components = 4;
+                    bytes_per_component = 4;
+                    break;
+
+                case VK_FORMAT_R16_UINT:
+                    num_components = 1;
+                    bytes_per_component = 2;
+                    break;
+
+                case VK_FORMAT_R16G16_UINT:
+                    num_components = 2;
+                    bytes_per_component = 2;
+                    break;
+
+                case VK_FORMAT_R16G16B16A16_UINT:
+                    num_components = 4;
+                    bytes_per_component = 2;
+                    break;
+
+                case VK_FORMAT_R8_UINT:
+                    num_components = 1;
+                    bytes_per_component = 1;
+                    break;
+
+                case VK_FORMAT_R8G8_UINT:
+                    num_components = 2;
+                    bytes_per_component = 1;
+                    break;
+
+                case VK_FORMAT_R8G8B8A8_UINT:
+                    num_components = 4;
+                    bytes_per_component = 1;
+                    break;
+
+                default:
+                    return false;
+            }
+
+            if (num_components * bytes_per_component > sizeof(uint32_t))
+            {
+                /* We can allow the copy as long as the components agree.
+                 * Technically we could allow a RGRG packing style for 16-bit, but
+                 * no need to overcomplicate this. */
+                for (i = 1; i < num_components; i++)
+                    if (color.uint32[0] != color.uint32[i])
+                        return false;
+                num_components = sizeof(uint32_t) / bytes_per_component;
+            }
+
+            /* Pack the components together into one u32 payload. */
+            for (i = 0; i < num_components; i++)
+                memcpy(void_ptr_offset(&fill_pattern, i * bytes_per_component), &color.uint32[i], bytes_per_component);
+
+            /* Splat as necessary. */
+            if (num_components * bytes_per_component == 1)
+                fill_pattern = 0x01010101 * fill_pattern;
+            else if (num_components * bytes_per_component == 2)
+                fill_pattern = 0x00010001 * fill_pattern;
+        }
+
+        /* For other ClearUAVFloat() formats, be conservative.
+         * We would need to handle rounding exactly like the implementation
+         * would for possible invariance reasons.
+         * E.g. a game might rely on ClearRTV for UNORM to around the same way as ClearUAV with same FP values.
+         * We have no sensible way to guarantee that here, so just bail unless we hit the trivial cases. */
+
+        d3d12_command_list_track_resource_usage(list, resource, true);
+        d3d12_command_list_end_current_render_pass(list, false);
+        d3d12_command_list_debug_mark_begin_region(list, "ClearUAV Fast Fill");
+        if (rect_count)
+        {
+            for (i = 0; i < rect_count; i++)
+            {
+                VkDeviceAddress lo_va = start_va + rects[i].left * format->byte_count;
+                VkDeviceAddress hi_va = min(end_va, start_va + rects[i].right * format->byte_count);
+                if (lo_va >= hi_va)
+                    continue;
+                VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer,
+                        resource->res.vk_buffer,
+                        resource->mem.offset + (lo_va - resource->res.va),
+                        hi_va - lo_va, fill_pattern));
+            }
+        }
+        else
+        {
+            VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer,
+                    resource->res.vk_buffer,
+                    resource->mem.offset + (args->u.buffer.va - resource->res.va),
+                    args->u.buffer.range, fill_pattern));
+        }
+        d3d12_command_list_debug_mark_end_region(list);
+    }
+    else
+    {
+        VkImageSubresourceRange vk_subresource_range;
+        VkImageSubresourceLayers vk_subresource;
+        VkClearColorValue color;
+        VkExtent3D view_extent;
+        uint32_t layer_count;
+
+        /* CmdClearColorImage only clears full subresources.
+         * It would be UB to try to clear the full subresource more than once. */
+        if (rect_count > 1)
+            return false;
+
+        /* Don't bother handling these special cases. */
+        if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
+            return false;
+
+        /* A float format image can only be cleared with a FP32 value.
+         * Ignore this if we're clearing to zero anyway. */
+        if (is_float && format->type != VKD3D_FORMAT_TYPE_OTHER && memcmp(values, zero_pattern, sizeof(zero_pattern)) != 0)
+            return false;
+
+        /* If we're clearing an integer format image, we can only clear it with proper SINT format,
+         * otherwise we risk clearing with a value that is out of range of the SINT format which will create undefined values.
+		 * Fallback to normal descriptors. This path can probably be improved with lots of extra code to check for ranges, etc. */
+        if (!is_float && format->type != VKD3D_FORMAT_TYPE_UINT && memcmp(values, zero_pattern, sizeof(zero_pattern)) != 0)
+            return false;
+
+        /* Would need complicated format reinterpretation. Can add special cases as needed if important.
+         * If we're clearing to zero, any format reinterpretation can be conveniently ignored. */
+        if (memcmp(values, zero_pattern, sizeof(zero_pattern)) != 0 && resource->desc.Format != args->clear_dxgi_format)
+            return false;
+
+        if (is_float)
+        {
+            /* All the formats are 1:1. Use the clear color as-is without any issue. Observe clamping rules however. */
+            copy_and_clamp_clear_color(format->vk_format, color.float32, values);
+            color = vkd3d_fixup_clear_uav_swizzle(list->device, format, color);
+        }
+        else
+        {
+            memcpy(&color.uint32, values, sizeof(color.uint32));
+            color = vkd3d_fixup_clear_uav_uint_color(list->device, args->clear_dxgi_format, color);
+            color = vkd3d_fixup_clear_uav_swizzle(list->device, format, color);
+            vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
+        }
+
+        vk_subresource.aspectMask = format->vk_aspect_mask;
+        vk_subresource.mipLevel = args->u.image.mip_slice;
+        vk_subresource.baseArrayLayer = 0;
+        vk_subresource.layerCount = VK_REMAINING_ARRAY_LAYERS;
+        view_extent = d3d12_resource_desc_get_vk_subresource_extent(&resource->desc, format, &vk_subresource);
+
+        /* Accept a single full-subresource rect. */
+        if (rect_count)
+        {
+            if (rects[0].left > 0 || rects[0].top > 0 ||
+                rects[0].right < (int)view_extent.width || rects[0].bottom < (int)view_extent.height)
+            {
+                return false;
+            }
+        }
+
+        if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        {
+            /* We cannot clear a subset of slices with fast path. */
+            if (args->u.image.first_array_slice != 0)
+                return false;
+            if (args->u.image.array_size < view_extent.depth)
+                return false;
+
+            layer_count = 1;
+        }
+        else
+        {
+            layer_count = min(resource->desc.DepthOrArraySize - args->u.image.first_array_slice, args->u.image.array_size);
+        }
+
+        vk_subresource_range.aspectMask = format->vk_aspect_mask;
+        vk_subresource_range.baseArrayLayer = args->u.image.first_array_slice;
+        vk_subresource_range.layerCount = layer_count;
+        vk_subresource_range.baseMipLevel = args->u.image.mip_slice;
+        vk_subresource_range.levelCount = 1;
+
+        d3d12_command_list_track_resource_usage(list, resource, true);
+        d3d12_command_list_end_current_render_pass(list, false);
+        d3d12_command_list_debug_mark_begin_region(list, "ClearUAV Fast Clear");
+        VK_CALL(vkCmdClearColorImage(list->cmd.vk_command_buffer,
+                resource->res.vk_image, VK_IMAGE_LAYOUT_GENERAL,
+                &color, 1, &vk_subresource_range));
+        d3d12_command_list_debug_mark_end_region(list);
+    }
+
+    /* Applications are supposed to use barriers here, but native drivers inherited some
+     * very unfortunate behavior from 11on12 where ClearUAV are implicitly barriers, similar to how
+     * transfer ops work. Too many cases in the wild where this stuff just breaks,
+     * so be conservative. */
+    if (!VKD3D_CONFIG_FLAG_IS_SET(NO_CLEAR_UAV_SYNC))
+        list->cmd.clear_uav_pending = true;
+
+    return true;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3d12_command_list_iface *iface,
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
@@ -16404,8 +16714,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     if (!vkd3d_clear_uav_info_from_metadata(&args, metadata.view))
         return;
 
-    /* This is illegal D3D12, but we need to robust against it. */
-    if (!list->descriptor_heap.buffers.resource.heap)
+    /* We may be able to implement the clear trivially with vkCmdClearColorImage or vkCmdFillBuffer.
+     * Do so if possible since it's expected to be much more efficient than spamming shaders. */
+    if (d3d12_command_list_clear_uav_builtin(list, resource_impl, &args, values, rect_count, rects, false))
+        return;
+
+    /* This is illegal D3D12, but we need to robust against it. Only warn if we cannot trivially implement the clear. */
+    if (!list->descriptor_heap.buffers.resource.heap && d3d12_device_use_descriptor_heap(list->device))
         WARN("ClearUAVUint called without active heap.\n");
 
     if (d3d12_resource_is_texture(resource_impl) && !(args.u.image.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
@@ -16561,24 +16876,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     if (!resource_impl || !metadata.view)
         return;
 
-    /* This is illegal D3D12, but we need to robust against it. */
-    if (!list->descriptor_heap.buffers.resource.heap)
-        WARN("ClearUAVFloat called without active heap.\n");
-
     if (!vkd3d_clear_uav_info_from_metadata(&args, metadata.view))
         return;
-
-    if (d3d12_resource_is_texture(resource_impl) && !(args.u.image.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
-    {
-        WARN("Image clear mismatch.\n");
-        return;
-    }
-
-    if (d3d12_resource_is_buffer(resource_impl) && !(args.u.buffer.flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE))
-    {
-        WARN("Buffer clear mismatch.\n");
-        return;
-    }
 
     if (args.clear_dxgi_format)
     {
@@ -16589,6 +16888,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     else
     {
         WARN("Attempting to clear float UAV without format.\n");
+        return;
+    }
+
+    /* We may be able to implement the clear trivially with vkCmdClearColorImage or vkCmdFillBuffer.
+     * Do so if possible since it's expected to be much more efficient than spamming shaders. */
+    if (d3d12_command_list_clear_uav_builtin(list, resource_impl, &args, values, rect_count, rects, true))
+        return;
+
+    /* This is illegal D3D12, but we need to robust against it. Only warn if we cannot trivially implement the clear. */
+    if (!list->descriptor_heap.buffers.resource.heap && d3d12_device_use_descriptor_heap(list->device))
+        WARN("ClearUAVFloat called without active heap.\n");
+
+    if (d3d12_resource_is_texture(resource_impl) && !(args.u.image.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW))
+    {
+        WARN("Image clear mismatch.\n");
+        return;
+    }
+
+    if (d3d12_resource_is_buffer(resource_impl) && !(args.u.buffer.flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE))
+    {
+        WARN("Buffer clear mismatch.\n");
         return;
     }
 
