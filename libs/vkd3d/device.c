@@ -583,7 +583,7 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
 enum vkd3d_application_feature_override
 {
     VKD3D_APPLICATION_FEATURE_OVERRIDE_NONE = 0,
-    VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK = 1 << 0,
+    VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME = 1 << 0,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 = 1 << 1,
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX = 1 << 2,
     VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS = 1 << 3,
@@ -651,7 +651,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
     { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
     /* Hellblade: Senua's Sacrifice (414340). Enables RT by default if supported which is ... jarring and particularly jarring on Deck. */
-    { VKD3D_STRING_COMPARE_EXACT, "HellbladeGame-Win64-Shipping.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
+    { VKD3D_STRING_COMPARE_EXACT, "HellbladeGame-Win64-Shipping.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
     /* Lost Judgment (2058190) */
     { VKD3D_STRING_COMPARE_EXACT, "LostJudgment.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
     /* Marvel's Spider-Man Remastered (1817070). DCC stores causes glitches when RT is enabled with RADV. */
@@ -673,7 +673,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe",
             VKD3D_CONFIG_FLAG_INIT_STATIC(.HUGE_NV_DGC_BUFFERS = 1, .REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT = 1) },
     /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
-    { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
+    { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
     /* Basically never bothers doing initial transitions.
      * GPU hang observed on RDNA1 cards at least during intro cutscene.
      * Game does not use UAV barrier between ClearUAV and GDeflate shader.
@@ -1874,9 +1874,21 @@ bool d3d12_device_supports_required_subgroup_size_for_stage(
 static bool d3d12_device_is_steam_deck(const struct d3d12_device *device)
 {
     return device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
-            device->device_info.properties2.properties.vendorID == 0x1002 &&
+            device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
             (device->device_info.properties2.properties.deviceID == 0x163f ||
              device->device_info.properties2.properties.deviceID == 0x1435);
+}
+
+static bool d3d12_device_is_steam_frame(const struct d3d12_device *device)
+{
+    return device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_TURNIP &&
+           device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_QUALCOMM &&
+           device->device_info.properties2.properties.deviceID == 0x43051401;
+}
+
+static bool d3d12_device_is_steam_deck_or_frame(const struct d3d12_device *device)
+{
+    return d3d12_device_is_steam_deck(device) || d3d12_device_is_steam_frame(device);
 }
 
 static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info,
@@ -10844,12 +10856,12 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
 {
     /* Some games rely on certain features to be exposed before they let the primary feature
      * be exposed. */
-    if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK)
+    if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME)
     {
-        /* For games which automatically enable RT even on Deck, leading to very poor performance by default. */
-        if (d3d12_device_is_steam_deck(device) && !VKD3D_CONFIG_FLAG_IS_SET(DXR))
+        /* For games which automatically enable RT even on Deck or Frame, leading to very poor performance by default. */
+        if (d3d12_device_is_steam_deck_or_frame(device) && !VKD3D_CONFIG_FLAG_IS_SET(DXR))
         {
-            INFO("Disabling automatic enablement of DXR on Deck.\n");
+            INFO("Disabling automatic enablement of DXR on Deck/Frame.\n");
             device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
         }
     }
