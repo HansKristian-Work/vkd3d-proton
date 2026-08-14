@@ -1251,6 +1251,7 @@ void test_update_tile_mappings(void)
                     resource, clear_value, 0, NULL);
         }
 
+        transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         transition_resource_state(context.list, readback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
         ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, root_signature);
