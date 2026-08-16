@@ -22692,7 +22692,7 @@ static inline struct d3d12_command_queue *impl_from_ID3D12CommandQueue(ID3D12Com
     return CONTAINING_RECORD(iface, struct d3d12_command_queue, ID3D12CommandQueue_iface);
 }
 
-HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY_NONSTATIC(HRESULT) d3d12_command_queue_QueryInterface(ID3D12CommandQueue *iface,
         REFIID riid, void **object)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -22741,7 +22741,7 @@ HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue 
     return E_NOINTERFACE;
 }
 
-ULONG STDMETHODCALLTYPE d3d12_command_queue_AddRef(ID3D12CommandQueue *iface)
+VKD3D_METHODENTRY_NONSTATIC(ULONG) d3d12_command_queue_AddRef(ID3D12CommandQueue *iface)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     unsigned int refcount = InterlockedIncrement(&command_queue->refcount);
@@ -22751,7 +22751,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_AddRef(ID3D12CommandQueue *iface)
     return refcount;
 }
 
-ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
+VKD3D_METHODENTRY_NONSTATIC(ULONG) d3d12_command_queue_Release(ID3D12CommandQueue *iface)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     unsigned int refcount = InterlockedDecrement(&command_queue->refcount);
@@ -22795,7 +22795,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
     return refcount;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetPrivateData(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_GetPrivateData(ID3D12CommandQueue *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -22805,7 +22805,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetPrivateData(ID3D12Comman
     return vkd3d_get_private_data(&command_queue->private_store, guid, data_size, data);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateData(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_SetPrivateData(ID3D12CommandQueue *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -22816,7 +22816,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateData(ID3D12Comman
             NULL, NULL);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateDataInterface(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_SetPrivateDataInterface(ID3D12CommandQueue *iface,
         REFGUID guid, const IUnknown *data)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -22827,7 +22827,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateDataInterface(ID3
             NULL, NULL);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetDevice(ID3D12CommandQueue *iface, REFIID iid, void **device)
+VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_GetDevice(ID3D12CommandQueue *iface, REFIID iid, void **device)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
 
@@ -22876,7 +22876,7 @@ static unsigned int vkd3d_get_tile_index_from_region(const struct d3d12_sparse_i
     return tile_index < sparse->tile_count ? tile_index : VKD3D_INVALID_TILE_INDEX;
 }
 
-static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(void) d3d12_command_queue_UpdateTileMappings(ID3D12CommandQueue *iface,
         ID3D12Resource *resource, UINT region_count, const D3D12_TILED_RESOURCE_COORDINATE *region_coords,
         const D3D12_TILE_REGION_SIZE *region_sizes, ID3D12Heap *heap, UINT range_count,
         const D3D12_TILE_RANGE_FLAGS *range_flags,
@@ -23071,7 +23071,7 @@ fail:
     vkd3d_free(sub.bind_sparse.bind_infos);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(void) d3d12_command_queue_CopyTileMappings(ID3D12CommandQueue *iface,
         ID3D12Resource *dst_resource, const D3D12_TILED_RESOURCE_COORDINATE *dst_region_start_coordinate,
         ID3D12Resource *src_resource, const D3D12_TILED_RESOURCE_COORDINATE *src_region_start_coordinate,
         const D3D12_TILE_REGION_SIZE *region_size, D3D12_TILE_MAPPING_FLAGS flags)
@@ -23203,7 +23203,7 @@ out:
     return ret;
 }
 
-static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(void) d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -23611,26 +23611,26 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     d3d12_command_queue_add_submission(command_queue, &sub);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_queue_SetMarker(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(void) d3d12_command_queue_SetMarker(ID3D12CommandQueue *iface,
         UINT metadata, const void *data, UINT size)
 {
     FIXME("iface %p, metadata %#x, data %p, size %u stub!\n",
             iface, metadata, data, size);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_queue_BeginEvent(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(void) d3d12_command_queue_BeginEvent(ID3D12CommandQueue *iface,
         UINT metadata, const void *data, UINT size)
 {
     FIXME("iface %p, metatdata %#x, data %p, size %u stub!\n",
             iface, metadata, data, size);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_queue_EndEvent(ID3D12CommandQueue *iface)
+VKD3D_METHODENTRY(void) d3d12_command_queue_EndEvent(ID3D12CommandQueue *iface)
 {
     FIXME("iface %p stub!\n", iface);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_Signal(ID3D12CommandQueue *iface,
         ID3D12Fence *fence_iface, UINT64 value)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -23647,7 +23647,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_Wait(ID3D12CommandQueue *iface,
         ID3D12Fence *fence_iface, UINT64 value)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -23672,7 +23672,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_GetTimestampFrequency(ID3D12CommandQueue *iface,
         UINT64 *frequency)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -23691,7 +23691,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetTimestampFrequency(ID3D1
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_GetClockCalibration(ID3D12CommandQueue *iface,
         UINT64 *gpu_timestamp, UINT64 *cpu_timestamp)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -23772,7 +23772,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetClockCalibration(ID3D12C
     return S_OK;
 }
 
-static D3D12_COMMAND_QUEUE_DESC * STDMETHODCALLTYPE d3d12_command_queue_GetDesc(ID3D12CommandQueue *iface,
+VKD3D_METHODENTRY(D3D12_COMMAND_QUEUE_DESC *) d3d12_command_queue_GetDesc(ID3D12CommandQueue *iface,
         D3D12_COMMAND_QUEUE_DESC *desc)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);

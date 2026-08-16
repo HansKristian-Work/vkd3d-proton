@@ -216,9 +216,30 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # define IsEqualGUID(guid1, guid2) (!memcmp(guid1, guid2, sizeof(GUID)))
 #endif
 
+/* Entrypoint definitions to match win32 side */
+# define VKD3D_METHODENTRYBASE(return_type, qual, attribute) qual return_type attribute STDMETHODCALLTYPE
+# define VKD3D_METHODENTRY(return_type) VKD3D_METHODENTRYBASE(return_type, static, )
+# define VKD3D_METHODENTRY_NONSTATIC(return_type) VKD3D_METHODENTRYBASE(return_type, , )
+
 #elif !defined(__WIDL__)
 
 # include <windows.h>
+
+/* ARM64ec entrypoints in vtables need to be tagged with the `hybrid_patchable` attribute.
+ * This attribute can't be used with static qualifiers as it can only be used with
+ * functions that have external linkage.
+ * On non-arm64ec platforms, the static qualifier is desired even with vtable entries.
+ */
+# define VKD3D_METHODENTRYBASE(return_type, qual, attribute) qual return_type attribute STDMETHODCALLTYPE
+#ifdef __arm64ec__
+/* Remove static qualifier and add hybrid_patchable */
+# define VKD3D_METHODENTRY(return_type) VKD3D_METHODENTRYBASE(return_type, , __attribute__((hybrid_patchable)))
+# define VKD3D_METHODENTRY_NONSTATIC(return_type) VKD3D_METHODENTRYBASE(return_type, , __attribute__((hybrid_patchable)))
+#else
+/* Attribute is avoided and static is used if desired */
+# define VKD3D_METHODENTRY(return_type) VKD3D_METHODENTRYBASE(return_type, static, )
+# define VKD3D_METHODENTRY_NONSTATIC(return_type) VKD3D_METHODENTRYBASE(return_type, , )
+#endif
 
 #endif  /* _WIN32 */
 
