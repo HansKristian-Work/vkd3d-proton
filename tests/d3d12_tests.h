@@ -588,3 +588,4 @@ decl_test(test_r16_texel_buffer_atomic);
 decl_test(test_copy_texture_buffer_d24);
 decl_test(test_sm69_fp16_isspecial);
 decl_test(test_sm69_long_vector_storage);
+decl_test(test_sm69_long_vector_intrinsics);
