@@ -7224,3 +7224,93 @@ void test_fp_truncate_roundtrips(void)
     ID3D12Resource_Release(output);
     destroy_test_context(&context);
 }
+
+void test_sm69_fp16_isspecial(void)
+{
+    D3D12_FEATURE_DATA_SHADER_MODEL sm;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_isspecial_fp16.h"
+
+    uint16_t inputs[64 * 1024];
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    sm.HighestShaderModel = D3D_SHADER_MODEL_6_9;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm))) ||
+            sm.HighestShaderModel < D3D_SHADER_MODEL_6_9)
+    {
+        skip("SM 6.9 not supported, skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_desc.pParameters = rs_param;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_isspecial_fp16_dxil);
+
+    for (i = 0; i < 64 * 1024; i++)
+        inputs[i] = i;
+
+    input = create_upload_buffer(context.device, sizeof(inputs), inputs);
+    output = create_default_buffer(context.device, 12 * 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 64 * 1024 / 256, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+#define fp16_isinf(v) (((v) & 0x7fff) == 0x7c00)
+#define fp16_isnan(v) (((v) & 0x7fff) > 0x7c00)
+#define fp16_isnormal(v) (!fp16_isinf(v) && !fp16_isnan(v) && ((v) & 0x7fff) >= (1 << 10))
+
+    for (i = 0; i < 64 * 1024; i += 4)
+    {
+        struct uvec4 expected_infs, expected_nans, expected_normals;
+        const struct uvec4 *infs, *nans, *normals;
+        infs = get_readback_uvec4(&rb, (i / 4) * 3 + 0, 0);
+        nans = get_readback_uvec4(&rb, (i / 4) * 3 + 1, 0);
+        normals = get_readback_uvec4(&rb, (i / 4) * 3 + 2, 0);
+
+        expected_infs.x = fp16_isinf(i + 0);
+        expected_infs.y = fp16_isinf(i + 1);
+        expected_infs.z = fp16_isinf(i + 2);
+        expected_infs.w = fp16_isinf(i + 3);
+
+        expected_nans.x = fp16_isnan(i + 0);
+        expected_nans.y = fp16_isnan(i + 1);
+        expected_nans.z = fp16_isnan(i + 2);
+        expected_nans.w = fp16_isnan(i + 3);
+
+        expected_normals.x = fp16_isnormal(i + 0);
+        expected_normals.y = fp16_isnormal(i + 1);
+        expected_normals.z = fp16_isnormal(i + 2);
+        expected_normals.w = fp16_isnormal(i + 3);
+
+        ok(compare_uvec4(&expected_infs, infs), "Failed inf checks for [#%x, #%x)\n", i, i + 4);
+        ok(compare_uvec4(&expected_nans, nans), "Failed nan checks for [#%x, #%x)\n", i, i + 4);
+        ok(compare_uvec4(&expected_normals, normals), "Failed normal checks for [#%x, #%x)\n", i, i + 4);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    destroy_test_context(&context);
+}
