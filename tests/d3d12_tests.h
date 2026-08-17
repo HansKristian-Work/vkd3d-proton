@@ -581,3 +581,4 @@ decl_test(test_query_heap_cpu_resolve_occlusion);
 decl_test(test_buffer_descriptor_byte_offset);
 decl_test(test_raytracing_collection_handle_invariance);
 decl_test(test_copy_block_spam);
+decl_test(test_sm69_fp16_isspecial);
