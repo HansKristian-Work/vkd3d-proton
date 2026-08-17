@@ -7313,3 +7313,158 @@ void test_sm69_fp16_isspecial(void)
     ID3D12Resource_Release(output);
     destroy_test_context(&context);
 }
+
+void test_sm69_long_vector_storage(void)
+{
+    D3D12_FEATURE_DATA_SHADER_MODEL sm;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    D3D12_DESCRIPTOR_RANGE rs_range;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_long_vector_storage.h"
+
+    float input_data[1024];
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    sm.HighestShaderModel = D3D_SHADER_MODEL_6_9;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm))) ||
+        sm.HighestShaderModel < D3D_SHADER_MODEL_6_9)
+    {
+        skip("SM 6.9 not supported, skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_range, 0, sizeof(rs_range));
+    rs_desc.pParameters = rs_param;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[0].Descriptor.ShaderRegister = 2;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].Descriptor.ShaderRegister = 3;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[2].DescriptorTable.NumDescriptorRanges = 1;
+    rs_param[2].DescriptorTable.pDescriptorRanges = &rs_range;
+
+    rs_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    rs_range.BaseShaderRegister = 0;
+    rs_range.NumDescriptors = 2;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_long_vector_storage_dxil);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+
+    for (i = 0; i < 1024; i++)
+        input_data[i] = 1.0f + (float)i;
+
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+    output = create_default_buffer(context.device, sizeof(input_data), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Buffer.FirstElement = 0;
+        uav_desc.Buffer.NumElements = 4;
+        uav_desc.Buffer.StructureByteStride = 17 * sizeof(float);
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 0));
+
+        uav_desc.Buffer.FirstElement = 1 * 1024 / sizeof(uint32_t);
+        uav_desc.Buffer.NumElements = 17 * 4;
+        uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        uav_desc.Buffer.StructureByteStride = 0;
+        uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 1));
+    }
+
+    ID3D12GraphicsCommandList_CopyResource(context.list, output, input);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output) + 2 * 1024);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output) + 3 * 1024);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2, get_gpu_descriptor_handle(&context, heap, 0));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* Validate first structure buffer output. */
+    {
+        uint32_t local_index, i;
+        float expected[4][17];
+
+        /* Load */
+        for (local_index = 0; local_index < ARRAY_SIZE(expected); local_index++)
+            for (i = 0; i < ARRAY_SIZE(expected[local_index]); i++)
+                expected[local_index][i] = 1.0f + 17.0f * (float)local_index + (float)i;
+
+        for (local_index = 0; local_index < 4; local_index++)
+        {
+            expected[local_index][13] = expected[local_index][2];
+        }
+
+        for (local_index = 0; local_index < 4; local_index++)
+        {
+            expected[local_index][12 + local_index] = expected[local_index][12 + (local_index ^ 1)] + 1.0f;
+            for (i = 0; i < 6; i++)
+                expected[local_index][6 * (local_index & 1) + i] = expected[local_index][6 * ((local_index & 1) ^ 1) + i];
+        }
+
+        for (local_index = 0; local_index < 4; local_index++)
+        {
+            expected[local_index][12 + local_index] = expected[local_index][12 + (local_index ^ 1)] + 4.0f;
+            for (i = 0; i < 6; i++)
+                expected[local_index][6 * (local_index & 1) + i] = expected[local_index][6 * ((local_index & 1) ^ 1) + i];
+        }
+
+        for (local_index = 0; local_index < 4; local_index++)
+        {
+            for (i = 0; i < 17; i++)
+            {
+                float v = get_readback_float(&rb, 17 * local_index + i, 0);
+                ok(v == expected[local_index][i], "Value [%u][%u]: expected %f, got %f\n", local_index, i, expected[local_index][i], v);
+            }
+        }
+    }
+
+    /* Validate the other buffers. */
+    {
+        uint32_t local_index, i, j;
+
+        for (j = 256; j < 1024; j += 256)
+        {
+            for (local_index = 0; local_index < 4; local_index++)
+            {
+                for (i = 0; i < 17; i++)
+                {
+                    float v = get_readback_float(&rb, j + 17 * local_index + i, 0);
+                    float expected;
+
+                    expected = 1.0f + j + 17.0f * ((local_index) ^ 1) + i;
+                    ok(v == expected, "Value [%u][%u]: expected %f, got %f\n", local_index, i, expected, v);
+                }
+            }
+        }
+    }
+
+    ID3D12DescriptorHeap_Release(heap);
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    destroy_test_context(&context);
+}
