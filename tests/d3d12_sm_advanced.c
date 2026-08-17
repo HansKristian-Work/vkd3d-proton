@@ -7468,3 +7468,311 @@ void test_sm69_long_vector_storage(void)
     ID3D12Resource_Release(output);
     destroy_test_context(&context);
 }
+
+static float frac_helper(float v)
+{
+    return v - floorf(v);
+}
+
+static float rsqrt_helper(float v)
+{
+    return 1.0f / sqrtf(v);
+}
+
+static float degrees_helper(float v)
+{
+    return v * (180.0f / 3.1415628f);
+}
+
+static float radians_helper(float v)
+{
+    return v * (3.1415628f / 180.0f);
+}
+
+static float rcp_helper(float v)
+{
+    return 1.0f / v;
+}
+
+static float sign_helper(float v)
+{
+    if (v > 0.0f)
+        return 1.0f;
+    else if (v < 0.0f)
+        return -1.0f;
+    else
+        return 0.0f;
+}
+
+static float modf_helper(float a, float b)
+{
+    float r;
+    modff(a, &r);
+    a -= r;
+    return a;
+}
+
+static float reverse_helper(float v)
+{
+    union
+    {
+        float f32;
+        uint32_t u32;
+    } u;
+    uint32_t reversed = 0, i;
+
+    u.u32 = (uint32_t)v;
+
+    for (i = 0; i < 32; i++)
+        reversed |= ((u.u32 >> i) & 1) << (31 - i);
+
+    u.u32 = reversed;
+    return u.f32;
+}
+
+static float countbits_helper(float v)
+{
+    union
+    {
+        float f32;
+        uint32_t u32;
+    } u;
+    uint32_t count = 0, i;
+
+    u.u32 = (uint32_t)v;
+
+    for (i = 0; i < 32; i++)
+        count += (u.u32 >> i) & 1;
+
+    u.u32 = count;
+    return u.f32;
+}
+
+static float firstbithigh_helper(float v)
+{
+    union
+    {
+        float f32;
+        uint32_t u32;
+    } u;
+    int i;
+
+    u.u32 = (uint32_t)v;
+
+    for (i = 31; i >= 0; i--)
+    {
+        if ((u.u32 >> i) & 1)
+        {
+            u.u32 = i;
+            return u.f32;
+        }
+    }
+
+    u.u32 = UINT32_MAX;
+    return u.f32;
+}
+
+static float firstbitlow_helper(float v)
+{
+    union
+    {
+        float f32;
+        uint32_t u32;
+    } u;
+    int i;
+
+    u.u32 = (uint32_t)v;
+
+    for (i = 0; i <= 31; i++)
+    {
+        if ((u.u32 >> i) & 1)
+        {
+            u.u32 = i;
+            return u.f32;
+        }
+    }
+
+    u.u32 = UINT32_MAX;
+    return u.f32;
+}
+
+static float f16tof32_helper(float v)
+{
+    /* Cast to integer, then f16tof32, just rescale the denorm. Minimum hack for test purposes. */
+    return ldexpf(v, -24);
+}
+
+static float f32tof16_helper(float v)
+{
+    uint16_t fp16 = float_to_half(v);
+    union
+    {
+        float f32;
+        uint32_t u32;
+    } u;
+
+    u.u32 = fp16;
+    return u.f32;
+}
+
+void test_sm69_long_vector_intrinsics(void)
+{
+    D3D12_FEATURE_DATA_SHADER_MODEL sm;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_long_vector_intrinsics_float.h"
+
+#define TRANCENDENTAL_TEST(func) {{ 0.0f, -0.1f, 0.1f, -0.2f, 0.2f, -0.3f, 0.3f, 0.5f }, {0}, {0}, \
+    { func(0.0f), func(-0.1f), func(0.1f), func(-0.2f), func(0.2f), func(-0.3f), func(0.3f), func(0.5f) }, 256}
+#define POS_NUMBER_TEST(func, ulp) {{ 0.01f, 0.51f, 1.01f, 1.51f, 2.01f, 2.51f, 3.01f, 3.51f }, {0}, {0}, \
+    { func(0.01f), func(0.51f), func(1.01f), func(1.51f), func(2.01f), func(2.51f), func(3.01f), func(3.51f) }, ulp}
+#define POS_NUMBER_TEST_INEXACT(func) POS_NUMBER_TEST(func, 256)
+#define POS_NUMBER_TEST_EXACT(func) POS_NUMBER_TEST(func, 0)
+#define TRANCENDENTAL_TEST2(func) { \
+    { 0.1f, 0.2f, 0.3f, 0.4f, -0.1f, -0.2f, -0.3f, -0.4f }, \
+    { 0.2f, -0.2f, 0.3f, -0.3f, 1.4f, -0.4f, 1.5f, -0.5f }, \
+    {0}, { func(0.1f, 0.2f), func(0.2f, -0.2f), func(0.3f, 0.3f), func(0.4f, -0.3f), \
+           func(-0.1f, 1.4f), func(-0.2f, -0.4f), func(-0.3f, 1.5f), func(-0.4f, -0.5f) }, 256}
+
+#define BITMANIP_TEST(func) {{ 0, 1, 2, 3, 4, 5, 6, 7 }, {0}, {0}, \
+    { func(0), func(1), func(2), func(3), func(4), func(5), func(6), func(7) }, 0, true}
+
+    const struct
+    {
+        float input0[8];
+        float input1[8];
+        float input2[8];
+        float reference[8];
+        int ulp;
+        bool bitexact;
+    } tests[] = {
+        {{ 1, -1, 2, -2, 3, -3, 0, 0 }, {0}, {0}, { 1, 1, 2, 2, 3, 3, 0, 0 }, 0, }, /* abs */
+        {{ -1, 0, 1, 2, INFINITY, -INFINITY, NAN }, {0}, {0}, { 0, 0, 1, 1, 1, 0 }, }, /* saturate */
+        {{ INFINITY, -INFINITY, NAN, 0 }, {0}, {0}, { 0, 0, 1 }, 0 }, /* isnan */
+        {{ INFINITY, -INFINITY, NAN, 0 }, {0}, {0}, { 1, 1, 0 }, 0 }, /* isinf */
+        {{ INFINITY, -INFINITY, NAN, 0 }, {0}, {0}, { 0, 0, 0, 1, 1, 1, 1, 1 }, 0 }, /* isfinite */
+        {{ INFINITY, -INFINITY, NAN, 0, 1e-20 }, {0}, {0}, { 0, 0, 0, 0, 1, 0, 0, 0 }, 0 }, /* isnormal */
+        TRANCENDENTAL_TEST(cosf), TRANCENDENTAL_TEST(sinf), TRANCENDENTAL_TEST(tanf),
+        TRANCENDENTAL_TEST(acosf), TRANCENDENTAL_TEST(asinf), TRANCENDENTAL_TEST(atanf),
+        TRANCENDENTAL_TEST(coshf), TRANCENDENTAL_TEST(sinhf), TRANCENDENTAL_TEST(tanhf),
+        TRANCENDENTAL_TEST(exp2f), TRANCENDENTAL_TEST(frac_helper), POS_NUMBER_TEST_INEXACT(log2f),
+        POS_NUMBER_TEST_INEXACT(sqrtf), POS_NUMBER_TEST_INEXACT(rsqrt_helper),
+        POS_NUMBER_TEST_EXACT(roundf), POS_NUMBER_TEST_EXACT(truncf), POS_NUMBER_TEST_EXACT(ceilf), POS_NUMBER_TEST_EXACT(floorf),
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, { -1, -2, -3, -4, NAN, -INFINITY, NAN, INFINITY }, {0}, { 1, 2, 3, 4, 5, 6, 7, INFINITY}, 0}, /* max */
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, { -1, -2, -3, -4, NAN, -INFINITY, NAN, INFINITY }, {0}, { -1, -2, -3, -4, 5, -INFINITY, 7, 8}, 0}, /* min */
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, {9, 10, 11, 12, 13, 14, 15, 16}, {-1, -2, -3, -4, -5, -6, -7, -8}, {8, 18, 30, 44, 60, 78, 98, 120}, 0}, /* mad */
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, {9, 10, 11, 12, 13, 14, 15, 16}, {-1, -2, -3, -4, -5, -6, -7, -8}, {8, 18, 30, 44, 60, 78, 98, 120}, 0}, /* fma */
+        /* These four tests form a quad group. */
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, {0}, {0}, {-2, -4, -6, -8, -10, -12, -14, -16}}, /* ddx_coarse */
+        {{ -1, -2, -3, -4, -5, -6, -7, -8}, {0}, {0}, {9, 9, 9, 9, 9, 9, 9, 9}}, /* ddy_coarse */
+        {{ 10, 11, 12, 13, 14, 15, 16, 17}, {0}, {0}, {-30, -32, -34, -36, -38, -40, -42, -44}}, /* ddx_fine */
+        {{ -20, -21, -22, -23, -24, -25, -26, -27}, {0}, {0}, {-19, -19, -19, -19, -19, -19, -19, -19}}, /* ddy_fine */
+        TRANCENDENTAL_TEST2(atan2f),
+        TRANCENDENTAL_TEST(degrees_helper),
+        TRANCENDENTAL_TEST(radians_helper),
+        {{ NAN, 1, 2, 3, 4, -INFINITY, INFINITY, 7 }, { 1, 1, 1, 1, 1, 1, 1, 1 }, { 2, 2, 2, 2, 2, 2, 2, 2}, { 1, 1, 2, 2, 2, 1, 2, 2 }, 0}, /* clamp */
+        TRANCENDENTAL_TEST2(fmodf),
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, {2, 3, 4, 5, 6, 7, 8, 9}, { 0.1f, 0.1f, 0.2f, 0.2f, 0.3f, 0.3f, 0.4f, 0.4f}, { 1.1f, 2.1f, 3.2f, 4.2f, 5.3f, 6.3f, 7.4f, 8.4f}, 4}, /* lerp */
+        TRANCENDENTAL_TEST2(powf),
+        TRANCENDENTAL_TEST(rcp_helper),
+        TRANCENDENTAL_TEST(sign_helper),
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, {2, 3, 4, 5, 6, 7, 8, 9}, { 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7, 9}, { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0, 1}, 16}, /* smoothstep */
+        {{ 0, 1, 2, 3, 4, 5, 6, 7}, {3.5f, 3.5f, 3.5f, 3.5f, 3.5f, 3.5f, 3.5f, 3.5f}, {0}, { 1, 1, 1, 1, 0, 0, 0, 0 }}, /* step */
+        TRANCENDENTAL_TEST2(modf_helper),
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, {1, 1, 1, 1, 1, 1, 1, 1}, {2, 2, 2, 2, 2, 2, 2, 2}, { 36, 72, 16 }}, /* dot */
+        BITMANIP_TEST(reverse_helper), BITMANIP_TEST(countbits_helper), BITMANIP_TEST(firstbithigh_helper), BITMANIP_TEST(firstbitlow_helper),
+        BITMANIP_TEST(f16tof32_helper), BITMANIP_TEST(f32tof16_helper),
+        {{ 1, 0, 1, 0, 1, 1, 1, 1}, {1, 1, 1, 1, 1, 0, 0, 0}, {0}, {1, 0, 1, 0, 1, 0, 0, 0}}, /* and */
+        {{ 1, 0, 1, 0, 1, 1, 0, 1}, {1, 1, 1, 1, 1, 0, 0, 0}, {0}, {1, 1, 1, 1, 1, 1, 0, 1}}, /* or */
+        {{ 0, 1, 0, 1, 0, 0, 1, 0}, {10, 11, 12, 13, 14, 15, 16, 17}, {-1, -2, -3, -4, -5, -6, -7, -8}, {-1, 11, -3, 13, -5, -6, 16, -8}}, /* select */
+        {{ 1, 1, 1, 1, 1, 1, 1, 1}, {1, 1, 1, 1, 1, 1, 1, 0}, {0, 0, 0, 0, 1, 1, 1, 1}, {1}}, /* all */
+        {{ 0 }, {0, 0, 0, 0, 0, 0, 0, 1}, {1}, {0, 1, 1}}, /* any */
+        /* These four tests form a quad group. */
+        {{ 1, 2, 3, 4, 5, 6, 7, 8}, {0}, {0}, {-1, -2, -3, -4, -5, -6, -7, -8}}, /* QuadReadLane(1) */
+        {{ -1, -2, -3, -4, -5, -6, -7, -8}, {0}, {0}, {1, 2, 3, 4, 5, 6, 7, 8}}, /* ReadAcrossX */
+        {{ 10, 11, 12, 13, 14, 15, 16, 17}, {0}, {0}, {1, 2, 3, 4, 5, 6, 7, 8}}, /* ReadAcrossY */
+        {{ -20, -21, -22, -23, -24, -25, -26, -27}, {0}, {0}, {1, 2, 3, 4, 5, 6, 7, 8}}, /* ReadAcrossDiag */
+    };
+#undef TRANCENDENTAL_TEST
+#undef POS_NUMBER_TEST_EXACT
+#undef POS_NUMBER_TEST_INEXACT
+#undef POS_NUMBER_TEST
+#undef BITMANIP_TEST
+
+    float input_buffer[64][24];
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    sm.HighestShaderModel = D3D_SHADER_MODEL_6_9;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm))) ||
+        sm.HighestShaderModel < D3D_SHADER_MODEL_6_9)
+    {
+        skip("SM 6.9 not supported, skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(input_buffer, 0, sizeof(input_buffer));
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        memcpy(&input_buffer[i][0], tests[i].input0, sizeof(tests[i].input0));
+        memcpy(&input_buffer[i][8], tests[i].input1, sizeof(tests[i].input1));
+        memcpy(&input_buffer[i][16], tests[i].input2, sizeof(tests[i].input2));
+    }
+
+    input = create_upload_buffer(context.device, sizeof(input_buffer), input_buffer);
+    output = create_default_buffer(context.device, 64 * sizeof(float) * 8,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_desc.pParameters = rs_param;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_long_vector_intrinsics_float_dxil);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        unsigned int j;
+
+        for (j = 0; j < 8; j++)
+        {
+            float value = get_readback_float(&rb, 8 * i + j, 0);
+            float expected = tests[i].reference[j];
+            if (isnan(expected) && isnan(value))
+            {
+                expected = NAN;
+                value = NAN;
+            }
+
+            ok(compare_float(expected, value, tests[i].ulp),
+                "Test %u, value %u: Expected %.6g, got %.6g\n",
+                i, j, expected, value);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    destroy_test_context(&context);
+}
