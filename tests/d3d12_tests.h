@@ -586,3 +586,4 @@ decl_test(test_raytracing_collection_handle_invariance);
 decl_test(test_copy_block_spam);
 decl_test(test_r16_texel_buffer_atomic);
 decl_test(test_copy_texture_buffer_d24);
+decl_test(test_sm69_fp16_isspecial);
