@@ -526,6 +526,7 @@ decl_test(test_raytracing_acceleration_structure_validation);
 decl_test(test_placed_msaa_alignment_workaround);
 decl_test(test_placed_msaa_alignments);
 decl_test(test_custom_border_color_limits);
+decl_test(test_custom_border_color_limits_compute);
 decl_test(test_custom_border_color_srgb);
 decl_test(test_large_buffer_descriptors);
 decl_test(test_uav_clear_exhaustive_descriptors);
