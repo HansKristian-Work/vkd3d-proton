@@ -7899,3 +7899,221 @@ void test_sm69_long_vector_waveops(void)
     ID3D12Resource_Release(output);
     destroy_test_context(&context);
 }
+
+static void test_sm69_long_vector_load_store_inner(bool root_desc)
+{
+    static const uint32_t strides[] = { 10, 12, 14, 16, 32 };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS22 options22;
+    D3D12_FEATURE_DATA_SHADER_MODEL sm;
+    D3D12_DESCRIPTOR_RANGE rs_range[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[12];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j;
+
+#include "shaders/sm_advanced/headers/cs_long_vector_load_store.h"
+
+    uint16_t input_buffer[1024];
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    sm.HighestShaderModel = D3D_SHADER_MODEL_6_9;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm))) ||
+        sm.HighestShaderModel < D3D_SHADER_MODEL_6_9)
+    {
+        skip("SM 6.9 not supported, skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS22, &options22, sizeof(options22))) ||
+        !options22.CreateByteOffsetViewsSupported)
+    {
+        skip("ByteOffset views not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(input_buffer); i++)
+        input_buffer[i] = float_to_half((float)i);
+
+    input = create_upload_buffer(context.device, sizeof(input_buffer), input_buffer);
+    output = create_default_buffer(context.device, 6 * sizeof(input_buffer),
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(rs_range, 0, sizeof(rs_range));
+    rs_desc.pParameters = rs_param;
+
+    if (root_desc)
+    {
+        rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+
+        for (i = 0; i < 6; i++)
+        {
+            rs_param[0 + i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+            rs_param[0 + i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+            rs_param[0 + i].Descriptor.ShaderRegister = i;
+            rs_param[6 + i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+            rs_param[6 + i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+            rs_param[6 + i].Descriptor.ShaderRegister = i;
+        }
+    }
+    else
+    {
+        rs_desc.NumParameters = 1;
+        rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rs_param[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_range);
+        rs_param[0].DescriptorTable.pDescriptorRanges = rs_range;
+
+        rs_range[0].NumDescriptors = 6;
+        rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        rs_range[0].OffsetInDescriptorsFromTableStart = 0;
+
+        rs_range[1].NumDescriptors = 6;
+        rs_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        rs_range[1].OffsetInDescriptorsFromTableStart = 6;
+    }
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_long_vector_load_store_dxil);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 12);
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    if (root_desc)
+    {
+        for (i = 0; i < 6; i++)
+        {
+            ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, i, ID3D12Resource_GetGPUVirtualAddress(input));
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 6 + i,
+                ID3D12Resource_GetGPUVirtualAddress(output) + i * sizeof(input_buffer));
+        }
+    }
+    else
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        memset(&srv_desc, 0, sizeof(srv_desc));
+
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER_BYTE_OFFSET;
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER_BYTE_OFFSET;
+
+        for (i = 0; i < ARRAY_SIZE(strides); i++)
+        {
+            srv_desc.BufferByteOffset.Size = 4 * strides[i]; /* Expose robustness behavior */
+            uav_desc.BufferByteOffset.Size = 5 * strides[i]; /* Expose robustness behavior */
+            uav_desc.BufferByteOffset.Offset = sizeof(input_buffer) * i;
+            srv_desc.BufferByteOffset.StructureByteStride = strides[i];
+            uav_desc.BufferByteOffset.StructureByteStride = strides[i];
+            ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc, get_cpu_descriptor_handle(&context, heap, i));
+            ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 6 + i));
+        }
+
+        srv_desc.BufferByteOffset.StructureByteStride = 0;
+        uav_desc.BufferByteOffset.StructureByteStride = 0;
+        srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        srv_desc.BufferByteOffset.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        uav_desc.BufferByteOffset.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        srv_desc.BufferByteOffset.Size = sizeof(input_buffer);
+        uav_desc.BufferByteOffset.Offset = sizeof(input_buffer) * 5;
+        uav_desc.BufferByteOffset.Size = sizeof(input_buffer);
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc, get_cpu_descriptor_handle(&context, heap, 5));
+        ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 11));
+
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    }
+
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    /* f16vec{5, 6, 7, 8, 16} */
+    for (j = 0; j < ARRAY_SIZE(strides); j++)
+    {
+        unsigned int vecsize = strides[j] / 2;
+        unsigned int elem, component;
+
+        for (i = 0; i < vecsize * 8; i++)
+        {
+            float expected = i;
+            float value;
+            bool is_bug;
+
+            elem = i / vecsize;
+            component = i % vecsize;
+
+            /* Read robustness. */
+            if (elem >= 4 && !root_desc)
+                expected = 0.0f;
+
+            expected += 1.0f + component;
+
+            /* Write robustness. */
+            if (elem >= 5 && !root_desc)
+                expected = 0.0f;
+
+            /* No threads wrote here. */
+            if (elem >= 6)
+                expected = 0.0f;
+
+            /* stride = 10, 14, read robustness is broken? :| */
+            is_bug = is_nvidia_windows_device(context.device) && strides[j] % 4 && elem == 4 && !root_desc;
+
+            value = half_to_float(get_readback_uint16(&rb, sizeof(input_buffer) / 2 * j + i, 0));
+            bug_if(is_bug) ok(expected == value, "Structured: f16vec%u value %u: expected %f, got %f\n", strides[j] / 2, i, expected, value);
+        }
+    }
+
+    /* BAB variant */
+    for (j = 0; j < ARRAY_SIZE(strides); j++)
+    {
+        unsigned int vecsize = strides[j] / 2;
+        unsigned int elem, component, offset;
+
+        for (i = 0; i < vecsize * 6; i++)
+        {
+            float expected = i;
+            float value;
+
+            elem = i / vecsize;
+            component = i % vecsize;
+            expected += 1.0f + component;
+
+            offset = (elem + 8 * j) * strides[j] + 2 * component;
+
+            value = half_to_float(get_readback_uint16(&rb, (sizeof(input_buffer) * 5 + offset) / 2, 0));
+            ok(expected == value, "BAB: f16vec%u value %u: expected %f, got %f\n", strides[j] / 2, i, expected, value);
+        }
+    }
+
+    ID3D12DescriptorHeap_Release(heap);
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    destroy_test_context(&context);
+}
+
+void test_sm69_long_vector_load_store_heap_desc(void)
+{
+    test_sm69_long_vector_load_store_inner(false);
+}
+
+void test_sm69_long_vector_load_store_root_desc(void)
+{
+    test_sm69_long_vector_load_store_inner(true);
+}
