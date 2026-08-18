@@ -585,3 +585,5 @@ decl_test(test_sm69_fp16_isspecial);
 decl_test(test_sm69_long_vector_storage);
 decl_test(test_sm69_long_vector_intrinsics);
 decl_test(test_sm69_long_vector_waveops);
+decl_test(test_sm69_long_vector_load_store_heap_desc);
+decl_test(test_sm69_long_vector_load_store_root_desc);
