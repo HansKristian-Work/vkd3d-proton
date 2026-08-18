@@ -6046,9 +6046,10 @@ void test_rwtex1d_array_reinterpretation_dxil(void)
     test_tex_array_reinterpretation(true, D3D12_RESOURCE_DIMENSION_TEXTURE1D, true);
 }
 
-void test_custom_border_color_limits(void)
+static void test_custom_border_color_limits_inner(bool is_compute)
 {
     ID3D12DescriptorHeap *sampler_heaps[4];
+    struct test_context_desc context_desc;
     D3D12_DESCRIPTOR_RANGE desc_range[2];
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_ROOT_PARAMETER rs_params[3];
@@ -6061,8 +6062,21 @@ void test_custom_border_color_limits(void)
 
 #include "shaders/descriptors/headers/custom_border_color.h"
 
-    if (!init_compute_test_context(&context))
-        return;
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_render_target = true;
+
+    if (is_compute)
+    {
+        if (!init_compute_test_context(&context))
+            return;
+    }
+    else
+    {
+        if (!init_test_context(&context, &context_desc))
+            return;
+    }
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     memset(rs_params, 0, sizeof(rs_params));
@@ -6187,6 +6201,12 @@ void test_custom_border_color_limits(void)
         else
             is_todo = false;
 
+        /* Custom border color on AMD is broken on compute queues due to a hardware issue
+         * that cannot be worked around. Newer RADV nops out custom border colors on compute queue
+         * instead of being mostly correct with risk of GPU hangs or broken colors. */
+        if (is_compute && is_radv_device(context.device))
+            is_todo = true;
+
         /* Apparently, even native AMD breaks here too! :D */
         if (is_amd_windows_device(context.device))
         {
@@ -6214,6 +6234,16 @@ void test_custom_border_color_limits(void)
     destroy_test_context(&context);
 }
 
+void test_custom_border_color_limits(void)
+{
+    test_custom_border_color_limits_inner(false);
+}
+
+void test_custom_border_color_limits_compute(void)
+{
+    test_custom_border_color_limits_inner(true);
+}
+
 static float decode_srgb(float v)
 {
     if (v < 0.0404482362f)
@@ -6232,6 +6262,7 @@ static float encode_srgb(float v)
 
 void test_custom_border_color_srgb(void)
 {
+    struct test_context_desc context_desc;
     D3D12_DESCRIPTOR_RANGE desc_range[2];
     ID3D12DescriptorHeap *sampler_heap;
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
@@ -6246,7 +6277,12 @@ void test_custom_border_color_srgb(void)
 
 #include "shaders/descriptors/headers/custom_border_color_swizzle.h"
 
-    if (!init_compute_test_context(&context))
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
         return;
 
     memset(&rs_desc, 0, sizeof(rs_desc));
