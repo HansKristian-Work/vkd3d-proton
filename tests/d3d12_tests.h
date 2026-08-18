@@ -584,3 +584,4 @@ decl_test(test_copy_block_spam);
 decl_test(test_sm69_fp16_isspecial);
 decl_test(test_sm69_long_vector_storage);
 decl_test(test_sm69_long_vector_intrinsics);
+decl_test(test_sm69_long_vector_waveops);
