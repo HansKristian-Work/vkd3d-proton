@@ -7760,14 +7760,136 @@ void test_sm69_long_vector_intrinsics(void)
         {
             float value = get_readback_float(&rb, 8 * i + j, 0);
             float expected = tests[i].reference[j];
-            if (isnan(expected) && isnan(value))
-            {
-                expected = NAN;
-                value = NAN;
-            }
 
-            ok(compare_float(expected, value, tests[i].ulp),
-                "Test %u, value %u: Expected %.6g, got %.6g\n",
+            if (tests[i].bitexact)
+            {
+                uint32_t uvalue;
+                uint32_t uexpected;
+                memcpy(&uvalue, &value, sizeof(value));
+                memcpy(&uexpected, &expected, sizeof(expected));
+                ok(uvalue == uexpected, "Test %u, value %u: Expected %u, got %u\n", i, j, uexpected, uvalue);
+            }
+            else
+            {
+                if (isnan(expected) && isnan(value))
+                {
+                    expected = NAN;
+                    value = NAN;
+                }
+
+                ok(compare_float(expected, value, tests[i].ulp),
+                    "Test %u, value %u: Expected %.6g, got %.6g\n",
+                    i, j, expected, value);
+            }
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(input);
+    ID3D12Resource_Release(output);
+    destroy_test_context(&context);
+}
+
+void test_sm69_long_vector_waveops(void)
+{
+    D3D12_FEATURE_DATA_SHADER_MODEL sm;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/cs_long_vector_intrinsics_waveops.h"
+
+    const struct
+    {
+        uint32_t input0[8];
+        uint32_t input1[8];
+        uint32_t input2[8];
+        uint32_t reference[8];
+    } tests[] = {
+        {{ 1, 2, 3, 4, 5, 6, 7, 8 }, {(1u << 12) - 1}, {0, 1}, {1}}, /* WaveActiveBitAnd */
+        {{ 1, 0, 2, 3, 4, 5, 6, 7 }, {(1u << 12) - 1}, {0}, {1, 3, 3, 7, 7, 7, 7, 15}}, /* WaveActiveBitOr */
+        {{ 1, 2, 0, 0, 3, 4, 5, 6 }, {(1u << 12) - 1}, {0, 0, 1}, {0, 1, 3, 1, 5, 7, 6, 5}}, /* WaveActiveBitXor */
+        {{ 1, 2, 3, 4, 5, 6, 7, 8 }, {(1u << 12) - 1}, {0}, {1, 0, 0, 0, 32400, 51840, 94080, 0}}, /* WaveActiveProduct */
+        {{ 1, 1, 2, 2, 3, 3, 4, 4 }, {(1u << 12) - 1}, {0}, {18, 21, 27, 29, 39, 43, 48, 51}}, /* WaveActiveSum */
+        {{ 1, 1, 2, 2, 3, 3, 4, 4 }, {(1u << 12) - 1}, {0}, {1, 0, 0, 0, 1, 1, 1, 0}}, /* WaveActiveMin */
+        {{ 1, 2, 3, 3, 3, 4, 4, 4 }, {(1u << 12) - 1}, {0}, {1, 2, 3, 4, 5, 6, 7, 8}}, /* WaveActiveMax */
+        {{ 1, 1, 1, 1, 1, 1, 1, 1 }, {(1u << 12) - 1}, {0}, {7, 10, 15, 18, 26, 31, 37, 41}}, /* WavePrefixSum */
+        {{ 1, 1, 1, 1, 2, 1, 1, 1 }, {(1u << 12) - 1}, {0}, {1, 0, 0, 0, 8100, 25920, 94080, 172032}}, /* WavePrefixProduct */
+        {{ 1, 1, 1, 1, 1, 1, 1, 1 }, {(1u << 12) - 1}, {0}, {4095}}, /* WaveReadLaneAt */
+        {{ 1, 1, 1, 1, 1, 2, 1, 1 }, {(1u << 12) - 1}, {0}, {4095}}, /* WaveReadLaneFirst */
+        {{ 1, 1, 1, 1, 1, 1, 1, 1 }, {(1u << 12) - 1}, {0}, {65537, 256, 256, 65792, 65792, 65792, 65792, 65792}}, /* WaveActiveAllEqual */
+        {{ 1, 1, 1, 1, 1, 1, 1, 1 }, {0x3f << 12}, {0}, {121472, 0x3f << 12, ((1u << 18) - 1) & ~5}}, /* WaveMatch */
+        {{ 1, 1, 2, 1, 2, 1, 1, 1 }, {0x3f << 12}, {0}, {1, 1, 1, 1, 1, 1, 1, 1}}, /* WaveMultiPrefixBitAnd */
+        {{ 1, 1, 1, 1, 1, 1, 1, 1 }, {0x3f << 12}, {0}, {1, 1, 3, 1, 3, 1, 1, 1}}, /* WaveMultiPrefixBitOr */
+        {{ 1, 1, 1, 1, 1, 1, 1, 1 }, {0x3f << 12}, {0}, {1, 1, 2, 1, 2, 1, 1, 1}}, /* WaveMultiPrefixBitXor */
+        {{ 1, 1, 1, 1, 1, 1, 1, 1 }, {0x3f << 12}, {0}, {1, 1, 2, 1, 2, 1, 1, 1}}, /* WaveMultiPrefixProduct */
+        {{ 1, 1, 1, 1, 1, 1, 1, 0 }, {0x3f << 12}, {0}, {5, 5, 6, 5, 6, 5, 5, 5}}, /* WaveMultiPrefixSum */
+    };
+
+    uint32_t input_buffer[32][24];
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    sm.HighestShaderModel = D3D_SHADER_MODEL_6_9;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm))) ||
+        sm.HighestShaderModel < D3D_SHADER_MODEL_6_9)
+    {
+        skip("SM 6.9 not supported, skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(input_buffer, 0, sizeof(input_buffer));
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        memcpy(&input_buffer[i][0], tests[i].input0, sizeof(tests[i].input0));
+        memcpy(&input_buffer[i][8], tests[i].input1, sizeof(tests[i].input1));
+        memcpy(&input_buffer[i][16], tests[i].input2, sizeof(tests[i].input2));
+    }
+
+    input = create_upload_buffer(context.device, sizeof(input_buffer), input_buffer);
+    output = create_default_buffer(context.device, 64 * sizeof(float) * 8,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_desc.pParameters = rs_param;
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_long_vector_intrinsics_waveops_dxil);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(input));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        unsigned int j;
+        bool is_bug;
+
+        for (j = 0; j < 8; j++)
+        {
+            uint32_t value = get_readback_uint(&rb, 8 * i + j, 0, 0);
+            uint32_t expected = tests[i].reference[j];
+
+            /* WaveMatch is broken. */
+            is_bug = is_amd_windows_device(context.device) && i == 12 && j < 3;
+
+            bug_if(is_bug) ok(value == expected, "Test %u, value %u: Expected %u, got %u\n",
                 i, j, expected, value);
         }
     }
