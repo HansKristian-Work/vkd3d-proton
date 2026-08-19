@@ -3779,13 +3779,19 @@ static uint32_t vkd3d_find_queue(unsigned int count, const VkQueueFamilyProperti
     return VK_QUEUE_FAMILY_IGNORED;
 }
 
-static bool vkd3d_driver_has_fast_concurrent_transfer_queue(VkDriverId driver_id)
+static bool d3d12_device_has_fast_concurrent_transfer_queue(struct d3d12_device *device)
 {
-    switch (driver_id)
+    switch (device->device_info.vulkan_1_2_properties.driverID)
     {
         case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
         case VK_DRIVER_ID_MESA_NVK:
             return true;
+
+        case VK_DRIVER_ID_MESA_RADV:
+            /* From RDNA2, SDMA supports DCC.
+             * There are also no problems with MSAA on RDNA2 since transfer queue MSAA copies
+             * are done in compute queue. */
+            return device->device_info.mesh_shader_features.meshShader == VK_TRUE;
 
         default:
             return false;
@@ -4148,7 +4154,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         return E_OUTOFMEMORY;
     }
 
-    device->concurrent_transfer_queue = vkd3d_driver_has_fast_concurrent_transfer_queue(device->device_info.vulkan_1_2_properties.driverID);
+    device->concurrent_transfer_queue = d3d12_device_has_fast_concurrent_transfer_queue(device);
 
     if (FAILED(hr = vkd3d_select_queues(device, physical_device, &device_queue_info)))
     {
