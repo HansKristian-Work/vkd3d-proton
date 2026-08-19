@@ -4175,7 +4175,7 @@ static uint32_t BarycentricsToSpaceFillingCurveIndex(float u, float v, uint32_t 
     return b0 | (b1 << 1u);
 }
 
-void test_raytracing_opacity_micro_map(void)
+static void test_raytracing_opacity_micro_map_inner(bool ray_query)
 {
     uint8_t sbt_data[D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 3];
     struct test_rt_omm_geometry test_rtases;
@@ -4438,6 +4438,19 @@ void test_raytracing_opacity_micro_map(void)
     if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_2))
         return;
 
+    if (ray_query)
+    {
+        D3D12_FEATURE_DATA_SHADER_MODEL sm;
+        sm.HighestShaderModel = D3D_SHADER_MODEL_6_9;
+        if (FAILED(ID3D12Device_CheckFeatureSupport(context.context.device, D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm))) ||
+            sm.HighestShaderModel < D3D_SHADER_MODEL_6_9)
+        {
+            destroy_raytracing_test_context(&context);
+            skip("SM 6.9 not supported, skipping rayquery OMM test.\n");
+            return;
+        }
+    }
+
     device = context.context.device;
 
     memset(&rs_desc, 0, sizeof(rs_desc));
@@ -4458,31 +4471,41 @@ void test_raytracing_opacity_micro_map(void)
 
     create_root_signature(device, &rs_desc, &context.context.root_signature);
 
-    rt_pso_factory_init(&factory);
-    rt_pso_factory_add_dxil_library(&factory, get_omm_lib(), 0, NULL);
-    rt_pso_factory_add_pipeline_config1(&factory, 1, D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS);
-    rt_pso_factory_add_shader_config(&factory, 8, 8);
-    rt_pso_factory_add_hit_group(&factory, &hit_group);
-    rt_pso_factory_add_global_root_signature(&factory, context.context.root_signature);
-    rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
-    rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+    if (ray_query)
+    {
+#include "shaders/rt/headers/omm_rq.h"
+        context.context.pipeline_state = create_compute_pipeline_state(context.context.device, context.context.root_signature, omm_rq_dxil);
+        rtpso = NULL;
+        sbt = NULL;
+    }
+    else
+    {
+        rt_pso_factory_init(&factory);
+        rt_pso_factory_add_dxil_library(&factory, get_omm_lib(), 0, NULL);
+        rt_pso_factory_add_pipeline_config1(&factory, 1, D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS);
+        rt_pso_factory_add_shader_config(&factory, 8, 8);
+        rt_pso_factory_add_hit_group(&factory, &hit_group);
+        rt_pso_factory_add_global_root_signature(&factory, context.context.root_signature);
+        rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+        rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
 
-    ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props);
-    miss_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"MissShader");
-    ok(!!miss_handle, "Failed to query miss handle.\n");
-    raygen_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"GenShader");
-    ok(!!raygen_handle, "Failed to query raygen handle.\n");
-    hitgroup_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"HitGroup");
-    ok(!!hitgroup_handle, "Failed to query hitgroup handle.\n");
-    ID3D12StateObjectProperties_Release(props);
+        ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props);
+        miss_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"MissShader");
+        ok(!!miss_handle, "Failed to query miss handle.\n");
+        raygen_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"GenShader");
+        ok(!!raygen_handle, "Failed to query raygen handle.\n");
+        hitgroup_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"HitGroup");
+        ok(!!hitgroup_handle, "Failed to query hitgroup handle.\n");
+        ID3D12StateObjectProperties_Release(props);
+
+        memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 0, raygen_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+        memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 1, miss_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+        memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 2, hitgroup_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+        sbt = create_upload_buffer(device, sizeof(sbt_data), sbt_data);
+    }
 
     output = create_default_buffer(device, NUM_RAYS * sizeof(float), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
     ray_buffer = create_upload_buffer(device, sizeof(rays_data), rays_data);
-
-    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 0, raygen_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
-    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 1, miss_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
-    memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 2, hitgroup_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
-    sbt = create_upload_buffer(device, sizeof(sbt_data), sbt_data);
 
     init_test_omm_geometry(device, &test_geom);
 
@@ -4498,7 +4521,11 @@ void test_raytracing_opacity_micro_map(void)
             micromap_payload, sizeof(micromap_payload),
             config);
 
-        ID3D12GraphicsCommandList4_SetPipelineState1(context.list4, rtpso);
+        if (ray_query)
+            ID3D12GraphicsCommandList_SetPipelineState(context.context.list, context.context.pipeline_state);
+        else
+            ID3D12GraphicsCommandList4_SetPipelineState1(context.list4, rtpso);
+
         ID3D12GraphicsCommandList_SetComputeRootSignature(context.context.list, context.context.root_signature);
         ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(test_rtases.tlas.rtas));
         ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.context.list, 1, ID3D12Resource_GetGPUVirtualAddress(ray_buffer));
@@ -4528,20 +4555,28 @@ void test_raytracing_opacity_micro_map(void)
             ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(context.list4, &postbuild_info, 1, &va);
         }
 
-        memset(&rays, 0, sizeof(rays));
-        rays.Width = NUM_RAYS;
-        rays.Height = 1;
-        rays.Depth = 1;
-        rays.RayGenerationShaderRecord.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 0 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-        rays.RayGenerationShaderRecord.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-        rays.MissShaderTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 1 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-        rays.MissShaderTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-        rays.MissShaderTable.StrideInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-        rays.HitGroupTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 2 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-        rays.HitGroupTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-        rays.HitGroupTable.StrideInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        if (ray_query)
+        {
+            ID3D12GraphicsCommandList_Dispatch(context.context.list, NUM_RAYS / 64, 1, 1);
+        }
+        else
+        {
+            memset(&rays, 0, sizeof(rays));
+            rays.Width = NUM_RAYS;
+            rays.Height = 1;
+            rays.Depth = 1;
+            rays.RayGenerationShaderRecord.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 0 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+            rays.RayGenerationShaderRecord.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+            rays.MissShaderTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 1 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+            rays.MissShaderTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+            rays.MissShaderTable.StrideInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+            rays.HitGroupTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 2 * D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+            rays.HitGroupTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+            rays.HitGroupTable.StrideInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
 
-        ID3D12GraphicsCommandList4_DispatchRays(context.list4, &rays);
+            ID3D12GraphicsCommandList4_DispatchRays(context.list4, &rays);
+        }
+
         transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.context.queue, context.context.list);
 
@@ -4700,12 +4735,24 @@ void test_raytracing_opacity_micro_map(void)
     }
     vkd3d_test_set_context(NULL);
 
-    ID3D12StateObject_Release(rtpso);
-    ID3D12Resource_Release(sbt);
+    if (rtpso)
+        ID3D12StateObject_Release(rtpso);
+    if (sbt)
+        ID3D12Resource_Release(sbt);
     ID3D12Resource_Release(output);
     ID3D12Resource_Release(ray_buffer);
     destroy_test_geometry(&test_geom);
     destroy_raytracing_test_context(&context);
+}
+
+void test_raytracing_opacity_micro_map(void)
+{
+    test_raytracing_opacity_micro_map_inner(false);
+}
+
+void test_raytracing_opacity_micro_map_ray_query(void)
+{
+    test_raytracing_opacity_micro_map_inner(true);
 }
 
 void test_raytracing_acceleration_structure_validation(void)
