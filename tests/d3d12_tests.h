@@ -389,6 +389,7 @@ decl_test(test_raytracing_deferred_compilation);
 decl_test(test_raytracing_mismatch_global_rs_link);
 decl_test(test_raytracing_null_rtas);
 decl_test(test_raytracing_opacity_micro_map);
+decl_test(test_raytracing_opacity_micro_map_ray_query);
 decl_test(test_raytracing_huge_dispatch);
 decl_test(test_fence_wait_robustness);
 decl_test(test_fence_wait_robustness_shared);
