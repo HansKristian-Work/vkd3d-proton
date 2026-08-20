@@ -5436,11 +5436,12 @@ void test_shader_execution_reordering_basic(void)
     destroy_raytracing_test_context(&context);
 }
 
-void test_shader_execution_reordering_trace(void)
+static void test_shader_execution_reordering_trace_inner(bool ray_query)
 {
 #undef NUM_RAYS
 #define NUM_RAYS 64
 #include "shaders/rt/headers/hit_object_trace.h"
+#include "shaders/rt/headers/hit_object_query.h"
     struct raytracing_test_context context;
     uint32_t handles[6][64 / 4] = {{0}};
     D3D12_FEATURE_DATA_SHADER_MODEL sm;
@@ -5457,7 +5458,7 @@ void test_shader_execution_reordering_trace(void)
     D3D12_HIT_GROUP_DESC hit_desc[2];
     unsigned int i, j;
 
-    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_1))
         return;
 
     sm.HighestShaderModel = D3D_SHADER_MODEL_6_9;
@@ -5501,7 +5502,7 @@ void test_shader_execution_reordering_trace(void)
     hit_desc[1].HitGroupExport = u"Hit1";
     rt_pso_factory_add_hit_group(&factory, &hit_desc[1]);
 
-    rt_pso_factory_add_dxil_library(&factory, hit_object_trace_dxil, 0, NULL);
+    rt_pso_factory_add_dxil_library(&factory, ray_query ? hit_object_query_dxil : hit_object_trace_dxil, 0, NULL);
     rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
 
     if (rtpso && SUCCEEDED(ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props)))
@@ -5649,8 +5650,9 @@ void test_shader_execution_reordering_trace(void)
             {
                 bool is_bug;
 
-                /* NVIDIA fails to ignore the must-ignore bits on SetShaderTableIndex(). */
-                is_bug = is_nvidia_windows_device(context.context.device) && (i == 26 || i == 27);
+                /* NVIDIA fails to ignore the must-ignore bits on SetShaderTableIndex().
+                 * The rayquery test does not test the buggy behavior. */
+                is_bug = !ray_query && is_nvidia_windows_device(context.context.device) && (i == 26 || i == 27);
 
                 bug_if(is_bug)
                 ok(value.u32 == expected.u32, "Ray %u, data %u: expected %u/%.3f/#%x, got %u/%.3f/#%x\n", j, i,
@@ -5666,4 +5668,14 @@ void test_shader_execution_reordering_trace(void)
     ID3D12Resource_Release(sbt);
     ID3D12StateObject_Release(rtpso);
     destroy_raytracing_test_context(&context);
+}
+
+void test_shader_execution_reordering_trace(void)
+{
+    test_shader_execution_reordering_trace_inner(false);
+}
+
+void test_shader_execution_reordering_ray_query(void)
+{
+    test_shader_execution_reordering_trace_inner(true);
 }
