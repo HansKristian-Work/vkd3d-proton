@@ -590,7 +590,6 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
     VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
     VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP = 1 << 6,
-    VKD3D_APPLICATION_FEATURE_ALLOW_NON_COMPLIANT_FP16 = 1 << 7,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -654,7 +653,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "HellbladeGame-Win64-Shipping.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
     /* PARANOID (946920). Similar concern with DXR. Add default UE configs. Also requires non-native FP16 somehow. */
     { VKD3D_STRING_COMPARE_EXACT, "Paranoid-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1), VKD3D_CONFIG_FLAGS_NONE,
-            VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME | VKD3D_APPLICATION_FEATURE_ALLOW_NON_COMPLIANT_FP16 },
+            VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
     /* Lost Judgment (2058190) */
     { VKD3D_STRING_COMPARE_EXACT, "LostJudgment.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
     /* Marvel's Spider-Man Remastered (1817070). DCC stores causes glitches when RT is enabled with RADV. */
@@ -769,9 +768,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
         VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP },
     { VKD3D_STRING_COMPARE_EXACT, "GoWEDay-Steam.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.NO_STAGGERED_SUBMIT = 1) },
-    /* Hitman World of Assassination (1659040) Hard-requires FP16 opts to work, even when not exposed. */
-    { VKD3D_STRING_COMPARE_EXACT, "HITMAN3.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
-        VKD3D_APPLICATION_FEATURE_ALLOW_NON_COMPLIANT_FP16 },
     /* World of Warcraft Classic */
     /* Like in retail WoW, descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
     { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1, .DESCRIPTOR_HEAP = 1) },
@@ -10158,19 +10154,16 @@ uint32_t d3d12_device_get_max_descriptor_heap_size(struct d3d12_device *device, 
     }
 }
 
-static bool d3d12_device_supports_16bit_shader_ops(struct d3d12_device *device)
+static bool d3d12_device_supports_16bit_shader_ops(struct d3d12_device *device, bool allow_non_compliant_denorm)
 {
     bool supports_fp16_denorm_preserve =
             device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16 &&
             device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
 
-    bool non_compliant_fp16 =
-            !!(vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_ALLOW_NON_COMPLIANT_FP16);
-
     return device->device_info.vulkan_1_2_features.shaderFloat16 &&
            device->device_info.features2.features.shaderInt16 &&
            device->device_info.vulkan_1_1_features.storageBuffer16BitAccess &&
-           (supports_fp16_denorm_preserve || non_compliant_fp16) &&
+           (supports_fp16_denorm_preserve || allow_non_compliant_denorm) &&
            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
 
@@ -10325,7 +10318,7 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
      * If we cannot use SSBOs, we cannot use 16-bit raw buffers, which is a requirement for this feature. */
 
     /* FP16 and FP64 must preserve denorms. Only FP32 can change, so we can accept both 32_BIT_INDEPENDENCY_ONLY and ALL. */
-    options4->Native16BitShaderOpsSupported = d3d12_device_supports_16bit_shader_ops(device);
+    options4->Native16BitShaderOpsSupported = d3d12_device_supports_16bit_shader_ops(device, false);
 }
 
 static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
@@ -11698,8 +11691,11 @@ out_free_mutex:
 
 bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct vkd3d_shader_meta *meta)
 {
+    /* For pragmatic reasons, allow a shader to use FP16 on Turnip even if we cannot expose the "true" FP16 (denorm control).
+     * Too many games are bugged and assumes that FP16 just works and will crash without this workaround.
+     * The pragmatically correct thing to do here is to allow it as long as the shader is otherwise valid. */
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS) &&
-            !device->d3d12_caps.options4.Native16BitShaderOpsSupported)
+        !d3d12_device_supports_16bit_shader_ops(device, true))
     {
         WARN("Attempting to use 16-bit operations in shader %016"PRIx64", but this is not supported.\n", meta->hash);
         return false;
