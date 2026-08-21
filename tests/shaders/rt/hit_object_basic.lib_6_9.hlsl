@@ -74,7 +74,8 @@ void RayGen()
 	// If there is divergence it seems to "call" the null hit object somehow,
 	// leading to instant DEVICE_LOST.
 	// Keep the crashy code since we need to make sure Vulkan drivers are not broken.
-	//if (!hit.IsNop())
+	// NV Vulkan: Also reproduces here.
+	if (!hit.IsNop())
 	{
 		dx::HitObject::Invoke(hit, payload);
 		dx::HitObject::Invoke(hit, payload);
@@ -119,7 +120,8 @@ void RayGen()
 	// If there is divergence it seems to "call" the null hit object somehow,
 	// leading to instant DEVICE_LOST.
 	// Keep the crashy code since we need to make sure Vulkan drivers are not broken.
-	//if (!hit.IsNop())
+	// NV Vulkan: Also reproduces here.
+	if (!hit.IsNop())
 		dx::HitObject::Invoke(hit, payload);
 	results.data[29] = payload.value;
 
