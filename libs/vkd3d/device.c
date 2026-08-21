@@ -139,6 +139,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_ZERO_INITIALIZE_DEVICE_MEMORY, EXT_zero_initialize_device_memory),
     VK_EXTENSION(EXT_SHADER_FLOAT8, EXT_shader_float8),
     VK_EXTENSION_COND(EXT_DESCRIPTOR_HEAP, EXT_descriptor_heap, VKD3D_CONFIG_FLAG_STATIC(DESCRIPTOR_HEAP)),
+    VK_EXTENSION_DISABLE_COND(EXT_RAY_TRACING_INVOCATION_REORDER, EXT_ray_tracing_invocation_reorder, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
+    VK_EXTENSION(EXT_SHADER_LONG_VECTOR, EXT_shader_long_vector),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -2654,6 +2656,22 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->dynamic_rendering_local_read_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->dynamic_rendering_local_read_features);
+    }
+
+    if (vulkan_info->EXT_ray_tracing_invocation_reorder)
+    {
+        info->invocation_reorder_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT;
+        info->invocation_reorder_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_PROPERTIES_EXT;
+        vk_prepend_struct(&info->features2, &info->invocation_reorder_features);
+        vk_prepend_struct(&info->properties2, &info->invocation_reorder_properties);
+    }
+
+    if (vulkan_info->EXT_shader_long_vector)
+    {
+        info->long_vector_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_LONG_VECTOR_FEATURES_EXT;
+        info->long_vector_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_LONG_VECTOR_PROPERTIES_EXT;
+        vk_prepend_struct(&info->features2, &info->long_vector_features);
+        vk_prepend_struct(&info->properties2, &info->long_vector_properties);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
@@ -10536,7 +10554,8 @@ static void d3d12_device_caps_init_feature_options22(struct d3d12_device *device
     options22->CreateByteOffsetViewsSupported =
         d3d12_device_use_descriptor_heap(device) || d3d12_device_uses_descriptor_buffers(device);
 
-    options22->ShaderExecutionReorderingActuallyReorders = FALSE; /* TODO: Forward SER property. */
+    options22->ShaderExecutionReorderingActuallyReorders = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_9 ?
+        device->device_info.invocation_reorder_properties.rayTracingInvocationReorderReorderingHint == VK_RAY_TRACING_INVOCATION_REORDER_MODE_REORDER_EXT : FALSE;
     options22->Max1DDispatchSize = device->device_info.properties2.properties.limits.maxComputeWorkGroupCount[0];
     options22->Max1DDispatchMeshSize = device->device_info.mesh_shader_properties.maxMeshWorkGroupCount[0];
 }
@@ -10825,6 +10844,19 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
         {
             INFO("Enabling support for SM 6.8.\n");
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_8;
+        }
+
+        if (VKD3D_CONFIG_FLAG_IS_SET(ENABLE_EXPERIMENTAL_FEATURES) &&
+            device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_8 &&
+            device->device_info.opacity_micromap_features.micromap &&
+            /* For maint9 bitops which support 16-bit / 64-bit. Needed for vector version of these. */
+            device->device_info.maintenance_9_features.maintenance9 &&
+            device->device_info.long_vector_features.longVector &&
+            device->device_info.long_vector_properties.maxVectorComponents >= 1024 &&
+            device->device_info.invocation_reorder_features.rayTracingInvocationReorder)
+        {
+            INFO("Enabling experimental support for SM 6.9.\n");
+            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_9;
         }
     }
     else
