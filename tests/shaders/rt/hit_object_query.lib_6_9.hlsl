@@ -66,11 +66,14 @@ void RayGen()
 
 	// Test both overloads. The second one ignores the arguments for anything not procedural.
 	dx::HitObject hit;
-	[branch]
-	if (index)
+
+	// NV Vulkan bug: It doesn't seem to like conditional initialization like this?
+	// It segfaults in driver.
+	//[branch]
+	//if (index)
 		hit = dx::HitObject::FromRayQuery(rq);
-	else
-		hit = dx::HitObject::FromRayQuery(rq, 0x10, attr);
+	//else
+	//	hit = dx::HitObject::FromRayQuery(rq, 0x10, attr);
 
 	// There is no table attached yet, so invoking should do nothing.
 	dx::HitObject::Invoke(hit, payload);
