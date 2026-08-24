@@ -2182,8 +2182,8 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
     compile_args.target_extensions = object->device->vk_info.shader_extensions;
     compile_args.target_extension_count = object->device->vk_info.shader_extension_count;
     compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
-    compile_args.min_subgroup_size = object->device->device_info.vulkan_1_3_properties.minSubgroupSize;
-    compile_args.max_subgroup_size = object->device->device_info.vulkan_1_3_properties.maxSubgroupSize;
+    compile_args.min_subgroup_size = object->device->d3d12_caps.options1.WaveLaneCountMin;
+    compile_args.max_subgroup_size = object->device->d3d12_caps.options1.WaveLaneCountMax;
     /* Don't care about wave size promotion in RT. */
     compile_args.quirks = &object->device->workarounds.quirks;
     compile_args.nv_shader_extn_uav_slot = nv_shader_extn.uav_slot;

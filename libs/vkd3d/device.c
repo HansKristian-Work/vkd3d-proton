@@ -10221,6 +10221,14 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
     options1->WaveLaneCountMin = device->device_info.vulkan_1_3_properties.minSubgroupSize;
     options1->WaveLaneCountMax = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
 
+    if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_WAVE64_SIMULATION))
+    {
+        options1->WaveLaneCountMin = max(options1->WaveLaneCountMin, 64);
+        options1->WaveLaneCountMin = min(options1->WaveLaneCountMin, options1->WaveLaneCountMax);
+        INFO("DEBUG_WAVE64_SIMULATION is set. Overriding WaveLaneCount{Min,Max} to {%u, %u}\n",
+            options1->WaveLaneCountMin, options1->WaveLaneCountMax);
+    }
+
     if (device->vk_info.AMD_shader_core_properties)
     {
         const VkPhysicalDeviceShaderCorePropertiesAMD *amd = &device->device_info.shader_core_properties;
@@ -11240,8 +11248,8 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
      * but it is useful to be able to modify the internal revision while developing since
      * we have no mechanism for emitting dirty Git revisions. */
     key = hash_fnv1_iterate_u64(key, vkd3d_shader_get_revision(NULL));
-    key = hash_fnv1_iterate_u32(key, device->device_info.vulkan_1_3_properties.minSubgroupSize);
-    key = hash_fnv1_iterate_u32(key, device->device_info.vulkan_1_3_properties.maxSubgroupSize);
+    key = hash_fnv1_iterate_u32(key, device->d3d12_caps.options1.WaveLaneCountMin);
+    key = hash_fnv1_iterate_u32(key, device->d3d12_caps.options1.WaveLaneCountMax);
     key = hash_fnv1_iterate_u32(key, device->bindless_state.flags);
 
     if (d3d12_device_use_descriptor_heap(device))
@@ -11780,21 +11788,19 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
 
     if (meta->cs_wave_size_min)
     {
-        const struct vkd3d_physical_device_info *info = &device->device_info;
-
         if (!d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
             ERR("Required subgroup size control features are not supported for SM 6.6 WaveSize.\n");
             return false;
         }
 
-        if (meta->cs_wave_size_min > info->vulkan_1_3_properties.maxSubgroupSize ||
-                meta->cs_wave_size_max < info->vulkan_1_3_properties.minSubgroupSize)
+        if (meta->cs_wave_size_min > device->d3d12_caps.options1.WaveLaneCountMax ||
+                meta->cs_wave_size_max < device->d3d12_caps.options1.WaveLaneCountMin)
         {
             ERR("Required WaveSize range [%u, %u], but supported range is [%u, %u].\n",
                     meta->cs_wave_size_min, meta->cs_wave_size_max,
-                    info->vulkan_1_3_properties.minSubgroupSize,
-                    info->vulkan_1_3_properties.maxSubgroupSize);
+                    device->d3d12_caps.options1.WaveLaneCountMin,
+                    device->d3d12_caps.options1.WaveLaneCountMax);
             return false;
         }
     }

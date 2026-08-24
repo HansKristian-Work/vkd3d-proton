@@ -3132,8 +3132,8 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
     compile_arguments->target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     compile_arguments->target_extension_count = device->vk_info.shader_extension_count;
     compile_arguments->target_extensions = device->vk_info.shader_extensions;
-    compile_arguments->min_subgroup_size = device->device_info.vulkan_1_3_properties.minSubgroupSize;
-    compile_arguments->max_subgroup_size = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
+    compile_arguments->min_subgroup_size = device->d3d12_caps.options1.WaveLaneCountMin;
+    compile_arguments->max_subgroup_size = device->d3d12_caps.options1.WaveLaneCountMax;
     compile_arguments->promote_wave_size_heuristics =
             d3d12_device_supports_required_subgroup_size_for_stage(device, stage);
     compile_arguments->quirks = &device->workarounds.quirks;
@@ -3196,7 +3196,7 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
     if ((spirv_code->meta.flags & VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS) ||
             spirv_code->meta.cs_wave_size_min)
     {
-        uint32_t subgroup_size_alignment = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
+        uint32_t subgroup_size_alignment = device->d3d12_caps.options1.WaveLaneCountMax;
         stage_desc->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT;
 
         if (required_subgroup_size_info)
@@ -3204,18 +3204,24 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
             required_subgroup_size_info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO;
             required_subgroup_size_info->pNext = NULL;
 
+            /* To debug GCN/Turnip issues on modern AMD hardware, force wave64 everywhere to sniff out issues. */
+            if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_WAVE64_SIMULATION))
+            {
+                subgroup_size_alignment = 64;
+                override_subgroup_size = true;
+            }
             /* [WaveSize(min,max,preferred)] in SM 6.8, or [WaveSize(N)] in SM 6.6. */
-            if (spirv_code->meta.cs_wave_size_preferred &&
-                    spirv_code->meta.cs_wave_size_preferred >= device->device_info.vulkan_1_3_properties.minSubgroupSize &&
-                    spirv_code->meta.cs_wave_size_preferred <= device->device_info.vulkan_1_3_properties.maxSubgroupSize)
+            else if (spirv_code->meta.cs_wave_size_preferred &&
+                    spirv_code->meta.cs_wave_size_preferred >= device->d3d12_caps.options1.WaveLaneCountMin &&
+                    spirv_code->meta.cs_wave_size_preferred <= device->d3d12_caps.options1.WaveLaneCountMax)
             {
                 /* Preferred wave size is non-zero and is supported by the device. */
                 subgroup_size_alignment = spirv_code->meta.cs_wave_size_preferred;
                 override_subgroup_size = true;
             }
             else if (spirv_code->meta.cs_wave_size_min && (
-                    spirv_code->meta.cs_wave_size_min > device->device_info.vulkan_1_3_properties.minSubgroupSize ||
-                    spirv_code->meta.cs_wave_size_max < device->device_info.vulkan_1_3_properties.maxSubgroupSize))
+                    spirv_code->meta.cs_wave_size_min > device->d3d12_caps.options1.WaveLaneCountMin ||
+                    spirv_code->meta.cs_wave_size_max < device->d3d12_caps.options1.WaveLaneCountMax))
             {
                 /* We generally want to let the driver decide on a subgroup size, but if the device supports
                  * subgroup sizes outside the range required by the shader, we need to specify it manually.
@@ -3223,12 +3229,12 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
                 if (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_INTEL)
                 {
                     subgroup_size_alignment = max(spirv_code->meta.cs_wave_size_min,
-                            device->device_info.vulkan_1_3_properties.minSubgroupSize);
+                            device->d3d12_caps.options1.WaveLaneCountMin);
                 }
                 else
                 {
                     subgroup_size_alignment = min(spirv_code->meta.cs_wave_size_max,
-                            device->device_info.vulkan_1_3_properties.maxSubgroupSize);
+                            device->d3d12_caps.options1.WaveLaneCountMax);
                 }
 
                 override_subgroup_size = true;
@@ -3236,11 +3242,11 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
             else if (VKD3D_CONFIG_FLAG_IS_SET(FORCE_MINIMUM_SUBGROUP_SIZE) &&
                     d3d12_device_supports_required_subgroup_size_for_stage(device, stage))
             {
-                /* GravityMark checks minSubgroupSize and based on that uses a shader variant.
+                /* GravityMark checks WaveLaneCountMin and based on that uses a shader variant.
                  * This shader variant unfortunately expects that a subgroup 32 variant will actually use wave32 on AMD.
                  * amdgpu-pro and AMDVLK happens to emit wave32, but RADV will emit wave64 here unless we force it to be wave32.
                  * This is an application bug, since the shader is not guaranteed a specific size, but we can only workaround ... */
-                subgroup_size_alignment = device->device_info.vulkan_1_3_properties.minSubgroupSize;
+                subgroup_size_alignment = device->d3d12_caps.options1.WaveLaneCountMin;
                 override_subgroup_size = true;
             }
 
