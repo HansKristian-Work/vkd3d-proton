@@ -1307,6 +1307,14 @@ static bool vkd3d_is_imported_allocation(const struct vkd3d_allocate_memory_info
     return false;
 }
 
+static bool d3d12_device_aligns_bda_64k(struct d3d12_device *device)
+{
+    /* Only seems to affect Turnip for now at least.
+     * TODO: We really should just have an extension for this.
+     */
+    return device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_MESA_TURNIP;
+}
+
 static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allocation, struct d3d12_device *device,
         struct vkd3d_memory_allocator *allocator, const struct vkd3d_allocate_memory_info *info)
 {
@@ -1359,12 +1367,14 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
          * For external resources, it seems like we don't support buffers in the implementation.
          * Any dedicated or external memory shenanigans will go through pNext chain. Ignore
          * alignment for those cases.
+         * For sparse, Turnip reports 64k alignment, but it's actually 4k, so our hacky workarounds
+         * will anger VVL, but should just work in reality. Other vendors might not like that though ...
          */
         if ((!info->explicit_global_buffer_usage ||
                 (info->explicit_global_buffer_usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)) &&
             !(info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH) &&
             (info->flags & VKD3D_ALLOCATION_FLAG_REQUIRE_ALIGNED_GPU_ADDRESS) &&
-            !host_ptr && !info->pNext &&
+            !d3d12_device_aligns_bda_64k(device) && !host_ptr && !info->pNext &&
             info->memory_requirements.alignment >= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
         {
             /* Possible that we might have to pad out to 4 MiB for MSAA enabled Tier2 heap,
