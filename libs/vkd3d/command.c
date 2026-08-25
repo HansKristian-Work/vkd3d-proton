@@ -21482,7 +21482,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
                     }
 
                     bind->vk_memory = memory_heap->allocation.device_allocation.vk_memory;
-                    bind->vk_offset = memory_heap->allocation.offset + heap_offset;
+                    bind->vk_offset = memory_heap->allocation.offset + memory_heap->allocation.realignment_offset + heap_offset;
                 }
             }
             else
