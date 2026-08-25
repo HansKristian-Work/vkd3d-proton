@@ -788,6 +788,7 @@ enum vkd3d_allocation_flag
      * and we do not consume space in the VA map. */
     VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH  = (1u << 6),
     VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION  = (1u << 7),
+    VKD3D_ALLOCATION_FLAG_REQUIRE_ALIGNED_GPU_ADDRESS = (1u << 8),
 };
 
 #define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 8)
@@ -874,13 +875,20 @@ struct vkd3d_memory_allocation
 
     uint64_t clear_semaphore_value;
 
+    /* When binding anything to this heap, apply an offset to "shift" the resource into place to observe 64k alignment
+     * The heap size compensates for this shift.
+     * Once an allocation is sliced later, the padding offset is "consumed". */
+    uint32_t realignment_offset;
+
     struct vkd3d_memory_chunk *chunk;
 };
 
 static inline void vkd3d_memory_allocation_slice(struct vkd3d_memory_allocation *dst,
         const struct vkd3d_memory_allocation *src, VkDeviceSize offset, VkDeviceSize size)
 {
+    offset += src->realignment_offset;
     *dst = *src;
+    dst->realignment_offset = 0;
     dst->offset += offset;
     dst->resource.size = size;
     dst->resource.va += offset;
