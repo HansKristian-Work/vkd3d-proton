@@ -2657,7 +2657,7 @@ static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualA
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
 
-    TRACE("iface %p.\n", iface);
+    TRACE("iface %p, va #%"PRIx64"\n", iface, resource->res.va);
 
     return resource->res.va;
 }
