@@ -1320,6 +1320,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     void *dummy_mapping;
     uint32_t type_mask;
     bool request_bda;
+    bool padded_bda;
     VkResult vr;
     HRESULT hr;
 
@@ -1341,8 +1342,37 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
      * only HOST_VISIBLE types and we use NO_FALLBACK allocation mode. */
     type_flags &= ~info->optional_memory_properties;
 
+    padded_bda = false;
+
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
     {
+        VkDeviceSize padded_memory_requirement_size = info->memory_requirements.size;
+
+        /* UE5 relies on GPUVAs to be aligned to the heap alignment.
+         * Generally, applications are able to rely on GPUVAs being aligned,
+         * but there is no way to express this requirement in Vulkan.
+         * vkAllocateMemory() returns with whatever alignment is enough to satisfy any
+         * possible memory bind operation on it, which may very well be below 64k.
+         * To combat this, overallocate with a small 64k region, and shift any bind offset as needed.
+         * Don't do this for image-only allocations since VAs cannot be observed anyway.
+         * For host pointers, we cannot arbitrarily expand the size.
+         * For external resources, it seems like we don't support buffers in the implementation.
+         * Any dedicated or external memory shenanigans will go through pNext chain. Ignore
+         * alignment for those cases.
+         */
+        if ((!info->explicit_global_buffer_usage ||
+                (info->explicit_global_buffer_usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)) &&
+            !(info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH) &&
+            (info->flags & VKD3D_ALLOCATION_FLAG_REQUIRE_ALIGNED_GPU_ADDRESS) &&
+            !host_ptr && !info->pNext &&
+            info->memory_requirements.alignment >= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        {
+            /* Possible that we might have to pad out to 4 MiB for MSAA enabled Tier2 heap,
+             * but there's no evidence in the wild that we have to go *that* hard. */
+            padded_memory_requirement_size += D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            padded_bda = true;
+        }
+
         if (info->explicit_global_buffer_usage)
         {
             /* If we only need specific buffer usages (used purely to clear memory for example),
@@ -1350,7 +1380,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
              * to prove if a VkBuffer has ever been used. With BDA and bindless, not so much ... */
             if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device,
                     info->explicit_global_buffer_usage,
-                    info->memory_requirements.size,
+                    padded_memory_requirement_size,
                     "explicit-usage-global-buffer",
                     &allocation->resource.vk_buffer)))
                 return hr;
@@ -1363,7 +1393,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             /* If requested, create a buffer covering the entire allocation
              * and derive the exact memory requirements from that. Any buffer
              * resources are just going to use this buffer with an offset. */
-            if (FAILED(hr = vkd3d_create_global_buffer(device, info->memory_requirements.size,
+            if (FAILED(hr = vkd3d_create_global_buffer(device, padded_memory_requirement_size,
                     &info->heap_properties, info->heap_flags, &allocation->resource.vk_buffer)))
                 return hr;
         }
@@ -1535,6 +1565,10 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         /* Assign GPU address as necessary. */
         if (allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS)
         {
+            /* D3D12 does not guarantee BDA alignment beyond 64k, even for 4M MSAA heaps. */
+            VkDeviceSize required_alignment =
+                min(D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, info->memory_requirements.alignment);
+
             assert(allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER);
             assert(request_bda);
 
@@ -1542,6 +1576,24 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             {
                 vkd3d_memory_allocation_free(allocation, device, allocator);
                 return hresult_from_vk_result(vr);
+            }
+
+            if (padded_bda)
+            {
+                VkDeviceSize padding_offset = -allocation->resource.va & (D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT - 1);
+                allocation->realignment_offset = padding_offset;
+
+                if (padding_offset)
+                    TRACE("Padded BDA allocation with #%"PRIx64".\n", padding_offset);
+            }
+
+            if (info->memory_requirements.alignment &&
+                (allocation->resource.va + allocation->realignment_offset) & (required_alignment - 1))
+            {
+                FIXME_ONCE("Requested alignment of %"PRIx64", but got GPU VA of %"PRIx64" for intended start of heap, "
+                     "which is not aligned as expected. "
+                     "If application relies on this alignment, weird things might happen.\n",
+                     required_alignment, allocation->resource.va + allocation->realignment_offset);
             }
         }
     }
@@ -1873,6 +1925,10 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
         alloc_info.explicit_global_buffer_usage = explicit_global_buffer_usage;
     }
+
+    /* Should normally request aligned GPU address for chunks, but it creates
+     * too much of a mess in implementation of the chunk allocator, so skip it.
+     * It's not needed in any known content. */
 
     if (!vkd3d_array_reserve((void**)&allocator->chunks, &allocator->chunks_size,
             allocator->chunks_count + 1, sizeof(*allocator->chunks)))

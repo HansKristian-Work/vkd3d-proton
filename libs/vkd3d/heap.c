@@ -336,6 +336,9 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
         alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION;
     }
 
+    if (!(alloc_info.heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+        alloc_info.extra_allocation_flags |= VKD3D_ALLOCATION_FLAG_REQUIRE_ALIGNED_GPU_ADDRESS;
+
     if (!VKD3D_CONFIG_FLAG_IS_SET(DAMAGE_NOT_ZEROED_ALLOCATIONS))
     {
         /* Unfortunately, we cannot trust CREATE_NOT_ZEROED to actually do anything.
