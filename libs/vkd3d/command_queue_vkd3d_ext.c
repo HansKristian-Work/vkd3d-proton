@@ -75,6 +75,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_vkd3d_ext_NotifyOutOfBandCo
         {
             struct vkd3d_queue *out_of_band_queue = command_queue->device->queue_families[i]->out_of_band_queue;
 
+            if (command_queue->last_submission_timeline_value != 0)
+                FIXME("Trying to assign a queue to be out of band, but it has been submitted to before. This may not work as intended.\n");
+
             /* Migrate the command queue to the out of band queue, so that it cannot conflict
              * with other queues from scheduling PoV.
              * The assumption is that NvAPI notifies before the queue has actually been used
