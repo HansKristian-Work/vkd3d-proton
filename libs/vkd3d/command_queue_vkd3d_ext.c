@@ -63,7 +63,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_vkd3d_ext_NotifyOutOfBandCo
     if (!command_queue->device->vk_info.NV_low_latency2)
         return E_NOTIMPL;
 
-    if (type != OUT_OF_BAND_RENDER && type != OUT_OF_BAND_PRESENT)
+    if (type != D3D12_OUT_OF_BAND_CQ_TYPE_RENDER && type != D3D12_OUT_OF_BAND_CQ_TYPE_PRESENT)
         return E_INVALIDARG;
 
     vk_queue_type = (VkOutOfBandQueueTypeNV)type;
