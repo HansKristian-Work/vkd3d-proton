@@ -3716,16 +3716,18 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
                 goto out_destroy_queues;
         }
 
-        if (device->vk_info.NV_low_latency2 && vkd3d_queue_family_needs_out_of_band_queue(i) &&
-                queue_info->vk_properties[i].queueCount > 1)
+        if (device->vk_info.NV_low_latency2)
         {
-            /* The low latency out of band queue is always the last queue for the family */
-            if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
-                    info->queue_count, &queue_info->vk_properties[i], &info->out_of_band_queue))))
-                goto out_destroy_queues;
+            if (vkd3d_queue_family_needs_out_of_band_queue(i) && queue_info->vk_properties[i].queueCount > 1)
+            {
+                /* The low latency out of band queue is always the last queue for the family */
+                if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
+                        info->queue_count, &queue_info->vk_properties[i], &info->out_of_band_queue))))
+                    goto out_destroy_queues;
+            }
+            else
+                WARN("Could not allocate an out of band queue for queue family %u. All out of band work will happen on the in band queue.\n", i);
         }
-        else
-            WARN("Could not allocate an out of band queue for queue family %u. All out of band work will happen on the in band queue.\n", i);
 
         info->vk_family_index = queue_info->family_index[i];
         info->vk_queue_flags = queue_info->vk_properties[i].queueFlags;
