@@ -6352,3 +6352,127 @@ void test_resource_retain_workaround(void)
     destroy_test_context(&context);
     vkd3d_set_out_of_spec_test_behavior(VKD3D_DEBUG_CONTROL_OUT_OF_SPEC_BEHAVIOR_RESOURCE_USE_AFTER_FREE, FALSE);
 }
+
+void test_suballocate_va_alignment(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    struct test_context context;
+    unsigned int i, test_index;
+    D3D12_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Resource *resource;
+    ID3D12Heap *heaps[1024];
+    HRESULT hr;
+
+    /* NV can supposedly return 4k alignment for system memory. Check if this is true by testing different memory types. */
+    static const struct
+    {
+        unsigned heap_count;
+        UINT64 size;
+        UINT64 alignment;
+        D3D12_HEAP_TYPE heap_type;
+    } tests[] = {
+        { 1024, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT + 4096, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_DEFAULT },
+        { 1024, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT + 4096, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_READBACK },
+        { 512, 2 * 1024 * 1024 + 4096, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_DEFAULT },
+        { 512, 2 * 1024 * 1024 + 4096, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_READBACK },
+        { 4, 16 * 1024 * 1024 + 4096, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_DEFAULT },
+        { 4, 16 * 1024 * 1024 + 4096, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_READBACK },
+        /* Despite requesting 4M alignment, we don't observe that kind of alignment on native drivers. NV can report 64k alignment for BDAs. */
+        { 4, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT + 4096, D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_DEFAULT },
+        { 4, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT + 4096, D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_READBACK },
+        { 4, 16 * 1024 * 1024 + 4096, D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_DEFAULT },
+        { 4, 16 * 1024 * 1024 + 4096, D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT, D3D12_HEAP_TYPE_READBACK },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) ||
+        options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
+    {
+        skip("Resource heap tier 2 is not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+
+    /* Test suballocated heap paths. */
+    for (test_index = 0; test_index < ARRAY_SIZE(tests); test_index++)
+    {
+        heap_desc.SizeInBytes = tests[test_index].size;
+        heap_desc.Alignment = tests[test_index].alignment;
+        heap_desc.Properties.Type = tests[test_index].heap_type;
+        heap_desc.Flags = heap_desc.Alignment > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT ?
+            D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES : D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+        for (i = 0; i < tests[test_index].heap_count; i++)
+        {
+            hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heaps[i]);
+            ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", (int)hr);
+
+            memset(&desc, 0, sizeof(desc));
+            desc.Width = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            desc.Height = 1;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.SampleDesc.Count = 1;
+            desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+
+            hr = ID3D12Device_CreatePlacedResource(context.device, heaps[i], 0, &desc, D3D12_RESOURCE_STATE_COMMON, NULL,
+                    &IID_ID3D12Resource, (void **)&resource);
+
+            if (SUCCEEDED(hr))
+            {
+                ok(ID3D12Resource_GetGPUVirtualAddress(resource) % D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT == 0,
+                    "Test %u, heap %u: Expected VA to be aligned, but got 0x%"PRIx64".\n",
+                    test_index, i, ID3D12Resource_GetGPUVirtualAddress(resource));
+            }
+
+            ok(SUCCEEDED(hr), "Failed to create placed resource, hr #%x.\n", (int)hr);
+            if (SUCCEEDED(hr))
+                ID3D12Resource_Release(resource);
+
+            /* Check alignment of committed resource. */
+            hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties,
+                    D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+
+            if (SUCCEEDED(hr))
+            {
+                ok(ID3D12Resource_GetGPUVirtualAddress(resource) % D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT == 0,
+                    "Test %u, heap %u: Expected VA to be aligned, but got 0x%"PRIx64".\n",
+                    test_index, i, ID3D12Resource_GetGPUVirtualAddress(resource));
+            }
+
+            ok(SUCCEEDED(hr), "Failed to create committed resource, hr #%x.\n", (int)hr);
+            if (SUCCEEDED(hr))
+                ID3D12Resource_Release(resource);
+
+            /* Check alignment of reserved resource. */
+            if (options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_1 &&
+                heap_desc.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+            {
+                hr = ID3D12Device_CreateReservedResource(context.device,
+                       &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+
+                if (SUCCEEDED(hr))
+                {
+                    ok(ID3D12Resource_GetGPUVirtualAddress(resource) % D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT == 0,
+                        "Test %u, heap %u: Expected VA to be aligned, but got 0x%"PRIx64".\n",
+                        test_index, i, ID3D12Resource_GetGPUVirtualAddress(resource));
+                }
+
+                ok(SUCCEEDED(hr), "Failed to create reserved resource, hr #%x.\n", (int)hr);
+                if (SUCCEEDED(hr))
+                    ID3D12Resource_Release(resource);
+            }
+        }
+
+        for (i = 0; i < tests[test_index].heap_count; i++)
+            ID3D12Heap_Release(heaps[i]);
+    }
+
+    destroy_test_context(&context);
+}
