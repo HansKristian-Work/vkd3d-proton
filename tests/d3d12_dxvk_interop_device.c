@@ -19,6 +19,7 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
+#include "vkd3d_command_queue_vkd3d_ext.h"
 
 void test_vkd3d_dxvk_cmdbuf_interop(void)
 {
@@ -161,5 +162,37 @@ void test_vkd3d_dxvk_cmdbuf_interop(void)
     ID3D12GraphicsCommandList_Release(command_list);
     ID3D12CommandAllocator_Release(allocator);
     ID3D12DXVKInteropDevice1_Release(interop_device);
+    destroy_test_context(&context);
+}
+
+void test_vkd3d_out_of_band_interop(void)
+{
+    /* Just verify that it doesn't explode. */
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    ID3D12CommandQueueExt *queue_ext;
+    ID3D12CommandQueue *queues[2];
+    struct test_context context;
+    unsigned int i;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    for (i = 0; i < ARRAY_SIZE(queues); i++)
+        ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void**)&queues[i]);
+
+    for (i = 0; i < ARRAY_SIZE(queues); i++)
+    {
+        if (SUCCEEDED(ID3D12CommandQueue_QueryInterface(queues[i], &IID_ID3D12CommandQueueExt, (void **)&queue_ext)))
+        {
+            ID3D12CommandQueueExt_NotifyOutOfBandCommandQueue(queue_ext, D3D12_OUT_OF_BAND_CQ_TYPE_PRESENT);
+            ID3D12CommandQueueExt_Release(queue_ext);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(queues); i++)
+        ID3D12CommandQueue_Release(queues[i]);
+
     destroy_test_context(&context);
 }
