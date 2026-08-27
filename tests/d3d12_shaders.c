@@ -212,6 +212,7 @@ void test_shader_instructions_dxil(void)
         bool is_todo;
         uint32_t output_data_alt[4];
         bool allows_alternative_result;
+        bool is_uint;
     };
 
 #include "shaders/shaders/headers/cs_fp16_add_rounding_mode.h"
@@ -221,6 +222,7 @@ void test_shader_instructions_dxil(void)
 #include "shaders/shaders/headers/cs_fptrunc_roundtrip.h"
 #include "shaders/shaders/headers/cs_fptrunc_roundtrip_precise.h"
 #include "shaders/shaders/headers/cs_legacy_f32_to_f16.h"
+#include "shaders/shaders/headers/cs_udiv.h"
 
     union
     {
@@ -251,6 +253,8 @@ void test_shader_instructions_dxil(void)
         {&cs_fp16_add_rounding_mode_dxil, { 1024.0f, 1025.0f, 1026.0f, 1027.0f }, { 0x6400, 0x6402, 0x6402, 0x6404 }, true},
         /* Denorm is preserved in arithmetic. */
         {&cs_fp16_arith_denorm_dxil, { 1.0f / 0x1000000, 2.0f / 0x1000000, 3.0f / 0x1000000, 4.0f / 0x1000000 }, { 0x8003, 0x8001, 0x0001, 0x0003 }, true},
+        /* UDiv by zero behaves like DXBC */
+        {&cs_udiv_dxil, { 8.0f, 5.0f, 4.0f, 1.0f }, { 0x2, 0xffffffff, 0x1, 0xffffffff }, false, false, { 0, 0, 0, 0 }, false, true},
     };
 
     /* RTZ tests are TODO since we have no direct way of implementing it. */
@@ -326,7 +330,7 @@ void test_shader_instructions_dxil(void)
                         "Value %u mismatch: %x != (%x or %x)\n",
                         j, value, tests[i].output_data[j], tests[i].output_data_alt[j]);
             }
-            else if (tests[i].output_data[j] == UINT32_MAX)
+            else if (tests[i].output_data[j] == UINT32_MAX && !tests[i].is_uint)
             {
                 todo_if(tests[i].is_todo)
                 ok((value & 0x7fff) > 0x7c00, "Value %u mismatch: Expected NaN, got %x.\n", j, value);
