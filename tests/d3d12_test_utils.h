@@ -391,6 +391,25 @@ static inline void transition_resource_state(ID3D12GraphicsCommandList *list, ID
             state_before, state_after);
 }
 
+static bool format_is_depth_and_stencil(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:
+        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+        case DXGI_FORMAT_R24G8_TYPELESS:
+        case DXGI_FORMAT_R32G8X24_TYPELESS:
+        case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+        case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
+        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+        case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 static inline unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
@@ -479,12 +498,11 @@ static inline unsigned int format_size(DXGI_FORMAT format)
 
 static inline unsigned int format_num_planes(DXGI_FORMAT format)
 {
+    if (format_is_depth_and_stencil(format))
+        return 2;
+
     switch (format)
     {
-        case DXGI_FORMAT_D24_UNORM_S8_UINT:
-        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
-        case DXGI_FORMAT_R24G8_TYPELESS:
-        case DXGI_FORMAT_R32G8X24_TYPELESS:
         case DXGI_FORMAT_NV12:
         case DXGI_FORMAT_P010:
         case DXGI_FORMAT_P016:
@@ -497,15 +515,11 @@ static inline unsigned int format_num_planes(DXGI_FORMAT format)
 
 static inline unsigned int format_size_planar(DXGI_FORMAT format, unsigned int plane)
 {
+    if (format_is_depth_and_stencil(format))
+        return plane ? 1 : 4;
+
     switch (format)
     {
-        case DXGI_FORMAT_D24_UNORM_S8_UINT:
-        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
-        case DXGI_FORMAT_R24G8_TYPELESS:
-        case DXGI_FORMAT_R32G8X24_TYPELESS:
-        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
-            return plane ? 1 : 4;
-
         case DXGI_FORMAT_NV12:
             return plane ? 2 : 1;
 
@@ -520,15 +534,11 @@ static inline unsigned int format_size_planar(DXGI_FORMAT format, unsigned int p
 
 static inline unsigned int format_to_footprint_format(DXGI_FORMAT format, unsigned int plane)
 {
+    if (format_is_depth_and_stencil(format))
+        return plane ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS;
+
     switch (format)
     {
-        case DXGI_FORMAT_D24_UNORM_S8_UINT:
-        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
-        case DXGI_FORMAT_R24G8_TYPELESS:
-        case DXGI_FORMAT_R32G8X24_TYPELESS:
-        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
-            return plane ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS;
-
         case DXGI_FORMAT_NV12:
             return plane ? DXGI_FORMAT_R8G8_TYPELESS : DXGI_FORMAT_R8_TYPELESS;
 
@@ -546,19 +556,7 @@ static inline unsigned int format_to_footprint_format(DXGI_FORMAT format, unsign
 
 static inline bool format_is_depth_stencil(DXGI_FORMAT format)
 {
-    switch (format)
-    {
-        case DXGI_FORMAT_D24_UNORM_S8_UINT:
-        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
-        case DXGI_FORMAT_R24G8_TYPELESS:
-        case DXGI_FORMAT_R32G8X24_TYPELESS:
-        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
-        case DXGI_FORMAT_D32_FLOAT:
-            return true;
-
-        default:
-            return false;
-    }
+    return format_is_depth_and_stencil(format) || format == DXGI_FORMAT_D32_FLOAT;
 }
 
 static inline unsigned int format_block_width(DXGI_FORMAT format)
