@@ -1618,10 +1618,14 @@ void test_get_copyable_footprints_planar(void)
     /* All of these formats will have R32_TYPELESS + R8_TYPELESS placements. */
     static const DXGI_FORMAT planar_formats[] =
     {
-        DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
-        DXGI_FORMAT_D24_UNORM_S8_UINT,
-        DXGI_FORMAT_R24G8_TYPELESS,
         DXGI_FORMAT_R32G8X24_TYPELESS,
+        DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
+        DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS,
+        DXGI_FORMAT_X32_TYPELESS_G8X24_UINT,
+        DXGI_FORMAT_R24G8_TYPELESS,
+        DXGI_FORMAT_D24_UNORM_S8_UINT,
+        DXGI_FORMAT_R24_UNORM_X8_TYPELESS,
+        DXGI_FORMAT_X24_TYPELESS_G8_UINT,
     };
 
     if (!(device = create_device()))
