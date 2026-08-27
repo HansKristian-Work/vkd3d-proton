@@ -556,7 +556,7 @@ static inline unsigned int format_to_footprint_format(DXGI_FORMAT format, unsign
 
 static inline bool format_is_depth_stencil(DXGI_FORMAT format)
 {
-    return format_is_depth_and_stencil(format) || format == DXGI_FORMAT_D32_FLOAT;
+    return format_is_depth_and_stencil(format) || format == DXGI_FORMAT_D32_FLOAT || format == DXGI_FORMAT_D16_UNORM;
 }
 
 static inline unsigned int format_block_width(DXGI_FORMAT format)
