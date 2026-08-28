@@ -1179,6 +1179,25 @@ CONST_VTBL struct ID3D12DXVKInteropDevice3Vtbl d3d12_dxvk_interop_device_vtbl =
     d3d12_dxvk_interop_device_GetVulkanHeapInfo,
 };
 
+void d3d12_device_notify_vk_swapchain_creation(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
+{
+    if (!device->vk_info.NV_low_latency2)
+        return;
+
+    spinlock_acquire(&device->low_latency_swapchain_spinlock);
+
+    if (device->swapchain_info.low_latency_swapchain && device->swapchain_info.low_latency_swapchain != chain)
+    {
+        /* Hard evidence of multiple swapchains being in flight. */
+        dxgi_vk_swap_chain_set_latency_sleep_mode(chain, false, false, 0);
+        dxgi_vk_swap_chain_decref(device->swapchain_info.low_latency_swapchain);
+        WARN("Multiple swapchains are in-flight. LL2 will be disabled until the situation stabilizes.\n");
+        device->swapchain_info.low_latency_swapchain = NULL;
+    }
+
+    spinlock_release(&device->low_latency_swapchain_spinlock);
+}
+
 void d3d12_device_register_low_latency_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
 {
     if (!device->vk_info.NV_low_latency2)
@@ -1195,15 +1214,12 @@ void d3d12_device_register_low_latency_swapchain(struct d3d12_device *device, st
         dxgi_vk_swap_chain_set_latency_sleep_mode(chain, device->swapchain_info.mode,
                 device->swapchain_info.boost, device->swapchain_info.minimum_us);
     }
-    else if (device->swapchain_info.vk_swapchain_count > 1 && device->swapchain_info.low_latency_swapchain)
-    {
-        /* D3D12 API isn't tied to swapchains, but LL2 is. If there is more than one live swapchain,
-         * it's now ambiguous what to do. Disable low-latency. */
-        dxgi_vk_swap_chain_set_latency_sleep_mode(chain, false, false, 0);
-        dxgi_vk_swap_chain_decref(device->swapchain_info.low_latency_swapchain);
-        WARN("Multiple swapchains are in-flight. LL2 will be disabled until the situation stabilizes.\n");
-        device->swapchain_info.low_latency_swapchain = NULL;
-    }
+
+    /* Defer the demotion of the existing low-latency swapchain.
+     * Supposedly, there are applications that create a second swapchain, but never actually present anything to it
+     * before destroying it.
+     * It will never create a Vulkan swapchain and will not conflict with LL2.
+     * We can defer the demotion until we have evidence later. */
 
     spinlock_release(&device->low_latency_swapchain_spinlock);
 }

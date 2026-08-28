@@ -6277,6 +6277,7 @@ static inline bool d3d12_device_prefers_render_pass_resolves(const struct d3d12_
 
 void d3d12_device_register_low_latency_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain);
 void d3d12_device_remove_low_latency_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain);
+void d3d12_device_notify_vk_swapchain_creation(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain);
 
 /* ID3DBlob */
 struct d3d_blob
