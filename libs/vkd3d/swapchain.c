@@ -2091,6 +2091,10 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     if (chain->present.is_surface_lost)
         return;
 
+    /* Hard evidence that we're going ahead with swapchain creation, demote any existing LL2 chain
+     * that is not ourselves. */
+    d3d12_device_notify_vk_swapchain_creation(chain->queue->device, chain);
+
     /* If we fail to query formats we are hosed, treat it as a SURFACE_LOST scenario. */
     pthread_mutex_lock(&chain->properties.lock);
     /* This is only called on an event where we have to recreate the swapchain,
