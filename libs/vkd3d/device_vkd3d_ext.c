@@ -1197,7 +1197,11 @@ void d3d12_device_register_low_latency_swapchain(struct d3d12_device *device, st
     }
     else if (device->swapchain_info.vk_swapchain_count > 1 && device->swapchain_info.low_latency_swapchain)
     {
+        /* D3D12 API isn't tied to swapchains, but LL2 is. If there is more than one live swapchain,
+         * it's now ambiguous what to do. Disable low-latency. */
+        dxgi_vk_swap_chain_set_latency_sleep_mode(chain, false, false, 0);
         dxgi_vk_swap_chain_decref(device->swapchain_info.low_latency_swapchain);
+        WARN("Multiple swapchains are in-flight. LL2 will be disabled until the situation stabilizes.\n");
         device->swapchain_info.low_latency_swapchain = NULL;
     }
 
