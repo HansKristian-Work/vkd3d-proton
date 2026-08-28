@@ -623,7 +623,7 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_AddRef(IDXGIVkSwapChain2 *ifac
     {
         dxgi_vk_swap_chain_incref(chain);
         ID3D12CommandQueue_AddRef(&chain->queue->ID3D12CommandQueue_iface);
-        d3d12_device_register_swapchain(chain->queue->device, chain);
+        d3d12_device_register_low_latency_swapchain(chain->queue->device, chain);
     }
 
     return refcount;
@@ -644,10 +644,7 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain2 *ifa
         /* Calling this from the submission thread will result in a deadlock, so
          * drain the swapchain queue now. */
         dxgi_vk_swap_chain_drain_queue(chain);
-
-        if (device->vk_info.NV_low_latency2)
-            d3d12_device_remove_swapchain(device, chain);
-
+        d3d12_device_remove_low_latency_swapchain(device, chain);
         dxgi_vk_swap_chain_decref(chain);
         ID3D12CommandQueue_Release(&queue->ID3D12CommandQueue_iface);
     }
@@ -3958,8 +3955,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_factory_CreateSwapChain(IDXG
         return hr;
     }
 
-    if (chain->queue->device->vk_info.NV_low_latency2)
-        d3d12_device_register_swapchain(chain->queue->device, chain);
+    d3d12_device_register_low_latency_swapchain(chain->queue->device, chain);
 
     *ppSwapchain = (IDXGIVkSwapChain*)&chain->IDXGIVkSwapChain_iface;
     return S_OK;

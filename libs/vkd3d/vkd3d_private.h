@@ -6275,33 +6275,8 @@ static inline bool d3d12_device_prefers_render_pass_resolves(const struct d3d12_
             device->workarounds.tiler_suspend_resume_relax_load_store_op;
 }
 
-static inline void d3d12_device_register_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
-{
-    spinlock_acquire(&device->low_latency_swapchain_spinlock);
-
-    if (!device->swapchain_info.low_latency_swapchain)
-    {
-        dxgi_vk_swap_chain_incref(chain);
-        device->swapchain_info.low_latency_swapchain = chain;
-        dxgi_vk_swap_chain_set_latency_sleep_mode(chain, device->swapchain_info.mode,
-                device->swapchain_info.boost, device->swapchain_info.minimum_us);
-    }
-
-    spinlock_release(&device->low_latency_swapchain_spinlock);
-}
-
-static inline void d3d12_device_remove_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain)
-{
-    spinlock_acquire(&device->low_latency_swapchain_spinlock);
-
-    if (device->swapchain_info.low_latency_swapchain == chain)
-    {
-        dxgi_vk_swap_chain_decref(chain);
-        device->swapchain_info.low_latency_swapchain = NULL;
-    }
-
-    spinlock_release(&device->low_latency_swapchain_spinlock);
-}
+void d3d12_device_register_low_latency_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain);
+void d3d12_device_remove_low_latency_swapchain(struct d3d12_device *device, struct dxgi_vk_swap_chain *chain);
 
 /* ID3DBlob */
 struct d3d_blob
