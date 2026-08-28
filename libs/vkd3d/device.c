@@ -768,6 +768,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
         VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP },
     { VKD3D_STRING_COMPARE_EXACT, "GoWEDay-Steam.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.NO_STAGGERED_SUBMIT = 1) },
+    /* Assetto Corsa EVO (3058630) */
+    { VKD3D_STRING_COMPARE_EXACT, "AssettoCorsaEVO.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_RAW_VA_CBV = 1) },
     /* World of Warcraft Classic */
     /* Like in retail WoW, descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
     { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1, .DESCRIPTOR_HEAP = 1) },
