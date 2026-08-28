@@ -1186,12 +1186,19 @@ void d3d12_device_register_low_latency_swapchain(struct d3d12_device *device, st
 
     spinlock_acquire(&device->low_latency_swapchain_spinlock);
 
-    if (!device->swapchain_info.low_latency_swapchain)
+    device->swapchain_info.vk_swapchain_count++;
+
+    if (device->swapchain_info.vk_swapchain_count == 1 && !device->swapchain_info.low_latency_swapchain)
     {
         dxgi_vk_swap_chain_incref(chain);
         device->swapchain_info.low_latency_swapchain = chain;
         dxgi_vk_swap_chain_set_latency_sleep_mode(chain, device->swapchain_info.mode,
                 device->swapchain_info.boost, device->swapchain_info.minimum_us);
+    }
+    else if (device->swapchain_info.vk_swapchain_count > 1 && device->swapchain_info.low_latency_swapchain)
+    {
+        dxgi_vk_swap_chain_decref(device->swapchain_info.low_latency_swapchain);
+        device->swapchain_info.low_latency_swapchain = NULL;
     }
 
     spinlock_release(&device->low_latency_swapchain_spinlock);
@@ -1203,6 +1210,9 @@ void d3d12_device_remove_low_latency_swapchain(struct d3d12_device *device, stru
         return;
 
     spinlock_acquire(&device->low_latency_swapchain_spinlock);
+
+    assert(device->swapchain_info.vk_swapchain_count);
+    device->swapchain_info.vk_swapchain_count--;
 
     if (device->swapchain_info.low_latency_swapchain == chain)
     {
