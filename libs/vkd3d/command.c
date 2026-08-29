@@ -10424,7 +10424,9 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
                 &src_resource->desc, out->src_format, out->dst_format, src_box, dst_x, dst_y, dst_z);
         out->copy.buffer_image.bufferOffset += dst_resource->mem.offset;
 
-        out->src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        out->needs_conversion = (out->src_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) && out->src_format->is_emulated;
+        out->src_layout = d3d12_resource_pick_layout(src_resource, out->needs_conversion
+            ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         out->batch_type = VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER;
     }
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
@@ -10821,19 +10823,27 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
     {
         d3d12_command_list_track_resource_usage(list, dst_resource, true);
 
-        if (!unified)
+        if (!unified || info->needs_conversion)
         {
             /* We're going to do an image layout transition, so we can handle pending buffer barriers while we're at it.
              * After that barrier completes, we implicitly synchronize any outstanding copies, so we can drop the tracking.
              * This also avoids having to compute the destination damage region. */
+            VkPipelineStageFlags2 dst_stages = VK_PIPELINE_STAGE_2_COPY_BIT;
+            VkAccessFlags2 dst_access = VK_ACCESS_2_TRANSFER_READ_BIT;
+
             global_transfer_access = list->transfer_batch.tracked_copy_buffer_count ?
                     VK_ACCESS_2_TRANSFER_WRITE_BIT : VK_ACCESS_2_NONE;
             list->transfer_batch.tracked_copy_buffer_count = 0;
 
-            d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch,
-                    src_resource,
+            if (info->needs_conversion)
+            {
+                dst_stages = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                dst_access = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+            }
+
+            d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch, src_resource,
                     &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
-                    src_resource->common_layout, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                    src_resource->common_layout, dst_stages, dst_access,
                     info->src_layout, global_transfer_access, global_transfer_access);
         }
     }
@@ -10862,6 +10872,134 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
     }
 }
 
+static void d3d12_command_list_copy_image_to_buffer_compute(struct d3d12_command_list *list,
+        struct vkd3d_image_copy_info *info, struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_copy_image_to_buffer_args compute_args;
+    struct vkd3d_copy_image_info copy_pipeline_info;
+    struct vkd3d_texture_view_desc src_view_desc;
+    VkWriteDescriptorSet vk_descriptor_write;
+    VkDescriptorImageInfo vk_src_image_info;
+    struct vkd3d_view *src_view = NULL;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
+    uint32_t view_index;
+    bool use_heap;
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_update_global_descriptor_buffer_meta(list);
+
+    assert(info->copy.buffer_image.imageSubresource.layerCount == 1u);
+
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_NONE;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1u;
+    dep_info.pMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+    memset(&src_view_desc, 0, sizeof(src_view_desc));
+    src_view_desc.image = src_resource->res.vk_image;
+    src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
+    src_view_desc.format = vkd3d_format_from_d3d12_resource_desc(list->device, &src_resource->desc, src_resource->desc.Format);
+    src_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+    src_view_desc.allowed_swizzle = false;
+    src_view_desc.aspect_mask = info->copy.buffer_image.imageSubresource.aspectMask;
+    src_view_desc.layer_idx = info->copy.buffer_image.imageSubresource.baseArrayLayer;
+    src_view_desc.layer_count = 1;
+    src_view_desc.miplevel_idx = info->copy.buffer_image.imageSubresource.mipLevel;
+    src_view_desc.miplevel_count = 1;
+
+    view_index = d3d12_command_list_allocate_meta_image_view(list, &src_view_desc, info->src_layout);
+    use_heap = view_index != UINT32_MAX;
+
+    if (FAILED(vkd3d_meta_get_copy_image_to_buffer_pipeline(&list->device->meta_ops,
+        src_view_desc.format, &copy_pipeline_info, use_heap)))
+    {
+        ERR("Failed to get copy image to buffer pipeline.\n");
+        return;
+    }
+
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, copy_pipeline_info.vk_pipeline));
+
+    if (use_heap)
+    {
+        d3d12_command_list_meta_push_descriptor_index(list, list->cmd.vk_command_buffer, 0, view_index);
+    }
+    else
+    {
+        if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+        {
+            ERR("Failed to create image views.\n");
+            goto cleanup_compute;
+        }
+
+        if (!d3d12_command_allocator_add_view(list->allocator, src_view))
+        {
+            ERR("Failed to add views.\n");
+            goto cleanup_compute;
+        }
+
+        memset(&vk_src_image_info, 0, sizeof(vk_src_image_info));
+        vk_src_image_info.imageView = src_view->vk_image_view;
+        vk_src_image_info.imageLayout = info->src_layout;
+
+        memset(&vk_descriptor_write, 0, sizeof(vk_descriptor_write));
+        vk_descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_descriptor_write.dstBinding = 0;
+        vk_descriptor_write.dstArrayElement = 0;
+        vk_descriptor_write.descriptorCount = 1;
+        vk_descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        vk_descriptor_write.pImageInfo = &vk_src_image_info;
+
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                copy_pipeline_info.vk_pipeline_layout, 0, 1, &vk_descriptor_write));
+    }
+
+    memset(&compute_args, 0, sizeof(compute_args));
+    compute_args.dst_va = dst_resource->res.va + info->dst.PlacedFootprint.Offset;
+    compute_args.offset.x = info->copy.buffer_image.imageOffset.x;
+    compute_args.offset.y = info->copy.buffer_image.imageOffset.y;
+    compute_args.extent.width = info->copy.buffer_image.imageExtent.width;
+    compute_args.extent.height = info->copy.buffer_image.imageExtent.height;
+    compute_args.row_pitch = info->dst.PlacedFootprint.Footprint.RowPitch;
+
+    d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+            copy_pipeline_info.vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, sizeof(compute_args), &compute_args);
+
+    VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer,
+            vkd3d_compute_workgroup_count(info->copy.buffer_image.imageExtent.width, 8),
+            vkd3d_compute_workgroup_count(info->copy.buffer_image.imageExtent.height, 8), 1u));
+
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1u;
+    dep_info.pMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+cleanup_compute:
+    if (src_view)
+        vkd3d_view_decref(src_view, list->device);
+
+}
+
 static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch,
         struct vkd3d_image_copy_info *info)
@@ -10878,30 +11016,44 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
 
     if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER)
     {
-        VkCopyImageToBufferInfo2 copy_info;
-
-        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2;
-        copy_info.pNext = NULL;
-        copy_info.srcImage = src_resource->res.vk_image;
-        copy_info.srcImageLayout = info->src_layout;
-        copy_info.dstBuffer = dst_resource->res.vk_buffer;
-        copy_info.regionCount = 1;
-        copy_info.pRegions = &info->copy.buffer_image;
-
-        VKD3D_BREADCRUMB_TAG("Image -> Buffer");
+        VKD3D_BREADCRUMB_TAG(info->needs_conversion ? "Image -> Buffer (compute)" : "Image -> Buffer");
         VKD3D_BREADCRUMB_RESOURCE(src_resource);
         VKD3D_BREADCRUMB_RESOURCE(dst_resource);
         VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(&info->copy.buffer_image);
 
-        d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, info->copy.buffer_image.bufferOffset,
-                info->buffer_footprint_size, !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
-        VK_CALL(vkCmdCopyImageToBuffer2(list->cmd.vk_command_buffer, &copy_info));
-
-        if (!unified)
+        if (info->needs_conversion)
         {
-            d3d12_command_list_transition_image_layout(list, batch,
-                    src_resource,
-                    &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
+            /* Buffer WAW tracking doesn't know about compute, so flush that here */
+            d3d12_command_list_resolve_transfer_waw(list);
+
+            d3d12_command_list_copy_image_to_buffer_compute(list, info,
+                    dst_resource, src_resource);
+        }
+        else
+        {
+            VkCopyImageToBufferInfo2 copy_info;
+            copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2;
+            copy_info.pNext = NULL;
+            copy_info.srcImage = src_resource->res.vk_image;
+            copy_info.srcImageLayout = info->src_layout;
+            copy_info.dstBuffer = dst_resource->res.vk_buffer;
+            copy_info.regionCount = 1;
+            copy_info.pRegions = &info->copy.buffer_image;
+
+            d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer,
+                    info->copy.buffer_image.bufferOffset, info->buffer_footprint_size,
+                    !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
+
+            VK_CALL(vkCmdCopyImageToBuffer2(list->cmd.vk_command_buffer, &copy_info));
+        }
+
+        if (!unified || info->needs_conversion)
+        {
+            VkPipelineStageFlags2 src_stage = info->needs_conversion
+                ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_2_COPY_BIT;
+
+            d3d12_command_list_transition_image_layout(list, batch, src_resource,
+                    &info->copy.buffer_image.imageSubresource, src_stage, VK_ACCESS_2_NONE,
                     info->src_layout, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE, src_resource->common_layout);
         }
     }
