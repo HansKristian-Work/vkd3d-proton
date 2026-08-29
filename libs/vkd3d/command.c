@@ -27526,6 +27526,11 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
         if (!device->device_info.device_generated_commands_features.deviceGeneratedCommands)
         {
             FIXME("Device generated commands is not supported by implementation.\n");
+            if (VKD3D_CONFIG_FLAG_IS_SET(FAIL_UNSUPPORTED_STATE_TEMPLATE))
+            {
+                hr = E_NOTIMPL;
+                goto err;
+            }
             object->requires_state_template = false;
             goto out;
         }
@@ -27534,6 +27539,11 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
         {
             /* Very similar idea as indirect compute would be. */
             FIXME("State template is required for indirect ray tracing, but it is unimplemented.\n");
+            if (VKD3D_CONFIG_FLAG_IS_SET(FAIL_UNSUPPORTED_STATE_TEMPLATE))
+            {
+                hr = E_NOTIMPL;
+                goto err;
+            }
             object->requires_state_template = false;
             goto out;
         }
