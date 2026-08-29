@@ -773,6 +773,12 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* World of Warcraft Classic */
     /* Like in retail WoW, descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
     { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1, .DESCRIPTOR_HEAP = 1) },
+    /* Teardown.
+     * Creates command signatures that modify vertex/index buffer views and root CBVs, which
+     * cannot be implemented without device generated commands. Silently dropping the state
+     * template makes those ExecuteIndirect draws disappear, and the game handles a failed
+     * CreateCommandSignature by issuing the draws from the CPU instead. */
+    { VKD3D_STRING_COMPARE_EXACT, "teardown.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FAIL_UNSUPPORTED_STATE_TEMPLATE = 1) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
