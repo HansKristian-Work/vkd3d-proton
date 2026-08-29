@@ -1,0 +1,41 @@
+#version 450
+
+#extension GL_EXT_buffer_reference : enable
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0)
+uniform texture2D s_texture;
+
+layout(buffer_reference, std430)
+writeonly buffer dst_data_t
+{
+    float data[];
+};
+
+layout(buffer_reference, std430)
+readonly buffer src_data_t
+{
+    uint data[];
+};
+
+layout(push_constant)
+uniform args_t
+{
+    dst_data_t dst_buffer;
+    src_data_t src_buffer;
+    uvec2 extent;
+    uint row_pitch;
+} args;
+
+void main()
+{
+    if (any(greaterThanEqual(gl_GlobalInvocationID.xy, args.extent)))
+        return;
+
+    uint src_offset = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * (args.row_pitch / 4u);
+    uint src_data = args.src_buffer.data[src_offset] & 0xffffffu;
+
+    uint dst_offset = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * args.extent.x;
+    args.dst_buffer.data[dst_offset] = float(src_data) / float(0xffffff);
+}
