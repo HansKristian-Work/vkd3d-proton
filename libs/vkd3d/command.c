@@ -10451,6 +10451,7 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
                 &dst_resource->desc, out->src_format, out->dst_format, src_box, dst_x, dst_y, dst_z);
         out->copy.buffer_image.bufferOffset += src_resource->mem.offset;
 
+        out->needs_conversion = (out->dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) && out->dst_format->is_emulated;
         out->dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         out->writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &out->copy.buffer_image.imageExtent, &out->copy.buffer_image.imageSubresource);
@@ -10851,6 +10852,13 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
     {
         d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_resource);
 
+        if (info->needs_conversion)
+        {
+            d3d12_command_list_barrier_batch_add_global_transition(list, batch,
+                    VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
+                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
+        }
+
         if (!unified || info->writes_full_subresource)
         {
             d3d12_command_list_transition_image_layout(list, batch, dst_resource,
@@ -11000,12 +11008,71 @@ cleanup_compute:
 
 }
 
+static void d3d12_command_list_copy_buffer_to_scratch_compute(struct d3d12_command_list *list,
+        struct vkd3d_image_copy_info *info, const struct vkd3d_scratch_allocation *dst_scratch,
+        struct d3d12_resource *src_resource)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_copy_buffer_to_image_args compute_args;
+    struct vkd3d_copy_image_info copy_pipeline_info;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_update_global_descriptor_buffer_meta(list);
+
+    /* Two possible ways to implement this:
+     * a) Render to depth image directly
+     * b) Allocate scratch, convert into that, then dispatch copy
+     *
+     * Go for option b here. This is less efficient, but works on compute queues
+     * and is simpler. Revisit if this ever ends up being a perf issue in the wild. */
+    if (FAILED(vkd3d_meta_get_copy_buffer_to_scratch_pipeline(&list->device->meta_ops,
+        info->dst_format, &copy_pipeline_info, false)))
+    {
+        ERR("Failed to get copy image to buffer pipeline.\n");
+        return;
+    }
+
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, copy_pipeline_info.vk_pipeline));
+
+    memset(&compute_args, 0, sizeof(compute_args));
+    compute_args.dst_va = dst_scratch->va;
+    compute_args.src_va = src_resource->res.va + info->src.PlacedFootprint.Offset;
+    compute_args.extent.width = info->copy.buffer_image.imageExtent.width;
+    compute_args.extent.height = info->copy.buffer_image.imageExtent.height;
+    compute_args.row_pitch = info->src.PlacedFootprint.Footprint.RowPitch;
+
+    d3d12_command_list_meta_push_data(list, list->cmd.vk_command_buffer,
+            copy_pipeline_info.vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, sizeof(compute_args), &compute_args);
+
+    VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer,
+            vkd3d_compute_workgroup_count(info->copy.buffer_image.imageExtent.width, 8),
+            vkd3d_compute_workgroup_count(info->copy.buffer_image.imageExtent.height, 8), 1u));
+
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1u;
+    dep_info.pMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+}
+
 static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch,
         struct vkd3d_image_copy_info *info)
 {
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
+    struct vkd3d_scratch_allocation scratch;
     bool unified;
 
     vk_procs = &list->device->vk_procs;
@@ -11060,6 +11127,12 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE)
     {
         VkCopyBufferToImageInfo2 copy_info;
+        VkBufferImageCopy2 region;
+
+        VKD3D_BREADCRUMB_TAG("Buffer -> Image");
+        VKD3D_BREADCRUMB_RESOURCE(src_resource);
+        VKD3D_BREADCRUMB_RESOURCE(dst_resource);
+        VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(&info->copy.buffer_image);
 
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2;
         copy_info.pNext = NULL;
@@ -11067,12 +11140,35 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         copy_info.dstImage = dst_resource->res.vk_image;
         copy_info.dstImageLayout = info->dst_layout;
         copy_info.regionCount = 1;
-        copy_info.pRegions = &info->copy.buffer_image;
+        copy_info.pRegions = &region;
 
-        VKD3D_BREADCRUMB_TAG("Buffer -> Image");
-        VKD3D_BREADCRUMB_RESOURCE(src_resource);
-        VKD3D_BREADCRUMB_RESOURCE(dst_resource);
-        VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(&info->copy.buffer_image);
+        region = info->copy.buffer_image;
+
+        if (info->needs_conversion)
+        {
+            VkDeviceSize scratch_buffer_size;
+            VkExtent3D extent;
+
+            extent = info->copy.buffer_image.imageExtent;
+            scratch_buffer_size = info->dst_format->block_byte_count *
+                extent.width * extent.height * extent.depth;
+
+            if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                    VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE, scratch_buffer_size, 16, ~0u, &scratch))
+            {
+                ERR("Failed to allocate scratch memory.\n");
+                return;
+            }
+
+            d3d12_command_list_copy_buffer_to_scratch_compute(list, info, &scratch, src_resource);
+
+            /* Scratch memory will be tightly packed */
+            copy_info.srcBuffer = scratch.buffer;
+
+            region.bufferOffset = scratch.offset;
+            region.bufferRowLength = 0u;
+            region.bufferImageHeight = 0u;
+        }
 
         VK_CALL(vkCmdCopyBufferToImage2(list->cmd.vk_command_buffer, &copy_info));
 
