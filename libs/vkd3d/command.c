@@ -16388,6 +16388,14 @@ static bool d3d12_command_list_clear_uav_builtin(struct d3d12_command_list *list
     else
         uint_format = vkd3d_get_format(list->device, DXGI_FORMAT_R32_UINT, false);
 
+    /* Raw buffer UAVs use DXGI_FORMAT_UNKNOWN, but their clear operations are
+     * R32_UINT-centric just like the descriptor-based fallback below. */
+    if (!format && !args->clear_dxgi_format && d3d12_resource_is_buffer(resource))
+        format = uint_format;
+
+    if (!format)
+        return false;
+
     if (d3d12_resource_is_buffer(resource))
     {
         VkDeviceAddress start_va, end_va;
