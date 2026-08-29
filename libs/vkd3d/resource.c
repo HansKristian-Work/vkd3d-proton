@@ -628,6 +628,12 @@ static bool vkd3d_format_needs_extended_usage(const struct vkd3d_format *format,
     return (supported_flags & required_flags) != required_flags;
 }
 
+static bool vkd3d_format_needs_compute_copies(const struct vkd3d_format *format)
+{
+    /* Enable compute shader path for D24 copies that require data conversion */
+    return (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) && format->is_emulated;
+}
+
 struct vkd3d_image_create_info
 {
     struct vkd3d_format_compatibility_list format_compat_list;
@@ -1022,14 +1028,14 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         {
             image_info->queueFamilyIndexCount = device->concurrent_queue_family_buffer_count;
             image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices_buffer;
-            if (resource)
+            if (resource && !vkd3d_format_needs_compute_copies(format))
                 resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
         }
         else
         {
             image_info->queueFamilyIndexCount = device->concurrent_queue_family_image_count;
             image_info->pQueueFamilyIndices = device->concurrent_queue_family_indices_image;
-            if (resource && device->concurrent_transfer_queue)
+            if (resource && device->concurrent_transfer_queue && !vkd3d_format_needs_compute_copies(format))
                 resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
         }
     }
@@ -1039,7 +1045,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         image_info->queueFamilyIndexCount = 0;
         image_info->pQueueFamilyIndices = NULL;
 
-        if (resource)
+        if (resource && !vkd3d_format_needs_compute_copies(format))
             resource->flags |= VKD3D_RESOURCE_COPY_QUEUE_COMPATIBLE;
     }
 

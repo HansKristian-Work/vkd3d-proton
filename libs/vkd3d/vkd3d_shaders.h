@@ -50,6 +50,8 @@ enum vkd3d_meta_copy_mode
 #include <cs_execute_indirect_patch.h>
 #include <cs_execute_indirect_patch_debug_ring.h>
 #include <cs_execute_indirect_multi_dispatch.h>
+#include <cs_copy_buffer_to_emulated_d24.h>
+#include <cs_copy_emulated_d24_to_buffer.h>
 #include <vs_fullscreen_layer.h>
 #include <vs_fullscreen.h>
 #include <gs_fullscreen.h>

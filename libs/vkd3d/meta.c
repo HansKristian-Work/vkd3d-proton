@@ -750,6 +750,122 @@ fail:
     return hresult_from_vk_result(vr);
 }
 
+static void vkd3d_copy_buffer_image_ops_cleanup(struct vkd3d_copy_buffer_image_ops *meta_copy_buffer_image_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_copy_buffer_image_ops->vk_pipeline_buffer_to_d24, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_copy_buffer_image_ops->vk_pipeline_d24_to_buffer, NULL));
+
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_copy_buffer_image_ops->vk_pipeline_layout_buffer_to_d24, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_copy_buffer_image_ops->vk_pipeline_layout_d24_to_buffer, NULL));
+
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_copy_buffer_image_ops->vk_set_layout_d24_to_buffer, NULL));
+}
+
+static HRESULT vkd3d_copy_buffer_image_ops_init(struct vkd3d_copy_buffer_image_ops *meta_copy_buffer_image_ops,
+        struct d3d12_device *device, bool use_heap)
+{
+    VkDescriptorSetLayoutBinding set_binding;
+    VkPushConstantRange push_constant_range;
+    VkResult vr;
+
+    memset(meta_copy_buffer_image_ops, 0, sizeof(*meta_copy_buffer_image_ops));
+
+    if (!use_heap)
+    {
+        memset(&set_binding, 0, sizeof(set_binding));
+        set_binding.binding = 0;
+        set_binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        set_binding.descriptorCount = 1;
+        set_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        set_binding.pImmutableSamplers = NULL;
+
+        if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding,
+                true, &meta_copy_buffer_image_ops->vk_set_layout_d24_to_buffer)) < 0)
+        {
+            ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+            goto fail;
+        }
+    }
+
+    memset(&push_constant_range, 0, sizeof(push_constant_range));
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constant_range.size = sizeof(struct vkd3d_copy_image_to_buffer_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, use_heap ? 0 : 1, &meta_copy_buffer_image_ops->vk_set_layout_d24_to_buffer,
+            &push_constant_range, &meta_copy_buffer_image_ops->vk_pipeline_layout_d24_to_buffer)))
+    {
+        ERR("Failed to create pipeline layout, vr %d.\n", vr);
+        goto fail;
+    }
+
+    push_constant_range.size = sizeof(struct vkd3d_copy_buffer_to_image_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, VK_NULL_HANDLE,
+            &push_constant_range, &meta_copy_buffer_image_ops->vk_pipeline_layout_buffer_to_d24)))
+    {
+        ERR("Failed to create pipeline layout, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_copy_emulated_d24_to_buffer),
+            cs_copy_emulated_d24_to_buffer, meta_copy_buffer_image_ops->vk_pipeline_layout_d24_to_buffer,
+            NULL, true, NULL, &meta_copy_buffer_image_ops->vk_pipeline_d24_to_buffer)) < 0)
+        goto fail;
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_copy_buffer_to_emulated_d24),
+            cs_copy_buffer_to_emulated_d24, meta_copy_buffer_image_ops->vk_pipeline_layout_buffer_to_d24,
+            NULL, false, NULL, &meta_copy_buffer_image_ops->vk_pipeline_buffer_to_d24)) < 0)
+        goto fail;
+
+    return S_OK;
+
+fail:
+    vkd3d_copy_buffer_image_ops_cleanup(meta_copy_buffer_image_ops, device);
+    return hresult_from_vk_result(vr);
+}
+
+HRESULT vkd3d_meta_get_copy_image_to_buffer_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_format *image_format, struct vkd3d_copy_image_info *info, bool heap)
+{
+    const struct vkd3d_copy_buffer_image_ops *ops = heap
+            ? &meta_ops->copy_buffer_image_heap
+            : &meta_ops->copy_buffer_image_legacy;
+
+    memset(info, 0, sizeof(*info));
+
+    if ((image_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) && image_format->is_emulated)
+    {
+        info->vk_pipeline = ops->vk_pipeline_d24_to_buffer;
+        info->vk_pipeline_layout = ops->vk_pipeline_layout_d24_to_buffer;
+        info->vk_set_layout = ops->vk_set_layout_d24_to_buffer;
+        return S_OK;
+    }
+
+    return E_INVALIDARG;
+}
+
+HRESULT vkd3d_meta_get_copy_buffer_to_scratch_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_format *image_format, struct vkd3d_copy_image_info *info, bool heap)
+{
+    const struct vkd3d_copy_buffer_image_ops *ops = heap
+            ? &meta_ops->copy_buffer_image_heap
+            : &meta_ops->copy_buffer_image_legacy;
+
+    memset(info, 0, sizeof(*info));
+
+    if ((image_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) && image_format->is_emulated)
+    {
+        info->vk_pipeline = ops->vk_pipeline_buffer_to_d24;
+        info->vk_pipeline_layout = ops->vk_pipeline_layout_buffer_to_d24;
+        return S_OK;
+    }
+
+    return E_INVALIDARG;
+}
+
 static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_pipeline *pipeline)
 {
@@ -2369,6 +2485,13 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
         goto fail_copy_image_legacy_ops;
 
     if (d3d12_device_use_descriptor_heap(device))
+        if (FAILED(hr = vkd3d_copy_buffer_image_ops_init(&meta_ops->copy_buffer_image_heap, device, true)))
+            goto fail_copy_buffer_image_heap_ops;
+
+    if (FAILED(hr = vkd3d_copy_buffer_image_ops_init(&meta_ops->copy_buffer_image_legacy, device, false)))
+        goto fail_copy_buffer_image_legacy_ops;
+
+    if (d3d12_device_use_descriptor_heap(device))
         if (FAILED(hr = vkd3d_resolve_image_ops_init(&meta_ops->resolve_image_heap, device, true)))
             goto fail_resolve_image_heap_ops;
 
@@ -2426,6 +2549,10 @@ fail_swapchain_ops:
 fail_resolve_image_legacy_ops:
     vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image_heap, device);
 fail_resolve_image_heap_ops:
+    vkd3d_copy_buffer_image_ops_cleanup(&meta_ops->copy_buffer_image_legacy, device);
+fail_copy_buffer_image_legacy_ops:
+    vkd3d_copy_buffer_image_ops_cleanup(&meta_ops->copy_buffer_image_heap, device);
+fail_copy_buffer_image_heap_ops:
     vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image_legacy, device);
 fail_copy_image_legacy_ops:
     vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image_heap, device);
@@ -2452,6 +2579,8 @@ HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_dev
     vkd3d_swapchain_ops_cleanup(&meta_ops->swapchain, device);
     vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image_heap, device);
     vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image_legacy, device);
+    vkd3d_copy_buffer_image_ops_cleanup(&meta_ops->copy_buffer_image_heap, device);
+    vkd3d_copy_buffer_image_ops_cleanup(&meta_ops->copy_buffer_image_legacy, device);
     vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image_heap, device);
     vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image_legacy, device);
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav_heap, device);
