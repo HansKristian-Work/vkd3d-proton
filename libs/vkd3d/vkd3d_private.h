@@ -3065,6 +3065,7 @@ struct vkd3d_image_copy_info
     bool writes_full_subresource;
     bool writes_full_resource;
     bool overlapping_subresource;
+    bool needs_conversion;
     VkImageLayout src_layout;
     VkImageLayout dst_layout;
     VkDeviceSize buffer_footprint_size;
