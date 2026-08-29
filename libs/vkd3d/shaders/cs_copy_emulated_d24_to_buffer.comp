@@ -1,0 +1,36 @@
+#version 450
+
+#extension GL_EXT_buffer_reference : enable
+#extension GL_EXT_samplerless_texture_functions : enable
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0)
+uniform texture2D s_texture;
+
+layout(buffer_reference, std430)
+writeonly buffer data_t
+{
+    uint data[];
+};
+
+layout(push_constant)
+uniform args_t
+{
+    data_t dst_buffer;
+    ivec2 src_offset;
+    uvec2 extent;
+    uint row_pitch;
+} args;
+
+void main()
+{
+    if (any(greaterThanEqual(gl_GlobalInvocationID.xy, args.extent)))
+        return;
+
+    uint dst_offset = gl_GlobalInvocationID.x +
+      gl_GlobalInvocationID.y * (args.row_pitch / 4u);
+
+    float depth = texelFetch(s_texture, ivec2(gl_GlobalInvocationID.xy) + args.src_offset, 0).x;
+    args.dst_buffer.data[dst_offset] = uint(roundEven(float(0xffffff) * clamp(depth, 0.0f, 1.0f)));
+}
