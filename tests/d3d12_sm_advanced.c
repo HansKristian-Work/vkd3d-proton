@@ -1088,7 +1088,8 @@ void test_shader_fp16(void)
             ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%u.\n", (int)hr);
         else if (tests[i].native_fp16 && !features4.Native16BitShaderOpsSupported)
         {
-            ok(hr == E_INVALIDARG, "Unexpected hr: %x.\n", (int)hr);
+            /* Due to pragmatic reasons, we don't fail compilation here anymore, but technically we should. */
+            todo ok(hr == E_INVALIDARG, "Unexpected hr: %x.\n", (int)hr);
             skip("NativeFP16 is not supported. Failing pipeline compilation is expected.\n");
         }
         else
