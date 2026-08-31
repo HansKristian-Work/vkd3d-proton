@@ -12,20 +12,17 @@ jobs:
       run: pacman -Syu --needed --noconfirm git meson mingw-w64-gcc glslang wine
 
     - name: Checkout code
-      id: checkout-code
       uses: actions/checkout@v7
       with:
         submodules: recursive
 
     - name: Build release
-      id: build-release
       run: |
         export VERSION_NAME="${GITHUB_REF##*/}-${GITHUB_SHA##*/}"
         ./package-release.sh ${VERSION_NAME} build --no-package
         echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
 
     - name: Upload artifacts
-      id: upload-artifacts
       uses: actions/upload-artifact@v7
       with:
         name: vkd3d-proton-${{ env.VERSION_NAME }}
