@@ -8,7 +8,6 @@ jobs:
 
     steps:
     - name: Checkout code
-      id: checkout-code
       uses: actions/checkout@v7
       with:
         submodules: recursive
