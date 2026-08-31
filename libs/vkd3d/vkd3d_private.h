@@ -220,6 +220,7 @@ struct vkd3d_vulkan_info
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_shader_mixed_float_dot_product;
+    bool VALVE_buffer_device_address_allocation_alignment;
     /* MESA extensions */
     bool MESA_image_alignment_control;
 
@@ -5430,6 +5431,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR device_address_commands_features;
     VkPhysicalDeviceShaderFloatControls2FeaturesKHR float_controls2_features;
     VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR dynamic_rendering_local_read_features;
+    VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentFeaturesVALVE buffer_device_address_allocation_alignment_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

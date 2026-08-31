@@ -162,6 +162,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
     VK_EXTENSION(VALVE_SHADER_MIXED_FLOAT_DOT_PRODUCT, VALVE_shader_mixed_float_dot_product),
+    VK_EXTENSION(VALVE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT, VALVE_buffer_device_address_allocation_alignment),
     /* MESA extensions */
     VK_EXTENSION(MESA_IMAGE_ALIGNMENT_CONTROL, MESA_image_alignment_control),
 };
@@ -2707,6 +2708,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->dynamic_rendering_local_read_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->dynamic_rendering_local_read_features);
+    }
+
+    if (vulkan_info->VALVE_buffer_device_address_allocation_alignment)
+    {
+        info->buffer_device_address_allocation_alignment_features.sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_ALLOCATION_ALIGNMENT_FEATURES_VALVE;
+        vk_prepend_struct(&info->features2, &info->buffer_device_address_allocation_alignment_features);
+        /* 64 KiB is min-spec, so don't care about properties. */
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));

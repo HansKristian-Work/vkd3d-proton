@@ -1319,6 +1319,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         struct vkd3d_memory_allocator *allocator, const struct vkd3d_allocate_memory_info *info)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkBufferDeviceAddressAlignmentAllocateInfoVALVE alignment_info;
     VkMemoryPriorityAllocateInfoEXT priority_info;
     VkMemoryRequirements memory_requirements;
     VkMemoryAllocateFlagsInfo flags_info;
@@ -1370,17 +1371,21 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
          * For sparse, Turnip reports 64k alignment, but it's actually 4k, so our hacky workarounds
          * will anger VVL, but should just work in reality. Other vendors might not like that though ...
          */
-        if ((!info->explicit_global_buffer_usage ||
-                (info->explicit_global_buffer_usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)) &&
-            !(info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH) &&
-            (info->flags & VKD3D_ALLOCATION_FLAG_REQUIRE_ALIGNED_GPU_ADDRESS) &&
-            !d3d12_device_aligns_bda_64k(device) && !host_ptr && !info->pNext &&
-            info->memory_requirements.alignment >= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        if (!device->device_info.buffer_device_address_allocation_alignment_features.bufferDeviceAddressAllocationAlignment)
         {
-            /* Possible that we might have to pad out to 4 MiB for MSAA enabled Tier2 heap,
-             * but there's no evidence in the wild that we have to go *that* hard. */
-            padded_memory_requirement_size += D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-            padded_bda = true;
+            if ((!info->explicit_global_buffer_usage ||
+                    (info->explicit_global_buffer_usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)) &&
+                !(info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH) &&
+                (info->flags & VKD3D_ALLOCATION_FLAG_REQUIRE_ALIGNED_GPU_ADDRESS) &&
+                !d3d12_device_aligns_bda_64k(device) && !host_ptr && !info->pNext &&
+                info->memory_requirements.alignment >= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+            {
+                /* D3D12 implementations do not honor 4 MiB alignment here.
+                 * NV and AMD both seem to target the maximum alignment they need for MSAA,
+                 * which is max 256k it seems. */
+                padded_memory_requirement_size += D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+                padded_bda = true;
+            }
         }
 
         if (info->explicit_global_buffer_usage)
@@ -1458,6 +1463,15 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     {
         allocation->flags |= VKD3D_ALLOCATION_FLAG_GPU_ADDRESS;
         flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+
+        if (device->device_info.buffer_device_address_allocation_alignment_features.bufferDeviceAddressAllocationAlignment)
+        {
+            alignment_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_ALIGNMENT_ALLOCATE_INFO_VALVE;
+            alignment_info.pNext = NULL;
+            /* There is no evidence in the wild of drivers returning more than 64k alignment. */
+            alignment_info.alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            vk_prepend_struct(&flags_info, &alignment_info);
+        }
     }
 
     allocation->resource.size = info->memory_requirements.size;

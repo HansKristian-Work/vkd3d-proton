@@ -171,6 +171,7 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC1 *desc, const char *tag, VkBuffer *vk_buffer)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkBufferDeviceAddressAlignmentAllocateInfoVALVE alignment_info;
     VkExternalMemoryBufferCreateInfo external_info;
     const bool sparse_resource = !heap_properties;
     VkBufferCreateInfo buffer_info;
@@ -191,7 +192,7 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         external_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
         external_info.pNext = NULL;
         external_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
-        buffer_info.pNext = &external_info;
+        vk_prepend_struct(&buffer_info, &external_info);
     }
 
     if (sparse_resource)
@@ -200,6 +201,14 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
                 VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT |
                 VK_BUFFER_CREATE_SPARSE_ALIASED_BIT;
         buffer_info.size = adjust_sparse_buffer_size(buffer_info.size);
+
+        if (device->device_info.buffer_device_address_allocation_alignment_features.bufferDeviceAddressAllocationAlignment)
+        {
+            alignment_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_ALIGNMENT_ALLOCATE_INFO_VALVE;
+            alignment_info.pNext = NULL;
+            alignment_info.alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            vk_prepend_struct(&buffer_info, &alignment_info);
+        }
     }
 
     buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
