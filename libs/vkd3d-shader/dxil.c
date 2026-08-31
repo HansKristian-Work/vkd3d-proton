@@ -1675,6 +1675,14 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
+    if (quirks & VKD3D_SHADER_QUIRK_DEBUG_FORCE_MIN_WAVE64)
+    {
+        /* Force it when we use the debug quirk. */
+        wave_size_min = 64;
+        wave_size_max = 64;
+        wave_size_preferred = 64;
+    }
+
     spirv->meta.cs_wave_size_min = wave_size_min;
     spirv->meta.cs_wave_size_max = wave_size_max;
     spirv->meta.cs_wave_size_preferred = wave_size_preferred;

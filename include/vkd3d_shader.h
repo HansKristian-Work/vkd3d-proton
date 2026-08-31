@@ -579,6 +579,10 @@ enum vkd3d_shader_target_extension
  * which is highly illegal and only way out of it is to use filthy trickery. */
 #define VKD3D_SHADER_QUIRK_FORCE_FEEDBACK_LOOP (1ull << 38)
 
+/* Enforce a subgroup size of 64 or more.
+ * Used for debugging only when bisecting where games screw up wave64. */
+#define VKD3D_SHADER_QUIRK_DEBUG_FORCE_MIN_WAVE64 (1ull << 39)
+
 typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
