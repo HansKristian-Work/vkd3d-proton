@@ -7141,6 +7141,10 @@ void test_buffer_descriptor_byte_offset(void)
             /* 0 size turns into null desc instead of as specced on AMD ... Works on NV. */
             bool bugged_bab = !is_vkd3d && (i / 2 == 4 || i / 2 == 10) && is_amd_windows_device(context.device);
 
+            /* Something seems wrong with single texel alignment? */
+            if (is_adreno_device(context.device) && (i == 4 || i == 10))
+                bugged_bab = true;
+
             v = get_readback_uint(&rb, 1024 / sizeof(uint32_t) + i, 0, 0);
             bug_if(bugged_bab)
             ok(expected_data[i] == v, "Value %u (%s): expected %u, got %u\n",
