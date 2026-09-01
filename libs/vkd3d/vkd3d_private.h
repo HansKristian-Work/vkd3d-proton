@@ -5518,7 +5518,8 @@ struct vkd3d_cached_command_allocator
 struct vkd3d_device_swapchain_info
 {
     struct dxgi_vk_swap_chain *low_latency_swapchain;
-    uint32_t vk_swapchain_count;
+    /* Number of DXGI swapchains with a public refcount > 0. */
+    uint32_t dxgi_swapchain_count;
     bool mode;
     bool boost;
     union

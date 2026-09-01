@@ -1205,9 +1205,9 @@ void d3d12_device_register_low_latency_swapchain(struct d3d12_device *device, st
 
     spinlock_acquire(&device->low_latency_swapchain_spinlock);
 
-    device->swapchain_info.vk_swapchain_count++;
+    device->swapchain_info.dxgi_swapchain_count++;
 
-    if (device->swapchain_info.vk_swapchain_count == 1 && !device->swapchain_info.low_latency_swapchain)
+    if (device->swapchain_info.dxgi_swapchain_count == 1 && !device->swapchain_info.low_latency_swapchain)
     {
         dxgi_vk_swap_chain_incref(chain);
         device->swapchain_info.low_latency_swapchain = chain;
@@ -1231,8 +1231,8 @@ void d3d12_device_remove_low_latency_swapchain(struct d3d12_device *device, stru
 
     spinlock_acquire(&device->low_latency_swapchain_spinlock);
 
-    assert(device->swapchain_info.vk_swapchain_count);
-    device->swapchain_info.vk_swapchain_count--;
+    assert(device->swapchain_info.dxgi_swapchain_count);
+    device->swapchain_info.dxgi_swapchain_count--;
 
     if (device->swapchain_info.low_latency_swapchain == chain)
     {
