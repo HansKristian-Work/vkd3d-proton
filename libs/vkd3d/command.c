@@ -23590,14 +23590,11 @@ static uint64_t d3d12_command_queue_latency_frame_id(struct d3d12_command_queue 
     unsigned int i;
 
     if (command_queue->out_of_band_queue_type == VK_OUT_OF_BAND_QUEUE_TYPE_RENDER_NV)
-    {
         return vkd3d_atomic_uint64_load_explicit(
                 &command_queue->device->frame_markers.out_of_band_render, vkd3d_memory_order_acquire);
-    }
+
     if (command_queue->out_of_band_queue_type == VK_OUT_OF_BAND_QUEUE_TYPE_PRESENT_NV)
-    {
         return 0;
-    }
 
     markers = &command_queue->device->frame_markers;
     spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
@@ -23607,9 +23604,14 @@ static uint64_t d3d12_command_queue_latency_frame_id(struct d3d12_command_queue 
          * the ID of the new frame, and we unfortunately do not know what ID
          * they will choose next at the PRESENT_END delimiter.
          *
-         * We'll choose the frame ID of the next SIMULATION_START marker
-         * with an ID greater than the last PRESENT_END marker's ID (which
-         * triggered the new_frame).
+         * We will look at SIMULATION_START marker IDs to make this decision, as
+         * they are expected to be sent at the beginning of each frame ahead of any
+         * rendering. We'll track a ringbuffer of the most recent SIMULATION_START
+         * IDs to handle edge cases such as frame N+1's simulation beginning before
+         * frame N's first submission.
+         *
+         * We'll choose the smallest SIMULATION_START marker ID greater than the
+         * previous PRESENT_END marker's ID.
          *
          * If unknown, we fallback to incrementing the ID by 1, which matches
          * the behaviour of most applications. */
