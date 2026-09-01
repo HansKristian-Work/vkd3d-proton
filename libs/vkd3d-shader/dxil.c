@@ -1647,6 +1647,16 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     if (!wave_size_max)
         wave_size_max = wave_size_min;
 
+    if ((stage == DXIL_SPV_STAGE_COMPUTE || stage == DXIL_SPV_STAGE_MESH || stage == DXIL_SPV_STAGE_AMPLIFICATION) &&
+        wave_size_max == 32 &&
+        (quirks & VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32) &&
+        spirv->meta.cs_workgroup_size[0] == 32 &&
+        spirv->meta.cs_workgroup_size[1] == 1 &&
+        spirv->meta.cs_workgroup_size[2] == 1)
+    {
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_ALLOW_WAVE32;
+    }
+
     if (compiler_args->promote_wave_size_heuristics)
     {
         dxil_spv_converter_get_compute_heuristic_min_wave_size(converter, &heuristic_min_wave_size);

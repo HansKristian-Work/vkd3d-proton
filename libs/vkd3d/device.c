@@ -11816,11 +11816,19 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         if (meta->cs_wave_size_min > device->d3d12_caps.options1.WaveLaneCountMax ||
                 meta->cs_wave_size_max < device->d3d12_caps.options1.WaveLaneCountMin)
         {
-            ERR("Required WaveSize range [%u, %u], but supported range is [%u, %u].\n",
-                    meta->cs_wave_size_min, meta->cs_wave_size_max,
-                    device->d3d12_caps.options1.WaveLaneCountMin,
-                    device->d3d12_caps.options1.WaveLaneCountMax);
-            return false;
+            /* On Wave64 with a thread group size of 32, we may have allowed the wave lane count to return 32
+             * for pragmatic workaround reasons. */
+            bool allowed_edge_case = (meta->flags & VKD3D_SHADER_META_FLAG_ALLOW_WAVE32) &&
+                meta->cs_wave_size_min == 32 && device->d3d12_caps.options1.WaveLaneCountMin > 32;
+
+            if (!allowed_edge_case)
+            {
+                ERR("Required WaveSize range [%u, %u], but supported range is [%u, %u].\n",
+                        meta->cs_wave_size_min, meta->cs_wave_size_max,
+                        device->d3d12_caps.options1.WaveLaneCountMin,
+                        device->d3d12_caps.options1.WaveLaneCountMax);
+                return false;
+            }
         }
     }
 
