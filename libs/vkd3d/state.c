@@ -3219,6 +3219,12 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
                 subgroup_size_alignment = spirv_code->meta.cs_wave_size_preferred;
                 override_subgroup_size = true;
             }
+            else if (spirv_code->meta.cs_wave_size_max &&
+                    spirv_code->meta.cs_wave_size_max < device->d3d12_caps.options1.WaveLaneCountMin)
+            {
+                assert(spirv_code->meta.flags & VKD3D_SHADER_META_FLAG_ALLOW_WAVE32);
+                /* Just allow it to go through. Don't override anything. */
+            }
             else if (spirv_code->meta.cs_wave_size_min && (
                     spirv_code->meta.cs_wave_size_min > device->d3d12_caps.options1.WaveLaneCountMin ||
                     spirv_code->meta.cs_wave_size_max < device->d3d12_caps.options1.WaveLaneCountMax))
