@@ -1120,6 +1120,14 @@ static const struct vkd3d_shader_quirk_info empire_of_the_ants_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
 };
 
+static const struct vkd3d_shader_quirk_hash first_light_hashes[] = {
+    { "MeshCalcDest_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
+};
+
+static const struct vkd3d_shader_quirk_info first_light_quirks = {
+    first_light_hashes, ARRAY_SIZE(first_light_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_hash plague_tale_resonance_hashes[] = {
     { "ch_spawn", 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
     { "ch_update", 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
@@ -1225,6 +1233,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Empire of the Ants (2287330). With Terrain Tessellation on, some shaders
      * seem to assume Wave32 by mistake leading to GPU timeout. */
     { VKD3D_STRING_COMPARE_EXACT, "Empire-Win64-Shipping.exe", &empire_of_the_ants_quirks },
+    /* 007: First Light (3768760) */
+    { VKD3D_STRING_COMPARE_EXACT, "007FirstLight.exe", &first_light_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
