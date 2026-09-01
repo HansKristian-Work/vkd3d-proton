@@ -10770,9 +10770,12 @@ static bool d3d12_command_list_copy_requires_complex_barrier(
     if (!d3d12_device_supports_unified_layouts(list->device))
         return true;
 
-    /* We always handle these inline. */
+    /* We always handle these inline, unless the format is emulated. */
     if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER)
-        return false;
+    {
+        return (info->copy.buffer_image.imageSubresource.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+                info->src_format->is_emulated;
+    }
 
     /* Simple WAW hazards are OK, we can handle those inline. Mismatch in aspects might require fallback copies. */
     return info->writes_full_subresource ||
