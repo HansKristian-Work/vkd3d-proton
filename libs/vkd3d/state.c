@@ -5961,7 +5961,10 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
                 if (instance_divisor > vk_info->max_vertex_attrib_divisor)
                 {
                     FIXME("Instance divisor %u not supported by Vulkan implementation.\n", instance_divisor);
-                    instance_divisor = 1;
+                    /* Intel devices limit this to <2^28, while some games request UINT_MAX,
+                     * with the intention to reuse the same attribute value for all instances. */
+                    instance_divisor = device->device_info.vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor
+                            ? 0u : vk_info->max_vertex_attrib_divisor;
                 }
                 break;
 
