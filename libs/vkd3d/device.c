@@ -1062,7 +1062,7 @@ static const struct vkd3d_shader_quirk_info spiderman2_quirks = {
 };
 
 /* These shaders clamp the wave size to 32, but misses this in a few places of course ... */
-static const struct vkd3d_shader_quirk_hash pragmata_hashes[] = {
+static const struct vkd3d_shader_quirk_hash re_engine_hashes[] = {
     {
         "PersistentClusterCulling", 0,
         VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 | VKD3D_SHADER_QUIRK_ENABLE_FAIR_SCHEDULING
@@ -1073,8 +1073,8 @@ static const struct vkd3d_shader_quirk_hash pragmata_hashes[] = {
     },
 };
 
-static const struct vkd3d_shader_quirk_info pragmata_quirks = {
-    pragmata_hashes, ARRAY_SIZE(pragmata_hashes), 0,
+static const struct vkd3d_shader_quirk_info re_engine_quirks = {
+    re_engine_hashes, ARRAY_SIZE(re_engine_hashes), 0,
 };
 
 static const struct vkd3d_shader_quirk_hash wow_hashes[] = {
@@ -1138,22 +1138,6 @@ static const struct vkd3d_shader_quirk_hash plague_tale_resonance_hashes[] = {
 
 static const struct vkd3d_shader_quirk_info plague_tale_resonance_robustness_quirks = {
     plague_tale_resonance_hashes, ARRAY_SIZE(plague_tale_resonance_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash re9_hashes[] = {
-    { "PersistentClusterCulling", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
-};
-
-static const struct vkd3d_shader_quirk_info re9_quirks = {
-    re9_hashes, ARRAY_SIZE(re9_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash mhs3_hashes[] = {
-    { "PersistentClusterCulling", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
-};
-
-static const struct vkd3d_shader_quirk_info mhs3_quirks = {
-    mhs3_hashes, ARRAY_SIZE(mhs3_hashes), 0,
 };
 
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
@@ -1235,7 +1219,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
 	/* Spider Man 2 (2651280) */
     { VKD3D_STRING_COMPARE_EXACT, "Spider-Man2.exe", &spiderman2_quirks },
     /* PRAGMATA (3357650) */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", &pragmata_quirks },
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", &re_engine_quirks },
     /* Forza Horizon 6 (2483190). */
     { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", &forza6_quirks },
     /* World of Warcraft */
@@ -1255,9 +1239,9 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* 007: First Light (3768760) */
     { VKD3D_STRING_COMPARE_EXACT, "007FirstLight.exe", &first_light_quirks },
     /* Resident Evil Requiem (3764200) */
-    { VKD3D_STRING_COMPARE_EXACT, "re9.exe", &re9_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "re9.exe", &re_engine_quirks },
     /* Monster Hunter Stories 3 (2852190) */
-    { VKD3D_STRING_COMPARE_EXACT, "MONSTER_HUNTER_STORIES_3_TWISTED_REFLECTION.exe", &mhs3_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "MONSTER_HUNTER_STORIES_3_TWISTED_REFLECTION.exe", &re_engine_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
