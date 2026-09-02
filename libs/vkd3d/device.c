@@ -1122,6 +1122,9 @@ static const struct vkd3d_shader_quirk_info empire_of_the_ants_quirks = {
 
 static const struct vkd3d_shader_quirk_hash first_light_hashes[] = {
     { "MeshCalcDest_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
+    { "MeshBinning_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
+    { "MeshCount_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
+    { "MeshProcessGG_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
 };
 
 static const struct vkd3d_shader_quirk_info first_light_quirks = {
