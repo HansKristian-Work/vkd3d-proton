@@ -3897,6 +3897,8 @@ struct d3d12_command_queue
     D3D12_COMMAND_QUEUE_DESC desc;
 
     struct vkd3d_queue *vkd3d_queue;
+    /* VK_OUT_OF_BAND_QUEUE_TYPE_MAX_ENUM_NV indicates this is not an out-of-band queue. */
+    VkOutOfBandQueueTypeNV out_of_band_queue_type;
 
     struct d3d12_device *device;
 
@@ -5529,10 +5531,17 @@ struct vkd3d_device_swapchain_info
     };
 };
 
+#define VKD3D_RECENT_SIM_STARTS_COUNT 8
+
 struct vkd3d_device_frame_markers
 {
-    UINT64 render;
     UINT64 present;
+    UINT64 submission; /* ID we'll assign to incoming DX work submissions */
+    UINT64 present_end;
+    UINT64 recent_sim_starts[VKD3D_RECENT_SIM_STARTS_COUNT];
+    uint32_t recent_sim_starts_index;
+    bool new_frame;
+    UINT64 out_of_band_render;
     UINT64 out_of_band_present;
     UINT64 consumed_present_id;
 };

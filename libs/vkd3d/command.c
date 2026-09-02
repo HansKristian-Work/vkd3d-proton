@@ -23843,6 +23843,54 @@ out:
     return ret;
 }
 
+/* Returns the low-latency frame id to attribute submissions on this queue to. */
+static uint64_t d3d12_command_queue_latency_frame_id(struct d3d12_command_queue *command_queue)
+{
+    struct vkd3d_device_frame_markers *markers;
+    UINT64 best, id;
+    unsigned int i;
+
+    if (command_queue->out_of_band_queue_type == VK_OUT_OF_BAND_QUEUE_TYPE_RENDER_NV)
+        return vkd3d_atomic_uint64_load_explicit(
+                &command_queue->device->frame_markers.out_of_band_render, vkd3d_memory_order_acquire);
+
+    if (command_queue->out_of_band_queue_type == VK_OUT_OF_BAND_QUEUE_TYPE_PRESENT_NV)
+        return 0;
+
+    markers = &command_queue->device->frame_markers;
+    spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
+    if (markers->new_frame)
+    {
+        /* This is the first submit in a new frame. The application chooses
+         * the ID of the new frame, and we unfortunately do not know what ID
+         * they will choose next at the PRESENT_END delimiter.
+         *
+         * We will look at SIMULATION_START marker IDs to make this decision, as
+         * they are expected to be sent at the beginning of each frame ahead of any
+         * rendering. We'll track a ringbuffer of the most recent SIMULATION_START
+         * IDs to handle edge cases such as frame N+1's simulation beginning before
+         * frame N's first submission.
+         *
+         * We'll choose the smallest SIMULATION_START marker ID greater than the
+         * previous PRESENT_END marker's ID.
+         *
+         * If unknown, we fallback to incrementing the ID by 1, which matches
+         * the behaviour of most applications. */
+        best = 0;
+        for (i = 0; i < VKD3D_RECENT_SIM_STARTS_COUNT; ++i)
+        {
+            id = markers->recent_sim_starts[i];
+            if (id > markers->present_end && (best == 0 || id < best))
+                best = id;
+        }
+        markers->submission = best ? best : markers->present_end + 1;
+        markers->new_frame = false;
+    }
+    id = markers->submission;
+    spinlock_release(&command_queue->device->low_latency_swapchain_spinlock);
+    return id;
+}
+
 VKD3D_METHODENTRY(void) d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
@@ -24242,7 +24290,7 @@ VKD3D_METHODENTRY(void) d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQue
     sub.execute.num_command_allocators = command_list_count;
     for (i = 0; i < command_list_count; i++)
         d3d12_command_allocator_inc_ref(allocators[i]);
-    sub.execute.low_latency_frame_id = command_queue->device->frame_markers.render;
+    sub.execute.low_latency_frame_id = d3d12_command_queue_latency_frame_id(command_queue);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     sub.execute.breadcrumb_indices = breadcrumb_indices;
     sub.execute.breadcrumb_indices_count = breadcrumb_indices ? command_list_count : 0;
@@ -25464,7 +25512,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     VkSubmitInfo2 submit_desc[2], *submit;
     bool need_fallback_wait_semaphore;
     VKD3D_UNUSED bool debug_capture;
-    uint64_t consumed_present_id;
     bool serialize_transition;
     uint32_t num_submits;
     VkFence proxy_fence;
@@ -25645,15 +25692,9 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
             spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
             if ((low_latency_swapchain = command_queue->device->swapchain_info.low_latency_swapchain))
                 dxgi_vk_swap_chain_incref(low_latency_swapchain);
-            consumed_present_id = command_queue->device->frame_markers.consumed_present_id;
             spinlock_release(&command_queue->device->low_latency_swapchain_spinlock);
 
-            /* If we have submitted a swapchain blit to Vulkan,
-             * it is not possible for a present ID to keep contributing to the frame's completion.
-             * The likely case here is that application just forgot to signal present ID.
-             * Don't bother trying to mark submission present ID if application isn't bothering to set markers properly. */
-            if (low_latency_swapchain && exec->low_latency_frame_id > consumed_present_id &&
-                    dxgi_vk_swap_chain_low_latency_enabled(low_latency_swapchain))
+            if (low_latency_swapchain && exec->low_latency_frame_id)
             {
                 latency_submit_present_info.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV;
                 latency_submit_present_info.pNext = NULL;
@@ -26520,6 +26561,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
         queue->desc.NodeMask = 0x1;
 
     queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(family_info, queue);
+    queue->out_of_band_queue_type = VK_OUT_OF_BAND_QUEUE_TYPE_MAX_ENUM_NV;
     queue->submissions = NULL;
     queue->submissions_count = 0;
     queue->submissions_size = 0;
@@ -26709,7 +26751,7 @@ void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource 
 
     memset(&sub, 0, sizeof(sub));
     sub.type = VKD3D_SUBMISSION_EXECUTE;
-    sub.execute.low_latency_frame_id = d3d12_queue->device->frame_markers.render;
+    sub.execute.low_latency_frame_id = d3d12_command_queue_latency_frame_id(d3d12_queue);
     sub.execute.transition_count = 1;
     sub.execute.transitions = vkd3d_malloc(sizeof(*sub.execute.transitions));
     sub.execute.transitions[0].type = VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE;

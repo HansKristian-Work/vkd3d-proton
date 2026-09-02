@@ -96,6 +96,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_vkd3d_ext_NotifyOutOfBandCo
 
             vkd3d_set_queue_out_of_band(command_queue->device, out_of_band_queue, vk_queue_type);
             command_queue->vkd3d_queue = out_of_band_queue;
+            command_queue->out_of_band_queue_type = vk_queue_type;
             break;
         }
     }

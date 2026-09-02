@@ -1338,7 +1338,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkLatencyMarkerNV vk_marker;
     struct d3d12_device *device;
-    uint64_t internal_frame_id;
 
     device = d3d12_device_from_ID3DLowLatencyDevice(iface);
     vk_marker = (VkLatencyMarkerNV)markerType;
@@ -1352,30 +1351,35 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
         return S_OK;
     }
 
-    /* Skip ahead. If application does not set frame counter, we'll still internally increment over time to fill in the gap.
-     * If application starts to use the frame IDs appropriately again, we'll catch up almost instantly,
-     * where low_latency_frame_id should overtake internal present ID counter.
-     * Frame marker needs to be device level monotonic. */
-    internal_frame_id = frameID;
-
     switch (vk_marker)
     {
-        case VK_LATENCY_MARKER_RENDERSUBMIT_START_NV:
-            if (internal_frame_id < device->frame_markers.render)
-            {
-                WARN("RENDERSUBMIT_START_NV is non-monotonic %"PRIu64" < %"PRIu64".\n",
-                        internal_frame_id, device->frame_markers.render);
-            }
-            device->frame_markers.render = internal_frame_id;
+        case VK_LATENCY_MARKER_SIMULATION_START_NV:
+        {
+            struct vkd3d_device_frame_markers *markers = &device->frame_markers;
+            spinlock_acquire(&device->low_latency_swapchain_spinlock);
+            markers->recent_sim_starts[markers->recent_sim_starts_index] = frameID;
+            markers->recent_sim_starts_index = (markers->recent_sim_starts_index + 1) % VKD3D_RECENT_SIM_STARTS_COUNT;
+            spinlock_release(&device->low_latency_swapchain_spinlock);
+            break;
+        }
+        case VK_LATENCY_MARKER_PRESENT_END_NV:
+            spinlock_acquire(&device->low_latency_swapchain_spinlock);
+            device->frame_markers.present_end = frameID;
+            device->frame_markers.new_frame = true;
+            spinlock_release(&device->low_latency_swapchain_spinlock);
             break;
         case VK_LATENCY_MARKER_PRESENT_START_NV:
-            if (internal_frame_id < device->frame_markers.present)
+            if (frameID < device->frame_markers.present)
             {
                 WARN("PRESENT_START_NV is non-monotonic %"PRIu64" < %"PRIu64".\n",
-                        internal_frame_id, device->frame_markers.present);
+                        frameID, device->frame_markers.present);
             }
             vkd3d_atomic_uint64_store_explicit(
-                    &device->frame_markers.present, internal_frame_id, vkd3d_memory_order_release);
+                    &device->frame_markers.present, frameID, vkd3d_memory_order_release);
+            break;
+        case VK_LATENCY_MARKER_OUT_OF_BAND_RENDERSUBMIT_START_NV:
+            vkd3d_atomic_uint64_store_explicit(
+                    &device->frame_markers.out_of_band_render, frameID, vkd3d_memory_order_release);
             break;
         default:
             break;
@@ -1388,7 +1392,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
 
     if (low_latency_swapchain)
     {
-        dxgi_vk_swap_chain_set_latency_marker(low_latency_swapchain, internal_frame_id, vk_marker, true);
+        dxgi_vk_swap_chain_set_latency_marker(low_latency_swapchain, frameID, vk_marker, true);
         dxgi_vk_swap_chain_decref(low_latency_swapchain);
     }
 
