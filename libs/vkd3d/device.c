@@ -1242,6 +1242,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "re9.exe", &re_engine_quirks },
     /* Monster Hunter Stories 3 (2852190) */
     { VKD3D_STRING_COMPARE_EXACT, "MONSTER_HUNTER_STORIES_3_TWISTED_REFLECTION.exe", &re_engine_quirks },
+    /* Onimusha: Way of the Sword DEMO (3974650) */
+    { VKD3D_STRING_COMPARE_EXACT, "OnimushaWotS_Demo.exe", &re_engine_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
