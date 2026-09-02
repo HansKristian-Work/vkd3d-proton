@@ -1140,6 +1140,14 @@ static const struct vkd3d_shader_quirk_info plague_tale_resonance_robustness_qui
     plague_tale_resonance_hashes, ARRAY_SIZE(plague_tale_resonance_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash re9_hashes[] = {
+    { "PersistentClusterCulling", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
+};
+
+static const struct vkd3d_shader_quirk_info re9_quirks = {
+    re9_hashes, ARRAY_SIZE(re9_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -1238,6 +1246,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Empire-Win64-Shipping.exe", &empire_of_the_ants_quirks },
     /* 007: First Light (3768760) */
     { VKD3D_STRING_COMPARE_EXACT, "007FirstLight.exe", &first_light_quirks },
+    /* Resident Evil Requiem (3764200) */
+    { VKD3D_STRING_COMPARE_EXACT, "re9.exe", &re9_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
