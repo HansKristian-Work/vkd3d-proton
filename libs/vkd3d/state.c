@@ -3210,7 +3210,11 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
              * since virtually no content out there understands how to deal with wave128.
              */
             if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_WAVE64_SIMULATION) ||
-                (spirv_code->meta.cs_wave_size_min <= 64 &&
+                (/*spirv_code->meta.cs_wave_size_min <= 64 &&
+                  * UE5 seems to use explicit wave128, but still manages to screw it up ...
+                  * We will have to assume that anyone asking for wave128 don't actually know what they're doing,
+                  * and tacked on wave128 by mistake. DXC doesn't seem to actually constant-propagate the wave size
+                  * query, so it should be okay. */
                     device->d3d12_caps.options1.WaveLaneCountMin == 64 &&
                     device->d3d12_caps.options1.WaveLaneCountMax > 64 &&
                     d3d12_device_supports_required_subgroup_size_for_stage(device, stage)))
