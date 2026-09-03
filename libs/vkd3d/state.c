@@ -3204,8 +3204,16 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
             required_subgroup_size_info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO;
             required_subgroup_size_info->pNext = NULL;
 
-            /* To debug GCN/Turnip issues on modern AMD hardware, force wave64 everywhere to sniff out issues. */
-            if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_WAVE64_SIMULATION))
+            /* To debug GCN/Turnip issues on modern AMD hardware, force wave64 everywhere to sniff out issues.
+             * On QCOM hardware, always pick wave64 if subgroup ops are used.
+             * The gains of wave128 are nebulous at best, and there is too much breakage in the wild
+             * since virtually no content out there understands how to deal with wave128.
+             */
+            if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_WAVE64_SIMULATION) ||
+                (spirv_code->meta.cs_wave_size_min <= 64 &&
+                    device->d3d12_caps.options1.WaveLaneCountMin == 64 &&
+                    device->d3d12_caps.options1.WaveLaneCountMax > 64 &&
+                    d3d12_device_supports_required_subgroup_size_for_stage(device, stage)))
             {
                 subgroup_size_alignment = 64;
                 override_subgroup_size = true;
