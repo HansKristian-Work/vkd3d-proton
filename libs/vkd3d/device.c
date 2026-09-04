@@ -588,8 +588,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX = 1 << 2,
     VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS = 1 << 3,
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
-    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
-    VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP = 1 << 6,
+    VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -764,9 +763,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
         .AVOID_IMAGE_BUFFER_ALIASING = 1, .NO_STAGGERED_SUBMIT = 1) },
     /* SCP: Secret Laboratory (700330). DCC stores causes glitches with RADV. */
     { VKD3D_STRING_COMPARE_EXACT, "SCPSL.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.DISABLE_UAV_COMPRESSION = 1) },
-    /* PRAGMATA (3357650) */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
-        VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP },
     { VKD3D_STRING_COMPARE_EXACT, "GoWEDay-Steam.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.NO_STAGGERED_SUBMIT = 1) },
     /* Assetto Corsa EVO (3058630) */
     { VKD3D_STRING_COMPARE_EXACT, "AssettoCorsaEVO.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_RAW_VA_CBV = 1) },
@@ -11053,12 +11049,6 @@ static bool vkd3d_driver_id_wraps_ssbo_32bit_before_robustness(VkDriverId driver
      * " - if indexing into a vector, array, or matrix, with the result type being a logical pointer type,
      * behavior is undefined if not in bounds."
      */
-
-    /* By default, just assume it's fine as-is. We can evaluate later if we should take (slightly) slower path by default.
-     * Only one game is known to be affected by this. */
-    if (!(vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP) &&
-        !vkd3d_debug_control_is_test_suite())
-        return true;
 
     switch (driver_id)
     {
