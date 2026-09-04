@@ -197,6 +197,8 @@ struct vkd3d_vulkan_info
     bool EXT_shader_float8;
     bool EXT_present_timing;
     bool EXT_descriptor_heap;
+    bool EXT_ray_tracing_invocation_reorder;
+    bool EXT_shader_long_vector;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -5352,6 +5354,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceLineRasterizationPropertiesEXT line_rasterization_properties;
     VkPhysicalDeviceComputeShaderDerivativesPropertiesKHR compute_shader_derivatives_properties_khr;
     VkPhysicalDeviceCooperativeMatrixPropertiesKHR cooperative_matrix_properties;
+    VkPhysicalDeviceRayTracingInvocationReorderPropertiesEXT invocation_reorder_properties;
+    VkPhysicalDeviceShaderLongVectorPropertiesEXT long_vector_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -5430,6 +5434,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR device_address_commands_features;
     VkPhysicalDeviceShaderFloatControls2FeaturesKHR float_controls2_features;
     VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR dynamic_rendering_local_read_features;
+    VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT invocation_reorder_features;
+    VkPhysicalDeviceShaderLongVectorFeaturesEXT long_vector_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
