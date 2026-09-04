@@ -43,4 +43,6 @@ bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]);
 
 bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *patch);
 
+bool vkd3d_get_ue_version(uint32_t *major, uint32_t *minor, uint32_t *patch);
+
 #endif

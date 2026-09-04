@@ -109,9 +109,16 @@ bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *
     return vkd3d_parse_linux_release(ver.release, major, minor, patch);
 }
 
+bool vkd3d_get_ue_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    *major = *minor = *patch = 0;
+    return false;
+}
+
 #elif defined(_WIN32)
 
 # include <windows.h>
+# include <pathcch.h>
 
 vkd3d_module_t vkd3d_dlopen(const char *name)
 {
@@ -181,6 +188,72 @@ bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *
         return false;
 }
 
+static bool get_ue_version_from_exe(const WCHAR *path, uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    VS_FIXEDFILEINFO *fi;
+    DWORD *translation;
+    bool ret = false;
+    char buf[64];
+    void *block;
+    UINT size;
+    char *s;
+
+    if (!(size = GetFileVersionInfoSizeW(path, NULL)))
+        return false;
+    if (!(block = malloc(size)))
+        return false;
+    if (!GetFileVersionInfoW(path, 0, size, block))
+        goto done;
+
+    if (!VerQueryValueA(block, "\\", (void **)&fi, &size) || size != sizeof(VS_FIXEDFILEINFO))
+        goto done;
+    if (!VerQueryValueA(block, "\\VarFileInfo\\Translation", (void **)&translation, &size) || size != 4)
+        goto done;
+
+    sprintf(buf, "\\StringFileInfo\\%08lx\\InternalName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
+    if (VerQueryValueA(block, buf, (void **)&s, &size) && !strcmp(s, "UnrealEngine"))
+    {
+        ret = true;
+        goto done;
+    }
+    sprintf(buf, "\\StringFileInfo\\%08lx\\ProductName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
+    if (VerQueryValueA(block, buf, (void **)&s, &size) && (!strcmp(s, "UnrealEngine") || !strcmp(s, "Unreal Engine")))
+        ret = true;
+
+done:
+    if (ret)
+    {
+        *major = HIWORD(fi->dwProductVersionMS);
+        *minor = LOWORD(fi->dwProductVersionMS);
+        *patch = HIWORD(fi->dwProductVersionLS);
+    }
+    free(block);
+    return ret;
+}
+
+bool vkd3d_get_ue_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    WCHAR exe_path[VKD3D_PATH_MAX], path[VKD3D_PATH_MAX];
+
+    *major = *minor = *patch = 0;
+    GetModuleFileNameW(NULL, exe_path, VKD3D_PATH_MAX);
+    if (get_ue_version_from_exe(exe_path, major, minor, patch))
+        return true;
+
+    PathCchRemoveFileSpec(exe_path, ARRAY_SIZE(exe_path));
+
+    if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+            L"..\\..\\..\\Engine\\Binaries\\Win64\\CrashReportClient.exe", PATHCCH_NONE)))
+        return false;
+    if (get_ue_version_from_exe(path, major, minor, patch))
+        return true;
+
+    if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+            L"..\\..\\..\\Engine\\Binaries\\Win64\\UnrealCEFSubProcess.exe", PATHCCH_NONE)))
+        return false;
+    return get_ue_version_from_exe(path, major, minor, patch);
+}
+
 #else
 
 vkd3d_module_t vkd3d_dlopen(const char *name)
@@ -215,6 +288,12 @@ bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *
     *major = 0;
     *minor = 0;
     *patch = 0;
+    return false;
+}
+
+bool vkd3d_get_ue_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    *major = *minor = *patch = 0;
     return false;
 }
 

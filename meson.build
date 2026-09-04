@@ -95,7 +95,9 @@ if vkd3d_platform == 'linux' or vkd3d_platform == 'android'
 elif vkd3d_platform == 'windows'
   lib_dxgi         = vkd3d_compiler.find_library('dxgi')
   lib_gdi32        = vkd3d_compiler.find_library('gdi32')
-  vkd3d_extra_libs = [ threads_dep ]
+  lib_version      = vkd3d_compiler.find_library('version')
+  lib_pathcch      = vkd3d_compiler.find_library('pathcch')
+  vkd3d_extra_libs = [ threads_dep, lib_version, lib_pathcch ]
 else
   error('Unknown platform')
 endif
