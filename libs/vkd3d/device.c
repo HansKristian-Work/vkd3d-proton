@@ -11868,8 +11868,12 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
     {
         if (!device->device_info.shader_float8_features.shaderFloat8CooperativeMatrix)
         {
+            #ifdef VKD3D_ENABLE_EXTENDED_EMULATION
+            WARN("Missing sufficient features to expose WMMA FP8 natively, proceeding with emulation workaround.\n");
+            #else
             ERR("Missing sufficient features to expose WMMA FP8.\n");
             return false;
+            #endif
         }
     }
 
