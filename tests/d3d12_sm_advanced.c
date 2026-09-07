@@ -8050,16 +8050,19 @@ static void test_sm69_long_vector_load_store_inner(bool root_desc)
 
         for (i = 0; i < vecsize * 8; i++)
         {
+            bool is_bug = false;
             float expected = i;
             float value;
-            bool is_bug;
 
             elem = i / vecsize;
             component = i % vecsize;
 
             /* Read robustness. */
             if (elem >= 4 && !root_desc)
+            {
                 expected = 0.0f;
+                is_bug = is_nvidia_device(context.device);
+            }
 
             expected += 1.0f + component;
 
@@ -8069,10 +8072,14 @@ static void test_sm69_long_vector_load_store_inner(bool root_desc)
 
             /* No threads wrote here. */
             if (elem >= 6)
+            {
                 expected = 0.0f;
+                is_bug = false;
+            }
 
             /* stride = 10, 14, read robustness is broken? :| */
-            is_bug = is_nvidia_windows_device(context.device) && strides[j] % 4 && elem == 4 && !root_desc;
+            if (is_nvidia_windows_device(context.device) && strides[j] % 4 && elem == 4 && !root_desc)
+                is_bug = true;
 
             value = half_to_float(get_readback_uint16(&rb, sizeof(input_buffer) / 2 * j + i, 0));
             bug_if(is_bug) ok(expected == value, "Structured: f16vec%u value %u: expected %f, got %f\n", strides[j] / 2, i, expected, value);
