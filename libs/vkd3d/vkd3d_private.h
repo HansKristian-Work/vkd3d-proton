@@ -7225,4 +7225,15 @@ static inline void vkd3d_mapped_memory_range_align(const struct d3d12_device *de
     range->size = min(range->size, size - range->offset);
 }
 
+/* device_workarounds.c */
+void vkd3d_instance_apply_application_workarounds(void);
+void vkd3d_instance_deduce_config_flags_from_environment(void);
+void vkd3d_instance_apply_global_shader_quirks(void);
+void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info, struct d3d12_device *device);
+void d3d12_device_caps_override_application(struct d3d12_device *device);
+bool vkd3d_driver_id_wraps_ssbo_32bit_before_robustness(VkDriverId driver_id);
+bool d3d12_device_allow_emulated_vrs_tier_2(struct d3d12_device *device);
+bool d3d12_device_allow_emulated_barycentrics(struct d3d12_device *device);
+void d3d12_device_init_workarounds(struct d3d12_device *device);
+
 #endif  /* __VKD3D_PRIVATE_H */
