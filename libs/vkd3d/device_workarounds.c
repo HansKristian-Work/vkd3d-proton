@@ -710,18 +710,24 @@ void vkd3d_instance_apply_application_workarounds(void)
     if (vkd3d_get_ue_version(&ue_major, &ue_minor, &ue_patch))
     {
         is_unreal = true;
-        INFO("Detected Unreal Engine %u.%u.%u.\n", ue_major, ue_minor, ue_patch);
+
+        if (ue_major == 0)
+            INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
+        else
+            INFO("Detected Unreal Engine %u.%u.%u.\n", ue_major, ue_minor, ue_patch);
 
         if (ue_major == 5)
             vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
         else if (ue_major == 4)
             vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
+        else if (ue_major == 0)
+            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
     }
     else if (strstr(app, "Win64-Shipping.exe"))
     {
         is_unreal = true;
-        INFO("Detected Unreal Engine by means of .exe name detection. Version unknown, assuming UE5.\n");
-        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
+        INFO("Detected Unreal Engine by means of .exe name detection. Version unknown.\n");
+        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
     }
 
     /* If we don't have any application specific patterns we hit, engage default engine workarounds. */
@@ -754,7 +760,7 @@ void vkd3d_instance_apply_application_workarounds(void)
         }
     }
 
-    if (is_unreal && ue_major == 5)
+    if (is_unreal && (ue_major == 5 || ue_major == 0))
     {
         /* UE5 is broken and requests wave128, yet the shader doesn't actually support that.
          * Relevant for Turnip. */

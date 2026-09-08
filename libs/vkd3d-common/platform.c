@@ -263,7 +263,17 @@ bool vkd3d_get_ue_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
     if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
             L"..\\..\\..\\Engine\\Binaries\\Win64\\UnrealCEFSubProcess.exe", PATHCCH_NONE)))
         return false;
-    return get_ue_version_from_exe(path, major, minor, patch);
+    if (get_ue_version_from_exe(path, major, minor, patch))
+        return true;
+
+    /* Some games override their metadata to not mention UnrealEngine at all.
+     * As a last ditch effort, try to see if Content/Paks folder exists.
+     * This one seems to be rather universal. */
+    if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+            L"..\\..\\Content\\Paks", PATHCCH_NONE)))
+        return false;
+
+    return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
 }
 
 #else
