@@ -696,6 +696,13 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
 
+static uint32_t vkd3d_application_version;
+
+uint32_t vkd3d_get_instance_application_version(void)
+{
+    return vkd3d_application_version;
+}
+
 void vkd3d_instance_apply_application_workarounds(void)
 {
     uint32_t ue_major = 0, ue_minor = 0, ue_patch = 0;
@@ -710,6 +717,11 @@ void vkd3d_instance_apply_application_workarounds(void)
     {
         is_unreal = true;
         INFO("Detected Unreal Engine %u.%u.%u.\n", ue_major, ue_minor, ue_patch);
+
+        if (ue_major == 5)
+            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
+        else if (ue_major == 4)
+            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
     }
 
     /* If we don't have any application specific patterns we hit, engage default engine workarounds. */

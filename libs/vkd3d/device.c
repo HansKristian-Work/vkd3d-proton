@@ -698,6 +698,13 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     if (vkd3d_get_program_name(application_name))
         application_info.pApplicationName = application_name;
 
+    /* Used to signal to implementations which engine is being used.
+     * Drivers (in Linux) which have no easy means to detect the engine type themselves,
+     * since they cannot spelunk into the Windows .exe for version information, etc.
+     * Drivers can care can correlate this with vkd3d_application_version_engine
+     * and apply global engine workarounds as desired. */
+    application_info.applicationVersion = vkd3d_get_instance_application_version();
+
     TRACE("Application: %s.\n", debugstr_a(application_info.pApplicationName));
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
