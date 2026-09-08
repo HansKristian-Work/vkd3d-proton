@@ -22791,9 +22791,12 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
 
     if (!d3d12_device_supports_unified_layouts(list->device))
     {
-        /* All COPY operations on images do their own barriers, so we don't have to explicitly flush or invalidate. */
-        vk_transition.srcAccessMask &= ~(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
-        vk_transition.dstAccessMask &= ~(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
+        /* All COPY operations on images do their own barriers, so we don't have to explicitly flush or invalidate.
+         * UAV Clear and Resolve use proper layout always, so let those go through. */
+        if (!(vk_transition.srcStageMask & (VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT)))
+            vk_transition.srcAccessMask &= ~(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
+        if (!(vk_transition.dstStageMask & (VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT)))
+            vk_transition.dstAccessMask &= ~(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
     }
 
     vk_transition.srcStageMask = vk_sanitize_stage_flags_for_access(list, vk_transition.srcStageMask, vk_transition.srcAccessMask);
