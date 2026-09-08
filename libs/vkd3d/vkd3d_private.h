@@ -7235,5 +7235,13 @@ bool vkd3d_driver_id_wraps_ssbo_32bit_before_robustness(VkDriverId driver_id);
 bool d3d12_device_allow_emulated_vrs_tier_2(struct d3d12_device *device);
 bool d3d12_device_allow_emulated_barycentrics(struct d3d12_device *device);
 void d3d12_device_init_workarounds(struct d3d12_device *device);
+uint32_t vkd3d_get_instance_application_version(void);
+
+enum vkd3d_application_version_engine
+{
+    VKD3D_APPLICATION_VERSION_ENGINE_UNKNOWN = 0,
+    VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4 = 100000000,
+    VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5 = 100000001,
+};
 
 #endif  /* __VKD3D_PRIVATE_H */
