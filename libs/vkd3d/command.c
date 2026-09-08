@@ -13622,36 +13622,6 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
 #endif
     }
 
-    if (list->cmd.clear_uav_pending)
-    {
-        const VkPipelineStageFlagBits2 uav_stages =
-                VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT |
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-
-        if ((batch->vk_memory_barrier.srcStageMask &
-            (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) &&
-            (batch->vk_memory_barrier.dstStageMask & uav_stages))
-        {
-            list->cmd.clear_uav_pending = false;
-        }
-
-        if (list->cmd.clear_uav_pending)
-        {
-            uint32_t i;
-            for (i = 0; i < batch->image_barrier_count; i++)
-            {
-                if ((batch->vk_image_barriers[i].srcStageMask &
-                    (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) &&
-                    (batch->vk_image_barriers[i].dstStageMask & uav_stages))
-                {
-                    list->cmd.clear_uav_pending = false;
-                    break;
-                }
-            }
-        }
-    }
-
     if (dep_info.imageMemoryBarrierCount || dep_info.memoryBarrierCount)
     {
         d3d12_command_list_check_end_of_command_list_cleanup(list);
@@ -14295,6 +14265,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 if (d3d12_resource_is_texture(preserve_resource))
                     old_layout = vk_image_layout_from_d3d12_resource_state(list, preserve_resource, transition->StateBefore);
 
+                if (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+                    list->cmd.clear_uav_pending = false;
+
                 if (preserve_resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
                 {
                     /* If we enter DEPTH_WRITE or DEPTH_READ we can promote to optimal. */
@@ -14373,6 +14346,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                         state_mask, list->vk_queue_flags,
                         &batch.vk_memory_barrier.dstStageMask,
                         &batch.vk_memory_barrier.dstAccessMask);
+
+                list->cmd.clear_uav_pending = false;
 
                 d3d12_command_list_debug_mark_label(list, "UAV", 1.0f, 1.0f, 0.0f, 1.0f);
 
@@ -22631,6 +22606,12 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
         list->cmd.observes_indirect_argument_barrier = true;
     }
 
+    if (barrier->SyncBefore == D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW ||
+        barrier->SyncBefore == D3D12_BARRIER_SYNC_ALL)
+    {
+        list->cmd.clear_uav_pending = false;
+    }
+
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE))
     {
         d3d12_command_list_flush_rtas_batch(list);
@@ -22787,6 +22768,12 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
             d3d12_command_list_update_subresource_data(list, resource, vk_subresource_layers);
         }
         d3d12_command_list_flush_subresource_updates(list);
+    }
+
+    if (barrier->SyncBefore == D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW ||
+        barrier->SyncBefore == D3D12_BARRIER_SYNC_ALL)
+    {
+        list->cmd.clear_uav_pending = false;
     }
 
     vk_transition.srcStageMask = vk_stage_flags_from_d3d12_barrier(list, barrier->SyncBefore, barrier->AccessBefore);
