@@ -16317,10 +16317,11 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &barrier;
 
+    /* Ensure that we get WAW ordering with other clears. */
     memset(&barrier, 0, sizeof(barrier));
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = vk_queue_shader_stages(list->device, list->vk_queue_flags);
-    barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    barrier.srcStageMask = vk_queue_shader_stages(list->device, list->vk_queue_flags) | VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
 
@@ -16391,10 +16392,14 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
         }
     }
 
+    /* Ensure that we get WAW ordering with other clears. */
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    barrier.dstStageMask = vk_queue_shader_stages(list->device, list->vk_queue_flags);
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+    barrier.dstStageMask = vk_queue_shader_stages(list->device, list->vk_queue_flags) | VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+    /* Any pending clears would be resolved with this roundtrip. */
+    list->cmd.clear_uav_pending = false;
 
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
