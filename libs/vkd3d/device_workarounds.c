@@ -698,10 +698,21 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
 
 void vkd3d_instance_apply_application_workarounds(void)
 {
+    uint32_t ue_major = 0, ue_minor = 0, ue_patch = 0;
     char app[VKD3D_PATH_MAX];
+    bool is_unreal = false;
     size_t i;
+
     if (!vkd3d_get_program_name(app))
         return;
+
+    if (vkd3d_get_ue_version(&ue_major, &ue_minor, &ue_patch))
+    {
+        is_unreal = true;
+        INFO("Detected Unreal Engine %u.%u.%u.\n", ue_major, ue_minor, ue_patch);
+    }
+
+    /* If we don't have any application specific patterns we hit, engage default engine workarounds. */
 
     for (i = 0; i < ARRAY_SIZE(application_override); i++)
     {
@@ -714,6 +725,15 @@ void vkd3d_instance_apply_application_workarounds(void)
                  vkd3d_config_flag_popcount(application_override[i].global_flags_remove));
             vkd3d_application_feature_override = application_override[i].override;
             break;
+        }
+    }
+
+    if (i == ARRAY_SIZE(application_override))
+    {
+        if (is_unreal)
+        {
+            INFO("Applying default Unreal Engine workarounds.\n");
+            vkd3d_config_flag_global_add(VKD3D_CONFIG_FLAG_INIT(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1));
         }
     }
 
