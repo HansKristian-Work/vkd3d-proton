@@ -33,6 +33,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_DISABLE_ANTI_LAG = 1 << 4,
     VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
     VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP = 1 << 6,
+    VKD3D_APPLICATION_FEATURE_BROKEN_WAVE128_REQUESTS = 1 << 7,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -749,6 +750,17 @@ void vkd3d_instance_apply_application_workarounds(void)
         }
     }
 
+    if (is_unreal && ue_major == 5)
+    {
+        /* UE5 is broken and requests wave128, yet the shader doesn't actually support that.
+         * Relevant for Turnip. */
+        vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_BROKEN_WAVE128_REQUESTS;
+
+        /* This is not an app bug, but we have to disable a minor optimization
+         * which assumes no unsigned wrap for raw buffer addresses. */
+        vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP;
+    }
+
     for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
     {
         if (vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name))
@@ -1073,6 +1085,11 @@ bool d3d12_device_allow_emulated_barycentrics(struct d3d12_device* device)
             device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
             device->vk_info.AMD_shader_explicit_vertex_parameter &&
             device->device_info.vulkan_1_3_properties.minSubgroupSize == 32;
+}
+
+bool vkd3d_application_has_broken_wave128(void)
+{
+    return (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_BROKEN_WAVE128_REQUESTS) != 0;
 }
 
 VKD3D_DEBUG_CONTROL_BEHAVIOR_FLAGS vkd3d_debug_control_get_behavior_flags(void);
