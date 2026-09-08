@@ -699,33 +699,50 @@ uint32_t vkd3d_get_instance_application_version(void)
 
 void vkd3d_instance_apply_application_workarounds(void)
 {
-    uint32_t ue_major = 0, ue_minor = 0, ue_patch = 0;
+    uint32_t engine_major = 0, engine_minor = 0, engine_patch = 0;
+    enum vkd3d_application_engine_class engine_class;
     char app[VKD3D_PATH_MAX];
-    bool is_unreal = false;
     size_t i;
 
     if (!vkd3d_get_program_name(app))
         return;
 
-    if (vkd3d_get_ue_version(&ue_major, &ue_minor, &ue_patch))
+    if ((engine_class = vkd3d_get_engine_version(&engine_major, &engine_minor, &engine_patch)))
     {
-        is_unreal = true;
+        switch (engine_class)
+        {
+            case VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE:
+                if (engine_major == 0)
+                    INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
+                else
+                    INFO("Detected Unreal Engine %u.%u.%u.\n", engine_major, engine_minor, engine_patch);
 
-        if (ue_major == 0)
-            INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
-        else
-            INFO("Detected Unreal Engine %u.%u.%u.\n", ue_major, ue_minor, ue_patch);
+                if (engine_major == 5)
+                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
+                else if (engine_major == 4)
+                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
+                else if (engine_major == 0)
+                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+                break;
 
-        if (ue_major == 5)
-            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
-        else if (ue_major == 4)
-            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
-        else if (ue_major == 0)
-            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+            case VKD3D_APPLICATION_ENGINE_CLASS_CAPCOM:
+                INFO("Detected CAPCOM, but did not specifically detect RE Engine, file version %u.%u.%u\n",
+                     engine_major, engine_minor, engine_patch);
+                vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_CAPCOM;
+                break;
+
+            case VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE:
+                INFO("Detected RE Engine, file version %u.%u.%u\n", engine_major, engine_minor, engine_patch);
+                vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_RE_ENGINE;
+                break;
+
+            default:
+                break;
+        }
     }
     else if (strstr(app, "Win64-Shipping.exe"))
     {
-        is_unreal = true;
+        engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
         INFO("Detected Unreal Engine by means of .exe name detection. Version unknown.\n");
         vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
     }
@@ -746,24 +763,21 @@ void vkd3d_instance_apply_application_workarounds(void)
         }
     }
 
-    if (i == ARRAY_SIZE(application_override))
+    if (i == ARRAY_SIZE(application_override) && engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
     {
-        if (is_unreal)
-        {
-            /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
-             * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
-             * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
-             * unless we see proof that UE titles want staggered,
-             * we'll disable for now to be defensive and de-risk any large scale regressions. */
-            INFO("Applying default Unreal Engine workarounds.\n");
-            vkd3d_config_flag_global_add(VKD3D_CONFIG_FLAG_INIT(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1));
-        }
+		/* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
+		 * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
+		 * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
+		 * unless we see proof that UE titles want staggered,
+		 * we'll disable for now to be defensive and de-risk any large scale regressions. */
+        INFO("Applying default Unreal Engine workarounds.\n");
+        vkd3d_config_flag_global_add(VKD3D_CONFIG_FLAG_INIT(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1));
     }
 
-    if (is_unreal && (ue_major == 5 || ue_major == 0))
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE && (engine_major == 5 || engine_major == 0))
     {
         /* UE5 is broken and requests wave128, yet the shader doesn't actually support that.
-         * Relevant for Turnip. */
+         * Relevant for Turnip. It should be safe to enable this for UE4 too in case that hits the unknown path. */
         vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_BROKEN_WAVE128_REQUESTS;
 
         /* This is not an app bug, but we have to disable a minor optimization
