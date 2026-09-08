@@ -16,6 +16,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
+#include "vkd3d_debug.h"
+
 #include "vkd3d_platform.h"
 
 #include <assert.h>
@@ -211,14 +214,23 @@ static bool get_ue_version_from_exe(const WCHAR *path, uint32_t *major, uint32_t
         goto done;
 
     sprintf(buf, "\\StringFileInfo\\%08lx\\InternalName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
-    if (VerQueryValueA(block, buf, (void **)&s, &size) && !strcmp(s, "UnrealEngine"))
+    if (VerQueryValueA(block, buf, (void **)&s, &size))
     {
-        ret = true;
-        goto done;
+        TRACE("InternalName: %s\n", s);
+        if (!strcmp(s, "UnrealEngine"))
+        {
+            ret = true;
+            goto done;
+        }
     }
+
     sprintf(buf, "\\StringFileInfo\\%08lx\\ProductName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
-    if (VerQueryValueA(block, buf, (void **)&s, &size) && (!strcmp(s, "UnrealEngine") || !strcmp(s, "Unreal Engine")))
-        ret = true;
+    if (VerQueryValueA(block, buf, (void **)&s, &size))
+    {
+        TRACE("ProductName: %s\n", s);
+        if (!strcmp(s, "UnrealEngine") || !strcmp(s, "Unreal Engine"))
+            ret = true;
+    }
 
 done:
     if (ret)
