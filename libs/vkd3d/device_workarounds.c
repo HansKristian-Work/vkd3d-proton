@@ -164,13 +164,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Wreckfest2.exe", VKD3D_CONFIG_FLAG_STATIC(PLACED_TEXTURE_ALIASING) },
     /* Eve online. Uses DGC with CBV updates. Kinda questionable exename ... */
     { VKD3D_STRING_COMPARE_EXACT, "exefile.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_RAW_VA_CBV) },
-    /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
-     * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
-     * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
-     * unless we see proof that UE titles want staggered,
-     * we'll disable for now to be defensive and de-risk any large scale regressions. */
-    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Win64-Shipping.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1) },
     /* Borderlands 4. Also UE, but uses different name. */
     { VKD3D_STRING_COMPARE_EXACT, "Borderlands4.exe",
             VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1) },
@@ -724,6 +717,12 @@ void vkd3d_instance_apply_application_workarounds(void)
         else if (ue_major == 4)
             vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
     }
+    else if (strstr(app, "Win64-Shipping.exe"))
+    {
+        is_unreal = true;
+        INFO("Detected Unreal Engine by means of .exe name detection. Version unknown, assuming UE5.\n");
+        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
+    }
 
     /* If we don't have any application specific patterns we hit, engage default engine workarounds. */
 
@@ -745,6 +744,11 @@ void vkd3d_instance_apply_application_workarounds(void)
     {
         if (is_unreal)
         {
+            /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
+             * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
+             * Use no-staggered-submit by default on UE. We've only observed issues in Wukong here, but
+             * unless we see proof that UE titles want staggered,
+             * we'll disable for now to be defensive and de-risk any large scale regressions. */
             INFO("Applying default Unreal Engine workarounds.\n");
             vkd3d_config_flag_global_add(VKD3D_CONFIG_FLAG_INIT(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1));
         }
