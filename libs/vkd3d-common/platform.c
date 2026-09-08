@@ -112,10 +112,10 @@ bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *
     return vkd3d_parse_linux_release(ver.release, major, minor, patch);
 }
 
-bool vkd3d_get_ue_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
 {
     *major = *minor = *patch = 0;
-    return false;
+    return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
 }
 
 #elif defined(_WIN32)
@@ -191,20 +191,21 @@ bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *
         return false;
 }
 
-static bool get_ue_version_from_exe(const WCHAR *path, uint32_t *major, uint32_t *minor, uint32_t *patch)
+static enum vkd3d_application_engine_class get_engine_version_from_exe(
+        const WCHAR *path, uint32_t *major, uint32_t *minor, uint32_t *patch)
 {
+    enum vkd3d_application_engine_class engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
     VS_FIXEDFILEINFO *fi;
     DWORD *translation;
-    bool ret = false;
     char buf[64];
     void *block;
     UINT size;
     char *s;
 
     if (!(size = GetFileVersionInfoSizeW(path, NULL)))
-        return false;
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
     if (!(block = malloc(size)))
-        return false;
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
     if (!GetFileVersionInfoW(path, 0, size, block))
         goto done;
 
@@ -213,13 +214,25 @@ static bool get_ue_version_from_exe(const WCHAR *path, uint32_t *major, uint32_t
     if (!VerQueryValueA(block, "\\VarFileInfo\\Translation", (void **)&translation, &size) || size != 4)
         goto done;
 
+    sprintf(buf, "\\StringFileInfo\\%08lx\\CompanyName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
+    if (VerQueryValueA(block, buf, (void **)&s, &size))
+    {
+        TRACE("CompanyName: %s\n", s);
+        if (!strncmp(s, "CAPCOM", 6))
+        {
+            /* It's probably RE-engine, but we only know it's made by CAPCOM. Could be an older game? */
+            engine_class = VKD3D_APPLICATION_ENGINE_CLASS_CAPCOM;
+            goto done;
+        }
+    }
+
     sprintf(buf, "\\StringFileInfo\\%08lx\\InternalName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
     if (VerQueryValueA(block, buf, (void **)&s, &size))
     {
         TRACE("InternalName: %s\n", s);
         if (!strcmp(s, "UnrealEngine"))
         {
-            ret = true;
+            engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
             goto done;
         }
     }
@@ -229,51 +242,68 @@ static bool get_ue_version_from_exe(const WCHAR *path, uint32_t *major, uint32_t
     {
         TRACE("ProductName: %s\n", s);
         if (!strcmp(s, "UnrealEngine") || !strcmp(s, "Unreal Engine"))
-            ret = true;
+            engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
     }
 
 done:
-    if (ret)
+    if (engine_class)
     {
         *major = HIWORD(fi->dwProductVersionMS);
         *minor = LOWORD(fi->dwProductVersionMS);
         *patch = HIWORD(fi->dwProductVersionLS);
     }
     free(block);
-    return ret;
+    return engine_class;
 }
 
-bool vkd3d_get_ue_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
 {
     WCHAR exe_path[VKD3D_PATH_MAX], path[VKD3D_PATH_MAX];
+    enum vkd3d_application_engine_class engine_class;
 
     *major = *minor = *patch = 0;
     GetModuleFileNameW(NULL, exe_path, VKD3D_PATH_MAX);
-    if (get_ue_version_from_exe(exe_path, major, minor, patch))
-        return true;
-
+    engine_class = get_engine_version_from_exe(exe_path, major, minor, patch);
     PathCchRemoveFileSpec(exe_path, ARRAY_SIZE(exe_path));
+
+    if (engine_class)
+    {
+        if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_CAPCOM)
+        {
+            /* This file specifically seems to exist as top-level asset file. */
+            if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+                    L"re_chunk_000.pak", PATHCCH_NONE)))
+                return engine_class;
+
+            if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+                return VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE;
+        }
+
+        return engine_class;
+    }
 
     if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
             L"..\\..\\..\\Engine\\Binaries\\Win64\\CrashReportClient.exe", PATHCCH_NONE)))
-        return false;
-    if (get_ue_version_from_exe(path, major, minor, patch))
-        return true;
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    if ((engine_class = get_engine_version_from_exe(path, major, minor, patch)))
+        return engine_class;
 
     if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
             L"..\\..\\..\\Engine\\Binaries\\Win64\\UnrealCEFSubProcess.exe", PATHCCH_NONE)))
-        return false;
-    if (get_ue_version_from_exe(path, major, minor, patch))
-        return true;
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    if ((engine_class = get_engine_version_from_exe(path, major, minor, patch)))
+        return engine_class;
 
     /* Some games override their metadata to not mention UnrealEngine at all.
      * As a last ditch effort, try to see if Content/Paks folder exists.
      * This one seems to be rather universal. */
     if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
             L"..\\..\\Content\\Paks", PATHCCH_NONE)))
-        return false;
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
 
-    return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
+    return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES
+               ? VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE
+               : VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
 }
 
 #else
@@ -313,10 +343,10 @@ bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *
     return false;
 }
 
-bool vkd3d_get_ue_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
+enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, uint32_t *minor, uint32_t *patch)
 {
     *major = *minor = *patch = 0;
-    return false;
+    return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
 }
 
 #endif
