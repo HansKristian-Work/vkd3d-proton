@@ -794,6 +794,12 @@ void vkd3d_instance_apply_application_workarounds(void)
             break;
         }
     }
+
+    if (i == ARRAY_SIZE(application_shader_quirks) && engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
+    {
+        INFO("Applying default RE Engine shader quirks.\n");
+        vkd3d_shader_quirk_info_template = re_engine_quirks;
+    }
 }
 
 void vkd3d_instance_deduce_config_flags_from_environment(void)
