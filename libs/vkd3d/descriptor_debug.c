@@ -280,6 +280,10 @@ static const char *qa_value_to_tag(uint32_t value)
         TAG(ALLOCA_GEP_OOB);
         TAG(QUESTIONABLE_BAB_OVERFLOW);
         TAG(QUESTIONABLE_STRUCTURED_OVERFLOW);
+        TAG(UDIV_BY_ZERO);
+        TAG(UMOD_BY_ZERO);
+        TAG(SDIV_BY_ZERO);
+        TAG(SREM_BY_ZERO);
         default: break;
     }
 #undef TAG
