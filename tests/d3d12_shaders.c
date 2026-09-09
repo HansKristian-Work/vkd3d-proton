@@ -223,6 +223,7 @@ void test_shader_instructions_dxil(void)
 #include "shaders/shaders/headers/cs_fptrunc_roundtrip_precise.h"
 #include "shaders/shaders/headers/cs_legacy_f32_to_f16.h"
 #include "shaders/shaders/headers/cs_udiv.h"
+#include "shaders/shaders/headers/cs_sdiv.h"
 
     union
     {
@@ -255,6 +256,11 @@ void test_shader_instructions_dxil(void)
         {&cs_fp16_arith_denorm_dxil, { 1.0f / 0x1000000, 2.0f / 0x1000000, 3.0f / 0x1000000, 4.0f / 0x1000000 }, { 0x8003, 0x8001, 0x0001, 0x0003 }, true},
         /* UDiv by zero behaves like DXBC */
         {&cs_udiv_dxil, { 8.0f, 5.0f, 4.0f, 1.0f }, { 0x2, 0xffffffff, 0x1, 0xffffffff }, false, false, { 0, 0, 0, 0 }, false, true},
+        /* SDiv/SRem zero behavior is supposed to be undefined. NV and WARP behavior seems to be 0xffffffff, but AMD returns INT_MAX or INT_MIN depending on the numerator sign,
+         * so it's not quite well defined, but it's not complete garbage either ... It's easier to just follow NV behavior here. */
+        {&cs_sdiv_dxil, { 8.0f, 5.0f, 4.0f, 1.0f }, { 0x2, 0xffffffff, 0x1, 0xffffffff }, false, false, { 0, 0, 0, 0 }, false, true},
+        {&cs_sdiv_dxil, { 8.0f, -5.0f, -4.0f, 1.0f }, { 0xffffffff, 0xffffffff, 0x2, 0xffffffff }, false, false, { 0, 0, 0, 0 }, false, true},
+        {&cs_sdiv_dxil, { -8.0f, -5.0f, -4.0f, 1.0f }, { 1, 0xffffffff, 0xfffffffc, 0xffffffff }, false, false, { 0, 0, 0, 0 }, false, true},
     };
 
     /* RTZ tests are TODO since we have no direct way of implementing it. */
