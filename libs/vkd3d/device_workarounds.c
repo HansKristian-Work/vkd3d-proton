@@ -770,9 +770,12 @@ void vkd3d_instance_apply_application_workarounds(void)
          * Relevant for Turnip. It should be safe to enable this for UE4 too in case that hits the unknown path. */
         vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_BROKEN_WAVE128_REQUESTS;
 
-        /* This is not an app bug, but we have to disable a minor optimization
-         * which assumes no unsigned wrap for raw buffer addresses. */
-        vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP;
+        if (engine_major == 5)
+        {
+            /* This is not an app bug, but we have to disable a minor optimization
+             * which assumes no unsigned wrap for raw buffer addresses. */
+            vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP;
+        }
     }
 
     for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
