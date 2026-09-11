@@ -11163,12 +11163,16 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
 
         if (info->needs_conversion)
         {
+            struct vkd3d_format_footprint footprint;
             VkDeviceSize scratch_buffer_size;
             VkExtent3D extent;
 
+            /* Assumes that the D3D format has the same block size as the Vulkan format */
+            footprint = vkd3d_format_footprint_for_plane(dst_resource->format,
+                    d3d12_plane_index_from_vk_aspect(region.imageSubresource.aspectMask));
+
             extent = info->copy.buffer_image.imageExtent;
-            scratch_buffer_size = info->dst_format->block_byte_count *
-                extent.width * extent.height * extent.depth;
+            scratch_buffer_size = footprint.block_byte_count * extent.width * extent.height * extent.depth;
 
             if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                     VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE, scratch_buffer_size, 16, ~0u, &scratch))
