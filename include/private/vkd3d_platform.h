@@ -46,9 +46,8 @@ bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *
 enum vkd3d_application_engine_class
 {
     VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN = 0,
-    VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE = 1,
-    VKD3D_APPLICATION_ENGINE_CLASS_CAPCOM = 2,
-    VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE = 3
+    VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE,
+    VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE
 };
 
 enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, uint32_t *minor, uint32_t *patch);

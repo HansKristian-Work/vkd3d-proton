@@ -721,14 +721,8 @@ void vkd3d_instance_apply_application_workarounds(void)
                     vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
                 break;
 
-            case VKD3D_APPLICATION_ENGINE_CLASS_CAPCOM:
-                INFO("Detected CAPCOM, but did not specifically detect RE Engine, file version %u.%u.%u\n",
-                     engine_major, engine_minor, engine_patch);
-                vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_CAPCOM;
-                break;
-
             case VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE:
-                INFO("Detected RE Engine, file version %u.%u.%u\n", engine_major, engine_minor, engine_patch);
+                INFO("Detected RE Engine\n");
                 vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_RE_ENGINE;
                 break;
 

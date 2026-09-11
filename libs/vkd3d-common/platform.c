@@ -216,18 +216,6 @@ static enum vkd3d_application_engine_class get_engine_version_from_exe(
     if (!VerQueryValueA(block, "\\VarFileInfo\\Translation", (void **)&translation, &size) || size != 4)
         goto done;
 
-    sprintf(buf, "\\StringFileInfo\\%08lx\\CompanyName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
-    if (VerQueryValueA(block, buf, (void **)&s, &size))
-    {
-        TRACE("CompanyName: %s\n", s);
-        if (!strncmp(s, "CAPCOM", 6))
-        {
-            /* It's probably RE-engine, but we only know it's made by CAPCOM. Could be an older game? */
-            engine_class = VKD3D_APPLICATION_ENGINE_CLASS_CAPCOM;
-            goto done;
-        }
-    }
-
     sprintf(buf, "\\StringFileInfo\\%08lx\\InternalName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
     if (VerQueryValueA(block, buf, (void **)&s, &size))
     {
@@ -271,22 +259,6 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
     engine_class = get_engine_version_from_exe(exe_path, major, minor, patch);
     PathCchRemoveFileSpec(exe_path, ARRAY_SIZE(exe_path));
 
-    if (engine_class)
-    {
-        if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_CAPCOM)
-        {
-            /* This file specifically seems to exist as top-level asset file. */
-            if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
-                    L"re_chunk_000.pak", PATHCCH_NONE)))
-                return engine_class;
-
-            if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
-                return VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE;
-        }
-
-        return engine_class;
-    }
-
     if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
             L"..\\..\\..\\Engine\\Binaries\\Win64\\CrashReportClient.exe", PATHCCH_NONE)))
         return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
@@ -309,6 +281,18 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
         if (engine_class)
             return engine_class;
     }
+
+    /* Dubious checks where we spelunk the filesystem. */
+
+    /* This file specifically seems to exist as top-level asset file.
+     * An earlier attempt was made to check for CAPCOM CompanyName,
+     * but some games do not have that. This check seems more robust overall. */
+    if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+            L"re_chunk_000.pak", PATHCCH_NONE)))
+        return engine_class;
+
+    if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+        return VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE;
 
     /* Some games override their metadata to not mention UnrealEngine at all.
      * As a last ditch effort, try to see if Content/Paks folder exists.
