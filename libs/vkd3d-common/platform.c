@@ -123,7 +123,30 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
 # include <windows.h>
 # include <pathcch.h>
 # include <psapi.h>
+
+#ifdef _MSC_VER
+/* This struct is exposed on MinGW, but not MSVC.
+ * It's not really a public API ... */
+typedef enum _PROCESSINFOCLASS
+{
+    ProcessBasicInformation,
+} PROCESSINFOCLASS;
+
+typedef struct _PROCESS_BASIC_INFORMATION {
+    NTSTATUS ExitStatus;
+    void *PebBaseAddress;
+    KAFFINITY AffinityMask;
+    LONG BasePriority;
+    ULONG_PTR UniqueProcessId;
+    ULONG_PTR InheritedFromUniqueProcessId;
+} PROCESS_BASIC_INFORMATION, *PPROCESS_BASIC_INFORMATION;
+#else
 # include <winternl.h>
+#endif
+
+typedef NTSTATUS (* NTAPI PFN_NtQueryInformationProcess)(
+    HANDLE ProcessHandle, PROCESSINFOCLASS ProcessInformationClass,
+    PVOID ProcessInformation, ULONG ProcessInformationLength, PULONG ReturnLength);
 
 vkd3d_module_t vkd3d_dlopen(const char *name)
 {
@@ -250,8 +273,7 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
 {
     WCHAR exe_path[VKD3D_PATH_MAX], path[VKD3D_PATH_MAX];
     enum vkd3d_application_engine_class engine_class;
-    PROCESS_BASIC_INFORMATION pbi;
-    HANDLE parent;
+    HMODULE ntdll;
     DWORD size;
 
     *major = *minor = *patch = 0;
@@ -271,15 +293,26 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
     if ((engine_class = get_engine_version_from_exe(path, major, minor, patch)))
         return engine_class;
 
-    if (!NtQueryInformationProcess(GetCurrentProcess(), ProcessBasicInformation, &pbi, sizeof(pbi), NULL) &&
-       (parent = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pbi.InheritedFromUniqueProcessId)))
+    if ((ntdll = GetModuleHandleA("ntdll.dll")))
     {
-        size = ARRAY_SIZE(path);
-        if (QueryFullProcessImageNameW(parent, 0, path, &size))
-            engine_class = get_engine_version_from_exe(path, major, minor, patch);
-        CloseHandle(parent);
-        if (engine_class)
-            return engine_class;
+        PFN_NtQueryInformationProcess pfn_NtQueryInformationProcess;
+        PROCESS_BASIC_INFORMATION pbi;
+        HANDLE parent;
+
+        pfn_NtQueryInformationProcess =
+            (PFN_NtQueryInformationProcess)(void *)GetProcAddress(ntdll, "NtQueryInformationProcess");
+
+        if (pfn_NtQueryInformationProcess &&
+            !pfn_NtQueryInformationProcess(GetCurrentProcess(), ProcessBasicInformation, &pbi, sizeof(pbi), NULL) &&
+           (parent = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pbi.InheritedFromUniqueProcessId)))
+        {
+            size = ARRAY_SIZE(path);
+            if (QueryFullProcessImageNameW(parent, 0, path, &size))
+                engine_class = get_engine_version_from_exe(path, major, minor, patch);
+            CloseHandle(parent);
+            if (engine_class)
+                return engine_class;
+        }
     }
 
     /* Dubious checks where we spelunk the filesystem. */
