@@ -91,6 +91,8 @@ static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
 
 static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *list);
 
+static void d3d12_command_allocator_ensure_compute_fallback(struct d3d12_command_allocator *allocator);
+
 static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSemaphore *vk_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2468,7 +2470,13 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     VkResult vr;
 
     if (list->cmd.iteration_count >= VKD3D_MAX_COMMAND_LIST_SEQUENCES)
+    {
+        assert(!fallback);
         return;
+    }
+
+    if (fallback)
+        d3d12_command_allocator_ensure_compute_fallback(list->allocator);
 
     /* Any renderpass we start will be in second command buffer. */
     list->cmd.suspend_resume.block_resume = true;
@@ -2559,6 +2567,9 @@ static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *
 
 static void d3d12_command_list_copy_queue_fallback(struct d3d12_command_list *list)
 {
+    if (list->vk_queue_flags & VK_QUEUE_COMPUTE_BIT)
+        return;
+
     if (!list->cmd.iterations[list->cmd.iteration_count - 1].fallback)
     {
         d3d12_command_list_end_transfer_batch(list, false);
@@ -3289,6 +3300,33 @@ void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue, struct d3d12_comm
     pthread_mutex_unlock(&queue->command_queue_mutex);
 }
 
+static void d3d12_command_allocator_ensure_compute_fallback(struct d3d12_command_allocator *allocator)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &allocator->device->vk_procs;
+    VkCommandPoolCreateInfo command_pool_info;
+    VkResult vr;
+
+    if (allocator->fallback_pool.vk_command_pool)
+        return;
+
+    assert(!(allocator->primary_pool.vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)));
+
+    /* We may need to fallback to compute copies. Just reuse the internal magic queue. */
+    memset(&command_pool_info, 0, sizeof(command_pool_info));
+    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_info.queueFamilyIndex = allocator->device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]->vk_family_index;
+
+    ERR("Fallback queue: %u, %#x.\n", command_pool_info.queueFamilyIndex,
+        allocator->device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]->vk_queue_flags);
+
+    allocator->fallback_pool.vk_queue_flags = allocator->device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]->vk_queue_flags;
+    allocator->fallback_pool.vk_family_index = command_pool_info.queueFamilyIndex;
+
+    if ((vr = VK_CALL(vkCreateCommandPool(allocator->device->vk_device, &command_pool_info, NULL,
+            &allocator->fallback_pool.vk_command_pool))) < 0)
+        ERR("Failed to create fallback command pool, vr %d.\n", vr);
+}
+
 static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
         struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type,
@@ -3349,32 +3387,6 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
             return hresult_from_vk_result(vr);
         }
     }
-
-    if (type == D3D12_COMMAND_LIST_TYPE_COPY &&
-        (!device->concurrent_transfer_queue ||
-         !device->device_info.depth_aspect_copy_on_transfer ||
-         !device->device_info.stencil_aspect_copy_on_transfer ||
-         allocator->transfer_granularity.width != 1 || /* transfer granularity can be (0, 0, 0) which means full mip only. */
-         allocator->transfer_granularity.height != 1 ||
-         allocator->transfer_granularity.depth != 1) &&
-        (allocator->primary_pool.vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT)) ==
-        VK_QUEUE_TRANSFER_BIT)
-    {
-        /* We may need to fallback to compute copies. Just reuse the internal magic queue. */
-        command_pool_info.queueFamilyIndex = device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]->vk_family_index;
-        allocator->fallback_pool.vk_queue_flags = device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]->vk_queue_flags;
-        allocator->fallback_pool.vk_family_index = command_pool_info.queueFamilyIndex;
-
-        if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
-                &allocator->fallback_pool.vk_command_pool))) < 0)
-        {
-            WARN("Failed to create Vulkan command pool, vr %d.\n", vr);
-            vkd3d_private_store_destroy(&allocator->private_store);
-            return hresult_from_vk_result(vr);
-        }
-    }
-
-    /* GRAPHICS/COMPUTE queue must support (1, 1, 1) granularity. */
 
     d3d_destruction_notifier_init(&allocator->destruction_notifier,
             (IUnknown*)&allocator->ID3D12CommandAllocator_iface);
