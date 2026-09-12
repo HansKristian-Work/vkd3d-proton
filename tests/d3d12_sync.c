@@ -2261,3 +2261,73 @@ void test_fence_signal_availability_shared(void)
 {
     test_fence_signal_availability(true);
 }
+
+void test_fence_rewind_dependent_wait(void)
+{
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    ID3D12Fence *fence1, *fence2;
+    UINT run = 0, wakeup = 0;
+    HANDLE event;
+    HRESULT hr;
+    BOOL ret;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = TRUE;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    queue = context.queue;
+
+    for (run = 0; run < 100 && !wakeup; run++)
+    {
+        hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+                &IID_ID3D12Fence, (void **)&fence1);
+        ok(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
+        hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+                &IID_ID3D12Fence, (void **)&fence2);
+        ok(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
+
+        hr = ID3D12CommandQueue_Signal(queue, fence1, 2);
+        ok(hr == S_OK, "Failed to queue fence signal, hr %#x.\n", (int)hr);
+        hr = ID3D12CommandQueue_Signal(queue, fence2, 1);
+        ok(hr == S_OK, "Failed to queue fence signal, hr %#x.\n", (int)hr);
+
+        hr = ID3D12CommandQueue_Wait(queue, fence2, 1);
+        ok(hr == S_OK, "Failed to queue fence wait, hr %#x.\n", (int)hr);
+        hr = ID3D12CommandQueue_Signal(queue, fence1, 1);
+        ok(hr == S_OK, "Failed to queue fence signal, hr %#x.\n", (int)hr);
+        hr = ID3D12CommandQueue_Signal(queue, fence2, 2);
+        ok(hr == S_OK, "Failed to queue fence signal, hr %#x.\n", (int)hr);
+
+        hr = ID3D12CommandQueue_Wait(queue, fence1, 2);
+        ok(hr == S_OK, "Failed to queue fence wait, hr %#x.\n", (int)hr);
+        hr = ID3D12CommandQueue_Wait(queue, fence2, 2);
+        ok(hr == S_OK, "Failed to queue fence wait, hr %#x.\n", (int)hr);
+        hr = ID3D12CommandQueue_Signal(queue, fence2, 3);
+        ok(hr == S_OK, "Failed to queue fence signal, hr %#x.\n", (int)hr);
+
+        event = create_event();
+        hr = ID3D12Fence_SetEventOnCompletion(fence2, 3, event);
+        ok(hr == S_OK, "Failed to queue event signal, hr %#x.\n", (int)hr);
+        ret = wait_event(event, 100);
+        if (ret != WAIT_TIMEOUT) wakeup++;
+
+        hr = ID3D12Fence_Signal(fence1, 2);
+        ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", (int)hr);
+        if (ret) ret = wait_event(event, 5000);
+        ok(!ret, "got ret %#x\n", ret);
+
+        destroy_event(event);
+
+        wait_queue_idle(device, queue);
+
+        ID3D12Fence_Release(fence1);
+        ID3D12Fence_Release(fence2);
+    }
+    todo ok(wakeup == 0, "got %u wakeup after %u runs\n", wakeup, run);
+
+    destroy_test_context(&context);
+}
