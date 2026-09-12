@@ -2151,9 +2151,44 @@ static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_Signal(d3d12_fence_iface *if
     struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &fence->device->vk_procs;
     VkSemaphoreSignalInfo signal_info;
+    uint64_t completed_value;
     VkResult vr;
 
     TRACE("iface %p, value %#"PRIx64".\n", iface, value);
+
+    /* ID3D12Fence::Signal sets the fence to a value, and D3D12 is happy for that
+     * value to be lower than the current one - resetting a fence to 0 so it can be
+     * reused is an ordinary idiom, and Gears of War 4 does exactly that on the
+     * fence its video playback shares. A Vulkan timeline semaphore only moves
+     * forwards, and asking one to move backwards is not quietly ignored: on RADV
+     * the DRM syncobj signal fails and the device is marked lost, after which every
+     * call on it returns VK_ERROR_DEVICE_LOST and the title spins in a hot error
+     * loop. d3d12_fence has virtual values it can rewind; a shared fence is the raw
+     * timeline and has nowhere to rewind to, so leave it where it is. */
+    if ((vr = VK_CALL(vkGetSemaphoreCounterValue(fence->device->vk_device,
+            fence->timeline_semaphore, &completed_value))))
+    {
+        ERR("Failed to get shared fence counter value, vr %d.\n", vr);
+        return E_FAIL;
+    }
+
+    if (value <= completed_value)
+    {
+        /* Titles that do this do it thousands of times a second, so say it once. */
+        static bool warned;
+        if (!warned)
+        {
+            warned = true;
+            WARN("Ignoring attempt to rewind shared fence %p from %"PRIu64" to %"PRIu64". "
+                    "Further rewinds are logged at trace level.\n", fence, completed_value, value);
+        }
+        else
+        {
+            TRACE("Ignoring attempt to rewind shared fence %p from %"PRIu64" to %"PRIu64".\n",
+                    fence, completed_value, value);
+        }
+        return S_OK;
+    }
 
     signal_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
     signal_info.pNext = NULL;
