@@ -222,6 +222,7 @@ void test_shader_instructions_dxil(void)
 #include "shaders/shaders/headers/cs_fptrunc_roundtrip.h"
 #include "shaders/shaders/headers/cs_fptrunc_roundtrip_precise.h"
 #include "shaders/shaders/headers/cs_legacy_f32_to_f16.h"
+#include "shaders/shaders/headers/cs_legacy_f16_to_f32.h"
 #include "shaders/shaders/headers/cs_udiv.h"
 #include "shaders/shaders/headers/cs_sdiv.h"
 
@@ -231,21 +232,26 @@ void test_shader_instructions_dxil(void)
         float f32[4];
     } patterns;
 
+#define SMALLEST_FP16_DENORM (1.0f / (16.0f * 1024.0f * 1024.0f))
+#define SENTINEL_FP16_NAN UINT32_MAX
+#define SENTINEL_FP32_NAN (UINT32_MAX - 1)
+
     struct test tests[] =
     {
         /* LegacyF32toF16 opcode is always RTZ. */
         {&cs_legacy_f32_to_f16_dxil, { 1024.75f, 1025.75f, 1026.75f, 1027.75f }, { 0x6400, 0x6401, 0x6402, 0x6403 }, false, true},
         {&cs_legacy_f32_to_f16_dxil, { -1024.75f, -1025.75f, -1026.75f, -1027.75f }, { 0xe400, 0xe401, 0xe402, 0xe403 }, false, true},
         {&cs_legacy_f32_to_f16_dxil, { 0.75f / 0x1000000, -0.75f / 0x1000000, 1.75f / 0x1000000, -1.75f / 0x1000000 }, { 0x0000, 0x8000, 0x0001, 0x8001 }, false, true},
-        {&cs_legacy_f32_to_f16_dxil, { 0.0f /* To be filled in with weird values, +inf, -inf, nan(1), nan(all bits). */ }, {0x7c00, 0xfc00, UINT32_MAX /* NaN, any pattern allowed. */, UINT32_MAX /* NaN, any pattern allowed. */}, false},
+        {&cs_legacy_f32_to_f16_dxil, { 0.0f /* To be filled in with weird values, +inf, -inf, nan(1), nan(all bits). */ }, {0x7c00, 0xfc00, SENTINEL_FP16_NAN, SENTINEL_FP16_NAN}, false},
         {&cs_legacy_f32_to_f16_dxil, { -100000.0f, +100000.0f }, {0xfbff, 0x7bff, 0, 0 }, false, true }, /* Values above float16 inf get clamped to +/- float16_max. */
+
         /* Drivers don't seem to agree if this should be RTZ or RTE ... Accept both results. Unclear if this is even well specified in D3D12. */
         {&cs_fptrunc_f32_to_f16_dxil, { 1024.5f, 1025.5f, 1026.5f, 1027.5f }, { 0x6400, 0x6402, 0x6402, 0x6404 }, true, false, { 0x6400, 0x6401, 0x6402, 0x6403 }, true},
-        {&cs_fptrunc_f32_to_f16_dxil, { 0.0f /* To be filled in with weird values, +inf, -inf, nan(1), nan(all bits). */ }, {0x7c00, 0xfc00, UINT32_MAX /* NaN, any pattern allowed. */, UINT32_MAX /* NaN, any pattern allowed. */}, true},
+        {&cs_fptrunc_f32_to_f16_dxil, { 0.0f /* To be filled in with weird values, +inf, -inf, nan(1), nan(all bits). */ }, {0x7c00, 0xfc00, SENTINEL_FP16_NAN, SENTINEL_FP16_NAN}, true},
         {&cs_fptrunc_f32_to_f16_dxil, { -100000.0f, +100000.0f }, {0xfc00, 0x7c00, 0, 0 }, true, false, { 0xfbff, 0x7bff }, true }, /* Native instruction becomes +/- inf. AMD compiles this into a 16-bit load which does RTZ ... */
         /* Drivers don't seem to agree if this should be RTZ or RTE ... Accept both results. Unclear if this is even well specified in D3D12. */
         {&cs_fptrunc_f32_to_f16_add_dxil, { 1024.5f, 1025.5f, 1026.5f, 1027.5f }, { 0x6401, 0x6402, 0x6403, 0x6404 }, true, false, { 0x6402, 0x6402, 0x6404, 0x6404 }, true },
-        {&cs_fptrunc_f32_to_f16_add_dxil, { 0.0f /* To be filled in with weird values, +inf, -inf, nan(1), nan(all bits). */ }, {0x7c00, 0xfc00, UINT32_MAX /* NaN, any pattern allowed. */, UINT32_MAX /* NaN, any pattern allowed. */}, true},
+        {&cs_fptrunc_f32_to_f16_add_dxil, { 0.0f /* To be filled in with weird values, +inf, -inf, nan(1), nan(all bits). */ }, {0x7c00, 0xfc00, SENTINEL_FP16_NAN, SENTINEL_FP16_NAN}, true},
         {&cs_fptrunc_f32_to_f16_add_dxil, { -100000.0f, +100000.0f }, {0xfc00, 0x7c00, 0x3c00, 0x3c00 }, true, false, { 0xfbff, 0x7bff, 0x3c00, 0x3c00 }, true }, /* Native instruction becomes +/- inf. AMD compiles this into a 16-bit conversion with explicit fp16 RTZ ... */
         /* Test if compilers are allowed to optimize FP32 -> FP16 -> FP32 conversion chains. Does not seem like it. Both NV and AMD truncate here. */
         {&cs_fptrunc_roundtrip_dxil, { 2048.625f, 2050.625f, 2052.125f, 2054.125f }, { 0x45000000, 0x45002000, 0x45004000, 0x45006000 }, true, false },
@@ -261,6 +267,21 @@ void test_shader_instructions_dxil(void)
         {&cs_sdiv_dxil, { 8.0f, 5.0f, 4.0f, 1.0f }, { 0x2, 0xffffffff, 0x1, 0xffffffff }, false, false, { 0, 0, 0, 0 }, false, true},
         {&cs_sdiv_dxil, { 8.0f, -5.0f, -4.0f, 1.0f }, { 0xffffffff, 0xffffffff, 0x2, 0xffffffff }, false, false, { 0, 0, 0, 0 }, false, true},
         {&cs_sdiv_dxil, { -8.0f, -5.0f, -4.0f, 1.0f }, { 1, 0xffffffff, 0xfffffffc, 0xffffffff }, false, false, { 0, 0, 0, 0 }, false, true},
+
+		/* Specific denorm handling test meant to test the Denorm FP16 <-> FP32 quirk on Turnip. */
+        {&cs_legacy_f32_to_f16_dxil, { 0.0f, 1.0f * SMALLEST_FP16_DENORM, 1023.0f * SMALLEST_FP16_DENORM, 1024.0f * SMALLEST_FP16_DENORM }, { 0, 1, 0x3ff, 0x400 }, false, false},
+        {&cs_legacy_f32_to_f16_dxil, { 1025.0f * SMALLEST_FP16_DENORM, 1026.0f * SMALLEST_FP16_DENORM, INFINITY, NAN }, { 0x401, 0x402, 0x7c00, SENTINEL_FP16_NAN }, false, false},
+        {&cs_legacy_f32_to_f16_dxil, { 4.0f * 1024.0f * SMALLEST_FP16_DENORM, 8.0f * 1024.0f * SMALLEST_FP16_DENORM, 16.0f * 1024.0f * SMALLEST_FP16_DENORM, 32.0f * 1024.0f * SMALLEST_FP16_DENORM },
+                { 0xc00, 0x1000, 0x1400, 0x1800 }, false, false},
+        {&cs_legacy_f32_to_f16_dxil, { -0.0f, -1.0f * SMALLEST_FP16_DENORM, -1023.0f * SMALLEST_FP16_DENORM, -1024.0f * SMALLEST_FP16_DENORM }, { 0x8000, 0x8001, 0x83ff, 0x8400 }, false, false},
+        {&cs_legacy_f32_to_f16_dxil, { -1025.0f * SMALLEST_FP16_DENORM, -1026.0f * SMALLEST_FP16_DENORM, -INFINITY, NAN }, { 0x8401, 0x8402, 0xfc00, SENTINEL_FP16_NAN }, false, false},
+        {&cs_legacy_f32_to_f16_dxil, { -4.0f * 1024.0f * SMALLEST_FP16_DENORM, -8.0f * 1024.0f * SMALLEST_FP16_DENORM, -16.0f * 1024.0f * SMALLEST_FP16_DENORM, -32.0f * 1024.0f * SMALLEST_FP16_DENORM },
+                { 0x8c00, 0x9000, 0x9400, 0x9800 }, false, false},
+
+        {&cs_legacy_f16_to_f32_dxil, { 0x0, 0x1, 0x3ff, 0x400 }, { 0, 0x33800000, 0x387fc000, 0x38800000 }, false, false},
+        {&cs_legacy_f16_to_f32_dxil, { 0x401, 0x802, 0x7c00, 0x7c01 }, { 0x38802000, 0x39004000, 0x7f800000, SENTINEL_FP32_NAN }, false, false},
+        {&cs_legacy_f16_to_f32_dxil, { 0x8000, 0x8001, 0x83ff, 0x8400 }, { 0x80000000u, 0xb3800000, 0xb87fc000, 0xb8800000 }, false, false},
+        {&cs_legacy_f16_to_f32_dxil, { 0x8401, 0x8802, 0xfc00, 0xfc01 }, { 0xb8802000, 0xb9004000, 0xff800000, SENTINEL_FP32_NAN }, false, false},
     };
 
     /* RTZ tests are TODO since we have no direct way of implementing it. */
@@ -336,10 +357,15 @@ void test_shader_instructions_dxil(void)
                         "Value %u mismatch: %x != (%x or %x)\n",
                         j, value, tests[i].output_data[j], tests[i].output_data_alt[j]);
             }
-            else if (tests[i].output_data[j] == UINT32_MAX && !tests[i].is_uint)
+            else if (tests[i].output_data[j] == SENTINEL_FP16_NAN && !tests[i].is_uint)
             {
                 todo_if(tests[i].is_todo)
                 ok((value & 0x7fff) > 0x7c00, "Value %u mismatch: Expected NaN, got %x.\n", j, value);
+            }
+            else if (tests[i].output_data[j] == SENTINEL_FP32_NAN && !tests[i].is_uint)
+            {
+                todo_if(tests[i].is_todo)
+                ok((value & 0x7fffffff) > 0x7f800000, "Value %u mismatch: Expected NaN, got %x.\n", j, value);
             }
             else
             {
