@@ -577,6 +577,16 @@ static const struct vkd3d_shader_quirk_info plague_tale_resonance_robustness_qui
     plague_tale_resonance_hashes, ARRAY_SIZE(plague_tale_resonance_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash elden_ring_hashes[] = {
+    { "CS_WriteInScattering", 0, VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS },
+    { "CS_WriteLocalLight", 0, VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS },
+    { "CS_SolveVolumetricFog", 0, VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS },
+};
+
+static const struct vkd3d_shader_quirk_info elden_ring_quirks = {
+    elden_ring_hashes, ARRAY_SIZE(elden_ring_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -681,6 +691,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "MONSTER_HUNTER_STORIES_3_TWISTED_REFLECTION.exe", &re_engine_quirks },
     /* Dragon's Dogma 2 (2054970) */
     { VKD3D_STRING_COMPARE_EXACT, "DD2.exe", &re_engine_quirks },
+    /* Elden Ring (1245620) */
+    { VKD3D_STRING_COMPARE_EXACT, "eldenring.exe", &elden_ring_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
