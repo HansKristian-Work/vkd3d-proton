@@ -717,7 +717,7 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             WARN("dxil-spirv does not support BRANCH_CONTROL.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
+            return false;
         }
     }
 
@@ -728,7 +728,7 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             ERR("dxil-spirv does not support INVARIANT_POSITION.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
+            return false;
         }
     }
 
@@ -739,7 +739,7 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             ERR("dxil-spirv does not support FORCE_SUBGROUP_SIZE_1.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
+            return false;
         }
     }
 
@@ -750,7 +750,7 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             ERR("dxil-spirv does not support SAMPLE_GRAD_OPTIMIZATION_CONTROL.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
+            return false;
         }
     }
 
@@ -766,7 +766,7 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             WARN("dxil-spirv does not support DESCRIPTOR_HEAP_ROBUSTNESS.\n");
-            return VKD3D_ERROR_NOT_IMPLEMENTED;
+            return false;
         }
     }
 
