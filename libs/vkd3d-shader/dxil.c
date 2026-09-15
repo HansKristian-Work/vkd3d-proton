@@ -778,18 +778,19 @@ static bool vkd3d_dxil_converter_can_use_soft_float_fp16_conv(
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
     /* Only enter this path if we can determine that fp16 denorms are explicitly not supported.
-     * This is a bit quirky since we already pass that down as a separate extension,
+     * This is a bit quirky since we should be able key off the plain preserve extension,
      * but we need to avoid hitting NVIDIA's weird cases here where we *assume* FP16 denorms
-     * without explicitly declare it in the shader.
+     * without explicitly declare it in the shader (_DEFAULT).
      * NVIDIA doesn't really expose denorm control in a useful way, and
      * we rely on the default behavior instead to avoid leaking FP16 denorm state into FP32. */
 
     unsigned int i;
     for (i = 0; i < compiler_args->target_extension_count; i++)
-        if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_RELAXED)
-            return true;
+        if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE ||
+            compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE_DEFAULT)
+            return false;
 
-    return false;
+    return true;
 }
 
 static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,

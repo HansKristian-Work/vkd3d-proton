@@ -7241,6 +7241,7 @@ bool vkd3d_driver_id_wraps_ssbo_32bit_before_robustness(VkDriverId driver_id);
 bool d3d12_device_allow_emulated_vrs_tier_2(struct d3d12_device *device);
 bool d3d12_device_allow_emulated_barycentrics(struct d3d12_device *device);
 bool vkd3d_application_has_broken_wave128(void);
+bool vkd3d_application_requires_min16_denorms(void);
 void d3d12_device_init_workarounds(struct d3d12_device *device);
 uint32_t vkd3d_get_instance_application_version(void);
 
