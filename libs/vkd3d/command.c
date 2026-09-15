@@ -700,6 +700,7 @@ static void *vkd3d_fence_worker_main(void *arg)
 
         if (!worker->enqueued_fence_count && !worker->should_exit)
         {
+            worker->is_idle = true;
             if ((rc = pthread_cond_wait(&worker->cond, &worker->mutex)))
             {
                 ERR("Failed to wait on condition variable, error %d.\n", rc);
@@ -719,6 +720,8 @@ static void *vkd3d_fence_worker_main(void *arg)
         worker->enqueued_fence_count = 0;
         worker->enqueued_fences_size = old_fences_size;
         worker->enqueued_fences = old_fences;
+
+        worker->is_idle = cur_fence_count == 0;
 
         pthread_mutex_unlock(&worker->mutex);
 
@@ -24110,6 +24113,63 @@ VKD3D_METHODENTRY(void) d3d12_command_queue_EndEvent(ID3D12CommandQueue *iface)
     FIXME("iface %p stub!\n", iface);
 }
 
+static bool d3d12_command_queue_has_buffered_work_locked(struct d3d12_command_queue *queue)
+{
+    /* There are pending submissions that await work, definitely cannot signal inline.
+     * Need to recheck the value since we must maintain the invariance throughout the full check. */
+    if (vkd3d_atomic_uint32_load_explicit(&queue->inflight_submissions, vkd3d_memory_order_acquire) != 0)
+        return true;
+
+    if (queue->sparse.buffer_binds_count || queue->sparse.image_binds_count ||
+        queue->sparse.image_opaque_binds_count)
+    {
+        /* Sparse work is batched up. */
+        return true;
+    }
+
+    /* wait_fence_count means we deferred Wait. We need to observe those completing before
+     * we can consider the queue idle. wait_semaphore_count is more benign and is only used
+     * as scratch space for the physical, materialized wait.
+     * FIXME: It's technically possible to poll the pending fences if they are all done,
+     * but that's potentially expensive and a bit overkill. */
+    if (queue->wait_fence_count)
+        return true;
+
+    return false;
+}
+
+static bool d3d12_command_queue_can_signal_fence_inline_locked(struct d3d12_command_queue *queue)
+{
+    bool ret;
+
+    /* There are pending submissions that await work, definitely cannot signal inline. Early exit. */
+    if (vkd3d_atomic_uint32_load_explicit(&queue->inflight_submissions, vkd3d_memory_order_acquire) != 0)
+        return false;
+
+    if (d3d12_command_queue_has_buffered_work_locked(queue))
+        return false;
+
+    /* Need to keep holding the command queue lock.
+     * It's possible that an intervening thread calls ExecuteCommandLists in parallel
+     * and we would miss that. */
+
+    pthread_mutex_lock(&queue->fence_worker.mutex);
+    {
+        /* Need to check both. It's possible new work was just enqueued to thread before
+         * the worker had time to wakeup and unflag idle.
+         * enqueued_fence_count == 0 is not enough because it drops to 0 before the work
+         * is actually performed.
+         * We can skip checking the last_submitted_timeline_value.
+         * After every submit, we queue up work for the fence thread to wait on in order
+         * to release command allocators, etc, so this check covers everything.
+         */
+        ret = queue->fence_worker.is_idle && queue->fence_worker.enqueued_fence_count == 0;
+    }
+    pthread_mutex_unlock(&queue->fence_worker.mutex);
+
+    return ret;
+}
+
 VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_Signal(ID3D12CommandQueue *iface,
         ID3D12Fence *fence_iface, UINT64 value)
 {
@@ -26116,7 +26176,11 @@ static void d3d12_command_queue_add_submission(struct d3d12_command_queue *queue
         vkd3d_memcpy_non_temporal_barrier();
 
     pthread_mutex_lock(&queue->queue_lock);
-    d3d12_command_queue_add_submission_locked(queue, sub);
+    /* Keep reusing the same lock instance for performance. */
+    if (sub->type == VKD3D_SUBMISSION_SIGNAL && d3d12_command_queue_can_signal_fence_inline_locked(queue))
+        ID3D12Fence1_Signal(sub->signal.fence, sub->signal.value);
+    else
+        d3d12_command_queue_add_submission_locked(queue, sub);
     pthread_mutex_unlock(&queue->queue_lock);
 }
 
