@@ -10055,7 +10055,7 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT;
     }
-    else if (d3d12_device_supports_relaxed_precision_shader_ops(device))
+    else if (!vkd3d_application_requires_min16_denorms() && d3d12_device_supports_relaxed_precision_shader_ops(device))
     {
         /* Quirky hardware. It supports FP16, but not denorms (?!). We cannot expose full FP16,
          * but it's okay to expose min16float.
@@ -10094,6 +10094,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
             device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                     VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE;
         }
+    }
+    else if (device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16)
+    {
+        /* Only used to signal to dxil.c if we should engage the min16float denorm quirk or not. */
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE_DEFAULT;
     }
 
     if (device->device_info.vulkan_1_2_properties.shaderSignedZeroInfNanPreserveFloat16)

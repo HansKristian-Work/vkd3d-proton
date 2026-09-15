@@ -34,6 +34,7 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY = 1 << 5,
     VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP = 1 << 6,
     VKD3D_APPLICATION_FEATURE_BROKEN_WAVE128_REQUESTS = 1 << 7,
+    VKD3D_APPLICATION_FEATURE_REQUIRES_MIN16_DENORMS = 1 << 8
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -1143,6 +1144,11 @@ bool d3d12_device_allow_emulated_barycentrics(struct d3d12_device* device)
 bool vkd3d_application_has_broken_wave128(void)
 {
     return (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_BROKEN_WAVE128_REQUESTS) != 0;
+}
+
+bool vkd3d_application_requires_min16_denorms(void)
+{
+    return (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_REQUIRES_MIN16_DENORMS) != 0;
 }
 
 VKD3D_DEBUG_CONTROL_BEHAVIOR_FLAGS vkd3d_debug_control_get_behavior_flags(void);
