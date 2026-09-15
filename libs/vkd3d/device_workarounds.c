@@ -710,10 +710,16 @@ void vkd3d_instance_apply_application_workarounds(void)
     uint32_t engine_major = 0, engine_minor = 0, engine_patch = 0;
     enum vkd3d_application_engine_class engine_class;
     char app[VKD3D_PATH_MAX];
+    char appid[32];
     size_t i;
 
     if (!vkd3d_get_program_name(app))
         return;
+
+    if (vkd3d_get_env_var("SteamAppID", appid, sizeof(appid)))
+        INFO("Detected SteamAppID %s\n", appid);
+    else
+        appid[0] = '\0';
 
     if ((engine_class = vkd3d_get_engine_version(&engine_major, &engine_minor, &engine_patch)))
     {
@@ -753,7 +759,13 @@ void vkd3d_instance_apply_application_workarounds(void)
 
     for (i = 0; i < ARRAY_SIZE(application_override); i++)
     {
-        if (vkd3d_string_compare(application_override[i].mode, app, application_override[i].name))
+        bool match;
+        if (application_override[i].mode == VKD3D_STRING_COMPARE_APPID)
+            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, application_override[i].name);
+        else
+            match = vkd3d_string_compare(application_override[i].mode, app, application_override[i].name);
+
+        if (match)
         {
             vkd3d_config_flag_global_add(application_override[i].global_flags_add);
             vkd3d_config_flag_global_remove(application_override[i].global_flags_remove);
@@ -792,7 +804,13 @@ void vkd3d_instance_apply_application_workarounds(void)
 
     for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
     {
-        if (vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name))
+        bool match;
+        if (application_shader_quirks[i].mode == VKD3D_STRING_COMPARE_APPID)
+            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, application_shader_quirks[i].name);
+        else
+            match = vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name);
+
+        if (match)
         {
             vkd3d_shader_quirk_info_template = *application_shader_quirks[i].info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
