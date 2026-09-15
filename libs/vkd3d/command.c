@@ -1172,15 +1172,14 @@ uint64_t d3d12_fence_register_pending_gpu_wait(struct d3d12_fence *fence, uint64
         return 0;
     }
 
-    ticket = ++fence->wait_ticket_counter;
-
     /* Tests demonstrate that the instant a WAIT is satisfied by a virtual value,
      * it should be considered satisfied forever. We should not defer the wait in case
      * there are rewinds in play.
-     * If the wait is satisfied, skip the ticket.
-     * Waits will be skipped later. But push the work to queue so that all our instrumentation works as-is. */
+     * If the wait is satisfied, skip the ticket. */
     if (fence->virtual_value < value)
     {
+        ticket = ++fence->wait_ticket_counter;
+
         vkd3d_array_reserve((void **)&fence->wait_tickets, &fence->wait_tickets_size,
                 fence->wait_tickets_count + 1, sizeof(*fence->wait_tickets));
 
@@ -24202,6 +24201,12 @@ VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_Wait(ID3D12CommandQueue *iface,
     {
         struct d3d12_fence *fence = impl_from_ID3D12Fence(fence_iface);
         ticket = d3d12_fence_register_pending_gpu_wait(fence, value);
+        if (!ticket)
+            return S_OK;
+    }
+    else if (ID3D12Fence_GetCompletedValue(fence_iface) >= value)
+    {
+        return S_OK;
     }
 
     sub.type = VKD3D_SUBMISSION_WAIT;
