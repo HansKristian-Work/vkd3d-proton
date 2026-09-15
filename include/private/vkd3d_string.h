@@ -56,6 +56,7 @@ enum vkd3d_string_compare_mode
     VKD3D_STRING_COMPARE_ENDS_WITH,
     VKD3D_STRING_COMPARE_CONTAINS,
     VKD3D_STRING_COMPARE_HASH_EQUAL,
+    VKD3D_STRING_COMPARE_APPID,
 };
 
 static inline bool vkd3d_string_compare(enum vkd3d_string_compare_mode mode, const char *string, const char *comparator)
