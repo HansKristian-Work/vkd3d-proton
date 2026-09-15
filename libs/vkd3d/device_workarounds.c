@@ -82,7 +82,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_APPID, "1245620",
             VKD3D_CONFIG_FLAG_INIT_STATIC(
                 .MEMORY_ALLOCATOR_SKIP_CLEAR = 1, .PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER = 1,
-                .RECYCLE_COMMAND_POOLS = 1) },
+                .RECYCLE_COMMAND_POOLS = 1), VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_REQUIRES_MIN16_DENORMS },
     /* Serious Sam 4 (257420).
      * Invariant workarounds cause graphical glitches when rendering foliage on NV. */
     { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe",
