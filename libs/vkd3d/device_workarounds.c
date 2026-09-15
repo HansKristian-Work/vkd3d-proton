@@ -78,7 +78,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Elden Ring (1245620).
      * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
      * It seems to work just fine however to skip the clears. */
-    { VKD3D_STRING_COMPARE_EXACT, "eldenring.exe",
+    { VKD3D_STRING_COMPARE_APPID, "1245620",
             VKD3D_CONFIG_FLAG_INIT_STATIC(
                 .MEMORY_ALLOCATOR_SKIP_CLEAR = 1, .PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER = 1,
                 .RECYCLE_COMMAND_POOLS = 1) },
@@ -692,7 +692,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Dragon's Dogma 2 (2054970) */
     { VKD3D_STRING_COMPARE_EXACT, "DD2.exe", &re_engine_quirks },
     /* Elden Ring (1245620) */
-    { VKD3D_STRING_COMPARE_EXACT, "eldenring.exe", &elden_ring_quirks },
+    { VKD3D_STRING_COMPARE_APPID, "1245620", &elden_ring_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
