@@ -7089,7 +7089,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(d3d12_device_iface *if
     TRACE("iface %p, intial_value %#"PRIx64", flags %#x, riid %s, fence %p.\n",
             iface, initial_value, flags, debugstr_guid(riid), fence);
 
-    if (flags & D3D12_FENCE_FLAG_SHARED)
+    if ((flags & D3D12_FENCE_FLAG_SHARED) && !VKD3D_CONFIG_FLAG_IS_SET(IGNORE_SHARED_FENCE))
     {
         if (SUCCEEDED(hr = d3d12_shared_fence_create(device, initial_value, flags, &shared_object)))
             return return_interface(&shared_object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
