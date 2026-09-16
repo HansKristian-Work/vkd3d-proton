@@ -2344,7 +2344,12 @@ static void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device 
                 pthread_mutex_lock(&queue->queue_lock);
 
                 if (idle_queue)
-                    idle_queue = queue->last_submission_timeline_value <= last_observed;
+                {
+                    idle_queue = queue->last_submission_timeline_value <= last_observed &&
+                            queue->sparse.buffer_binds_count == 0 &&
+                            queue->sparse.image_binds_count == 0 &&
+                            queue->sparse.image_opaque_binds_count == 0;
+                }
 
                 if (!idle_queue)
                 {
