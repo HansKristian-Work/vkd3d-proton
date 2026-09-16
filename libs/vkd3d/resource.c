@@ -2327,9 +2327,7 @@ static void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device 
         {
             vk_queue = queue_family->queues[i];
 
-            pthread_mutex_lock(&vk_queue->fence_mutex);
-            last_observed = vk_queue->cpu_observed_timeline_value;
-            pthread_mutex_unlock(&vk_queue->fence_mutex);
+            last_observed = vkd3d_atomic_uint64_load_explicit(&vk_queue->cpu_observed_timeline_value, vkd3d_memory_order_acquire);
 
             pthread_mutex_lock(&vk_queue->command_queue_mutex);
             for (j = 0; j < vk_queue->command_queue_count; j++)
@@ -2344,6 +2342,7 @@ static void d3d12_device_add_queue_timeline_deferred_decref(struct d3d12_device 
 
                 /* Most queues will likely be idle. In this case it's pointless to queue up a waiter. */
                 pthread_mutex_lock(&queue->queue_lock);
+
                 if (idle_queue)
                     idle_queue = queue->last_submission_timeline_value <= last_observed;
 
