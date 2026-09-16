@@ -24534,6 +24534,22 @@ static bool d3d12_command_queue_needs_cpu_waits(struct d3d12_command_queue *comm
         if (q == command_queue)
             continue;
 
+        /* If different queue families have to share the same VkQueue somehow,
+         * we're likely in a situation where we really cannot afford GPU bubbles.
+         * Mostly relevant on Turnip which only exposes one VkQueue
+         * that everyone have to share.
+         * Another scenario where this comes up is RADV where transfer queue are not exposed
+         * and we're oversubscribed for COMPUTE + COPY. Bubbles are not very serious on async queues,
+         * however, the graphics queue is generally the critical path for performance.
+         * Only consider CPU wait path on graphics queue if multiple graphics queues are fighting each other.
+         */
+        if ((q->desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT ||
+                command_queue->desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT) &&
+            (command_queue->vkd3d_queue->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
+        {
+            continue;
+        }
+
         /* If any other virtual queue is actively doing submissions, resolve waits
          * on the CPU in order to avoid delays caused by false dependencies. */
         queue_submit_time_ns = vkd3d_atomic_uint64_load_explicit(&q->last_submission_time_ns, vkd3d_memory_order_relaxed);
