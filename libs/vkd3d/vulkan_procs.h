@@ -399,8 +399,9 @@ VK_DEVICE_EXT_PFN(vkSetDeviceMemoryPriorityEXT)
 VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryNV)
 VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryIndirectCountNV)
 
-/* VK_EXT_device_fault */
-VK_DEVICE_EXT_PFN(vkGetDeviceFaultInfoEXT)
+/* VK_KHR_device_fault */
+VK_DEVICE_EXT_PFN(vkGetDeviceFaultReportsKHR)
+VK_DEVICE_EXT_PFN(vkGetDeviceFaultDebugInfoKHR)
 
 /* VK_NV_low_latency2 */
 VK_DEVICE_EXT_PFN(vkSetLatencySleepModeNV)
