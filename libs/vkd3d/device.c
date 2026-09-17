@@ -103,6 +103,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_INDEX_TYPE_UINT8, KHR_index_type_uint8),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS_2, KHR_shader_float_controls2),
     VK_EXTENSION_COND(KHR_DYNAMIC_RENDERING_LOCAL_READ, KHR_dynamic_rendering_local_read, VKD3D_CONFIG_FLAG_STATIC(REQUIRE_INPUT_ATTACHMENTS)),
+    VK_EXTENSION_COND(KHR_DEVICE_FAULT, KHR_device_fault, VKD3D_CONFIG_FLAG_STATIC(FAULT)),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CONSERVATIVE_RASTERIZATION, EXT_conservative_rasterization),
@@ -132,7 +133,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
     VK_EXTENSION(EXT_LINE_RASTERIZATION, EXT_line_rasterization),
     VK_EXTENSION(EXT_IMAGE_COMPRESSION_CONTROL, EXT_image_compression_control),
-    VK_EXTENSION_COND(EXT_DEVICE_FAULT, EXT_device_fault, VKD3D_CONFIG_FLAG_STATIC(FAULT)),
     VK_EXTENSION(EXT_MEMORY_BUDGET, EXT_memory_budget),
     VK_EXTENSION_COND(EXT_DEVICE_ADDRESS_BINDING_REPORT, EXT_device_address_binding_report, VKD3D_CONFIG_FLAG_STATIC(FAULT)),
     VK_EXTENSION(EXT_DEPTH_BIAS_CONTROL, EXT_depth_bias_control),
@@ -1631,9 +1631,9 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->memory_decompression_properties);
     }
 
-    if (vulkan_info->EXT_device_fault)
+    if (vulkan_info->KHR_device_fault)
     {
-        info->fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+        info->fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->fault_features);
     }
 
@@ -10884,29 +10884,34 @@ HRESULT d3d12_device_removed_reason(struct d3d12_device *device)
     return vkd3d_atomic_uint32_load_explicit(&device->removed_reason, vkd3d_memory_order_acquire);
 }
 
-void d3d12_device_report_fault(struct d3d12_device *device)
+void d3d12_device_report_fault(struct d3d12_device *device, VkResult vr)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     static pthread_mutex_t report_lock = PTHREAD_MUTEX_INITIALIZER;
-    VkDeviceFaultCountsEXT fault_counts;
-    VkDeviceFaultInfoEXT fault_info;
+    VkDeviceFaultInfoKHR fault_info[64];
     static bool reported = false;
-    VkResult vr;
+    void *vendor_binary = NULL;
+    uint64_t start_wait_idle;
+    uint32_t fault_counts;
     uint32_t i;
+
+    static const char *address_type_to_str[] =
+    {
+        "N/A",
+        "ReadInvalid",
+        "WriteInvalid",
+        "ExecuteInvalid",
+        "UnknownPC",
+        "InvalidPC",
+        "FaultPC",
+    };
 
     d3d12_device_mark_as_removed(device, DXGI_ERROR_DEVICE_REMOVED, "VK_ERROR_DEVICE_LOST");
 
     if (!device->device_info.fault_features.deviceFault)
         return;
 
-    fault_counts.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT;
-    fault_counts.pNext = NULL;
-    if ((vr = VK_CALL(vkGetDeviceFaultInfoEXT(device->vk_device, &fault_counts, NULL)) < 0))
-    {
-        ERR("Failed to query device fault info, vr %d.\n", vr);
-        return;
-    }
-
+    /* Only need to dump information once. */
     pthread_mutex_lock(&report_lock);
     if (reported)
     {
@@ -10915,66 +10920,106 @@ void d3d12_device_report_fault(struct d3d12_device *device)
     }
     reported = true;
 
-    memset(&fault_info, 0, sizeof(fault_info));
-    fault_info.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT;
+    start_wait_idle = vkd3d_get_current_time_ns();
 
-    /* Don't have to explicitly check vendor binary feature,
-     * implementations must return 0 size if not enabled. */
-    fault_info.pAddressInfos = vkd3d_calloc(fault_counts.addressInfoCount, sizeof(*fault_info.pAddressInfos));
-    fault_info.pVendorBinaryData = vkd3d_malloc(fault_counts.vendorBinarySize);
-    fault_info.pVendorInfos = vkd3d_calloc(fault_counts.vendorInfoCount, sizeof(*fault_info.pVendorInfos));
-
-    vr = VK_CALL(vkGetDeviceFaultInfoEXT(device->vk_device, &fault_counts, &fault_info));
-
-    if (vr < 0)
+    while (vr != VK_ERROR_DEVICE_LOST && vkd3d_get_current_time_ns() < start_wait_idle + 5000000000ull)
     {
-        ERR("Failed to query device fault info, vr %d.\n", vr);
+        ERR("DEVICE_LOST has not been properly observed yet, blocking until we can confirm that.\n");
+        /* We have to observe an actual device lost. */
+        vr = VK_CALL(vkDeviceWaitIdle(device->vk_device));
     }
-    else
+
+    if (vr != VK_ERROR_DEVICE_LOST)
+        ERR("We could not observe device lost in finite time. Very strange. Trying to fish for faults anyway.\n");
+
+    fault_counts = ARRAY_SIZE(fault_info);
+    memset(fault_info, 0, sizeof(fault_info));
+    for (i = 0; i < fault_counts; i++)
+        fault_info[i].sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_KHR;
+
+    /* Might be a delay from device lost until we have the fault info ready. Block for a second just in case. */
+    if (VK_CALL(vkGetDeviceFaultReportsKHR(device->vk_device, 1000000000, &fault_counts, fault_info)) != VK_SUCCESS)
     {
-        static const char *address_type_to_str[] =
+        ERR("Failed to query device fault info.\n");
+        goto unlock;
+    }
+
+    ERR("DEVICE_LOST received, reporting fault.\n");
+
+    for (i = 0; i < fault_counts; i++)
+    {
+        const VkDeviceFaultAddressInfoKHR *inst_info = &fault_info[i].instructionAddressInfo;
+        const VkDeviceFaultAddressInfoKHR *addr_info = &fault_info[i].faultAddressInfo;
+        const char *type;
+
+        ERR("Desc: %s\n", fault_info[i].description);
+
+        if (fault_info[i].flags & VK_DEVICE_FAULT_FLAG_DEVICE_LOST_KHR)
+            ERR("Flag [%u] contains DEVICE_LOST.\n", i);
+        if (fault_info[i].flags & VK_DEVICE_FAULT_FLAG_WATCHDOG_TIMEOUT_KHR)
+            ERR("Flag [%u] contains WATCHDOG_TIMEOUT.\n", i);
+
+        if (fault_info[i].flags & VK_DEVICE_FAULT_FLAG_VENDOR_KHR)
         {
-            "N/A",
-            "ReadInvalid",
-            "WriteInvalid",
-            "ExecuteInvalid",
-            "UnknownPC",
-            "InvalidPC",
-            "FaultPC",
-        };
+            ERR("Vendor [%u] = { code = #%"PRIx64", data = #%"PRIx64", desc = %s }\n", i,
+                fault_info[i].vendorInfo.vendorFaultCode,
+                fault_info[i].vendorInfo.vendorFaultData,
+                fault_info[i].vendorInfo.description);
+        }
 
-        ERR("DEVICE_LOST received, reporting fault.\n");
-        ERR("Desc: %s\n", fault_info.description);
-
-        for (i = 0; i < fault_counts.addressInfoCount; i++)
+        if (fault_info[i].flags & VK_DEVICE_FAULT_FLAG_MEMORY_ADDRESS_KHR)
         {
-            const VkDeviceFaultAddressInfoEXT *addr = &fault_info.pAddressInfos[i];
-            const char *type;
-
-            if (addr->addressType < ARRAY_SIZE(address_type_to_str))
-                type = address_type_to_str[addr->addressType];
+            if (addr_info->addressType < ARRAY_SIZE(address_type_to_str))
+                type = address_type_to_str[addr_info->addressType];
             else
                 type = "?";
 
             ERR("Address [%u]: %016"PRIx64" (granularity %"PRIx64"), type %s\n", i,
-                    addr->reportedAddress, addr->addressPrecision, type);
+                    addr_info->reportedAddress, addr_info->addressPrecision, type);
 
-            vkd3d_address_binding_tracker_check_va(&device->address_binding_tracker, addr->reportedAddress);
+            switch (addr_info->addressType)
+            {
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_KHR:
+                case VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_KHR:
+                    vkd3d_address_binding_tracker_check_va(&device->address_binding_tracker, addr_info->reportedAddress);
+                    break;
+
+                default:
+                    break;
+            }
         }
 
-        for (i = 0; i < fault_counts.vendorInfoCount; i++)
+        if (fault_info[i].flags & VK_DEVICE_FAULT_FLAG_INSTRUCTION_ADDRESS_KHR)
         {
-            const VkDeviceFaultVendorInfoEXT *vend = &fault_info.pVendorInfos[i];
-            ERR("Vendor [%u]: (code #%"PRIx64") (data #%"PRIx64") %s\n",
-                    i, vend->vendorFaultCode, vend->vendorFaultData,
-                    vend->description);
-        }
+            if (inst_info->addressType < ARRAY_SIZE(address_type_to_str))
+                type = address_type_to_str[inst_info->addressType];
+            else
+                type = "?";
 
-        if (fault_counts.vendorBinarySize >= sizeof(VkDeviceFaultVendorBinaryHeaderVersionOneEXT))
+            ERR("Instruction [%u]: %016"PRIx64" (granularity %"PRIx64"), type %s\n", i,
+                    inst_info->reportedAddress, inst_info->addressPrecision, type);
+        }
+    }
+
+    if (device->device_info.fault_features.deviceFaultVendorBinary)
+    {
+        VkDeviceFaultDebugInfoKHR fault_debug_info;
+
+        memset(&fault_debug_info, 0, sizeof(fault_debug_info));
+        fault_debug_info.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_DEBUG_INFO_KHR;
+        if (VK_CALL(vkGetDeviceFaultDebugInfoKHR(device->vk_device, &fault_debug_info)) != VK_SUCCESS)
+            goto unlock;
+
+        vendor_binary = vkd3d_malloc(fault_debug_info.vendorBinarySize);
+        fault_debug_info.pVendorBinaryData = vendor_binary;
+        if (VK_CALL(vkGetDeviceFaultDebugInfoKHR(device->vk_device, &fault_debug_info)) != VK_SUCCESS)
+            goto unlock;
+
+        if (fault_debug_info.vendorBinarySize >= sizeof(VkDeviceFaultVendorBinaryHeaderVersionOneKHR))
         {
-            const VkDeviceFaultVendorBinaryHeaderVersionOneEXT *header = fault_info.pVendorBinaryData;
-            if (header->headerVersion == VK_DEVICE_FAULT_VENDOR_BINARY_HEADER_VERSION_ONE_EXT &&
-                    header->headerSize <= fault_counts.vendorBinarySize)
+            const VkDeviceFaultVendorBinaryHeaderVersionOneKHR *header = fault_debug_info.pVendorBinaryData;
+            if (header->headerVersion == VK_DEVICE_FAULT_VENDOR_BINARY_HEADER_VERSION_ONE_KHR &&
+                header->headerSize <= fault_debug_info.vendorBinarySize)
             {
                 const char *path = "vkd3d-proton.fault.bin";
                 char cache_uuid[VK_UUID_SIZE * 2 + 1];
@@ -10986,16 +11031,17 @@ void d3d12_device_report_fault(struct d3d12_device *device)
                 ERR("driverVersion: #%x\n", header->driverVersion);
                 ERR("deviceID: #%x\n", header->deviceID);
                 ERR("apiVersion: #%x\n", header->apiVersion);
+
                 if (header->applicationNameOffset)
                 {
                     ERR("applicationName: %s\n",
-                            ((const char *)fault_info.pVendorBinaryData) + header->applicationNameOffset);
+                            ((const char *)fault_debug_info.pVendorBinaryData) + header->applicationNameOffset);
                     ERR("applicationVersion: #%x\n", header->applicationVersion);
                 }
 
                 if (header->engineNameOffset)
                 {
-                    ERR("engineName: %s\n", ((const char *)fault_info.pVendorBinaryData) + header->engineNameOffset);
+                    ERR("engineName: %s\n", ((const char *)fault_debug_info.pVendorBinaryData) + header->engineNameOffset);
                     ERR("engineVersion: #%x\n", header->engineVersion);
                 }
 
@@ -11007,8 +11053,8 @@ void d3d12_device_report_fault(struct d3d12_device *device)
                 file = fopen(path, "wb");
                 if (file)
                 {
-                    size_t write_size = fault_counts.vendorBinarySize - header->headerSize;
-                    if (fwrite((const uint8_t *)fault_info.pVendorBinaryData + header->headerSize, 1,
+                    size_t write_size = fault_debug_info.vendorBinarySize - header->headerSize;
+                    if (fwrite((const uint8_t *)fault_debug_info.pVendorBinaryData + header->headerSize, 1,
                             write_size, file) != write_size)
                     {
                         ERR("Failed to write fault file.\n");
@@ -11023,10 +11069,11 @@ void d3d12_device_report_fault(struct d3d12_device *device)
         }
     }
 
+unlock:
+    /* Keep the lock held until we're completely done to avoid other threads spamming new submissions
+     * in a lost state. */
     pthread_mutex_unlock(&report_lock);
-    vkd3d_free(fault_info.pAddressInfos);
-    vkd3d_free(fault_info.pVendorBinaryData);
-    vkd3d_free(fault_info.pVendorInfos);
+    vkd3d_free(vendor_binary);
 }
 
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
