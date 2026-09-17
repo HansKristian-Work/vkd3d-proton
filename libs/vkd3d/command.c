@@ -643,6 +643,10 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
         /* This is a good time to kick the debug threads into action. */
         vkd3d_shader_debug_ring_kick(&device->debug_ring, device, false);
         vkd3d_descriptor_debug_kick_qa_check(device->descriptor_qa_global_info);
+
+        /* Some page faults may not trigger a real fault. Just poll. */
+        if (device->device_info.fault_features.deviceFaultReportMasked)
+            d3d12_device_poll_device_faults(device, 0);
     }
 
     vkd3d_waiting_fence_complete_submissions(device, worker, fence, true);

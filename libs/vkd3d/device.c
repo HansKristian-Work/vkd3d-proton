@@ -3925,6 +3925,12 @@ static void d3d12_device_destroy(struct d3d12_device *device)
         vkd3d_renderdoc_end_capture(device->vkd3d_instance->vk_instance);
 #endif
 
+    /* Some page faults may not trigger a real fault. Just poll.
+     * It's possible we missed some page faults. This is our last chance.
+     */
+    if (device->device_info.fault_features.deviceFaultReportMasked)
+        d3d12_device_poll_device_faults(device, 0);
+
     vkd3d_free((void *)device->vk_info.extension_names);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
     rwlock_destroy(&device->fragment_output_lock);
@@ -10898,15 +10904,12 @@ HRESULT d3d12_device_removed_reason(struct d3d12_device *device)
     return vkd3d_atomic_uint32_load_explicit(&device->removed_reason, vkd3d_memory_order_acquire);
 }
 
-void d3d12_device_report_fault(struct d3d12_device *device, VkResult vr)
+VkResult d3d12_device_poll_device_faults(struct d3d12_device *device, uint64_t timeout)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    static pthread_mutex_t report_lock = PTHREAD_MUTEX_INITIALIZER;
     VkDeviceFaultInfoKHR fault_info[64];
-    static bool reported = false;
-    void *vendor_binary = NULL;
-    uint64_t start_wait_idle;
     uint32_t fault_counts;
+    VkResult vr;
     uint32_t i;
 
     static const char *address_type_to_str[] =
@@ -10920,31 +10923,8 @@ void d3d12_device_report_fault(struct d3d12_device *device, VkResult vr)
         "FaultPC",
     };
 
-    d3d12_device_mark_as_removed(device, DXGI_ERROR_DEVICE_REMOVED, "VK_ERROR_DEVICE_LOST");
-
     if (!device->device_info.fault_features.deviceFault)
-        return;
-
-    /* Only need to dump information once. */
-    pthread_mutex_lock(&report_lock);
-    if (reported)
-    {
-        pthread_mutex_unlock(&report_lock);
-        return;
-    }
-    reported = true;
-
-    start_wait_idle = vkd3d_get_current_time_ns();
-
-    while (vr != VK_ERROR_DEVICE_LOST && vkd3d_get_current_time_ns() < start_wait_idle + 5000000000ull)
-    {
-        ERR("DEVICE_LOST has not been properly observed yet, blocking until we can confirm that.\n");
-        /* We have to observe an actual device lost. */
-        vr = VK_CALL(vkDeviceWaitIdle(device->vk_device));
-    }
-
-    if (vr != VK_ERROR_DEVICE_LOST)
-        ERR("We could not observe device lost in finite time. Very strange. Trying to fish for faults anyway.\n");
+        return VK_ERROR_EXTENSION_NOT_PRESENT;
 
     fault_counts = ARRAY_SIZE(fault_info);
     memset(fault_info, 0, sizeof(fault_info));
@@ -10952,14 +10932,16 @@ void d3d12_device_report_fault(struct d3d12_device *device, VkResult vr)
         fault_info[i].sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_KHR;
 
     /* Might be a delay from device lost until we have the fault info ready. Block for a second just in case. */
-    if (VK_CALL(vkGetDeviceFaultReportsKHR(
-        device->vk_device, 1000000000, &fault_counts, fault_info)) != VK_SUCCESS)
+    if ((vr = VK_CALL(vkGetDeviceFaultReportsKHR(
+        device->vk_device, timeout, &fault_counts, fault_info))) != VK_SUCCESS)
     {
-        ERR("Failed to query device fault info.\n");
-        goto unlock;
+        return vr;
     }
 
-    ERR("DEVICE_LOST received, reporting fault.\n");
+    if (fault_counts == 0)
+        return VK_SUCCESS;
+
+    ERR("Reporting faults.\n");
 
     for (i = 0; i < fault_counts; i++)
     {
@@ -11015,6 +10997,47 @@ void d3d12_device_report_fault(struct d3d12_device *device, VkResult vr)
                     inst_info->reportedAddress, inst_info->addressPrecision, type);
         }
     }
+
+    return VK_SUCCESS;
+}
+
+void d3d12_device_report_fault(struct d3d12_device *device, VkResult vr)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    static pthread_mutex_t report_lock = PTHREAD_MUTEX_INITIALIZER;
+    static bool reported = false;
+    void *vendor_binary = NULL;
+    uint64_t start_wait_idle;
+    uint32_t i;
+
+    d3d12_device_mark_as_removed(device, DXGI_ERROR_DEVICE_REMOVED, "VK_ERROR_DEVICE_LOST");
+
+    if (!device->device_info.fault_features.deviceFault)
+        return;
+
+    /* Only need to dump information once. */
+    pthread_mutex_lock(&report_lock);
+    if (reported)
+    {
+        pthread_mutex_unlock(&report_lock);
+        return;
+    }
+    reported = true;
+
+    start_wait_idle = vkd3d_get_current_time_ns();
+
+    while (vr != VK_ERROR_DEVICE_LOST && vkd3d_get_current_time_ns() < start_wait_idle + 5000000000ull)
+    {
+        ERR("DEVICE_LOST has not been properly observed yet, blocking until we can confirm that.\n");
+        /* We have to observe an actual device lost. */
+        vr = VK_CALL(vkDeviceWaitIdle(device->vk_device));
+    }
+
+    if (vr != VK_ERROR_DEVICE_LOST)
+        ERR("We could not observe device lost in finite time. Very strange. Trying to fish for faults anyway.\n");
+
+    if (d3d12_device_poll_device_faults(device, 1000000000ull) != VK_SUCCESS)
+        ERR("Failed to poll for device faults.\n");
 
     if (device->device_info.fault_features.deviceFaultVendorBinary)
     {
