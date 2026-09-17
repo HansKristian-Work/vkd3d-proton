@@ -372,6 +372,7 @@ HRESULT vkd3d_address_binding_tracker_init(struct vkd3d_address_binding_tracker 
     pthread_mutex_init(&tracker->lock, NULL);
 
     memset(&create_info, 0, sizeof(create_info));
+    create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
     create_info.pUserData = tracker;
     create_info.pfnUserCallback = vkd3d_address_binding_callback;
