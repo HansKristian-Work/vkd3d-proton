@@ -161,6 +161,8 @@ struct vkd3d_vulkan_info
     bool KHR_shader_float_controls2;
     bool KHR_dynamic_rendering_local_read;
     bool KHR_device_fault;
+    bool KHR_shader_abort;
+    bool KHR_shader_constant_data;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -4106,6 +4108,7 @@ void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
 /* If we assume device lost, try really hard to fish for messages. */
 void vkd3d_shader_debug_ring_kick(struct vkd3d_shader_debug_ring *state,
         struct d3d12_device *device, bool device_lost);
+void vkd3d_shader_abort_print_message_sequence(const uint64_t *tokens, size_t length);
 
 enum vkd3d_breadcrumb_command_type
 {
@@ -5404,6 +5407,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentFeaturesVALVE buffer_device_address_allocation_alignment_features;
     VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT invocation_reorder_features;
     VkPhysicalDeviceShaderLongVectorFeaturesEXT long_vector_features;
+    VkPhysicalDeviceShaderAbortFeaturesKHR shader_abort_features;
+    VkPhysicalDeviceShaderConstantDataFeaturesKHR shader_constant_data_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

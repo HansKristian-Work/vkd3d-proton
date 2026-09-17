@@ -104,6 +104,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS_2, KHR_shader_float_controls2),
     VK_EXTENSION_COND(KHR_DYNAMIC_RENDERING_LOCAL_READ, KHR_dynamic_rendering_local_read, VKD3D_CONFIG_FLAG_STATIC(REQUIRE_INPUT_ATTACHMENTS)),
     VK_EXTENSION_COND(KHR_DEVICE_FAULT, KHR_device_fault, VKD3D_CONFIG_FLAG_STATIC(FAULT)),
+    VK_EXTENSION_COND(KHR_SHADER_ABORT, KHR_shader_abort, VKD3D_CONFIG_FLAG_STATIC(FAULT)),
+    VK_EXTENSION_COND(KHR_SHADER_CONSTANT_DATA, KHR_shader_constant_data, VKD3D_CONFIG_FLAG_STATIC(FAULT)),
     /* EXT extensions */
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
     VK_EXTENSION(EXT_CONSERVATIVE_RASTERIZATION, EXT_conservative_rasterization),
@@ -1635,6 +1637,18 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->fault_features);
+    }
+
+    if (vulkan_info->KHR_shader_abort)
+    {
+        info->shader_abort_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ABORT_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->shader_abort_features);
+    }
+
+    if (vulkan_info->KHR_shader_constant_data)
+    {
+        info->shader_constant_data_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CONSTANT_DATA_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->shader_constant_data_features);
     }
 
     if (vulkan_info->KHR_swapchain_maintenance1 || vulkan_info->EXT_swapchain_maintenance1)
@@ -10938,7 +10952,8 @@ void d3d12_device_report_fault(struct d3d12_device *device, VkResult vr)
         fault_info[i].sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_KHR;
 
     /* Might be a delay from device lost until we have the fault info ready. Block for a second just in case. */
-    if (VK_CALL(vkGetDeviceFaultReportsKHR(device->vk_device, 1000000000, &fault_counts, fault_info)) != VK_SUCCESS)
+    if (VK_CALL(vkGetDeviceFaultReportsKHR(
+        device->vk_device, 1000000000, &fault_counts, fault_info)) != VK_SUCCESS)
     {
         ERR("Failed to query device fault info.\n");
         goto unlock;
@@ -11066,6 +11081,39 @@ void d3d12_device_report_fault(struct d3d12_device *device, VkResult vr)
             }
             else
                 ERR("Binary header is not version one as expected.\n");
+        }
+    }
+
+    if (device->device_info.shader_abort_features.shaderAbort)
+    {
+        VkDeviceFaultShaderAbortMessageInfoKHR message_info;
+        VkDeviceFaultDebugInfoKHR fault_debug_info;
+
+        memset(&fault_debug_info, 0, sizeof(fault_debug_info));
+        memset(&message_info, 0, sizeof(message_info));
+
+        fault_debug_info.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_DEBUG_INFO_KHR;
+        fault_debug_info.pNext = &message_info;
+        message_info.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_SHADER_ABORT_MESSAGE_INFO_KHR;
+
+        if (VK_CALL(vkGetDeviceFaultDebugInfoKHR(device->vk_device, &fault_debug_info)) != VK_SUCCESS)
+            goto unlock;
+
+        if (message_info.messageDataSize)
+        {
+            uint64_t *msg = vkd3d_malloc(message_info.messageDataSize);
+            message_info.pMessageData = msg;
+
+            if (VK_CALL(vkGetDeviceFaultDebugInfoKHR(device->vk_device, &fault_debug_info)) != VK_SUCCESS)
+            {
+                vkd3d_free(msg);
+                goto unlock;
+            }
+
+            ERR("Got shader abort length of %"PRIu64"\n", message_info.messageDataSize);
+
+            vkd3d_shader_abort_print_message_sequence(msg, message_info.messageDataSize);
+            vkd3d_free(msg);
         }
     }
 

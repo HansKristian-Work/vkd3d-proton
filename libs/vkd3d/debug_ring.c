@@ -510,3 +510,88 @@ void vkd3d_shader_debug_ring_kick(struct vkd3d_shader_debug_ring *ring, struct d
         pthread_cond_signal(&ring->ring_cond);
     }
 }
+
+static void vkd3d_shader_abort_print_message(const char *msg, size_t length)
+{
+    const char *term = memchr(msg, '\0', length);
+    ERR("Got message length of %zu\n", length);
+
+    if (term && term != msg)
+    {
+        /* ConstantDataKHR is packed in terms of u32 words. sizeof(str) including nul-terminator is rounded up.
+         * From there we get scalar alignment for arguments following the string payload. */
+        size_t argument_offset = align(term + 1 - msg, sizeof(uint32_t));
+        size_t format_length = term - msg;
+        size_t format_offset = 0;
+        size_t buflen = 0;
+        char buf[1024];
+
+        /* Very basic formatting support. Enough to report what we care about. */
+        while (format_offset < format_length && buflen < ARRAY_SIZE(buf) - 64)
+        {
+            if (format_offset + 2 <= format_length && strncmp(msg + format_offset, "%%", 2) == 0)
+            {
+                buf[buflen++] = '%';
+                format_offset += 2;
+            }
+
+#define CHECK_FORMAT_STRING(str, host_str, type) \
+            if (format_offset + strlen(str) <= format_length && strncmp(msg + format_offset, str, strlen(str)) == 0) \
+            { \
+                type arg = 0; \
+                argument_offset = align(argument_offset, sizeof(type)); \
+                if (argument_offset + sizeof(type) <= length) \
+                    memcpy(&arg, msg + argument_offset, sizeof(type)); \
+                argument_offset += sizeof(type); \
+                buflen += snprintf(buf + buflen, ARRAY_SIZE(buf) - buflen, host_str, arg); \
+                format_offset += strlen(str); \
+                continue; \
+            }
+
+            CHECK_FORMAT_STRING("%u", "%u", uint32_t);
+            CHECK_FORMAT_STRING("%x", "%x", uint32_t);
+            CHECK_FORMAT_STRING("%d", "%d", int32_t);
+            CHECK_FORMAT_STRING("%lu", "%"PRIu64, uint64_t);
+            CHECK_FORMAT_STRING("%ld", "%"PRId64, int64_t);
+            CHECK_FORMAT_STRING("%lx", "%"PRIx64, uint64_t);
+            CHECK_FORMAT_STRING("%f", "%f", float);
+            CHECK_FORMAT_STRING("%g", "%g", float);
+
+            if (format_offset < format_length)
+                buf[buflen++] = msg[format_offset++];
+        }
+
+        buf[buflen] = '\0';
+        ERR("ShaderAbort payload: %s\n", buf);
+    }
+    else
+    {
+        ERR("Message does not look like a printf.\n");
+    }
+}
+
+void vkd3d_shader_abort_print_message_sequence(const uint64_t *tokens, size_t length)
+{
+    /* The buffer is laid out as raw length + payload pairs. Pairs are aligned to 64-bit. */
+    while (length >= sizeof(uint64_t))
+    {
+        uint64_t msg_length = tokens[0];
+        uint64_t aligned_msg_length;
+        length -= sizeof(uint64_t);
+        tokens++;
+
+        if (msg_length > length)
+        {
+            ERR("Invalid message length.\n");
+            return;
+        }
+
+        aligned_msg_length = align64(msg_length, sizeof(*tokens));
+
+        vkd3d_shader_abort_print_message((const char *)tokens, msg_length);
+        tokens += aligned_msg_length / sizeof(*tokens);
+
+        /* The total length of buffer doesn't have to be aligned to 8 bytes. */
+        length -= min(aligned_msg_length, length);
+    }
+}
