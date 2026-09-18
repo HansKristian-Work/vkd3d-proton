@@ -263,7 +263,7 @@ uint32_t vkd3d_descriptor_debug_clear_bloom_filter(
     return sync_cookie;
 }
 
-static const char *qa_value_to_tag(uint32_t value)
+const char *vkd3d_expect_assume_qa_value_to_tag(uint32_t value)
 {
 #define TAG(tag) case VKD3D_EXPECT_ASSUME_##tag: return #tag
     switch (value)
@@ -326,7 +326,7 @@ static void *vkd3d_descriptor_debug_qa_check_instruction(void *userdata)
 
                     payload_index = i * 16 + (vkd3d_bitmask_iter32(&word) - 16);
                     value = payload_data[payload_index].value;
-                    expect_assume_tag = qa_value_to_tag(value);
+                    expect_assume_tag = vkd3d_expect_assume_qa_value_to_tag(value);
 
                     if (expect_assume_tag)
                     {

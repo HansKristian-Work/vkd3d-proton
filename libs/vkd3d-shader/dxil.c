@@ -1288,6 +1288,18 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SHADER_ABORT)
+            {
+                static const dxil_spv_option_shader_abort shader_abort = {
+                    { DXIL_SPV_OPTION_SHADER_ABORT }, DXIL_SPV_TRUE,
+                };
+
+                if (dxil_spv_converter_add_option(converter, &shader_abort.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support SHADER_ABORT.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
         }
 
         if (compiler_args->driver_version)

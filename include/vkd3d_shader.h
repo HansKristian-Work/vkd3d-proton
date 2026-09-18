@@ -446,6 +446,7 @@ enum vkd3d_shader_target_extension
      * translating to SSBOs. We always need the wrap if we have to fallback to texel buffers however. */
     VKD3D_SHADER_TARGET_EXTENSION_ASSUME_SSBO_32BIT_WRAPPING,
     VKD3D_SHADER_TARGET_EXTENSION_FLOAT_CONTROLS_2,
+    VKD3D_SHADER_TARGET_EXTENSION_SHADER_ABORT,
     VKD3D_SHADER_TARGET_EXTENSION_COUNT,
 };
 
