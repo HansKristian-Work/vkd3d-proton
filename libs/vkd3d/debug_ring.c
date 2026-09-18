@@ -24,6 +24,10 @@
 #include "vkd3d_platform.h"
 #include <stdio.h>
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+#include "vkd3d_descriptor_debug.h"
+#endif
+
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
         struct vkd3d_shader_spec_info *info, vkd3d_shader_hash_t hash)
 {
@@ -518,22 +522,36 @@ static void vkd3d_shader_abort_print_message(const char *msg, size_t length)
 
     if (term && term != msg)
     {
-        /* ConstantDataKHR is packed in terms of u32 words. sizeof(str) including nul-terminator is rounded up.
-         * From there we get scalar alignment for arguments following the string payload. */
-        size_t argument_offset = align(term + 1 - msg, sizeof(uint32_t));
-        size_t format_length = term - msg;
-        size_t format_offset = 0;
-        size_t buflen = 0;
-        char buf[1024];
-
-        /* Very basic formatting support. Enough to report what we care about. */
-        while (format_offset < format_length && buflen < ARRAY_SIZE(buf) - 64)
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+        if (strcmp(msg, "ABRTMSG") == 0 && length == 8 + sizeof(struct vkd3d_abort_msg_payload))
         {
-            if (format_offset + 2 <= format_length && strncmp(msg + format_offset, "%%", 2) == 0)
+            struct vkd3d_abort_msg_payload payload;
+            const char *tag;
+
+            memcpy(&payload, msg + 8, sizeof(payload));
+            tag = vkd3d_expect_assume_qa_value_to_tag(payload.code);
+            ERR("QA: expect-assume error %s || shader %016"PRIx64", inst %u.\n",
+                 tag, payload.hash, payload.inst_index);
+        }
+        else
+#endif
+        {
+            /* ConstantDataKHR is packed in terms of u32 words. sizeof(str) including nul-terminator is rounded up.
+             * From there we get scalar alignment for arguments following the string payload. */
+            size_t argument_offset = align(term + 1 - msg, sizeof(uint32_t));
+            size_t format_length = term - msg;
+            size_t format_offset = 0;
+            size_t buflen = 0;
+            char buf[1024];
+
+            /* Very basic formatting support. Enough to report what we care about. */
+            while (format_offset < format_length && buflen < ARRAY_SIZE(buf) - 64)
             {
-                buf[buflen++] = '%';
-                format_offset += 2;
-            }
+                if (format_offset + 2 <= format_length && strncmp(msg + format_offset, "%%", 2) == 0)
+                {
+                    buf[buflen++] = '%';
+                    format_offset += 2;
+                }
 
 #define CHECK_FORMAT_STRING(str, host_str, type) \
             if (format_offset + strlen(str) <= format_length && strncmp(msg + format_offset, str, strlen(str)) == 0) \
@@ -548,21 +566,22 @@ static void vkd3d_shader_abort_print_message(const char *msg, size_t length)
                 continue; \
             }
 
-            CHECK_FORMAT_STRING("%u", "%u", uint32_t);
-            CHECK_FORMAT_STRING("%x", "%x", uint32_t);
-            CHECK_FORMAT_STRING("%d", "%d", int32_t);
-            CHECK_FORMAT_STRING("%lu", "%"PRIu64, uint64_t);
-            CHECK_FORMAT_STRING("%ld", "%"PRId64, int64_t);
-            CHECK_FORMAT_STRING("%lx", "%"PRIx64, uint64_t);
-            CHECK_FORMAT_STRING("%f", "%f", float);
-            CHECK_FORMAT_STRING("%g", "%g", float);
+                CHECK_FORMAT_STRING("%u", "%u", uint32_t);
+                CHECK_FORMAT_STRING("%x", "%x", uint32_t);
+                CHECK_FORMAT_STRING("%d", "%d", int32_t);
+                CHECK_FORMAT_STRING("%lu", "%"PRIu64, uint64_t);
+                CHECK_FORMAT_STRING("%ld", "%"PRId64, int64_t);
+                CHECK_FORMAT_STRING("%lx", "%"PRIx64, uint64_t);
+                CHECK_FORMAT_STRING("%f", "%f", float);
+                CHECK_FORMAT_STRING("%g", "%g", float);
 
-            if (format_offset < format_length)
-                buf[buflen++] = msg[format_offset++];
+                if (format_offset < format_length)
+                    buf[buflen++] = msg[format_offset++];
+            }
+
+            buf[buflen] = '\0';
+            ERR("ShaderAbort payload: %s\n", buf);
         }
-
-        buf[buflen] = '\0';
-        ERR("ShaderAbort payload: %s\n", buf);
     }
     else
     {
