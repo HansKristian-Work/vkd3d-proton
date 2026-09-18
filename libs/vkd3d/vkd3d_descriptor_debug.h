@@ -100,6 +100,15 @@ void vkd3d_descriptor_debug_copy_descriptor(
         struct vkd3d_cookie cookie);
 
 VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors);
+
+struct vkd3d_abort_msg_payload
+{
+    uint64_t hash;
+    uint32_t code;
+    uint32_t inst_index;
+};
+
+const char *vkd3d_expect_assume_qa_value_to_tag(uint32_t value);
 #else
 #define vkd3d_descriptor_debug_alloc_global_info(global_info, num_cookies, device) (S_OK)
 #define vkd3d_descriptor_debug_free_global_info(global_info, device) ((void)0)
