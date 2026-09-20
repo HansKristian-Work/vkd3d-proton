@@ -5531,12 +5531,6 @@ void test_tight_resource_alignment(void)
         D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
     };
 
-    static const UINT64 invalid_alignments[] =
-    {
-        8, 256u, D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT,
-        D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
-    };
-
     device = create_device();
 
     if (!device)
@@ -5578,6 +5572,7 @@ void test_tight_resource_alignment(void)
 
     /* For buffers, reported alignment must not be greater than 256 bytes and not pad the aligned buffer size */
     res_desc[0].Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    res_desc[0].Alignment = 0;
     res_desc[0].Width = 25600u;
     res_desc[0].Height = 1u;
     res_desc[0].DepthOrArraySize = 1u;
@@ -5586,27 +5581,6 @@ void test_tight_resource_alignment(void)
     res_desc[0].SampleDesc.Count = 1u;
     res_desc[0].Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     res_desc[0].Flags = D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT;
-
-    /* Passing an explicit alignment with the tight alignment flag is invalid */
-    for (i = 0; i < ARRAY_SIZE(invalid_alignments); i++)
-    {
-        vkd3d_test_set_context("Test %u", i);
-        res_desc[0].Alignment = invalid_alignments[i];
-
-        memset(res_infos, 0, sizeof(res_infos));
-        alloc_info = ID3D12Device4_GetResourceAllocationInfo1(device4, 0, 1, res_desc, res_infos);
-
-        ok(alloc_info.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Got buffer alignment %"PRIu64", expected 65536.\n", alloc_info.Alignment);
-        ok(alloc_info.SizeInBytes == -1ull, "Got allocation size %"PRIu64", expected -1.\n", alloc_info.SizeInBytes);
-
-        hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
-                &res_desc[0], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
-        ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
-    }
-
-    vkd3d_test_set_context(NULL);
-
-    res_desc[0].Alignment = 0;
 
     /* Reserved buffer creation does work for some reason, and alignment can be anything. Just
      * check that it works and that the returned desc still has the flag set. */
@@ -5658,9 +5632,9 @@ void test_tight_resource_alignment(void)
 
     /* Test regular image, alignment must not be greater than 64k. */
     res_desc[6].Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
-    res_desc[6].Width = 64;
-    res_desc[6].Height = 64;
-    res_desc[6].DepthOrArraySize = 64;
+    res_desc[6].Width = 256;
+    res_desc[6].Height = 256;
+    res_desc[6].DepthOrArraySize = 16;
     res_desc[6].MipLevels = 1u;
     res_desc[6].Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     res_desc[6].SampleDesc.Count = 1u;
@@ -5711,10 +5685,14 @@ void test_tight_resource_alignment(void)
         ok(res_infos[0].SizeInBytes == alloc_info.SizeInBytes,
                 "Got resource size %"PRIu64", which differs from allocation size %"PRIu64".\n", res_infos[0].SizeInBytes, alloc_info.SizeInBytes);
 
-        /* Test committed resource creation. Allocation alignment is 4k per spec, but reported alignment may be smaller. */
         if (res_desc[i].Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
         {
+            /* Test committed resource creation. Allocation alignment is 4k per spec, but reported alignment may be smaller. */
             UINT64 max_alignment = max(max_alignments[i], D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT);
+            UINT64 floor_alignment = res_desc[i].Dimension == D3D12_RESOURCE_DIMENSION_BUFFER ? 64u : 16384u;
+
+            if (floor_alignment > max_alignment)
+                floor_alignment = 1024u;
 
             hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
                     &res_desc[i], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
@@ -5727,10 +5705,37 @@ void test_tight_resource_alignment(void)
             ok(queried_desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT, "Missing D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT in flags %#x.\n", queried_desc.Flags);
 
             ID3D12Resource_Release(resource);
+
+            /* Test resource creation with floor alignment. This explicitly does not
+             * change the alignment queried from the resource here. */
+            res_desc[i].Alignment = floor_alignment;
+
+            hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                    &res_desc[i], D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+            ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
+
+            queried_desc = ID3D12Resource_GetDesc(resource);
+
+            ok(queried_desc.Alignment >= 8 && queried_desc.Alignment <= max_alignment,
+                    "Got alignment %"PRIu64", expected range is [8..%"PRIu64"].\n", queried_desc.Alignment, max_alignment);
+            ok(queried_desc.Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT, "Missing D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT in flags %#x.\n", queried_desc.Flags);
+
+            ID3D12Resource_Release(resource);
+
+            alloc_info = ID3D12Device4_GetResourceAllocationInfo1(device4, 0, 1, &res_desc[i], &res_infos[1]);
+            ok(res_infos[1].Alignment == res_infos[0].Alignment, "Got alignment %"PRIu64", expected %"PRIu64".\n",
+                    res_infos[1].Alignment, res_infos[0].Alignment);
+            ok(res_infos[1].SizeInBytes == res_infos[0].SizeInBytes, "Got size %"PRIu64", expected %"PRIu64".\n",
+                    res_infos[1].SizeInBytes, res_infos[0].SizeInBytes);
+
+            res_desc[i].Alignment = 0u;
         }
     }
 
-    /* Test querying multiple resources with tight alignment */
+    /* Explicitly align buffers to test behaviour with floor alignment. */
+    res_desc[0].Alignment = 256u;
+    res_desc[2].Alignment = 256u;
+
     memset(res_infos, 0, sizeof(res_infos));
     alloc_info = ID3D12Device4_GetResourceAllocationInfo1(device4, 0, ARRAY_SIZE(res_desc), res_desc, res_infos);
 
@@ -5793,6 +5798,14 @@ void test_tight_resource_alignment(void)
 
             hr = ID3D12Device_CreatePlacedResource(device, heap, res_infos[i].Offset, &res_desc[i],
                     D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
+
+            /* offset is probably unaligned here */
+            if (i == 2u && res_infos[i].Alignment < 256)
+            {
+                ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
+                continue;
+            }
+
             ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", (int)hr);
 
             queried_desc = ID3D12Resource_GetDesc(resource);
@@ -5819,16 +5832,30 @@ void test_tight_resource_alignment(void)
 
             ID3D12Resource_Release(resource);
 
+            /* Check floor alignment */
             if (res_desc[i].Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
             {
-                /* Passing a non-zero alignment is still invalid */
-                res_desc[i].Alignment = res_infos[i].Alignment;
+                UINT64 floor_alignment = res_desc[i].Dimension == D3D12_RESOURCE_DIMENSION_BUFFER ? 64u : 16384u;
 
-                hr = ID3D12Device_CreatePlacedResource(device, heap, res_infos[i].Offset, &res_desc[i],
+                if (floor_alignment > max_alignments[i])
+                    floor_alignment = 1024u;
+
+                res_desc[i].Alignment = floor_alignment;
+
+                hr = ID3D12Device_CreatePlacedResource(device, heap, floor_alignment / 2u, &res_desc[i],
                         D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
                 ok(hr == E_INVALIDARG, "Got hr %#x, expected E_INVALIDARG.\n", (int)hr);
 
+                hr = ID3D12Device_CreatePlacedResource(device, heap, 0u, &res_desc[i],
+                        D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resource);
+                ok(hr == S_OK, "Failed to create placed resource, hr %#x.\n", (int)hr);
+
+                queried_desc = ID3D12Resource_GetDesc(resource);
+                ok(queried_desc.Alignment == res_infos[i].Alignment, "Got resource aligment %"PRIu64", expected %"PRIu64".\n",
+                        queried_desc.Alignment, res_infos[i].Alignment);
+
                 res_desc[i].Alignment = 0u;
+                ID3D12Resource_Release(resource);
             }
         }
 
