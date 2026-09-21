@@ -8059,19 +8059,17 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
         else
         {
             if (FAILED(vkd3d_get_image_allocation_info(device, desc,
-                    num_castable_formats, p_castable_formats,
-                    &resource_info)))
+                    num_castable_formats, p_castable_formats, &resource_info)))
             {
                 WARN("Failed to get allocation info for texture.\n");
                 goto invalid;
             }
 
-            requested_alignment = desc->Alignment;
-
-            if (!desc->Alignment && !(desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT))
-                requested_alignment = d3d12_resource_desc_default_alignment(desc);
-
-            resource_info.Alignment = max(resource_info.Alignment, requested_alignment);
+            if (!(desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT))
+            {
+                requested_alignment = desc->Alignment ? desc->Alignment : d3d12_resource_desc_default_alignment(desc);
+                resource_info.Alignment = max(resource_info.Alignment, requested_alignment);
+            }
         }
 
         resource_info.SizeInBytes = align(resource_info.SizeInBytes, resource_info.Alignment);
