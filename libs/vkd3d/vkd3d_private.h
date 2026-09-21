@@ -669,7 +669,6 @@ struct d3d12_fence
 
     uint64_t max_pending_virtual_timeline_value;
     uint64_t virtual_value;
-    uint64_t signal_count;
     uint64_t update_count;
     struct d3d12_fence_value *pending_updates;
     size_t pending_updates_count;
