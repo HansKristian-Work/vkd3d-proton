@@ -563,6 +563,10 @@ static const struct vkd3d_shader_quirk_hash first_light_hashes[] = {
     { "MeshBinning_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
     { "MeshCount_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
     { "MeshProcessGG_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
+    /* Trail shaders encountered during the Pursue 009 car chase. */
+    { NULL, 0x52cf4ac5d79e32c2, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 }, /* TrailGen_CS */
+    { NULL, 0x7c53748f4bdbf24e, VKD3D_SHADER_QUIRK_ALLOW_WAVE64 }, /* TrailCount_CS */
+    { NULL, 0x8e50f673408f6640, VKD3D_SHADER_QUIRK_FIRST_LIGHT_TRAILSORT }, /* TrailSort_CS */
 };
 
 static const struct vkd3d_shader_quirk_info first_light_quirks = {

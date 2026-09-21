@@ -84,6 +84,7 @@ decl_test(test_unknown_rtv_format);
 decl_test(test_unknown_dsv_format);
 decl_test(test_append_aligned_element);
 decl_test(test_gpu_virtual_address);
+decl_test(test_first_light_trailsort);
 decl_test(test_fragment_coords);
 decl_test(test_fractional_viewports);
 decl_test(test_negative_viewports);

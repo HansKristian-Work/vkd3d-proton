@@ -590,6 +590,13 @@ enum vkd3d_shader_target_extension
  * where denorms really matter to visual output. */
 #define VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS (1ull << 40)
 
+/* For shaders whose algorithm supports Wave64 despite a fixed WaveSize(32).
+ * Only relax the requirement on Wave64-only devices. */
+#define VKD3D_SHADER_QUIRK_ALLOW_WAVE64 (1ull << 41)
+
+/* Replace the known First Light TrailSort shader on Wave64-only devices. */
+#define VKD3D_SHADER_QUIRK_FIRST_LIGHT_TRAILSORT (1ull << 42)
+
 typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash

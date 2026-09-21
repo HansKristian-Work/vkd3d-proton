@@ -26,6 +26,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <dxil_spirv_c.h>
+#include "shaders/first_light_trailsort.h"
 
 static bool dxil_match_shader_visibility(enum vkd3d_shader_visibility visibility,
                                          dxil_spv_shader_stage stage)
@@ -1507,6 +1508,23 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     }
 
     quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash, quirk_entry);
+    if ((quirks & VKD3D_SHADER_QUIRK_FIRST_LIGHT_TRAILSORT) &&
+            hash == 0x8e50f673408f6640 && compiler_args->min_subgroup_size == 64 &&
+            shader_interface_info->stage == VK_SHADER_STAGE_COMPUTE_BIT)
+    {
+        /* The original radix sort assumes 32 lanes throughout its algorithm.
+         * Translate an equivalent wave-independent DXIL shader with the actual
+         * root signature and device options, rather than embedding device-
+         * specific SPIR-V. Preserve the original hash for the pipeline cache. */
+        dxil_spv_parsed_blob_free(blob);
+        blob = NULL;
+        if (dxil_spv_parse_dxil_blob(first_light_trailsort_dxil,
+                sizeof(first_light_trailsort_dxil), &blob) != DXIL_SPV_SUCCESS)
+        {
+            ret = VKD3D_ERROR_INVALID_SHADER;
+            goto end;
+        }
+    }
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER)
@@ -1708,9 +1726,12 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
-    if (quirks & VKD3D_SHADER_QUIRK_DEBUG_FORCE_MIN_WAVE64)
+    if (((quirks & VKD3D_SHADER_QUIRK_ALLOW_WAVE64) &&
+            stage == DXIL_SPV_STAGE_COMPUTE && compiler_args->min_subgroup_size == 64 &&
+            wave_size_min == 32 && wave_size_max == 32) ||
+            (quirks & VKD3D_SHADER_QUIRK_DEBUG_FORCE_MIN_WAVE64))
     {
-        /* Force it when we use the debug quirk. */
+        /* Opt-in for wave-independent shaders, or the explicit debug override. */
         wave_size_min = 64;
         wave_size_max = 64;
         wave_size_preferred = 64;
