@@ -104,11 +104,16 @@ void test_first_light_trailsort(void)
                 seed ^= seed >> 17;
                 seed ^= seed << 5;
                 value = seed;
-                if (pattern == 1) value = i;
-                if (pattern == 2) value = n - i;
-                if (pattern == 3) value = 0xffffffffu;
-                if (pattern == 4) value &= 31;
-                if (pattern == 5) value = (i & 1) ? 0x80000000u : 0x7fffffffu;
+                if (pattern == 1)
+                    value = i;
+                if (pattern == 2)
+                    value = n - i;
+                if (pattern == 3)
+                    value = 0xffffffffu;
+                if (pattern == 4)
+                    value &= 31;
+                if (pattern == 5)
+                    value = (i & 1) ? 0x80000000u : 0x7fffffffu;
                 values[i] = expected[i] = value;
             }
             qsort(expected, n, sizeof(*expected), compare_sort_uints);
