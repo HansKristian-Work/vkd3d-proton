@@ -4987,6 +4987,25 @@ static float quant_fp8(float value)
     return fp8_to_float(float_to_fp8(value, true));
 }
 
+static float quant_fp16_fp8_fast(float value)
+{
+    /* dxil-spirv implements it like this, which isn't 100% theoretically correct in RTE, but good enough. */
+    uint16_t f16;
+    uint8_t u8;
+
+    if (value > 448.0f)
+        value = 448.0f;
+    else if (value < -448.0f)
+        value = -448.0f;
+
+    /* dxil-spirv does the 1/256 scale after conversion.
+     * Probably doesn't matter? Maybe affects denorm rounding order somehow. */
+    f16 = float_to_half(value / 256.0f);
+    u8 = ((f16 >> 8) & 0x80) | ((f16 + 0x3f) >> 7);
+
+    return fp8_to_float(u8);
+}
+
 static float quant_fp16(float value)
 {
     return half_to_float(float_to_half(value));
@@ -5000,12 +5019,6 @@ static float quant_fp16_rtz(float value)
     u32 &= ~((1 << (23 - 10)) - 1);
     memcpy(&value, &u32, sizeof(u32));
     return half_to_float(float_to_half(value));
-}
-
-static float quant_fp16_fp8(float value)
-{
-    /* dxil-spirv implements it like this, which isn't 100% theoretically correct in RTE. */
-    return quant_fp8(quant_fp16(value));
 }
 
 static ID3D12PipelineState *create_wmma_pso(ID3D12Device *device, ID3D12RootSignature *rs, D3D12_SHADER_BYTECODE code)
@@ -5245,7 +5258,7 @@ void test_wmma_matmul(void)
                 {
                     /* Emulation path doesn't have a dedicated FP32 -> FP8 RTE path,
                      * so double quant it is. */
-                    expected_alt = quant_fp16_fp8(expected);
+                    expected_alt = quant_fp16_fp8_fast(expected);
                     expected = quant_fp8(expected);
                 }
                 else if (tests[test_index].quant.type == TYPE_FP16)
@@ -6189,12 +6202,12 @@ void test_wmma_copy_transpose(void)
             ok(value_fp32 == expected, "FP32: Row %u, Col %u: Expected %f, got %f\n", j, i, expected, value_fp32);
 
             todo_if(is_todo)
-            ok(value_fp8 == quant_fp8(expected) || value_fp8 == quant_fp16_fp8(expected),
+            ok(value_fp8 == quant_fp8(expected) || value_fp8 == quant_fp16_fp8_fast(expected),
                     "FP8: Row %u, Col %u: Expected %f (rounded from %f), got %f\n",
                     j, i, quant_fp8(expected), expected, value_fp8);
 
             todo_if(is_todo)
-            ok(value_roundtrip_fp32 == quant_fp8(expected) || value_fp8 == quant_fp16_fp8(expected),
+            ok(value_roundtrip_fp32 == quant_fp8(expected) || value_fp8 == quant_fp16_fp8_fast(expected),
                     "FP8 -> FP32: Row %u, Col %u: Expected %f (rounded from %f), got %f\n",
                     j, i, quant_fp8(expected), expected, value_roundtrip_fp32);
         }
