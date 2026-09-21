@@ -1180,6 +1180,7 @@ struct d3d12_resource
     D3D12_RESOURCE_DESC1 desc;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_HEAP_FLAGS heap_flags;
+    UINT64 placed_alignment;
     struct vkd3d_memory_allocation mem;
     struct vkd3d_memory_allocation private_mem;
     struct vkd3d_unique_resource res;

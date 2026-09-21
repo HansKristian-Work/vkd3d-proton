@@ -1158,7 +1158,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) && d3d12_resource_supports_small_resource_alignment(desc, format))
             candidate_alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
 
-        if (desc->Alignment)
+        if (desc->Alignment && !(desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT))
             candidate_alignment = desc->Alignment;
 
         if (VKD3D_CONFIG_FLAG_IS_SET(PLACED_TEXTURE_ALIASING) &&
@@ -1308,7 +1308,10 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     /* Do not report alignments greater than DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
      * since that might confuse apps. Instead, pad the allocation so that we can
      * align the image ourselves. */
-    target_alignment = desc->Alignment ? desc->Alignment : d3d12_resource_desc_default_alignment(desc);
+    target_alignment = d3d12_resource_desc_default_alignment(desc);
+
+    if (desc->Alignment && !(desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT))
+        target_alignment = desc->Alignment;
 
     /* Tight alignment enforces small alignment for eligible resources */
     if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) &&
@@ -3084,31 +3087,71 @@ static bool d3d12_resource_supports_small_resource_alignment(const D3D12_RESOURC
     return estimated_size <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 }
 
+static bool d3d12_resource_validate_buffer_alignment(const D3D12_RESOURCE_DESC1 *desc)
+{
+    if (!desc->Alignment)
+        return true;
+
+    if (desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
+    {
+        /* Any power-of-two alignment between 8 and 256 is allowed here */
+        if ((desc->Alignment & (desc->Alignment - 1u)) || desc->Alignment < 8u || desc->Alignment > 256u)
+        {
+            WARN("Invalid tight alignment %"PRIu64" for buffer resource.\n", desc->Alignment);
+            return false;
+        }
+    }
+    else if (desc->Alignment != 0 && desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+    {
+        WARN("Invalid alignment %"PRIu64" for buffer resource.\n", desc->Alignment);
+        return false;
+    }
+
+    return true;
+}
+
 static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC1 *desc,
         const struct vkd3d_format *format)
 {
     if (!desc->Alignment)
         return true;
 
-    if (desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
-            && desc->Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT
-            && (desc->SampleDesc.Count == 1 || desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT))
+    if (desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
     {
-        WARN("Invalid resource alignment %#"PRIx64".\n", desc->Alignment);
-        return false;
-    }
+        UINT64 max_alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
-    if ((desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT) &&
-            !d3d12_resource_supports_small_resource_alignment(desc, format))
+        if (d3d12_resource_supports_small_resource_alignment(desc, format) && desc->SampleDesc.Count == 1)
+            max_alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+        else if (desc->SampleDesc.Count > 1)
+            max_alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+
+        if ((desc->Alignment & (desc->Alignment - 1u)) || desc->Alignment < 8u || desc->Alignment > max_alignment)
+        {
+            WARN("Invalid tight resource alignment %#"PRIx64".\n", desc->Alignment);
+            return false;
+        }
+    }
+    else
     {
-        WARN("Invalid resource alignment %#"PRIx64" (required %#x).\n",
-                desc->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
-        return false;
+        if (desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
+            desc->Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT &&
+            (desc->SampleDesc.Count == 1 || desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT))
+        {
+            WARN("Invalid resource alignment %#"PRIx64".\n", desc->Alignment);
+            return false;
+        }
+
+        if ((desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT) &&
+                !d3d12_resource_supports_small_resource_alignment(desc, format))
+        {
+            WARN("Invalid resource alignment %#"PRIx64" (required %#x).\n",
+                    desc->Alignment, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+            return false;
+        }
     }
 
     /* The size check for MSAA textures with D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT is probably
      * not important. The 4MB requirement is no longer universal and Vulkan has no such requirement. */
-
     return true;
 }
 
@@ -3150,12 +3193,6 @@ static HRESULT d3d12_resource_validate_usage(const D3D12_RESOURCE_DESC1 *desc,
         required_image_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) || desc->SampleDesc.Count > 1)
         required_image_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-
-    if ((desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT) && desc->Alignment)
-    {
-        WARN("Tight alignment and explicit alignment set simultaneously.\n");
-        return E_INVALIDARG;
-    }
 
     if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -3307,12 +3344,8 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
                 return E_INVALIDARG;
             }
 
-            if (desc->Alignment != 0 && desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
-            {
-                WARN("Invalid alignment %"PRIu64" for buffer resource. Must be 0 or D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT.\n",
-                        desc->Alignment);
+            if (!d3d12_resource_validate_buffer_alignment(desc))
                 return E_INVALIDARG;
-            }
 
             if (desc->Format != DXGI_FORMAT_UNKNOWN || desc->Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR
                     || desc->Height != 1 || desc->DepthOrArraySize != 1
@@ -4147,9 +4180,7 @@ static UINT64 d3d12_resource_determine_alignment(struct d3d12_device *device, co
     D3D12_RESOURCE_ALLOCATION_INFO allocation_info;
     HRESULT hr;
 
-    if (desc->Alignment)
-        return desc->Alignment;
-
+    /* The explicit alignment is ignored entirely here */
     if (desc->Flags & D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT)
     {
         if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
@@ -4160,6 +4191,9 @@ static UINT64 d3d12_resource_determine_alignment(struct d3d12_device *device, co
         else
             ERR("Failed to query image alignment, hr %#x.\n", (int)hr);
     }
+
+    if (desc->Alignment)
+        return desc->Alignment;
 
     if (desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE ||
             desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE)
@@ -4216,6 +4250,11 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     object->flags = flags;
     object->format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
     object->res.cookie = vkd3d_allocate_cookie();
+
+    /* Tight alignment requires placed resource offsets to be aligned
+     * to the explicit alignment, but does not alter the description */
+    object->placed_alignment = max(desc->Alignment, object->desc.Alignment);
+
     spinlock_init(&object->priority.spinlock);
     object->priority.allows_dynamic_residency = false;
     object->priority.d3d12priority = D3D12_RESIDENCY_PRIORITY_NORMAL;
@@ -4653,6 +4692,14 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     {
         WARN("Resource alignment is %"PRIu64", but heap alignment is %"PRIu64". This is not allowed.\n",
                 object->desc.Alignment, heap->desc.Alignment);
+        hr = E_INVALIDARG;
+        goto fail;
+    }
+
+    if (heap_offset & (object->placed_alignment - 1u))
+    {
+        WARN("Heap offset %#"PRIx64" not a multiple of resource alignment %#"PRIx64".\n",
+                heap_offset, object->placed_alignment);
         hr = E_INVALIDARG;
         goto fail;
     }
