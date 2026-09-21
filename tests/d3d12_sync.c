@@ -2346,6 +2346,15 @@ static void test_fence_signal_order_raced_signal_inner(bool use_shared)
         exec_command_list(queue_b, list_short);
         ID3D12CommandQueue_Signal(queue_b, fence, 1);
 
+        ok(SUCCEEDED(wait_for_fence_no_event(fence, 1)), "Unexpected failure waiting for fence.\n");
+
+        /* It's overwhelmingly likely that fence_alt is not signaled yet. */
+        if (ID3D12Fence_GetCompletedValue(fence_alt) == 1)
+        {
+            skip("Unexpected fence_alt == 1 observed. Not impossible in a valid implementation. "
+                 "If queues are truly async, this is extremely unlikely to actually happen.\n");
+        }
+
         if (wait_event(event, 1000) == WAIT_OBJECT_0)
         {
             valid = ID3D12Fence_GetCompletedValue(fence_alt) == 1;
