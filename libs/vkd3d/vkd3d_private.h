@@ -160,6 +160,7 @@ struct vkd3d_vulkan_info
     bool KHR_index_type_uint8;
     bool KHR_shader_float_controls2;
     bool KHR_dynamic_rendering_local_read;
+    bool KHR_shader_untyped_pointers;
     /* EXT device extensions */
     bool EXT_conditional_rendering;
     bool EXT_conservative_rasterization;
@@ -5405,6 +5406,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceBufferDeviceAddressAllocationAlignmentFeaturesVALVE buffer_device_address_allocation_alignment_features;
     VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT invocation_reorder_features;
     VkPhysicalDeviceShaderLongVectorFeaturesEXT long_vector_features;
+    VkPhysicalDeviceShaderUntypedPointersFeaturesKHR untyped_pointers_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

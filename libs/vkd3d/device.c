@@ -96,6 +96,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_PRESENT_TIMING, EXT_present_timing),
     VK_EXTENSION(KHR_DEVICE_ADDRESS_COMMANDS, KHR_device_address_commands),
     VK_EXTENSION_DISABLE_COND(KHR_OPACITY_MICROMAP, KHR_opacity_micromap, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
+    VK_EXTENSION(KHR_SHADER_UNTYPED_POINTERS, KHR_shader_untyped_pointers),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -1810,6 +1811,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->long_vector_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_LONG_VECTOR_PROPERTIES_EXT;
         vk_prepend_struct(&info->features2, &info->long_vector_features);
         vk_prepend_struct(&info->properties2, &info->long_vector_properties);
+    }
+
+    if (vulkan_info->KHR_shader_untyped_pointers)
+    {
+        info->untyped_pointers_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->untyped_pointers_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
