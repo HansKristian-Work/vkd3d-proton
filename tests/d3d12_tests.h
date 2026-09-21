@@ -69,6 +69,7 @@ decl_test(test_fence_pending_signal_cpu_rewind_shared);
 decl_test(test_fence_ping_pong_deadlock_stress_shared);
 decl_test(test_fence_signal_order_deadlock_stress_shared);
 decl_test(test_fence_signal_availability_shared);
+decl_test(test_fence_rewind_dependent_wait);
 decl_test(test_clear_depth_stencil_view);
 decl_test(test_clear_render_target_view);
 decl_test(test_clear_render_target_view_extreme_values);
