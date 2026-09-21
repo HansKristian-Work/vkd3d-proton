@@ -2335,8 +2335,13 @@ static void test_fence_signal_order_raced_signal_inner(bool use_shared)
         ID3D12CommandQueue_Signal(queue_a, fence_alt, 1);
         ID3D12CommandQueue_Signal(queue_a, fence, 2);
 
-        /* Make it more likely that signal order for fence = 2 is lower than fence = 1. */
-        vkd3d_sleep(1);
+        if (is_vkd3d_proton_device(context.device))
+        {
+            /* Make it more likely that signal order for fence = 2 is lower than fence = 1.
+             * We have submission threads, and to make the test more useful we
+             * should make it more likely that submission thread submits in order too. */
+            vkd3d_sleep(1);
+        }
 
         /* Deliberately test racy signal.
          * We expect fence = 2 to be signaled after fence = 1 despite being submitted first.
