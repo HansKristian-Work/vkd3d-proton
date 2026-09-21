@@ -1100,10 +1100,22 @@ static void d3d12_fence_unlock(struct d3d12_fence *fence)
     pthread_mutex_unlock(&fence->mutex);
 }
 
-static void d3d12_fence_wait_until_signal_count_reaches_locked(struct d3d12_fence *fence, uint64_t update_count)
+static bool d3d12_fence_update_count_is_complete_locked(struct d3d12_fence *fence, uint64_t update_count)
+{
+    size_t i;
+
+    for (i = 0; i < fence->pending_updates_count; i++)
+        if (fence->pending_updates[i].update_count == update_count)
+            return false;
+
+    /* It's not in the pending list, so it must be complete. */
+    return true;
+}
+
+static void d3d12_fence_wait_until_signal_is_complete_locked(struct d3d12_fence *fence, uint64_t update_count)
 {
     assert(update_count != 0);
-    while (fence->signal_count < update_count)
+    while (!d3d12_fence_update_count_is_complete_locked(fence, update_count))
         pthread_cond_wait(&fence->cond, &fence->mutex);
 }
 
@@ -1202,32 +1214,29 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_
         return hresult_from_errno(rc);
     }
 
-    /* With multiple fence workers, it is possible that signal calls are
-     * out of order. The physical value itself is monotonic, but we need to
-     * make sure that all signals happen in correct order if there are fence rewinds.
-     * We don't expect the loop to run more than once,
-     * but there might be extreme edge cases where we signal 2 or more. */
-    while (fence->signal_count < update_count)
+    /* It's possible that we "jump" the signal update.
+     * For well-ordered signals between queues, we queue up a signal ordering wait
+     * to guarantee that update_count retires in expected order.
+     * For a racy GPU signal, where two queues concurrently signal fence
+     * one of them will randomly win.
+     */
+    did_signal = false;
+
+    for (i = 0; i < fence->pending_updates_count; i++)
     {
-        fence->signal_count++;
-        did_signal = false;
-
-        for (i = 0; i < fence->pending_updates_count; i++)
+        if (update_count == fence->pending_updates[i].update_count)
         {
-            if (fence->signal_count == fence->pending_updates[i].update_count)
-            {
-                fence->virtual_value = fence->pending_updates[i].virtual_value;
-                d3d12_fence_signal_external_events_locked(fence, worker);
-                d3d12_fence_update_wait_tickets_locked(fence);
-                fence->pending_updates[i] = fence->pending_updates[--fence->pending_updates_count];
-                did_signal = true;
-                break;
-            }
+            fence->virtual_value = fence->pending_updates[i].virtual_value;
+            d3d12_fence_signal_external_events_locked(fence, worker);
+            d3d12_fence_update_wait_tickets_locked(fence);
+            fence->pending_updates[i] = fence->pending_updates[--fence->pending_updates_count];
+            did_signal = true;
+            break;
         }
-
-        if (!did_signal)
-            FIXME("Did not signal a virtual value?\n");
     }
+
+    if (!did_signal)
+        FIXME("Did not signal a virtual value?\n");
 
     /* In case we have a rewind signalled from GPU, we need to recompute the max pending timeline value. */
     d3d12_fence_update_pending_value_locked_and_broadcast(fence);
@@ -24380,7 +24389,7 @@ static void vkd3d_waiting_fence_ensure_signal_order(
     if (complete)
     {
         d3d12_fence_lock(fence);
-        d3d12_fence_wait_until_signal_count_reaches_locked(fence, info->update_count);
+        d3d12_fence_wait_until_signal_is_complete_locked(fence, info->update_count);
         d3d12_fence_unlock(fence);
     }
 
