@@ -2261,3 +2261,131 @@ void test_fence_signal_availability_shared(void)
 {
     test_fence_signal_availability(true);
 }
+
+static void test_fence_signal_order_raced_signal_inner(bool use_shared)
+{
+    ID3D12GraphicsCommandList *list_short;
+    ID3D12GraphicsCommandList *list_long;
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    ID3D12CommandAllocator *allocator;
+    ID3D12Resource *resource_dst;
+    ID3D12Resource *resource_src;
+    struct test_context context;
+    ID3D12CommandQueue *queue_a;
+    ID3D12CommandQueue *queue_b;
+    ID3D12Fence *fence_alt;
+    ID3D12Fence *fence;
+    unsigned int iter;
+    bool valid = true;
+    HRESULT hr;
+
+#ifndef _WIN32
+    if (use_shared)
+    {
+        skip("Skipping shared fence tests on Linux.\n");
+        return;
+    }
+#endif
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue_a);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", (int)hr);
+    hr = ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void **)&queue_b);
+    ok(SUCCEEDED(hr), "Failed to create command queue, hr #%x\n", (int)hr);
+
+    resource_dst = create_readback_buffer(context.device, 16 * 1024 * 1024);
+    resource_src = create_default_buffer(context.device, 16 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12Device_CreateCommandAllocator(context.device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+            &IID_ID3D12CommandAllocator, (void **)&allocator);
+
+    ID3D12Device_CreateCommandList(context.device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+            allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&list_long);
+
+    ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence);
+    ID3D12Device_CreateFence(context.device, 0, use_shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void **)&fence_alt);
+
+    /* Copy 1 GB. With readback, should take a while. */
+    for (iter = 0; iter < 16; iter++)
+        ID3D12GraphicsCommandList_CopyResource(list_long, resource_dst, resource_src);
+    ID3D12GraphicsCommandList_Close(list_long);
+
+    /* Trivial command buffer that should complete instantly. */
+    ID3D12Device_CreateCommandList(context.device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+            allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&list_short);
+    ID3D12GraphicsCommandList_Close(list_short);
+
+    for (iter = 0; iter < 16 && valid; iter++)
+    {
+        HANDLE event = create_event();
+
+        ID3D12Fence_Signal(fence, 0);
+        ID3D12Fence_Signal(fence_alt, 0);
+
+        ID3D12Fence_SetEventOnCompletion(fence, 2, event);
+
+        /* First, submit work to queue 0. */
+        exec_command_list(queue_a, list_long);
+        ID3D12CommandQueue_Signal(queue_a, fence_alt, 1);
+        ID3D12CommandQueue_Signal(queue_a, fence, 2);
+
+        /* Make it more likely that signal order for fence = 2 is lower than fence = 1. */
+        vkd3d_sleep(1);
+
+        /* Deliberately test racy signal.
+         * We expect fence = 2 to be signaled after fence = 1 despite being submitted first.
+         * However, if our signal ordering is broken, we will fast-forward through signal
+         * ordering and update fence = 2 before the GPU is actually done executing in queue_a.
+         */
+        exec_command_list(queue_b, list_short);
+        ID3D12CommandQueue_Signal(queue_b, fence, 1);
+
+        if (wait_event(event, 1000) == WAIT_OBJECT_0)
+        {
+            valid = ID3D12Fence_GetCompletedValue(fence_alt) == 1;
+            /* We can assert now that if we observe fence == 2, we must be able to observe fence_alt == 1 as well.
+             * The only queue that is able to signal value 2 is queue_a, and to signal that, we must
+             * observe any previous signal.
+             */
+            ok(valid, "Expected fence_alt to be signaled.\n");
+        }
+        else
+        {
+            skip("Detected a timeout. Unexpected behavior, but theoretically possible in a valid implementation.\n");
+        }
+
+        /* Could theoretically happen if the race manifested in a rewind. Ensure the queues are fully idle
+         * before we go ahead. */
+        wait_queue_idle(context.device, queue_a);
+        wait_queue_idle(context.device, queue_b);
+
+        destroy_event(event);
+    }
+
+    ID3D12CommandQueue_Release(queue_a);
+    ID3D12CommandQueue_Release(queue_b);
+    ID3D12GraphicsCommandList_Release(list_long);
+    ID3D12GraphicsCommandList_Release(list_short);
+    ID3D12Resource_Release(resource_dst);
+    ID3D12Resource_Release(resource_src);
+    ID3D12CommandAllocator_Release(allocator);
+    ID3D12Fence_Release(fence);
+    ID3D12Fence_Release(fence_alt);
+    destroy_test_context(&context);
+}
+
+void test_fence_signal_ordering_raced_signal(void)
+{
+    test_fence_signal_order_raced_signal_inner(false);
+}
+
+void test_fence_signal_ordering_raced_signal_shared(void)
+{
+    test_fence_signal_order_raced_signal_inner(true);
+}
