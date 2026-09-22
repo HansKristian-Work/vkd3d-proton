@@ -5679,3 +5679,98 @@ void test_shader_execution_reordering_ray_query(void)
 {
     test_shader_execution_reordering_trace_inner(true);
 }
+
+/* vkd3d batches acceleration structure builds into a single
+ * vkCmdBuildAccelerationStructures call. Vulkan forbids two builds in one such
+ * call from sharing scratch memory (VUID-...-scratchData-03704) or destination
+ * memory (VUID-...-dstAccelerationStructure-03698 and -03702).
+ *
+ * d3d12_command_list_register_rtas_scratch_range() splits the batch on a scratch
+ * collision. Without an equivalent check for the destination, two builds sharing
+ * a destination but using different scratch are merged into one illegal call.
+ *
+ * Run under the validation layers; the VUIDs are the point of this test. */
+static void test_raytracing_batch_dst_aliasing_inner(bool distinct_scratch)
+{
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build_info;
+    ID3D12Resource *scratch, *scratch2, *rtas, *vbo;
+    struct raytracing_test_context context;
+    D3D12_RAYTRACING_GEOMETRY_DESC geom;
+    HRESULT hr;
+
+    static const float vb[] =
+    {
+        0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f,
+    };
+
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
+        return;
+
+    vbo = create_upload_buffer(context.context.device, sizeof(vb), vb);
+
+    memset(&geom, 0, sizeof(geom));
+    geom.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+    geom.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+    geom.Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo);
+    geom.Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(float);
+    geom.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+    geom.Triangles.VertexCount = 3;
+
+    memset(&inputs, 0, sizeof(inputs));
+    inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+    inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    inputs.NumDescs = 1;
+    inputs.pGeometryDescs = &geom;
+
+    memset(&prebuild_info, 0, sizeof(prebuild_info));
+    ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(context.device5, &inputs, &prebuild_info);
+
+    scratch = create_default_buffer(context.context.device, prebuild_info.ScratchDataSizeInBytes,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    scratch2 = create_default_buffer(context.context.device, prebuild_info.ScratchDataSizeInBytes,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    rtas = create_default_buffer(context.context.device, prebuild_info.ResultDataMaxSizeInBytes,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+
+    memset(&build_info, 0, sizeof(build_info));
+    build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(rtas);
+    build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch);
+    build_info.SourceAccelerationStructureData = 0;
+    build_info.Inputs = inputs;
+
+    ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(context.list4, &build_info, 0, NULL);
+
+    /* Same destination. With distinct scratch the scratch check cannot fire, so
+     * nothing splits the batch unless the destination is considered. */
+    if (distinct_scratch)
+        build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch2);
+
+    ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(context.list4, &build_info, 0, NULL);
+
+    hr = ID3D12GraphicsCommandList_Close(context.context.list);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+    ID3D12CommandQueue_ExecuteCommandLists(context.context.queue, 1,
+            (ID3D12CommandList **)&context.context.list);
+    wait_queue_idle(context.context.device, context.context.queue);
+
+    ID3D12Resource_Release(scratch);
+    ID3D12Resource_Release(scratch2);
+    ID3D12Resource_Release(rtas);
+    ID3D12Resource_Release(vbo);
+    destroy_raytracing_test_context(&context);
+}
+
+void test_raytracing_batch_dst_aliasing_shared_scratch(void)
+{
+    test_raytracing_batch_dst_aliasing_inner(false);
+}
+
+void test_raytracing_batch_dst_aliasing_distinct_scratch(void)
+{
+    test_raytracing_batch_dst_aliasing_inner(true);
+}

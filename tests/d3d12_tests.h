@@ -584,6 +584,8 @@ decl_test(test_query_heap_cpu_resolve_timestamp);
 decl_test(test_query_heap_cpu_resolve_occlusion);
 decl_test(test_buffer_descriptor_byte_offset);
 decl_test(test_raytracing_collection_handle_invariance);
+decl_test(test_raytracing_batch_dst_aliasing_shared_scratch);
+decl_test(test_raytracing_batch_dst_aliasing_distinct_scratch);
 decl_test(test_copy_block_spam);
 decl_test(test_r16_texel_buffer_atomic);
 decl_test(test_copy_texture_buffer_d24);
