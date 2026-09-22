@@ -460,3 +460,121 @@ void test_vrs_depth_write_dxil(void)
     test_vrs_depth_write(true);
 }
 
+void test_vrs_clip_distance(void)
+{
+    static const D3D12_SHADING_RATE_COMBINER combiners[2] =
+    {
+        D3D12_SHADING_RATE_COMBINER_OVERRIDE,
+        D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+    };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList5 *command_list;
+    struct depth_stencil_resource ds;
+    struct test_context_desc desc;
+    const float black[4] = { 0 };
+    struct resource_readback rb;
+    struct test_context context;
+    float root_constant_data[3];
+    uint32_t x, y;
+    HRESULT hr;
+
+#include "shaders/vrs/headers/vrs_clip_distance_vs.h"
+#include "shaders/vrs/headers/vrs_clip_distance_ps.h"
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    desc.rt_width = 4;
+    desc.rt_height = 4;
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (!is_vrs_tier1_supported(context.device, NULL))
+    {
+        skip("VariableRateShading TIER_1 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    init_depth_stencil(&ds, context.device, 4, 4, 1, 1, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, NULL);
+
+    ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
+
+    context.root_signature = create_32bit_constants_root_signature(context.device, 0, 3, D3D12_SHADER_VISIBILITY_VERTEX);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+        context.render_target_desc.Format, &vrs_clip_distance_vs_dxil, &vrs_clip_distance_ps_dxil, NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_EQUAL;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", (int)hr);
+
+    ID3D12GraphicsCommandList5_ClearDepthStencilView(command_list, ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, NULL);
+    ID3D12GraphicsCommandList5_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
+    ID3D12GraphicsCommandList5_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
+    ID3D12GraphicsCommandList5_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList5_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList5_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList5_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList5_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+    root_constant_data[0] = 1.0f;
+    root_constant_data[1] = 1.0f;
+    root_constant_data[2] = -1.0f / 16.0f;
+
+    ID3D12GraphicsCommandList5_SetGraphicsRoot32BitConstants(command_list, 0, 3, root_constant_data, 0);
+
+    ID3D12GraphicsCommandList5_RSSetShadingRate(command_list, D3D12_SHADING_RATE_1X1, combiners);
+    ID3D12GraphicsCommandList5_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    for (y = 0; y < 4; y++)
+    {
+        for (x = 0; x < 4; x++)
+        {
+            const struct vec4 *value = get_readback_vec4(&rb, x, y);
+            struct vec4 expected = {0};
+            float clip_x, clip_y;
+            float clip_distance;
+
+            /* Coverage is evaluated at full rate for clip distance. */
+            clip_x = ((float)x + 0.5f) / 2.0f - 1.0f;
+            clip_y = ((float)y + 0.5f) / 2.0f - 1.0f;
+            clip_distance = root_constant_data[2] + root_constant_data[0] * clip_x + root_constant_data[1] * clip_y;
+
+            if (clip_distance >= 0.0f)
+            {
+                clip_x = (float)(x | 1) / 2.0f - 1.0f;
+                clip_y = (float)(y | 1) / 2.0f - 1.0f;
+
+                /* The varying is evaluated at coarse rate. We can evaluate a negative clip distance here. */
+                clip_distance = root_constant_data[2] + root_constant_data[0] * clip_x + root_constant_data[1] * clip_y;
+
+                expected.x = clip_distance;
+                expected.y = (float)(x | 1);
+                expected.z = (float)(y | 1);
+                expected.w = expected.x;
+            }
+
+            ok(compare_vec4(value, &expected, 256), "%u, %u: Expected (%f, %f, %f, %f), got (%f, %f, %f, %f)\n", x, y,
+                     expected.x, expected.y, expected.z, expected.w,
+                     value->x, value->y, value->z, value->w);
+        }
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12GraphicsCommandList5_Release(command_list);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
+
