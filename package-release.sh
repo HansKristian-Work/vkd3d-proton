@@ -26,6 +26,7 @@ opt_devbuild=0
 opt_native=0
 opt_buildtype="release"
 opt_strip=--strip
+opt_build_arm64x=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -42,6 +43,9 @@ while [ $# -gt 0 ]; do
     ;;
  "--debug")
     opt_buildtype="debug"
+    ;;
+ "--build-arm64x")
+    opt_build_arm64x=1
     ;;
   *)
     echo "Unrecognized option: $1" >&2
@@ -60,8 +64,8 @@ function build_arch {
         --buildtype "${opt_buildtype}" \
         --prefix "$VKD3D_BUILD_DIR"    \
         $opt_strip                     \
-        --bindir "x${arch}"            \
-        --libdir "x${arch}"            \
+        --bindir "${arch}"            \
+        --libdir "${arch}"            \
         "$VKD3D_BUILD_DIR/build.${arch}"
 
   cd "$VKD3D_BUILD_DIR/build.${arch}"
@@ -70,7 +74,7 @@ function build_arch {
   if [ $opt_devbuild -eq 0 ]; then
     if [ $opt_native -eq 0 ]; then
         # get rid of some useless .a files
-        rm "$VKD3D_BUILD_DIR/x${arch}/"*.!(dll)
+        rm "$VKD3D_BUILD_DIR/${arch}/"*.!(dll)
     fi
     rm -R "$VKD3D_BUILD_DIR/build.${arch}"
   fi
@@ -88,12 +92,15 @@ function package {
 }
 
 if [ $opt_native -eq 0 ]; then
-  build_arch 64 --cross-file build-win64.txt
-  build_arch 86 --cross-file build-win32.txt
+  build_arch x64 --cross-file build-win64.txt
+  build_arch x86 --cross-file build-win32.txt
+  if [ $opt_build_arm64x -eq 1 ]; then
+    build_arch arm64x --cross-file build-arm64x.txt
+  fi
   build_script
 else
-  build_arch 64
-  CC="gcc -m32" CXX="g++ -m32" PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig" build_arch 86
+  build_arch x64
+  CC="gcc -m32" CXX="g++ -m32" PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig" build_arch x86
 fi
 
 if [ $opt_nopackage -eq 0 ]; then
