@@ -7,8 +7,10 @@ widl-mingw-tools-fallback = 'arm64ec-w64-mingw32-widl'
 
 [properties]
 needs_exe_wrapper = true
-c_args = ['-march=armv8.2-a','-mtune=cortex-x3','-marm64x','-O2','-ggdb','-ffunction-sections','-fdata-sections','-fno-omit-frame-pointer']
-cpp_args = ['-march=armv8.2-a','-mtune=cortex-x3','-marm64x','-O2','-ggdb','-ffunction-sections','-fdata-sections','-fno-omit-frame-pointer']
+
+[built-in options]
+c_args = ['-march=armv8.2-a','-mtune=cortex-x3','-marm64x']
+cpp_args = ['-march=armv8.2-a','-mtune=cortex-x3','-marm64x']
 c_link_args = ['-marm64x']
 cpp_link_args = ['-marm64x']
 
