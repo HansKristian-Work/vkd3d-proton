@@ -830,6 +830,19 @@ void vkd3d_instance_apply_application_workarounds(void)
         INFO("Applying default RE Engine shader quirks.\n");
         vkd3d_shader_quirk_info_template = re_engine_quirks;
     }
+
+    if (VKD3D_CONFIG_FLAG_IS_SET(ADRENO_7XX_EXTRA_COMPAT))
+    {
+        /* Enable slower paths to remain more compatible with spec requirements on Adreno 7xx.
+         * Used for debugging to isolate if a game hits these cases.
+         */
+        vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP;
+        vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_REQUIRES_MIN16_DENORMS;
+        vkd3d_shader_quirk_info_template.global_quirks |= VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS;
+
+        /* Probably useful thing to have. */
+        vkd3d_application_feature_override |= VKD3D_APPLICATION_FEATURE_BROKEN_WAVE128_REQUESTS;
+    }
 }
 
 void vkd3d_instance_deduce_config_flags_from_environment(void)
