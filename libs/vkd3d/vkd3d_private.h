@@ -3205,6 +3205,14 @@ struct d3d12_rtas_batch_state
     size_t scratch_usage_count;
     size_t scratch_usage_size;
 
+    struct
+    {
+        VkDeviceAddress va_start;
+        VkDeviceAddress va_end;
+    } *dst_usage;
+    size_t dst_usage_count;
+    size_t dst_usage_size;
+
     struct vk_acceleration_structure_postbuild_info *postbuild_infos;
     size_t postbuild_infos_size;
     size_t postbuild_infos_count;
