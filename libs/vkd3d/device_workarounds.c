@@ -211,6 +211,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* World of Warcraft Classic */
     /* Like in retail WoW, descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
     { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1, .DESCRIPTOR_HEAP = 1) },
+    /* World of Warcraft Forever beta. Same MSAA issue as WoW Retail. */
+    { VKD3D_STRING_COMPARE_EXACT, "WowB.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_DYNAMIC_MSAA = 1) },
     /* Teardown.
      * Creates command signatures that modify vertex/index buffer views and root CBVs, which
      * cannot be implemented without device generated commands. Silently dropping the state
