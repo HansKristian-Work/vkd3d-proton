@@ -473,9 +473,13 @@ static const struct vkd3d_shader_quirk_info hfw_quirks = {
     hfw_hashes, ARRAY_SIZE(hfw_hashes), 0,
 };
 
-/* Misses some sync with depth in SSDM_FillHolesDepthDisplacementPS */
 static const struct vkd3d_shader_quirk_hash crimson_desert_hashes[] = {
+    /* Misses some sync with depth in SSDM_FillHolesDepthDisplacementPS */
     { "SSDM_FillHolesDepthDisplacementPS", 0, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
+    /* If SV_ShadingRate is not 0, really bad flicker can happen. Seems to only happen with 4K native rendering.
+     * We don't have the tooling to debug heavy DGC enough to figure out exactly what's going on,
+     * and this is a simple enough fix for now. */
+    { "VSMain8Leaf", 0, VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE },
 };
 
 static const struct vkd3d_shader_quirk_info crimson_desert_quirks = {
