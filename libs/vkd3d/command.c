@@ -20987,6 +20987,7 @@ static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list)
     vkd3d_free(rtas_batch->omm_build_infos);
     vkd3d_free(rtas_batch->omm_usage_infos);
     vkd3d_free(rtas_batch->scratch_usage);
+    vkd3d_free(rtas_batch->dst_usage);
     vkd3d_free(rtas_batch->postbuild_infos);
 }
 
@@ -21015,6 +21016,43 @@ static bool d3d12_command_list_register_rtas_scratch_range(
     rtas_batch->scratch_usage[rtas_batch->scratch_usage_count].va_start = scratch;
     rtas_batch->scratch_usage[rtas_batch->scratch_usage_count].va_end = scratch_end;
     rtas_batch->scratch_usage_count++;
+    return false;
+}
+
+/* Counterpart to the scratch range check above, for destination memory.
+ *
+ * VUID-vkCmdBuildAccelerationStructuresKHR-dstAccelerationStructure-03698 and
+ * -03702 forbid two builds in one vkCmdBuildAccelerationStructures call from
+ * targeting the same acceleration structure or overlapping memory. The batch is
+ * otherwise only split on a build type change or a PERFORM_UPDATE flip, neither
+ * of which considers an address, so an application that builds the same
+ * destination twice in a row with different scratch produces an illegal call. */
+static bool d3d12_command_list_register_rtas_dst_range(
+        struct d3d12_command_list *list, VkDeviceAddress dst, VkDeviceSize size)
+{
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+    VkDeviceAddress dst_end = dst + size;
+    size_t i;
+
+    for (i = 0; i < rtas_batch->dst_usage_count; i++)
+    {
+        if (max(rtas_batch->dst_usage[i].va_start, dst) < min(rtas_batch->dst_usage[i].va_end, dst_end))
+        {
+            /* The last element is already allocated and we cannot submit that quite yet. */
+            list->rtas_batch.build_info_count--;
+
+            WARN("Application bug detected. Attempting to build a destination which is already "
+                    "being built in this batch. Flushing batch.\n");
+            d3d12_command_list_flush_rtas_batch(list);
+            return true;
+        }
+    }
+
+    vkd3d_array_reserve((void **)&rtas_batch->dst_usage, &rtas_batch->dst_usage_size,
+        rtas_batch->dst_usage_count + 1, sizeof(*rtas_batch->dst_usage));
+    rtas_batch->dst_usage[rtas_batch->dst_usage_count].va_start = dst;
+    rtas_batch->dst_usage[rtas_batch->dst_usage_count].va_end = dst_end;
+    rtas_batch->dst_usage_count++;
     return false;
 }
 
@@ -21137,6 +21175,7 @@ static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
     rtas_batch->omm_build_info_count = 0;
     rtas_batch->omm_usage_info_count = 0;
     rtas_batch->scratch_usage_count = 0;
+    rtas_batch->dst_usage_count = 0;
     rtas_batch->postbuild_infos_count = 0;
 }
 
@@ -21494,6 +21533,15 @@ static void d3d12_command_list_build_raytracing_blas_and_tlas(struct d3d12_comma
             list, desc->ScratchAccelerationStructureData,
             (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
                 ? size_info.updateScratchSize : size_info.buildScratchSize))
+    {
+        /* The batch is restarted, need to rebuild. */
+        d3d12_command_list_flush_rtas_barrier(list);
+        d3d12_command_list_build_raytracing_blas_and_tlas(list, desc, num_postbuild_info_descs, postbuild_info_descs);
+        return;
+    }
+
+    if (d3d12_command_list_register_rtas_dst_range(list,
+            desc->DestAccelerationStructureData, size_info.accelerationStructureSize))
     {
         /* The batch is restarted, need to rebuild. */
         d3d12_command_list_flush_rtas_barrier(list);
