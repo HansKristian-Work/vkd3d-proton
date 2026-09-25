@@ -294,6 +294,7 @@ struct vkd3d_fence_worker
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     bool should_exit;
+    bool is_idle;
 
     uint32_t enqueued_fence_count;
     struct vkd3d_waiting_fence *enqueued_fences;
