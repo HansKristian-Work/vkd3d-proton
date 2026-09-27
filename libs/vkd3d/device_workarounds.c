@@ -517,6 +517,14 @@ static const struct vkd3d_shader_quirk_info re_engine_quirks = {
     re_engine_hashes, ARRAY_SIZE(re_engine_hashes), 0,
 };
 
+/* Dragon's Dogma 2 hits SQC (data) GPUVM faults after the 3.2 update,
+ * with the same signature as Monster Hunter Wilds (a garbage bindless index).
+ * Apply heap robustness to all shaders, and keep the RE Engine culling
+ * workarounds, since a matched entry point overrides the default quirks. */
+static const struct vkd3d_shader_quirk_info dd2_quirks = {
+    re_engine_hashes, ARRAY_SIZE(re_engine_hashes), VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
+};
+
 static const struct vkd3d_shader_quirk_hash wow_hashes[] = {
     /* In addition to needing 64 byte descriptors, this ray query shader causes a heap OOB as well. */
     { NULL, 0xef2f620cbce5630c, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
@@ -697,7 +705,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Monster Hunter Stories 3 (2852190) */
     { VKD3D_STRING_COMPARE_EXACT, "MONSTER_HUNTER_STORIES_3_TWISTED_REFLECTION.exe", &re_engine_quirks },
     /* Dragon's Dogma 2 (2054970) */
-    { VKD3D_STRING_COMPARE_EXACT, "DD2.exe", &re_engine_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "DD2.exe", &dd2_quirks },
     /* Elden Ring (1245620) */
     { VKD3D_STRING_COMPARE_APPID, "1245620", &elden_ring_quirks },
     /* Half Sword (2397300) */
