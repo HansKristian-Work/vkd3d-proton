@@ -993,6 +993,15 @@ bool d3d12_device_supports_variable_shading_rate_tier_2(struct d3d12_device *dev
 {
     const struct vkd3d_physical_device_info *info = &device->device_info;
 
+    /* Mesa RADV forgot to implement fragmentShadingRateWithShaderSampleMask even if HW can do it.
+     * There is lots of content that relies on TIER_2, so force the fallback path for now
+     * until RADV implements it as intended. RADV is also bugged if sample mask is set.
+     * Normally, driver is expected to force (1, 1) rate, but it doesn't do it correctly
+     * for sample mask exports.
+     * We can do it for them like for writing depth stencil.
+     * Just allow non-compliant VRS for now. There is risk of breaking
+     * other GPUs too that don't expose this property.
+     */
     return info->fragment_shading_rate_properties.fragmentShadingRateNonTrivialCombinerOps &&
             info->fragment_shading_rate_features.attachmentFragmentShadingRate &&
             info->fragment_shading_rate_features.primitiveFragmentShadingRate &&
