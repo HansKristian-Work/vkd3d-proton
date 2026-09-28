@@ -116,6 +116,10 @@ if vkd3d_platform == 'windows'
   vkd3d_src += ['shared_metadata.c']
 endif
 
+if vkd3d_platform == 'linux'
+  vkd3d_src += ['shared_fence_syncfd.c']
+endif
+
 if enable_profiling
   vkd3d_src += ['timestamp_profiler.c']
 endif

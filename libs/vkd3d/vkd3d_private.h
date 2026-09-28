@@ -49,6 +49,10 @@
 #include <limits.h>
 #include <stdbool.h>
 
+#ifdef __linux__
+#include "vkd3d_shared_fence_syncfd.h"
+#endif
+
 #define VK_CALL(f) (vk_procs->f)
 
 #define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | (((uint32_t)d) << 24))
@@ -137,6 +141,7 @@ struct vkd3d_vulkan_info
     bool KHR_fragment_shader_barycentric;
     bool KHR_external_memory_win32;
     bool KHR_external_semaphore_win32;
+    bool KHR_external_semaphore_fd;
     bool KHR_present_wait2;
     bool KHR_present_id2;
     bool KHR_present_wait;
@@ -732,6 +737,10 @@ struct d3d12_shared_fence
 
     VkSemaphore timeline_semaphore;
     D3DKMT_HANDLE kmt_local;
+
+#ifdef __linux__
+    kmt_handle kmt_fence;
+#endif
 
     pthread_t thread;
     pthread_mutex_t mutex;
@@ -3904,6 +3913,7 @@ struct d3d12_command_queue
 
     VkSemaphore serializing_semaphore;
     bool serializing_semaphore_signaled;
+    VkSemaphore syncfd_semaphore;
 
     uint32_t inflight_submissions;
 
@@ -5852,6 +5862,10 @@ struct d3d12_device
     IUnknown *parent;
     LUID adapter_luid;
     D3DKMT_HANDLE kmt_local;
+
+#ifdef __linux__
+    kmt_device kmt_device;
+#endif
 
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;

@@ -1713,14 +1713,6 @@ static void test_fence_pending_signal_cpu_rewind(bool use_shared)
 
 #include "shaders/sync/headers/gpu_load.h"
 
-#ifndef _WIN32
-    if (use_shared)
-    {
-        skip("Skipping shared fence tests on Linux.\n");
-        return;
-    }
-#endif
-
     if (!init_compute_test_context(&context))
         return;
 
@@ -1887,14 +1879,6 @@ static void test_fence_ping_pong_deadlock_stress(bool use_shared)
 
 #include "shaders/sync/headers/gpu_load.h"
 
-#ifndef _WIN32
-    if (use_shared)
-    {
-        skip("Skipping shared fence tests on Linux.\n");
-        return;
-    }
-#endif
-
     if (!init_compute_test_context(&context))
         return;
 
@@ -2049,14 +2033,6 @@ static void test_fence_signal_order_deadlock_stress(bool use_shared)
     unsigned int iter;
     HRESULT hr;
 
-#ifndef _WIN32
-    if (use_shared)
-    {
-        skip("Skipping shared fence tests on Linux.\n");
-        return;
-    }
-#endif
-
     if (!init_compute_test_context(&context))
         return;
 
@@ -2109,8 +2085,12 @@ static void test_fence_signal_order_deadlock_stress(bool use_shared)
         ID3D12CommandQueue_Wait(queue_a, fence, 10);
 
         ID3D12CommandQueue_Signal(queue_a, fence_alt, 0);
+        //ID3D12CommandQueue_Signal(queue_a, fence, 11);
 
         ID3D12Fence_SetEventOnCompletion(fence, 10, NULL);
+
+        //if (ID3D12Fence_GetCompletedValue(fence_alt) != 0)
+        //    skip("Something fishy?\n");
 
         if (iter % 1024 == 0)
             skip("Done with iteration %u\n", iter);
@@ -2135,14 +2115,6 @@ static void test_fence_signal_availability(bool use_shared)
     unsigned int iter;
     HANDLE event;
     HRESULT hr;
-
-#ifndef _WIN32
-    if (use_shared)
-    {
-        skip("Skipping shared fence tests on Linux.\n");
-        return;
-    }
-#endif
 
     if (!init_compute_test_context(&context))
         return;
@@ -2278,14 +2250,6 @@ static void test_fence_signal_order_raced_signal_inner(bool use_shared)
     unsigned int iter;
     bool valid = true;
     HRESULT hr;
-
-#ifndef _WIN32
-    if (use_shared)
-    {
-        skip("Skipping shared fence tests on Linux.\n");
-        return;
-    }
-#endif
 
     if (!init_compute_test_context(&context))
         return;

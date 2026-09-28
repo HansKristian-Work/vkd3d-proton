@@ -418,13 +418,46 @@ HRESULT d3d12_device_open_resource_descriptor(struct d3d12_device *device, HANDL
 
 #else /* _WIN32 */
 
+#include "vkd3d_shared_fence_syncfd.h"
+
 void d3d12_device_open_kmt(struct d3d12_device *device)
 {
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceExternalSemaphoreInfo external_semaphore_info;
+    VkExternalSemaphoreProperties external_semaphore_properties;
+
     WARN("Not implemented on this platform\n");
+
+    if (!device->vk_info.KHR_external_semaphore_fd)
+    {
+        WARN("SyncFD not supported by host, cannot implement prototype shared fences on Linux.\n");
+        return;
+    }
+
+    memset(&external_semaphore_info, 0, sizeof(external_semaphore_info));
+    memset(&external_semaphore_properties, 0, sizeof(external_semaphore_properties));
+    external_semaphore_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO;
+    external_semaphore_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
+
+    external_semaphore_properties.sType = VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES;
+
+    VK_CALL(vkGetPhysicalDeviceExternalSemaphoreProperties(device->vk_physical_device,
+            &external_semaphore_info, &external_semaphore_properties));
+
+    if (!(external_semaphore_properties.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT) ||
+        !(external_semaphore_properties.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT))
+    {
+        WARN("SyncFD not supported by host, cannot implement prototype shared fences on Linux.\n");
+        return;
+    }
+
+    device->kmt_device = kmt_device_create();
 }
 
 void d3d12_device_close_kmt(struct d3d12_device *device)
 {
+    if (device->kmt_device)
+        kmt_device_destroy(device->kmt_device);
 }
 
 void d3d12_shared_fence_open_export_kmt(struct d3d12_shared_fence *fence, struct d3d12_device *device)

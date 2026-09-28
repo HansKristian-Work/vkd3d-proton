@@ -100,6 +100,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
+#else
+    VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_FD, KHR_external_semaphore_fd),
 #endif
     VK_EXTENSION(KHR_INDEX_TYPE_UINT8, KHR_index_type_uint8),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS_2, KHR_shader_float_controls2),

@@ -106,6 +106,26 @@ static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSema
     return hresult_from_vk_result(vr);
 }
 
+#ifdef __linux__
+static HRESULT vkd3d_create_binary_syncfd_semaphore(struct d3d12_device *device, VkSemaphore *vk_semaphore)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkExportSemaphoreCreateInfo export_info;
+    VkSemaphoreCreateInfo info;
+    VkResult vr;
+
+    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO;
+    export_info.pNext = NULL;
+    export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
+
+    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    info.pNext = &export_info;
+    info.flags = 0;
+    vr = VK_CALL(vkCreateSemaphore(device->vk_device, &info, NULL, vk_semaphore));
+    return hresult_from_vk_result(vr);
+}
+#endif
+
 static bool vkd3d_driver_implicitly_syncs_host_readback(VkDriverId driver_id)
 {
     return driver_id == VK_DRIVER_ID_MESA_RADV ||
@@ -1680,6 +1700,11 @@ static void d3d12_shared_fence_dec_ref(struct d3d12_shared_fence *fence)
         vk_procs = &fence->device->vk_procs;
         VK_CALL(vkDestroySemaphore(fence->device->vk_device, fence->timeline_semaphore, NULL));
 
+#ifdef __linux__
+        if (fence->kmt_fence)
+            kmt_device_destroy_fence(fence->device->kmt_device, fence->kmt_fence);
+#endif
+
         d3d_destruction_notifier_free(&fence->destruction_notifier);
         vkd3d_private_store_destroy(&fence->private_store);
 
@@ -1758,6 +1783,11 @@ static UINT64 STDMETHODCALLTYPE d3d12_shared_fence_GetCompletedValue(d3d12_fence
     VkResult vr;
 
     TRACE("iface %p\n", iface);
+
+#ifdef __linux__
+    if (fence->kmt_fence)
+        return kmt_device_query_fence(fence->device->kmt_device, fence->kmt_fence);
+#endif
 
     vr = VK_CALL(vkGetSemaphoreCounterValue(fence->device->vk_device, fence->timeline_semaphore, &completed_value));
     if (vr != VK_SUCCESS)
@@ -1929,9 +1959,42 @@ static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_SetEventOnCompletion(d3d12_f
         UINT64 value, HANDLE os_event)
 {
     struct d3d12_shared_fence *shared_fence = shared_impl_from_ID3D12Fence1(iface);
+    vkd3d_native_sync_handle handle;
 
-    vkd3d_native_sync_handle handle = vkd3d_native_sync_handle_wrap(os_event,
-            VKD3D_NATIVE_SYNC_HANDLE_TYPE_EVENT);
+#ifdef __linux__
+    if (shared_fence->kmt_fence)
+    {
+        /* We're not going to cancel the edge. Just it's just a dummy argument. */
+        bool inline_block;
+        uint64_t edge;
+        int efd;
+
+        inline_block = !os_event;
+
+        if (inline_block)
+            efd = eventfd(0, EFD_CLOEXEC);
+        else
+            efd = (int)(intptr_t)os_event;
+
+        if (!kmt_device_fence_register_edge(shared_fence->device->kmt_device,
+                shared_fence->kmt_fence, value, efd, &edge))
+        {
+            /* Docs say this is allowed where there "is no more room to store the event in a list". */
+            return E_OUTOFMEMORY;
+        }
+
+        if (inline_block)
+        {
+            uint64_t dummy;
+            read(efd, &dummy, sizeof(dummy));
+            close(efd);
+        }
+
+        return S_OK;
+    }
+#endif
+
+    handle = vkd3d_native_sync_handle_wrap(os_event, VKD3D_NATIVE_SYNC_HANDLE_TYPE_EVENT);
     return d3d12_shared_fence_set_native_sync_handle_on_completion_explicit(
             shared_fence, VKD3D_WAITING_EVENT_SINGLE, value, handle, NULL);
 }
@@ -1944,6 +2007,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_Signal(d3d12_fence_iface *if
     VkResult vr;
 
     TRACE("iface %p, value %#"PRIx64".\n", iface, value);
+
+#ifdef __linux__
+    if (fence->kmt_fence)
+    {
+        kmt_device_signal_fence_immediate(fence->device->kmt_device, fence->kmt_fence, value);
+        return S_OK;
+    }
+#endif
 
     signal_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
     signal_info.pNext = NULL;
@@ -1995,7 +2066,7 @@ HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
     struct d3d12_shared_fence *object;
     HRESULT hr;
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
     object->ID3D12Fence_iface.lpVtbl = &d3d12_shared_fence_vtbl;
@@ -2009,14 +2080,29 @@ HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
         return hr;
     }
 
-    if (FAILED(hr = vkd3d_create_timeline_semaphore(device, initial_value, true, &object->timeline_semaphore)))
+#ifdef __linux__
+    if (device->kmt_device)
     {
-        vkd3d_private_store_destroy(&object->private_store);
-        vkd3d_free(object);
-        return hr;
+        if (!(object->kmt_fence = kmt_device_create_fence(device->kmt_device, initial_value)))
+        {
+            vkd3d_private_store_destroy(&object->private_store);
+            vkd3d_free(object);
+            return E_OUTOFMEMORY;
+        }
+    }
+    else
+#endif
+    {
+        if (FAILED(hr = vkd3d_create_timeline_semaphore(device, initial_value, true, &object->timeline_semaphore)))
+        {
+            vkd3d_private_store_destroy(&object->private_store);
+            vkd3d_free(object);
+            return hr;
+        }
     }
 
     d3d12_shared_fence_open_export_kmt(object, device);
+
     d3d_destruction_notifier_init(&object->destruction_notifier, (IUnknown*)&object->ID3D12Fence_iface);
     d3d12_device_add_ref(object->device = device);
 
@@ -24152,6 +24238,19 @@ VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_Wait(ID3D12CommandQueue *iface,
         struct d3d12_fence *fence = impl_from_ID3D12Fence(fence_iface);
         ticket = d3d12_fence_register_pending_gpu_wait(fence, value);
     }
+#ifdef __linux__
+    else
+    {
+        struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence(fence_iface);
+        if (fence->kmt_fence)
+        {
+            uint64_t edge = 0;
+            kmt_device_fence_register_edge(command_queue->device->kmt_device,
+                    fence->kmt_fence, value, -1, &edge);
+            ticket = edge;
+        }
+    }
+#endif
 
     sub.type = VKD3D_SUBMISSION_WAIT;
     sub.wait.fence = (d3d12_fence_iface *)fence_iface;
@@ -24356,11 +24455,12 @@ unlock:
     return ret;
 }
 
-static void d3d12_command_queue_destroy_serializing_semaphore(struct d3d12_command_queue *command_queue)
+static void d3d12_command_queue_destroy_serializing_semaphores(struct d3d12_command_queue *command_queue)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
 
     VK_CALL(vkDestroySemaphore(command_queue->device->vk_device, command_queue->serializing_semaphore, NULL));
+    VK_CALL(vkDestroySemaphore(command_queue->device->vk_device, command_queue->syncfd_semaphore, NULL));
 }
 
 static void d3d12_command_queue_reset_fence_waits(struct d3d12_command_queue *command_queue)
@@ -24795,6 +24895,72 @@ static void d3d12_command_queue_wait_shared(struct d3d12_command_queue *command_
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
 }
 
+#ifdef __linux__
+static void d3d12_command_queue_wait_shared_syncfd(struct d3d12_command_queue *command_queue,
+        struct d3d12_shared_fence *fence, uint64_t edge)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkSemaphoreSubmitInfo wait_semaphore_info;
+    VkImportSemaphoreFdInfoKHR import_info;
+    struct d3d12_device *device;
+    VkSubmitInfo2 submit_info;
+    VkQueue vk_queue;
+    VkResult vr;
+    int sync_fd;
+
+    device = command_queue->device;
+    vk_procs = &device->vk_procs;
+
+    if (!kmt_device_fence_edge_wait_materialization(command_queue->device->kmt_device, fence->kmt_fence, edge, &sync_fd))
+    {
+        ERR("Failed to materialize fence.\n");
+        return;
+    }
+
+    /* Wait has already been satisfied. */
+    if (sync_fd < 0)
+        return;
+
+    memset(&import_info, 0, sizeof(import_info));
+    import_info.sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR;
+    import_info.fd = sync_fd;
+    import_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
+    import_info.semaphore = command_queue->syncfd_semaphore;
+    import_info.flags = VK_SEMAPHORE_IMPORT_TEMPORARY_BIT;
+
+    /* Importing FD takes ownership of the FD. */
+    vr = VK_CALL(vkImportSemaphoreFdKHR(device->vk_device, &import_info));
+    if (vr != VK_SUCCESS)
+    {
+        ERR("Failed to import syncfd, vr %d.\n", vr);
+        close(sync_fd);
+        return;
+    }
+
+    /* Wait on the temporary binary semaphore, this releases the payload. */
+    memset(&wait_semaphore_info, 0, sizeof(wait_semaphore_info));
+    wait_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    wait_semaphore_info.semaphore = command_queue->syncfd_semaphore;
+    wait_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    memset(&submit_info, 0, sizeof(submit_info));
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.waitSemaphoreInfoCount = 1;
+    submit_info.pWaitSemaphoreInfos = &wait_semaphore_info;
+
+    if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
+    {
+        ERR("Failed to acquire queue.\n");
+        return;
+    }
+
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
+
+    vkd3d_queue_release(command_queue->vkd3d_queue);
+}
+#endif
+
 static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *command_queue,
         struct d3d12_shared_fence *fence, UINT64 value)
 {
@@ -24874,6 +25040,73 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
 
     /* We should probably trigger DEVICE_REMOVED if we hit any errors in the submission thread. */
 }
+
+#ifdef __linux__
+static void d3d12_command_queue_signal_shared_syncfd(struct d3d12_command_queue *command_queue,
+        struct d3d12_shared_fence *fence, uint64_t value)
+{
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkSemaphoreSubmitInfo signal_semaphore_info;
+    VkSemaphoreGetFdInfoKHR get_info;
+    struct vkd3d_queue *vkd3d_queue;
+    struct d3d12_device *device;
+    VkSubmitInfo2 submit_info;
+    VkQueue vk_queue;
+    VkResult vr;
+    int sync_fd;
+
+    device = command_queue->device;
+    vk_procs = &device->vk_procs;
+    vkd3d_queue = command_queue->vkd3d_queue;
+
+    TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
+
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = command_queue->syncfd_semaphore;
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    memset(&submit_info, 0, sizeof(submit_info));
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
+
+    if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
+    {
+        ERR("Failed to acquire queue %p.\n", vkd3d_queue);
+        return;
+    }
+
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+
+    vkd3d_queue_release(vkd3d_queue);
+
+    if (vr < 0)
+    {
+        ERR("Failed to submit signal operation, vr %d.\n", vr);
+        return;
+    }
+
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+
+    memset(&get_info, 0, sizeof(get_info));
+    get_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
+    get_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
+    get_info.semaphore = command_queue->syncfd_semaphore;
+
+    /* Getting payload from copy transference semaphores consumes it.
+     * After success, the semaphore is considered to be reset. */
+    vr = VK_CALL(vkGetSemaphoreFdKHR(device->vk_device, &get_info, &sync_fd));
+    if (vr != VK_SUCCESS)
+    {
+        ERR("Failed to export semaphore.\n");
+        return;
+    }
+
+    /* Now we can unblock waiters that wait for materialization. */
+    kmt_device_register_sync_file(device->kmt_device, fence->kmt_fence, sync_fd, value);
+}
+#endif
 
 struct vkd3d_waiting_fence_defer_release_resource_info
 {
@@ -26156,9 +26389,23 @@ static void d3d12_command_queue_release_serialized(struct d3d12_command_queue *q
 void d3d12_command_queue_signal_inline(struct d3d12_command_queue *queue, d3d12_fence_iface *fence, uint64_t value)
 {
     if (is_shared_ID3D12Fence1(fence))
-        d3d12_command_queue_signal_shared(queue, shared_impl_from_ID3D12Fence1(fence), value);
+    {
+        struct d3d12_shared_fence *shared_fence = shared_impl_from_ID3D12Fence1(fence);
+#ifdef __linux__
+        if (shared_fence->kmt_fence)
+        {
+            d3d12_command_queue_signal_shared_syncfd(queue, shared_fence, value);
+        }
+        else
+#endif
+        {
+            d3d12_command_queue_signal_shared(queue, shared_fence, value);
+        }
+    }
     else
+    {
         d3d12_command_queue_signal(queue, impl_from_ID3D12Fence1(fence), value);
+    }
 }
 
 static bool d3d12_command_queue_exec_submit_needs_fallback_queue(
@@ -26223,9 +26470,19 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             VKD3D_REGION_BEGIN(queue_wait);
             if (is_shared_ID3D12Fence1(submission.wait.fence))
             {
+                struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(submission.wait.fence);
                 cookie = vkd3d_queue_timeline_trace_register_generic_region(&queue->device->queue_timeline_trace, "WAIT (shared)");
                 d3d12_command_queue_flush_waiters(queue, 0u);
-                d3d12_command_queue_wait_shared(queue, shared_impl_from_ID3D12Fence1(submission.wait.fence), submission.wait.value);
+#ifdef __linux__
+                if (fence->kmt_fence)
+                {
+                    d3d12_command_queue_wait_shared_syncfd(queue, fence, submission.wait.wait_ticket);
+                }
+                else
+#endif
+                {
+                    d3d12_command_queue_wait_shared(queue, fence, submission.wait.value);
+                }
             }
             else
             {
@@ -26342,7 +26599,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 cleanup:
     d3d12_command_queue_wait_idle(queue);
     d3d12_command_queue_transition_pool_deinit(&pool, queue->device);
-    d3d12_command_queue_destroy_serializing_semaphore(queue);
+    d3d12_command_queue_destroy_serializing_semaphores(queue);
     return NULL;
 }
 
@@ -26401,6 +26658,11 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
             goto fail_create_semaphore;
     }
 
+#ifdef __linux__
+    if (device->kmt_device && FAILED(vkd3d_create_binary_syncfd_semaphore(device, &queue->syncfd_semaphore)))
+        goto fail_create_syncfd;
+#endif
+
     if (FAILED(hr = vkd3d_private_store_init(&queue->private_store)))
         goto fail_private_store;
 
@@ -26428,6 +26690,10 @@ fail_fence_worker_start:;
 fail_swapchain_factory:
     vkd3d_private_store_destroy(&queue->private_store);
 fail_private_store:
+#ifdef __linux__
+    VK_CALL(vkDestroySemaphore(device->vk_device, queue->syncfd_semaphore, NULL));
+fail_create_syncfd:
+#endif
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->serializing_semaphore, NULL));
 fail_create_semaphore:
     pthread_cond_destroy(&queue->queue_cond);
