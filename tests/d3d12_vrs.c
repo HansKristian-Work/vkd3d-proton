@@ -694,6 +694,24 @@ void test_vrs_sample_mask(void)
     /* In Tier1, any use of sample mask should force 1x1 shading. */
     tier2 = is_vrs_tier2_supported(context.device);
 
+    if (tier2 && is_vkd3d_proton_device(context.device))
+    {
+        VkPhysicalDeviceFragmentShadingRatePropertiesKHR props;
+        VkPhysicalDeviceProperties2 props2;
+
+        memset(&props, 0, sizeof(props));
+        memset(&props2, 0, sizeof(props2));
+        props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        props2.pNext = &props;
+        props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
+        get_vulkan_device_properties2(context.device, &props2);
+
+        /* We expose tier2 without this property bit by mistake.
+         * RADV missed this property bit entirely, and we have to expose it for app-compat reasons. */
+        if (!props.fragmentShadingRateWithShaderSampleMask)
+            tier2 = false;
+    }
+
     heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
     rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
 
@@ -806,31 +824,49 @@ void test_vrs_sample_mask(void)
                     uint32_t input_coverage = 0;
                     struct uvec4 expected = {0};
 
-                    if (has_coverage(x & ~1, y & ~1))
-                        input_coverage |= 0xf000;
-                    if (has_coverage(x | 1, y & ~1))
-                        input_coverage |= 0xf00;
-                    if (has_coverage(x & ~1, y | 1))
-                        input_coverage |= 0xf0;
-                    if (has_coverage(x | 1, y | 1))
-                        input_coverage |= 0xf;
-
-                    if (has_coverage(x, y))
+                    if (tier2)
                     {
-                        uint32_t shamt = 4 * ((y & 1) * 2 + (x & 1));
-                        uint32_t sample_mask0 = 0x1000 >> shamt;
-                        uint32_t sample_mask1 = 0x2000 >> shamt;
-                        uint32_t sample_mask2 = 0x4000 >> shamt;
-                        uint32_t sample_mask3 = 0x8000 >> shamt;
+                        if (has_coverage(x & ~1, y & ~1))
+                            input_coverage |= 0xf000;
+                        if (has_coverage(x | 1, y & ~1))
+                            input_coverage |= 0xf00;
+                        if (has_coverage(x & ~1, y | 1))
+                            input_coverage |= 0xf0;
+                        if (has_coverage(x | 1, y | 1))
+                            input_coverage |= 0xf;
 
-                        if (tests[i].coverage & sample_mask0)
-                            expected.x = input_coverage;
-                        if (tests[i].coverage & sample_mask1)
-                            expected.y = input_coverage;
-                        if (tests[i].coverage & sample_mask2)
-                            expected.z = input_coverage;
-                        if (tests[i].coverage & sample_mask3)
-                            expected.w = input_coverage;
+                        if (has_coverage(x, y))
+                        {
+                            uint32_t shamt = 4 * ((y & 1) * 2 + (x & 1));
+                            uint32_t sample_mask0 = 0x1000 >> shamt;
+                            uint32_t sample_mask1 = 0x2000 >> shamt;
+                            uint32_t sample_mask2 = 0x4000 >> shamt;
+                            uint32_t sample_mask3 = 0x8000 >> shamt;
+
+                            if (tests[i].coverage & sample_mask0)
+                                expected.x = input_coverage;
+                            if (tests[i].coverage & sample_mask1)
+                                expected.y = input_coverage;
+                            if (tests[i].coverage & sample_mask2)
+                                expected.z = input_coverage;
+                            if (tests[i].coverage & sample_mask3)
+                                expected.w = input_coverage;
+                        }
+                    }
+                    else
+                    {
+                        input_coverage = 0xf;
+                        if (has_coverage(x, y))
+                        {
+                            if (tests[i].coverage & 1)
+                                expected.x = input_coverage;
+                            if (tests[i].coverage & 2)
+                                expected.y = input_coverage;
+                            if (tests[i].coverage & 4)
+                                expected.z = input_coverage;
+                            if (tests[i].coverage & 8)
+                                expected.w = input_coverage;
+                        }
                     }
 
                     ok(compare_uvec4(value, &expected), "Test %u, coord %u, %u, expected {#%x, #%x, #%x, #%x}, got {#%x, #%x, #%x, #%x}.\n",
@@ -861,20 +897,30 @@ void test_vrs_sample_mask(void)
                     uint32_t input_coverage = 0;
                     uint32_t expected = 0;
 
-                    if (has_coverage(x & ~1, y & ~1))
-                        input_coverage |= 0x8;
-                    if (has_coverage(x | 1, y & ~1))
-                        input_coverage |= 0x4;
-                    if (has_coverage(x & ~1, y | 1))
-                        input_coverage |= 0x2;
-                    if (has_coverage(x | 1, y | 1))
-                        input_coverage |= 0x1;
-
-                    if (has_coverage(x, y))
+                    if (tier2)
                     {
-                        uint32_t sample_mask = 0x8 >> ((y & 1) * 2 + (x & 1));
-                        if (tests[i].coverage & sample_mask)
-                            expected = input_coverage;
+                        if (has_coverage(x & ~1, y & ~1))
+                            input_coverage |= 0x8;
+                        if (has_coverage(x | 1, y & ~1))
+                            input_coverage |= 0x4;
+                        if (has_coverage(x & ~1, y | 1))
+                            input_coverage |= 0x2;
+                        if (has_coverage(x | 1, y | 1))
+                            input_coverage |= 0x1;
+
+                        if (has_coverage(x, y))
+                        {
+                            uint32_t sample_mask = 0x8 >> ((y & 1) * 2 + (x & 1));
+                            if (tests[i].coverage & sample_mask)
+                                expected = input_coverage;
+                        }
+                    }
+                    else
+                    {
+                        input_coverage = 1;
+                        if (has_coverage(x, y))
+                            if (tests[i].coverage & 1)
+                                expected = input_coverage;
                     }
 
                     ok(value == expected, "Test %u, coord %u, %u, expected #%x, got #%x.\n",
