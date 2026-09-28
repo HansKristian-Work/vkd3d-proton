@@ -4807,11 +4807,18 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
         /* If sample rate shading, ROVs are used, or depth stencil export is used force default VRS state.
          * Do this by not enabling the dynamic state.
          * This forces default static pipeline state to be used instead, which is what we want. */
-        const uint32_t disable_flags =
+        uint32_t disable_flags =
                 VKD3D_SHADER_META_FLAG_USES_SAMPLE_RATE_SHADING |
                 VKD3D_SHADER_META_FLAG_USES_DEPTH_STENCIL_WRITE |
                 VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS;
         bool allow_vrs_combiners = true;
+
+        if (!state->device->device_info.fragment_shading_rate_properties.fragmentShadingRateWithShaderSampleMask)
+        {
+            /* Driver is expected to do this for us, but current RADV is bugged.
+             * We can just force-disable it for them. */
+            disable_flags |= VKD3D_SHADER_META_FLAG_EXPORTS_SAMPLE_MASK;
+        }
 
         for (i = 0; allow_vrs_combiners && i < graphics->stage_count; i++)
             if (graphics->code[i].meta.flags & disable_flags)
