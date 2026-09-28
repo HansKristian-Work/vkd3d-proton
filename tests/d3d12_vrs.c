@@ -578,3 +578,323 @@ void test_vrs_clip_distance(void)
     destroy_test_context(&context);
 }
 
+void test_vrs_sample_mask(void)
+{
+    static const D3D12_SHADING_RATE_COMBINER combiners_null[2] =
+    {
+        D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+        D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+    };
+    static const D3D12_SHADING_RATE_COMBINER combiners[2] =
+    {
+        D3D12_SHADING_RATE_COMBINER_OVERRIDE,
+        D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+    };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList5 *command_list;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12PipelineState *pso_resolve;
+    ID3D12Resource *resource_resolve;
+    ID3D12PipelineState *pso_single;
+    ID3D12Resource *resource_single;
+    ID3D12PipelineState *pso_msaa;
+    ID3D12Resource *resource_msaa;
+    struct test_context_desc desc;
+    const float black[4] = { 0 };
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12DescriptorHeap *rtv;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+    uint32_t i;
+    bool tier2;
+    HRESULT hr;
+    int x, y;
+
+#include "shaders/vrs/headers/vrs_resolve_vs.h"
+#include "shaders/vrs/headers/vrs_resolve_ps.h"
+#include "shaders/vrs/headers/vrs_sample_mask_vs.h"
+#include "shaders/vrs/headers/vrs_sample_mask_ps.h"
+
+    /* Not an exhaustive test, but tests that basic interactions are translated
+     * as we expect. We cannot meaningfully do any translation beyond what the APIs guarantee
+     * for us automatically. */
+
+    static const struct
+    {
+        uint32_t coverage;
+        D3D12_RECT rect;
+        bool msaa;
+    } tests[] = {
+        /* Render individual pixels. Validate sample mask input is what we expect. */
+        { 0xf, { 0, 0, 1, 1 }, false },
+        { 0xf, { 1, 0, 2, 1 }, false },
+        { 0xf, { 0, 1, 1, 2 }, false },
+        { 0xf, { 1, 1, 2, 2 }, false },
+
+        { 0xffff, { 0, 0, 1, 1 }, true },
+        { 0xffff, { 1, 0, 2, 1 }, true },
+        { 0xffff, { 0, 1, 1, 2 }, true },
+        { 0xffff, { 1, 1, 2, 2 }, true },
+
+        /* Render a 3x4 region, but use sample mask to mask out individual pixels. */
+        { 0x0, { 0, 0, 3, 4 }, false },
+        { 0xf0 /* out of range */, { 0, 0, 3, 4 }, false },
+        { 0x1, { 0, 0, 3, 4 }, false },
+        { 0x2, { 0, 0, 3, 4 }, false },
+        { 0x3, { 0, 0, 3, 4 }, false },
+        { 0x4, { 0, 0, 3, 4 }, false },
+        { 0x5, { 0, 0, 3, 4 }, false },
+        { 0x6, { 0, 0, 3, 4 }, false },
+        { 0x7, { 0, 0, 3, 4 }, false },
+        { 0x8, { 0, 0, 3, 4 }, false },
+        { 0x9, { 0, 0, 3, 4 }, false },
+        { 0xa, { 0, 0, 3, 4 }, false },
+        { 0xb, { 0, 0, 3, 4 }, false },
+        { 0xc, { 0, 0, 3, 4 }, false },
+        { 0xd, { 0, 0, 3, 4 }, false },
+        { 0xe, { 0, 0, 3, 4 }, false },
+        { 0xf, { 0, 0, 3, 4 }, false },
+
+        /* Pick out individual samples in a 2x2 region. */
+        { 1 << 0, { 0, 0, 4, 4 }, true },
+        { 1 << 1, { 0, 0, 4, 4 }, true },
+        { 1 << 2, { 0, 0, 4, 4 }, true },
+        { 1 << 3, { 0, 0, 4, 4 }, true },
+        { 1 << 4, { 0, 0, 4, 4 }, true },
+        { 1 << 5, { 0, 0, 4, 4 }, true },
+        { 1 << 6, { 0, 0, 4, 4 }, true },
+        { 1 << 7, { 0, 0, 4, 4 }, true },
+        { 1 << 8, { 0, 0, 4, 4 }, true },
+        { 1 << 9, { 0, 0, 4, 4 }, true },
+        { 1 << 10, { 0, 0, 4, 4 }, true },
+        { 1 << 11, { 0, 0, 4, 4 }, true },
+        { 1 << 12, { 0, 0, 4, 4 }, true },
+        { 1 << 13, { 0, 0, 4, 4 }, true },
+        { 1 << 14, { 0, 0, 4, 4 }, true },
+        { 1 << 15, { 0, 0, 4, 4 }, true },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (!is_vrs_tier1_supported(context.device, NULL))
+    {
+        skip("VariableRateShading TIER_1 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    /* In Tier1, any use of sample mask should force 1x1 shading. */
+    tier2 = is_vrs_tier2_supported(context.device);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Width = 4;
+    resource_desc.Height = 4;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.Format = DXGI_FORMAT_R32_UINT;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&resource_single);
+    resource_desc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&resource_resolve);
+    resource_desc.Format = DXGI_FORMAT_R32_UINT;
+    resource_desc.SampleDesc.Count = 4;
+    ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&resource_msaa);
+
+    ID3D12Device_CreateShaderResourceView(context.device, resource_msaa, NULL,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+    ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
+
+    context.root_signature = create_texture_root_signature(
+        context.device, D3D12_SHADER_VISIBILITY_ALL, 1, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+        DXGI_FORMAT_R32_UINT, &vrs_sample_mask_vs_dxil, &vrs_sample_mask_ps_dxil, NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DepthStencilState.StencilEnable = FALSE;
+    pso_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_single);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", (int)hr);
+
+    pso_desc.SampleDesc.Count = 4;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_msaa);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", (int)hr);
+
+    pso_desc.VS = vrs_resolve_vs_dxil;
+    pso_desc.PS = vrs_resolve_ps_dxil;
+    pso_desc.SampleDesc.Count = 1;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_UINT;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_resolve);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", (int)hr);
+
+    set_viewport(&vp, 0, 0, 4, 4, 0, 1);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv);
+        bool msaa = tests[i].msaa;
+
+        ID3D12Device_CreateRenderTargetView(context.device, msaa ? resource_msaa : resource_single, NULL, rtv_handle);
+
+        ID3D12GraphicsCommandList5_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList5_ClearRenderTargetView(command_list, rtv_handle, black, 0, NULL);
+        ID3D12GraphicsCommandList5_OMSetRenderTargets(command_list, 1, &rtv_handle, false, NULL);
+        ID3D12GraphicsCommandList5_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList5_SetPipelineState(command_list, msaa ? pso_msaa : pso_single);
+        ID3D12GraphicsCommandList5_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList5_RSSetViewports(command_list, 1, &vp);
+        ID3D12GraphicsCommandList5_RSSetScissorRects(command_list, 1, &tests[i].rect);
+        ID3D12GraphicsCommandList5_SetGraphicsRootDescriptorTable(command_list, 0,
+                ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+        ID3D12GraphicsCommandList5_SetGraphicsRoot32BitConstant(command_list, 1, tests[i].coverage, 0);
+
+        ID3D12GraphicsCommandList5_RSSetShadingRate(command_list, D3D12_SHADING_RATE_1X1, combiners);
+        ID3D12GraphicsCommandList5_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        if (msaa)
+        {
+            set_rect(&sci, 0, 0, 4, 4);
+
+            transition_resource_state(context.list, resource_msaa, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+            /* Resolve all samples to RGBA32UI. */
+            ID3D12Device_CreateRenderTargetView(context.device, resource_resolve, NULL, rtv_handle);
+            ID3D12GraphicsCommandList5_OMSetRenderTargets(command_list, 1, &rtv_handle, false, NULL);
+            ID3D12GraphicsCommandList5_SetPipelineState(command_list, pso_resolve);
+            ID3D12GraphicsCommandList5_RSSetScissorRects(command_list, 1, &sci);
+            ID3D12GraphicsCommandList5_RSSetShadingRate(command_list, D3D12_SHADING_RATE_1X1, combiners_null);
+            ID3D12GraphicsCommandList5_DrawInstanced(command_list, 3, 1, 0, 0);
+
+            transition_resource_state(context.list, resource_resolve, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            get_texture_readback_with_command_list(resource_resolve, 0, &rb, context.queue, context.list);
+            reset_command_list(context.list, context.allocator);
+            transition_resource_state(context.list, resource_resolve, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            transition_resource_state(context.list, resource_msaa, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+#define has_coverage(X, Y) \
+        ((int)(X) >= tests[i].rect.left && (int)(X) < tests[i].rect.right && \
+        (int)(Y) >= tests[i].rect.top && (int)(Y) < tests[i].rect.bottom)
+
+            for (y = 0; y < 4; y++)
+            {
+                for (x = 0; x < 4; x++)
+                {
+                    const struct uvec4 *value = get_readback_uvec4(&rb, x, y);
+                    uint32_t input_coverage = 0;
+                    struct uvec4 expected = {0};
+
+                    if (has_coverage(x & ~1, y & ~1))
+                        input_coverage |= 0xf000;
+                    if (has_coverage(x | 1, y & ~1))
+                        input_coverage |= 0xf00;
+                    if (has_coverage(x & ~1, y | 1))
+                        input_coverage |= 0xf0;
+                    if (has_coverage(x | 1, y | 1))
+                        input_coverage |= 0xf;
+
+                    if (has_coverage(x, y))
+                    {
+                        uint32_t shamt = 4 * ((y & 1) * 2 + (x & 1));
+                        uint32_t sample_mask0 = 0x1000 >> shamt;
+                        uint32_t sample_mask1 = 0x2000 >> shamt;
+                        uint32_t sample_mask2 = 0x4000 >> shamt;
+                        uint32_t sample_mask3 = 0x8000 >> shamt;
+
+                        if (tests[i].coverage & sample_mask0)
+                            expected.x = input_coverage;
+                        if (tests[i].coverage & sample_mask1)
+                            expected.y = input_coverage;
+                        if (tests[i].coverage & sample_mask2)
+                            expected.z = input_coverage;
+                        if (tests[i].coverage & sample_mask3)
+                            expected.w = input_coverage;
+                    }
+
+                    ok(compare_uvec4(value, &expected), "Test %u, coord %u, %u, expected {#%x, #%x, #%x, #%x}, got {#%x, #%x, #%x, #%x}.\n",
+                         i, x, y, expected.x, expected.y, expected.z, expected.w,
+                         value->x, value->y, value->z, value->w);
+                }
+            }
+
+#undef has_coverage
+        }
+        else
+        {
+            transition_resource_state(context.list, resource_single, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            get_texture_readback_with_command_list(resource_single, 0, &rb, context.queue, context.list);
+            reset_command_list(context.list, context.allocator);
+            transition_resource_state(context.list, resource_single, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                                      D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+#define has_coverage(X, Y) \
+        ((int)(X) >= tests[i].rect.left && (int)(X) < tests[i].rect.right && \
+        (int)(Y) >= tests[i].rect.top && (int)(Y) < tests[i].rect.bottom)
+
+            for (y = 0; y < 4; y++)
+            {
+                for (x = 0; x < 4; x++)
+                {
+                    uint32_t value = get_readback_uint(&rb, x, y, 0);
+                    uint32_t input_coverage = 0;
+                    uint32_t expected = 0;
+
+                    if (has_coverage(x & ~1, y & ~1))
+                        input_coverage |= 0x8;
+                    if (has_coverage(x | 1, y & ~1))
+                        input_coverage |= 0x4;
+                    if (has_coverage(x & ~1, y | 1))
+                        input_coverage |= 0x2;
+                    if (has_coverage(x | 1, y | 1))
+                        input_coverage |= 0x1;
+
+                    if (has_coverage(x, y))
+                    {
+                        uint32_t sample_mask = 0x8 >> ((y & 1) * 2 + (x & 1));
+                        if (tests[i].coverage & sample_mask)
+                            expected = input_coverage;
+                    }
+
+                    ok(value == expected, "Test %u, coord %u, %u, expected #%x, got #%x.\n",
+                         i, x, y, expected, value);
+                }
+            }
+        }
+#undef has_coverage
+
+        release_resource_readback(&rb);
+    }
+
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12DescriptorHeap_Release(rtv);
+    ID3D12Resource_Release(resource_single);
+    ID3D12PipelineState_Release(pso_resolve);
+    ID3D12PipelineState_Release(pso_single);
+    ID3D12PipelineState_Release(pso_msaa);
+    ID3D12Resource_Release(resource_resolve);
+    ID3D12Resource_Release(resource_msaa);
+    ID3D12GraphicsCommandList5_Release(command_list);
+    destroy_test_context(&context);
+}
