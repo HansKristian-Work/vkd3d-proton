@@ -24846,19 +24846,20 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
         command_queue->last_submission_timeline_value = vkd3d_queue->submission_timeline_count;
     }
 
-    vkd3d_queue_release(vkd3d_queue);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     if (vr < 0)
     {
         ERR("Failed to submit signal operation, vr %d.\n", vr);
+        vkd3d_queue_release(vkd3d_queue);
         return;
     }
-
-    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     memset(&fence_info, 0, sizeof(fence_info));
     fence_info.vk_semaphore = vkd3d_queue->submission_timeline;
     fence_info.vk_semaphore_value = vkd3d_queue->submission_timeline_count;
+
+    vkd3d_queue_release(vkd3d_queue);
 
     release_info = vkd3d_waiting_fence_set_callback(&fence_info,
             &vkd3d_waiting_fence_release_fence, sizeof(*release_info));
