@@ -376,4 +376,26 @@ atomic uint64_t load from memory.
 
 This is only valid if the fence value and associated events are signaled atomically in the same place though.
 
-TBD. I'll try to prototype a PoC for this style of implementation.
+A rough prototype implementation is provided in `libs/vkd3d/shared_fence_syncfd.c` with
+rough vkd3d-proton integration demonstrating how it works.
+It's fairly straight forward (but a lot of churn) to turn it into true shmem and FD flinging.
+There isn't too much value in me going that extra mile since full shared ID3D12Fence is not implementable
+without some new special global daemon that fakes wineserver for absolutely no good reason.
+
+It re-imagines the current d3d12_fence implementation in vkd3d-proton, but uses sync_fd as the core GPU sync primitive.
+`SYNC_FD` support is universal on Linux for the vendors we care about.
+
+Implementation in vkd3d-proton was quite straight forward:
+
+- On device creation: Create a `kmt_device`.
+- On shared fence creation: Create a `kmt_fence`. For proper sharing, shmem region can be shared.
+- `ID3D12Fence::Signal()`, defer to the corresponding call.
+- `ID3D12Fence::SetEventOnCompletion()`, defer to the corresponding call.
+- `ID3D12CommandQueue::Wait()`, register edge in this call, replaced `ticket` by `edge` in the `SUBMISSION_WAIT` struct.
+  In the submission thread, wait for materialization on `ticket`. This gives us a binary semaphore FD we can wait on.
+  Import the `SYNC_FD` and submit a `QueueSubmit`. This avoids any GPU bubbles. Biggest win with this model.
+- `ID3D12CommandQueue::Signal()`. On signal, signal a binary semaphore instead, export the sync FD, and call
+  `kmt_device_register_sync_file`. Just like our non-shared path, we can unblock a submission thread that waits for materialization.
+
+It passes our stress tests for fences in the shared path as well now, which completes a PoC
+that this approach is good and should give us great performance.
