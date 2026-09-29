@@ -26427,9 +26427,9 @@ fail_fence_worker_start:;
 fail_swapchain_factory:
     vkd3d_private_store_destroy(&queue->private_store);
 fail_private_store:
-    pthread_cond_destroy(&queue->queue_cond);
-fail_create_semaphore:
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->serializing_semaphore, NULL));
+fail_create_semaphore:
+    pthread_cond_destroy(&queue->queue_cond);
 fail_pthread_cond:
     pthread_mutex_destroy(&queue->queue_lock);
 fail:
