@@ -555,6 +555,19 @@ static void vkd3d_waiting_fence_release_fence(struct vkd3d_fence_worker *worker,
     d3d12_fence_iface_dec_ref(info->fence);
 }
 
+struct vkd3d_binary_semaphore_release_info
+{
+    VkSemaphore semaphore;
+};
+
+static void vkd3d_binary_semaphore_release(struct vkd3d_fence_worker *worker,
+        void *userdata, bool complete)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &worker->device->vk_procs;
+    struct vkd3d_binary_semaphore_release_info *info = userdata;
+    VK_CALL(vkDestroySemaphore(worker->device->vk_device, info->semaphore, NULL));
+}
+
 HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         const struct vkd3d_fence_wait_info *fence_info,
         const struct vkd3d_queue_timeline_trace_cookie *timeline_cookie)
@@ -24460,7 +24473,6 @@ static void d3d12_command_queue_destroy_serializing_semaphores(struct d3d12_comm
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
 
     VK_CALL(vkDestroySemaphore(command_queue->device->vk_device, command_queue->serializing_semaphore, NULL));
-    VK_CALL(vkDestroySemaphore(command_queue->device->vk_device, command_queue->syncfd_semaphore, NULL));
 }
 
 static void d3d12_command_queue_reset_fence_waits(struct d3d12_command_queue *command_queue)
@@ -24899,17 +24911,25 @@ static void d3d12_command_queue_wait_shared(struct d3d12_command_queue *command_
 static void d3d12_command_queue_wait_shared_syncfd(struct d3d12_command_queue *command_queue,
         struct d3d12_shared_fence *fence, uint64_t edge)
 {
+    struct vkd3d_binary_semaphore_release_info *release_info;
     const struct vkd3d_vk_device_procs *vk_procs;
+    VkSemaphoreSubmitInfo signal_semaphore_info;
     VkSemaphoreSubmitInfo wait_semaphore_info;
+    struct vkd3d_fence_wait_info fence_info;
     VkImportSemaphoreFdInfoKHR import_info;
+    struct vkd3d_queue *vkd3d_queue;
     struct d3d12_device *device;
+    uint64_t submission_count;
     VkSubmitInfo2 submit_info;
+    VkSemaphore sync_fd_sem;
     VkQueue vk_queue;
     VkResult vr;
     int sync_fd;
+    HRESULT hr;
 
     device = command_queue->device;
     vk_procs = &device->vk_procs;
+    vkd3d_queue = command_queue->vkd3d_queue;
 
     if (!kmt_device_fence_edge_wait_materialization(command_queue->device->kmt_device, fence->kmt_fence, edge, &sync_fd))
     {
@@ -24921,11 +24941,17 @@ static void d3d12_command_queue_wait_shared_syncfd(struct d3d12_command_queue *c
     if (sync_fd < 0)
         return;
 
+    if (FAILED(vkd3d_create_binary_semaphore(device, &sync_fd_sem)))
+    {
+        ERR("Failed to create binary semaphore.\n");
+        return;
+    }
+
     memset(&import_info, 0, sizeof(import_info));
     import_info.sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR;
     import_info.fd = sync_fd;
     import_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
-    import_info.semaphore = command_queue->syncfd_semaphore;
+    import_info.semaphore = sync_fd_sem;
     import_info.flags = VK_SEMAPHORE_IMPORT_TEMPORARY_BIT;
 
     /* Importing FD takes ownership of the FD. */
@@ -24934,30 +24960,54 @@ static void d3d12_command_queue_wait_shared_syncfd(struct d3d12_command_queue *c
     {
         ERR("Failed to import syncfd, vr %d.\n", vr);
         close(sync_fd);
+        VK_CALL(vkDestroySemaphore(device->vk_device, sync_fd_sem, NULL));
         return;
     }
 
     /* Wait on the temporary binary semaphore, this releases the payload. */
     memset(&wait_semaphore_info, 0, sizeof(wait_semaphore_info));
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+
     wait_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    wait_semaphore_info.semaphore = command_queue->syncfd_semaphore;
+    wait_semaphore_info.semaphore = sync_fd_sem;
     wait_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-    memset(&submit_info, 0, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-    submit_info.waitSemaphoreInfoCount = 1;
-    submit_info.pWaitSemaphoreInfos = &wait_semaphore_info;
-
-    if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
+    if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
     {
         ERR("Failed to acquire queue.\n");
         return;
     }
 
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = vkd3d_queue->submission_timeline;
+    signal_semaphore_info.value = ++vkd3d_queue->submission_timeline_count;
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    memset(&submit_info, 0, sizeof(submit_info));
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.waitSemaphoreInfoCount = 1;
+    submit_info.pWaitSemaphoreInfos = &wait_semaphore_info;
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
+
     vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
 
-    vkd3d_queue_release(command_queue->vkd3d_queue);
+    submission_count = vkd3d_queue->submission_timeline_count;
+
+    vkd3d_queue_release(vkd3d_queue);
+
+    /* Workaround weirdness in VVL and NV driver. */
+    memset(&fence_info, 0, sizeof(fence_info));
+    fence_info.vk_semaphore = vkd3d_queue->submission_timeline;
+    fence_info.vk_semaphore_value = submission_count;
+
+    release_info = vkd3d_waiting_fence_set_callback(&fence_info,
+            &vkd3d_binary_semaphore_release, sizeof(*release_info));
+    release_info->semaphore = sync_fd_sem;
+
+    if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, NULL)))
+        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", (int)hr);
 }
 #endif
 
@@ -25045,15 +25095,20 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
 static void d3d12_command_queue_signal_shared_syncfd(struct d3d12_command_queue *command_queue,
         struct d3d12_shared_fence *fence, uint64_t value)
 {
+    struct vkd3d_binary_semaphore_release_info *release_info;
+    VkSemaphoreSubmitInfo signal_semaphore_info[2];
     const struct vkd3d_vk_device_procs *vk_procs;
-    VkSemaphoreSubmitInfo signal_semaphore_info;
+    struct vkd3d_fence_wait_info fence_info;
     VkSemaphoreGetFdInfoKHR get_info;
     struct vkd3d_queue *vkd3d_queue;
+    VkSubmitInfo2 submit_info[2];
     struct d3d12_device *device;
-    VkSubmitInfo2 submit_info;
+    uint64_t submission_value;
+    VkSemaphore sync_fd_sem;
     VkQueue vk_queue;
     VkResult vr;
     int sync_fd;
+    HRESULT hr;
 
     device = command_queue->device;
     vk_procs = &device->vk_procs;
@@ -25061,15 +25116,16 @@ static void d3d12_command_queue_signal_shared_syncfd(struct d3d12_command_queue 
 
     TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
 
-    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
-    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    signal_semaphore_info.semaphore = command_queue->syncfd_semaphore;
-    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    if (FAILED(vkd3d_create_binary_syncfd_semaphore(device, &sync_fd_sem)))
+    {
+        ERR("Failed to create binary semaphore.\n");
+        return;
+    }
 
-    memset(&submit_info, 0, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-    submit_info.signalSemaphoreInfoCount = 1;
-    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
+    memset(signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info[0].semaphore = sync_fd_sem;
+    signal_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
     if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
     {
@@ -25077,8 +25133,23 @@ static void d3d12_command_queue_signal_shared_syncfd(struct d3d12_command_queue 
         return;
     }
 
-    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    signal_semaphore_info[1].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info[1].semaphore = vkd3d_queue->submission_timeline;
+    signal_semaphore_info[1].value = ++vkd3d_queue->submission_timeline_count;
+    signal_semaphore_info[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
+    memset(submit_info, 0, sizeof(submit_info));
+    submit_info[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info[0].signalSemaphoreInfoCount = 1;
+    submit_info[0].pSignalSemaphoreInfos = &signal_semaphore_info[0];
+    submit_info[1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info[1].signalSemaphoreInfoCount = 1;
+    submit_info[1].pSignalSemaphoreInfos = &signal_semaphore_info[1];
+
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 2, submit_info, VK_NULL_HANDLE));
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+
+    submission_value = vkd3d_queue->submission_timeline_count;
     vkd3d_queue_release(vkd3d_queue);
 
     if (vr < 0)
@@ -25087,12 +25158,10 @@ static void d3d12_command_queue_signal_shared_syncfd(struct d3d12_command_queue 
         return;
     }
 
-    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
-
     memset(&get_info, 0, sizeof(get_info));
     get_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
     get_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
-    get_info.semaphore = command_queue->syncfd_semaphore;
+    get_info.semaphore = sync_fd_sem;
 
     /* Getting payload from copy transference semaphores consumes it.
      * After success, the semaphore is considered to be reset. */
@@ -25105,6 +25174,18 @@ static void d3d12_command_queue_signal_shared_syncfd(struct d3d12_command_queue 
 
     /* Now we can unblock waiters that wait for materialization. */
     kmt_device_register_sync_file(device->kmt_device, fence->kmt_fence, sync_fd, value);
+
+    /* Workaround for VVL and NV? Neither seem to deal with transference correctly ... */
+    memset(&fence_info, 0, sizeof(fence_info));
+    fence_info.vk_semaphore = vkd3d_queue->submission_timeline;
+    fence_info.vk_semaphore_value = submission_value;
+
+    release_info = vkd3d_waiting_fence_set_callback(&fence_info,
+            &vkd3d_binary_semaphore_release, sizeof(*release_info));
+    release_info->semaphore = sync_fd_sem;
+
+    if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence_info, NULL)))
+        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", (int)hr);
 }
 #endif
 
@@ -26658,11 +26739,6 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
             goto fail_create_semaphore;
     }
 
-#ifdef __linux__
-    if (device->kmt_device && FAILED(vkd3d_create_binary_syncfd_semaphore(device, &queue->syncfd_semaphore)))
-        goto fail_create_syncfd;
-#endif
-
     if (FAILED(hr = vkd3d_private_store_init(&queue->private_store)))
         goto fail_private_store;
 
@@ -26690,10 +26766,6 @@ fail_fence_worker_start:;
 fail_swapchain_factory:
     vkd3d_private_store_destroy(&queue->private_store);
 fail_private_store:
-#ifdef __linux__
-    VK_CALL(vkDestroySemaphore(device->vk_device, queue->syncfd_semaphore, NULL));
-fail_create_syncfd:
-#endif
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->serializing_semaphore, NULL));
 fail_create_semaphore:
     pthread_cond_destroy(&queue->queue_cond);

@@ -3913,7 +3913,6 @@ struct d3d12_command_queue
 
     VkSemaphore serializing_semaphore;
     bool serializing_semaphore_signaled;
-    VkSemaphore syncfd_semaphore;
 
     uint32_t inflight_submissions;
 
