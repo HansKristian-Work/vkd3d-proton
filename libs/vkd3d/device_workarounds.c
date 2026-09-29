@@ -100,6 +100,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* PARANOID (946920). Similar concern with DXR. Add default UE configs. Also requires non-native FP16 somehow. */
     { VKD3D_STRING_COMPARE_EXACT, "Paranoid-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1), VKD3D_CONFIG_FLAGS_NONE,
             VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
+    /* The Witcher 3: Wild Hunt - Remastered (292030).  Enables RT by default which breaks game currently. */
+    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DXR },
     /* Lost Judgment (2058190) */
     { VKD3D_STRING_COMPARE_EXACT, "LostJudgment.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
     /* Marvel's Spider-Man Remastered (1817070). DCC stores causes glitches when RT is enabled with RADV. */
