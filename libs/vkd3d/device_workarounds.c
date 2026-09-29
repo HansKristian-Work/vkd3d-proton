@@ -27,6 +27,7 @@ enum vkd3d_application_feature_override
 {
     VKD3D_APPLICATION_FEATURE_OVERRIDE_NONE = 0,
     VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME = 1 << 0,
+    VKD3D_APPLICATION_FEATURE_NO_DXR = 1 << 0,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 = 1 << 1,
     VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX = 1 << 2,
     VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS = 1 << 3,
@@ -1015,6 +1016,12 @@ void d3d12_device_caps_override_application(struct d3d12_device *device)
             INFO("Disabling automatic enablement of DXR on Deck/Frame.\n");
             device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
         }
+    }
+    if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_NO_DXR)
+    {
+        /* For games which automatically enable RT and RT triggers catastrophic bug. */
+        INFO("Disabling automatic enablement of DXR.\n");
+        device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
     }
 
     if (vkd3d_application_feature_override & VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0)
