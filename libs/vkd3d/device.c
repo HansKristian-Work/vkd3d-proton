@@ -7976,35 +7976,35 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
 
     info->ResultDataMaxSizeInBytes = size_info.accelerationStructureSize;
     info->ScratchDataSizeInBytes = size_info.buildScratchSize;
+    info->UpdateScratchDataSizeInBytes = size_info.updateScratchSize;
 
     if (build_info.type == VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR &&
         VKD3D_CONFIG_FLAG_IS_SET(RTAS_ALLOW_BLAS_REBUILD_SIZES))
     {
-        /* The application may build with ALLOW_UPDATE even if it did not query with it,
-         * so the result has to be valid for both. We cannot assume that ALLOW_UPDATE only
-         * increases requirements. On NVIDIA, it reduces build scratch size by up to ~5x and
-         * RTAS size by ~10% for larger BLAS, so querying only with ALLOW_UPDATE would make
-         * builds without ALLOW_UPDATE overflow their scratch and result memory. */
-        build_info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+        if (!(build_info.flags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR))
+        {
+            /* The application may build with ALLOW_UPDATE even if it did not query with it,
+             * so the result has to be valid for both. We cannot assume that ALLOW_UPDATE only
+             * increases requirements. On NVIDIA, it reduces build scratch size by up to ~5x and
+             * RTAS size by ~10% for larger BLAS, so querying only with ALLOW_UPDATE would make
+             * builds without ALLOW_UPDATE overflow their scratch and result memory. */
+            build_info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
 
-        memset(&update_size_info, 0, sizeof(update_size_info));
-        update_size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+            memset(&update_size_info, 0, sizeof(update_size_info));
+            update_size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 
-        VK_CALL(vkGetAccelerationStructureBuildSizesKHR(device->vk_device,
-                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info,
-                primitive_counts, &update_size_info));
+            VK_CALL(vkGetAccelerationStructureBuildSizesKHR(device->vk_device,
+                    VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info,
+                    primitive_counts, &update_size_info));
 
-        /* Pick the conservative result. */
-        info->ResultDataMaxSizeInBytes = max(info->ResultDataMaxSizeInBytes,
-                update_size_info.accelerationStructureSize);
-        info->ScratchDataSizeInBytes = max(info->ScratchDataSizeInBytes,
-                max(update_size_info.buildScratchSize, update_size_info.updateScratchSize));
+            /* Pick the conservative result. */
+            info->ResultDataMaxSizeInBytes = max(info->ResultDataMaxSizeInBytes, update_size_info.accelerationStructureSize);
+            info->ScratchDataSizeInBytes = max(info->ScratchDataSizeInBytes, update_size_info.buildScratchSize);
+            info->UpdateScratchDataSizeInBytes = update_size_info.updateScratchSize;
+        }
+
+        info->ScratchDataSizeInBytes = max(info->ScratchDataSizeInBytes, info->UpdateScratchDataSizeInBytes);
         info->UpdateScratchDataSizeInBytes = info->ScratchDataSizeInBytes;
-    }
-    else
-    {
-        /* Default API path. */
-        info->UpdateScratchDataSizeInBytes = size_info.updateScratchSize;
     }
 
     TRACE("ResultDataMaxSizeInBytes: %"PRIu64".\n", info->ResultDataMaxSizeInBytes);
