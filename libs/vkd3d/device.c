@@ -10829,7 +10829,8 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         forced_singletons = vkd3d_get_env_var("ENABLE_VULKAN_RENDERDOC_CAPTURE", env, sizeof(env)) &&
                 strcmp(env, "1") == 0;
 
-        INFO("Forcing singleton device due to RenderDoc being enabled.\n");
+        if (forced_singletons)
+            INFO("Forcing singleton device due to RenderDoc being enabled.\n");
 
         if (forced_singletons &&
             (create_info->device_factory_flags &
