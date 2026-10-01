@@ -2524,6 +2524,141 @@ void test_denorm_behavior_dxil(void)
     test_denorm_behavior(true);
 }
 
+static float quant_fp16(float value)
+{
+    return half_to_float(float_to_half(value));
+}
+
+static float quant_fp16_rtz(float value)
+{
+    uint32_t u32;
+
+    if (isnan(value) || isinf(value))
+        return value;
+
+    /* Handle large finite FP32 values. */
+    if (value > 65504.0f)
+        value = 65504.0f;
+    else if (value < -65504.0f)
+        value = -65504.0f;
+
+    /* Deal with FP16 denorms. */
+    value *= 16.0f * 1024.0f * 1024.0f;
+    value = truncf(value);
+    value /= 16.0f * 1024.0f * 1024.0f;
+
+    memcpy(&u32, &value, sizeof(u32));
+    /* Chop off mantissa bits, don't care about large normal FP32 values here. */
+    u32 &= UINT32_MAX << (23 - 10);
+    memcpy(&value, &u32, sizeof(u32));
+    return half_to_float(float_to_half(value));
+}
+
+static void test_fp16_rounding_behavior(bool native_fp16)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS4 features4;
+    D3D12_ROOT_PARAMETER root_param[1];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *dst;
+    bool support_16bit;
+    unsigned int i;
+
+#include "shaders/sm_advanced/headers/fp16_roundtrip_quant.h"
+#include "shaders/sm_advanced/headers/fp16_roundtrip_quant_legacy.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (native_fp16)
+    {
+        support_16bit =
+            SUCCEEDED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS4,
+                &features4, sizeof(features4))) &&
+            features4.Native16BitShaderOpsSupported;
+
+        if (!support_16bit)
+        {
+            skip("16-bit not supported.\n");
+            destroy_test_context(&context);
+            return;
+        }
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&root_param, 0, sizeof(root_param));
+    rs_desc.NumParameters = ARRAY_SIZE(root_param);
+    rs_desc.pParameters = root_param;
+    root_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_compute_pipeline_state(
+        context.device, context.root_signature,
+        native_fp16 ? fp16_roundtrip_quant_dxil : fp16_roundtrip_quant_legacy_dxil);
+
+    dst = create_default_buffer(context.device, 16 * 1024 * 1024 * sizeof(float),
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(dst));
+    ID3D12GraphicsCommandList_Dispatch(context.list, 16 * 1024 * 1024 / 1024, 1, 1);
+
+    transition_resource_state(context.list, dst, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(dst, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 16 * 1024 * 1024; i++)
+    {
+        uint32_t u32_input = i * 256;
+        uint32_t result_u32;
+        float f32_input;
+        float result;
+        bool pass;
+
+        memcpy(&f32_input, &u32_input, sizeof(f32_input));
+        result = get_readback_float(&rb, i, 0);
+        memcpy(&result_u32, &result, sizeof(result));
+
+        if (isnan(f32_input))
+        {
+            ok(isnan(result), "Value #%x: Expected NaN, but got %f.\n", i, result);
+        }
+        else if (isinf(f32_input))
+        {
+            ok(f32_input == result, "Value #%x: Expected %f, got %f.\n", i, f32_input, result);
+        }
+        else
+        {
+            pass = quant_fp16_rtz(f32_input) == result || (native_fp16 && quant_fp16(f32_input) == result);
+            /* The only correct answer is RTZ, but allow RTE as well since native drivers do that too for native FP16. */
+            ok(pass, "Value #%x: RTZ is broken. Input %.6g, RTZ %.6g, got %.6g\n", i,
+                 f32_input, quant_fp16_rtz(f32_input), result);
+
+            /* Don't spam a million failures. */
+            if (!pass)
+                break;
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(dst);
+
+    destroy_test_context(&context);
+}
+
+void test_fp16_rounding_behavior_sm62(void)
+{
+    test_fp16_rounding_behavior(true);
+}
+
+void test_fp16_rounding_behavior_legacy(void)
+{
+    test_fp16_rounding_behavior(false);
+}
+
 void test_sm67_helper_lane_wave_ops(void)
 {
     const float default_color[4] = { 1000.0f, 1000.0f, 1000.0f, 1000.0f };
@@ -5004,21 +5139,6 @@ static float quant_fp16_fp8_fast(float value)
     u8 = ((f16 >> 8) & 0x80) | ((f16 + 0x3f) >> 7);
 
     return fp8_to_float(u8);
-}
-
-static float quant_fp16(float value)
-{
-    return half_to_float(float_to_half(value));
-}
-
-static float quant_fp16_rtz(float value)
-{
-    uint32_t u32;
-    memcpy(&u32, &value, sizeof(u32));
-    /* Chop off mantissa bits, don't care about large normal FP32 values here. */
-    u32 &= ~((1 << (23 - 10)) - 1);
-    memcpy(&value, &u32, sizeof(u32));
-    return half_to_float(float_to_half(value));
 }
 
 static ID3D12PipelineState *create_wmma_pso(ID3D12Device *device, ID3D12RootSignature *rs, D3D12_SHADER_BYTECODE code)
