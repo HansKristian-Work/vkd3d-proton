@@ -2417,3 +2417,172 @@ void test_structured_buffer_addressing_wrap(void)
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
+
+void test_descriptor_hoisting_root_descriptor(void)
+{
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context_desc context_desc;
+    D3D12_ROOT_PARAMETER1 rs_param[3];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12PipelineState *pso;
+    ID3D12Resource *output;
+    ID3D12Resource *cbv;
+    unsigned int i, j;
+
+#include "shaders/robustness/headers/descriptor_hoisting_default.h"
+#include "shaders/robustness/headers/descriptor_hoisting_opt.h"
+
+/* If set to 1, actually do the faulty access. We would expect that the GPU does indeed crash as expected. */
+#define BAIT_HARD_CRASH 0
+
+/* With all_resources_bound and the various flags RS flags involved, we're baiting the driver to optimize the accesses.
+ * However, there doesn't seem to be any evidence of this optimization actually happening. As long as there is no dynamic
+ * access to the Root CBV, the GPU does not hang.
+ * NVIDIA: Never seems to hang no matter how hard I try. However, the test seems to take longer.
+ * AMD: Can bait out a crash, but never crashes with BAIT_HARD_CRASH = 0.
+ * WARP: Can bait out a crash (rarely), but never crashes with BAIT_HARD_CRASH = 0. */
+
+    const struct
+    {
+        const D3D12_SHADER_BYTECODE *cs;
+        uint32_t cond;
+        uint32_t valid_zone;
+        D3D12_ROOT_DESCRIPTOR_FLAGS rs_flag;
+        const char *tag;
+    } tests[] = {
+        /* Pass in a valid VA, but check what happens on the edge of a buffer. */
+        { &descriptor_hoisting_default_dxil, BAIT_HARD_CRASH, 256,
+            D3D12_ROOT_DESCRIPTOR_FLAG_NONE, "FlagNone" },
+        { &descriptor_hoisting_default_dxil, BAIT_HARD_CRASH, 256,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, "DataStatic" },
+        { &descriptor_hoisting_default_dxil, BAIT_HARD_CRASH, 256,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE, "DataStaticWhileSetAtExecute" },
+        { &descriptor_hoisting_default_dxil, BAIT_HARD_CRASH, 256,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE, "Volatile" },
+
+        { &descriptor_hoisting_opt_dxil, BAIT_HARD_CRASH, 256,
+            D3D12_ROOT_DESCRIPTOR_FLAG_NONE, "OptFlagNone" },
+        { &descriptor_hoisting_opt_dxil, BAIT_HARD_CRASH, 256,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, "OptDataStatic" },
+        { &descriptor_hoisting_opt_dxil, BAIT_HARD_CRASH, 256,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE, "OptDataStaticWhileSetAtExecute" },
+        { &descriptor_hoisting_opt_dxil, BAIT_HARD_CRASH, 256,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE, "OptVolatile" },
+
+        /* Pass in deliberately bogus VA to CreateRootCBV. */
+        { &descriptor_hoisting_default_dxil, BAIT_HARD_CRASH, 0,
+            D3D12_ROOT_DESCRIPTOR_FLAG_NONE, "FlagNone" },
+        { &descriptor_hoisting_default_dxil, BAIT_HARD_CRASH, 0,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, "DataStatic" },
+        { &descriptor_hoisting_default_dxil, BAIT_HARD_CRASH, 0,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE, "DataStaticWhileSetAtExecute" },
+        { &descriptor_hoisting_default_dxil, BAIT_HARD_CRASH, 0,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE, "Volatile" },
+
+        { &descriptor_hoisting_opt_dxil, BAIT_HARD_CRASH, 0,
+            D3D12_ROOT_DESCRIPTOR_FLAG_NONE, "OptFlagNone" },
+        { &descriptor_hoisting_opt_dxil, BAIT_HARD_CRASH, 0,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, "OptDataStatic" },
+        { &descriptor_hoisting_opt_dxil, BAIT_HARD_CRASH, 0,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE, "OptDataStaticWhileSetAtExecute" },
+        { &descriptor_hoisting_opt_dxil, BAIT_HARD_CRASH, 0,
+            D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE, "OptVolatile" },
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    rs_desc.Desc_1_1.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.Desc_1_1.pParameters = rs_param;
+
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param[0].Constants.Num32BitValues = 1;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].Descriptor.ShaderRegister = 1;
+
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    cbv = create_upload_buffer(context.device, 256 * 1024 * 1024, NULL);
+    {
+        float *ptr;
+        ID3D12Resource_Map(cbv, 0, NULL, (void **)&ptr);
+        for (i = 0; i < 256 * 1024 * 1024 / sizeof(float); i++)
+            ptr[i] = (float)(i & 63);
+        ID3D12Resource_Unmap(cbv, 0, NULL);
+    }
+
+    output = create_default_buffer(context.device, 4096,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %s, cond %u, zone %u", tests[i].tag, tests[i].cond, tests[i].valid_zone);
+        begin_debug_region(context.list, tests[i].tag);
+
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, output, 0, cbv, 0, 4096);
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        rs_param[1].Descriptor.Flags = tests[i].rs_flag;
+        create_versioned_root_signature(context.device, &rs_desc, &context.root_signature);
+
+        pso = create_compute_pipeline_state(context.device, context.root_signature, *tests[i].cs);
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 0, tests[i].cond, 0);
+
+        if (tests[i].valid_zone)
+        {
+            ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(context.list, 1,
+                    ID3D12Resource_GetGPUVirtualAddress(cbv) + 256 * 1024 * 1024 - tests[i].valid_zone);
+        }
+        else
+        {
+            /* Point into complete bogus. Try to fish out any possible 64 KiB guard page. */
+            ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(context.list, 1,
+                ID3D12Resource_GetGPUVirtualAddress(cbv) + 256 * 1024 * 1024 + 64 * 1024 - 256);
+        }
+
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2,
+                ID3D12Resource_GetGPUVirtualAddress(output));
+
+        ID3D12GraphicsCommandList_Dispatch(context.list, 16, 1, 1024);
+        transition_resource_state(context.list, output,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+        for (j = 0; j < 64; j++)
+        {
+            const struct vec4 *value = get_readback_vec4(&rb, j, 0);
+            struct vec4 expected = { 1, 2, 3, 4 };
+            ok(compare_vec4(&expected, value, 0), "Expected (1, 2, 3, 4) for value %u, got (%f, %f, %f, %f).\n", j, value->x, value->y, value->z, value->w);
+        }
+
+        release_resource_readback(&rb);
+        ID3D12PipelineState_Release(pso);
+        reset_command_list(context.list, context.allocator);
+        end_debug_region(context.list);
+
+        ID3D12RootSignature_Release(context.root_signature);
+        context.root_signature = NULL;
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(cbv);
+    destroy_test_context(&context);
+}

@@ -602,3 +602,4 @@ decl_test(test_sm69_long_vector_load_store_root_desc);
 decl_test(test_shader_execution_reordering_basic);
 decl_test(test_shader_execution_reordering_trace);
 decl_test(test_shader_execution_reordering_ray_query);
+decl_test(test_descriptor_hoisting_root_descriptor);
