@@ -413,6 +413,8 @@ decl_test(test_uav_robustness_oob_structure_element_dxbc);
 decl_test(test_uav_robustness_oob_structure_element_dxil);
 decl_test(test_denorm_behavior_dxbc);
 decl_test(test_denorm_behavior_dxil);
+decl_test(test_fp16_rounding_behavior_sm62);
+decl_test(test_fp16_rounding_behavior_legacy);
 decl_test(test_dynamic_depth_stencil_write);
 decl_test(test_reserved_resource_mapping);
 decl_test(test_quad_vote_sm67_compute);
