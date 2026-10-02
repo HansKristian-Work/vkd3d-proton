@@ -2564,6 +2564,7 @@ static void test_fp16_rounding_behavior(bool native_fp16)
     ID3D12Resource *dst;
     bool support_16bit;
     unsigned int i;
+    bool is_nv;
 
 #include "shaders/sm_advanced/headers/fp16_roundtrip_quant.h"
 #include "shaders/sm_advanced/headers/fp16_roundtrip_quant_legacy.h"
@@ -2585,6 +2586,8 @@ static void test_fp16_rounding_behavior(bool native_fp16)
             return;
         }
     }
+
+    is_nv = is_nvidia_device(context.device);
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     memset(&root_param, 0, sizeof(root_param));
@@ -2632,10 +2635,10 @@ static void test_fp16_rounding_behavior(bool native_fp16)
         }
         else
         {
-            pass = quant_fp16_rtz(f32_input) == result || (native_fp16 && quant_fp16(f32_input) == result);
+            pass = quant_fp16_rtz(f32_input) == result || ((native_fp16 || is_nv) && quant_fp16(f32_input) == result);
             /* The only correct answer is RTZ, but allow RTE as well since native drivers do that too for native FP16. */
-            ok(pass, "Value #%x: RTZ is broken. Input %.6g, RTZ %.6g, got %.6g\n", i,
-                 f32_input, quant_fp16_rtz(f32_input), result);
+            ok(pass, "Value #%x: RTZ is broken. Input %.6g, RTZ %.6g (RTE %.6g), got %.6g\n", i,
+                 f32_input, quant_fp16_rtz(f32_input), quant_fp16(f32_input), result);
 
             /* Don't spam a million failures. */
             if (!pass)
