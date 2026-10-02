@@ -7271,3 +7271,163 @@ void test_r16_texel_buffer_atomic(void)
     ID3D12Resource_Release(output);
     destroy_test_context(&context);
 }
+
+static void test_conservative_ssbo_vectorization_inner(bool use_dxil, bool root_desc)
+{
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_DESCRIPTOR_RANGE desc_range;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    uint32_t input_data[1024];
+    ID3D12Resource *output;
+    ID3D12Resource *input;
+    unsigned int i, j;
+
+#include "shaders/descriptors/headers/conservative_ssbo_vectorization.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    for (i = 0; i < ARRAY_SIZE(input_data); i++)
+        input_data[i] = i;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+
+    if (root_desc)
+    {
+        rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+    else
+    {
+        rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rs_param[0].DescriptorTable.NumDescriptorRanges = 1;
+        rs_param[0].DescriptorTable.pDescriptorRanges = &desc_range;
+
+        desc_range.NumDescriptors = 1;
+        desc_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    }
+
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    input = create_upload_buffer(context.device, sizeof(input_data), input_data);
+    output = create_default_buffer(context.device, 4 * 4 * sizeof(struct uvec4),
+                                   D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device,
+        context.root_signature,
+        use_dxil ? conservative_ssbo_vectorization_dxil : conservative_ssbo_vectorization_dxbc);
+
+    if (!root_desc)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+        memset(&srv_desc, 0, sizeof(srv_desc));
+
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Buffer.FirstElement = 1;
+        srv_desc.Buffer.NumElements = 16;
+        srv_desc.Buffer.StructureByteStride = 20;
+
+        if (is_nvidia_device(context.device))
+        {
+            vkd3d_mute_validation_message("12266", "Expected low alignment");
+            vkd3d_mute_validation_message("12351", "Expected low alignment");
+        }
+
+        ID3D12Device_CreateShaderResourceView(context.device, input, &srv_desc,
+            get_cpu_descriptor_handle(&context, heap, 0));
+
+        if (is_nvidia_device(context.device))
+        {
+            vkd3d_unmute_validation_message("12266");
+            vkd3d_unmute_validation_message("12351");
+        }
+
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    }
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    if (root_desc)
+    {
+        ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(input) + 20);
+    }
+    else
+    {
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+            get_gpu_descriptor_handle(&context, heap, 0));
+    }
+
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1,
+        ID3D12Resource_GetGPUVirtualAddress(output));
+
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < 4; i++)
+    {
+        const struct uvec4 *v[4] = {
+            get_readback_uvec4(&rb, 4 * i + 0, 0),
+            get_readback_uvec4(&rb, 4 * i + 1, 0),
+            get_readback_uvec4(&rb, 4 * i + 2, 0),
+            get_readback_uvec4(&rb, 4 * i + 3, 0),
+        };
+
+        struct uvec4 expected[4] = {
+            { 5, 6, 7, 8 },
+            { 10, 11, 12, 13 },
+            { 25, 26, 27, 28 },
+            { 5 + 20 * i, 6 + 20 * i, 7 + 20 * i, 8 + 20 * i },
+        };
+
+        for (j = 0; j < 4; j++)
+        {
+            ok(compare_uvec4(v[j], &expected[j]), "v%u failed, expected (%u, %u, %u, %u), got (%u, %u, %u, %u)\n",
+                    j,
+                    expected[j].x, expected[j].y, expected[j].z, expected[j].w,
+                    v[j]->x, v[j]->y, v[j]->z, v[j]->w);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(input);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+void test_conservative_ssbo_vectorization_dxbc_heap_desc(void)
+{
+    test_conservative_ssbo_vectorization_inner(false, false);
+}
+
+void test_conservative_ssbo_vectorization_dxbc_root_desc(void)
+{
+    test_conservative_ssbo_vectorization_inner(false, true);
+}
+
+void test_conservative_ssbo_vectorization_dxil_heap_desc(void)
+{
+    test_conservative_ssbo_vectorization_inner(true, false);
+}
+
+void test_conservative_ssbo_vectorization_dxil_root_desc(void)
+{
+    test_conservative_ssbo_vectorization_inner(true, true);
+}
