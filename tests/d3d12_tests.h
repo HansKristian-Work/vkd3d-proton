@@ -605,3 +605,7 @@ decl_test(test_shader_execution_reordering_ray_query);
 decl_test(test_descriptor_hoisting_root_descriptor);
 decl_test(test_uninitialized_pixel_output_dxbc);
 decl_test(test_uninitialized_pixel_output_dxil);
+decl_test(test_conservative_ssbo_vectorization_dxbc_heap_desc);
+decl_test(test_conservative_ssbo_vectorization_dxbc_root_desc);
+decl_test(test_conservative_ssbo_vectorization_dxil_heap_desc);
+decl_test(test_conservative_ssbo_vectorization_dxil_root_desc);
