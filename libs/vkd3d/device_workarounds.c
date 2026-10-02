@@ -1061,7 +1061,9 @@ void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_i
      * The 16 byte offset is a lie, as that is only actually required when we
      * use vectorized load-stores. When we emit vectorized load-store ops,
      * the storage buffer must be aligned properly, so this is fine in practice
-     * and is a nice speed boost. */
+     * and is a nice speed boost.
+     * See vkd3d_init_shader_extensions. Need to add VKD3D_SHADER_TARGET_EXTENSION_SHADER_IMPLIED_SSBO_ALIGNMENT.
+     */
     if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
         info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
 

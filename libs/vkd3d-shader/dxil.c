@@ -1300,6 +1300,18 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SHADER_IMPLIED_SSBO_ALIGNMENT)
+            {
+                static const dxil_spv_option_conservative_ssbo_vectorization conservative = {
+                    { DXIL_SPV_OPTION_CONSERVATIVE_SSBO_VECTORIZATION }, DXIL_SPV_TRUE,
+                };
+
+                if (dxil_spv_converter_add_option(converter, &conservative.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support CONSERVATIVE_SSBO_VECTORIZATION.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
         }
 
         if (compiler_args->driver_version)

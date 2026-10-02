@@ -10085,6 +10085,23 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
             device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                     VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS;
         }
+
+        if (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
+        {
+            /* On other vendors, we follow the provided alignment, so it's the driver's job to deal with whatever we do.
+             * On NVIDIA, we skirt the rules and emit SSBOs with lower alignment than driver advertises.
+             * It becomes our job to ensure that we don't generate certain patterns in code
+             * that violate what the compiler assumes.
+             * With NV_raw_access_chains, all of this is irrelevant, since we emit proper alignment in the shader,
+             * but when capturing in e.g. RenderDoc we don't have the extension, so be conservative.
+             *
+             * This is sort of a "negative" extension, but it's the most convenient way to signal this.
+             *
+             * Include NVK in this. NVK also does similar hackery, and we don't want to risk problems.
+             */
+            device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                    VKD3D_SHADER_TARGET_EXTENSION_SHADER_IMPLIED_SSBO_ALIGNMENT;
+        }
     }
 
     if (device->device_info.barycentric_features_khr.fragmentShaderBarycentric)
