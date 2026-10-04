@@ -4051,12 +4051,17 @@ void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain *chain,
     if (chain->debug_latency && marker == VK_LATENCY_MARKER_PRESENT_START_NV)
         INFO("Setting present frame marker %"PRIu64".\n", frameID);
 
-    pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
+    /* Our presentation-thread markers serialize with swapchain creation and
+     * destruction. Do not block them behind LatencySleep. Application calls
+     * still need the lifetime lock. */
+    if (from_app)
+        pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
 
     if (chain->present.vk_swapchain)
         VK_CALL(vkSetLatencyMarkerNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &latency_marker_info));
 
-    pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
+    if (from_app)
+        pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
 }
 
 void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12_LATENCY_RESULTS *latency_results)
