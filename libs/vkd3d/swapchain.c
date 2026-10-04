@@ -2257,6 +2257,8 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
         chain->timing.feedback.present_time = 0;
         chain->timing.feedback.present_count = 0;
         chain->timing.feedback.present_time_domain_id = 0;
+        chain->timing.last_absolute_time = 0;
+        chain->timing.last_absolute_time_domain_id = 0;
 
         dxgi_vk_swap_chain_poll_time_properties(chain);
         dxgi_vk_swap_chain_poll_time_domains(chain);
