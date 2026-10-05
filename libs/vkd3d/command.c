@@ -505,6 +505,16 @@ struct vkd3d_waiting_fence_signal_info
     uint64_t update_count;
 };
 
+static bool d3d12_device_removed_unblocks_fences(struct d3d12_device *device)
+{
+    /* With breadcrumbs or fault reporting enabled, deliberately keep the application
+     * blocked on its fences so it cannot tear down or exit while debug dumping is in progress. */
+    if (VKD3D_CONFIG_FLAG_IS_SET(BREADCRUMBS) || VKD3D_CONFIG_FLAG_IS_SET(FAULT))
+        return false;
+
+    return FAILED(d3d12_device_removed_reason(device));
+}
+
 static void vkd3d_waiting_fence_signal_fence(struct vkd3d_fence_worker *worker,
         void *userdata, bool complete)
 {
@@ -516,6 +526,18 @@ static void vkd3d_waiting_fence_signal_fence(struct vkd3d_fence_worker *worker,
         TRACE("Signaling fence %p to virtual value %"PRIu64".\n", info->fence, info->virtual_value);
 
         if (FAILED(hr = d3d12_fence_signal(info->fence, worker, info->update_count)))
+            ERR("Failed to signal D3D12 fence, hr %#x.\n", (int)hr);
+    }
+    else if (d3d12_device_removed_unblocks_fences(info->fence->device))
+    {
+        /* A removed device completes every fence to UINT64_MAX, which also releases
+         * any CPU waiters, events and queued GPU waits that would otherwise never wake up.
+         * Retire the pending update first so that ordered signals do not wait on it forever. */
+        WARN("Device is removed, signaling fence %p to UINT64_MAX.\n", info->fence);
+
+        if (FAILED(hr = d3d12_fence_signal(info->fence, worker, info->update_count)))
+            ERR("Failed to signal D3D12 fence, hr %#x.\n", (int)hr);
+        if (FAILED(hr = d3d12_fence_signal_cpu_timeline_semaphore(info->fence, UINT64_MAX)))
             ERR("Failed to signal D3D12 fence, hr %#x.\n", (int)hr);
     }
 
@@ -1382,6 +1404,11 @@ static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(d3d12_fence_iface 
     }
     completed_value = fence->virtual_value;
     pthread_mutex_unlock(&fence->mutex);
+
+    /* A removed device reports UINT64_MAX, even for fences without a signal in flight. */
+    if (d3d12_device_removed_unblocks_fences(fence->device))
+        return UINT64_MAX;
+
     return completed_value;
 }
 
@@ -1407,7 +1434,8 @@ static HRESULT d3d12_fence_set_native_sync_handle_on_completion_explicit(struct 
     event.latch = &latch;
     event.payload = payload;
 
-    if (value <= fence->virtual_value)
+    /* A removed device completes every fence to UINT64_MAX, so any value is reached. */
+    if (value <= fence->virtual_value || d3d12_device_removed_unblocks_fences(fence->device))
     {
         hr = vkd3d_waiting_event_signal(fence->device, NULL, &event);
         pthread_mutex_unlock(&fence->mutex);
