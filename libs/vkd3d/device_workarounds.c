@@ -221,6 +221,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * template makes those ExecuteIndirect draws disappear, and the game handles a failed
      * CreateCommandSignature by issuing the draws from the CPU instead. */
     { VKD3D_STRING_COMPARE_EXACT, "teardown.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FAIL_UNSUPPORTED_STATE_TEMPLATE = 1) },
+    /* NBA 2K27 (4356430) */
+    { VKD3D_STRING_COMPARE_EXACT, "NBA2K27.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.DESCRIPTOR_HEAP = 1) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
