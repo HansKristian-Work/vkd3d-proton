@@ -14712,3 +14712,100 @@ void test_root_constant_indexing_dxil()
 {
     test_root_constant_indexing(true);
 }
+
+static void test_uninitialized_pixel_output(bool use_dxil)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    float white[4] = { 1, 1, 1, 1 };
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    struct vec4 expected = {0};
+    ID3D12Resource *resource;
+    HRESULT hr;
+
+#include "shaders/shaders/headers/uninitialized_pixel_output.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    context_desc.rt_width = 1024;
+    context_desc.rt_height = 1024;
+    context_desc.no_root_signature = true;
+    context_desc.no_pipeline = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    context.root_signature = create_texture_root_signature(context.device,
+        D3D12_SHADER_VISIBILITY_PIXEL, 0, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    resource = create_default_texture2d(context.device, 1, 1, 1, 1, DXGI_FORMAT_R8_UNORM, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    {
+        D3D12_SUBRESOURCE_DATA data;
+        uint8_t pixel = 128;
+
+        data.pData = &pixel;
+        data.RowPitch = 1;
+        data.SlicePitch = 1;
+        upload_texture_data(resource, &data, 1, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12Device_CreateShaderResourceView(context.device, resource, NULL,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+    if (use_dxil)
+    {
+        init_pipeline_state_desc_dxil(&pso_desc, context.root_signature, DXGI_FORMAT_R32G32B32A32_FLOAT,
+                NULL, &uninitialized_pixel_output_dxil, NULL);
+    }
+    else
+    {
+        init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R32G32B32A32_FLOAT,
+                NULL, &uninitialized_pixel_output_dxbc, NULL);
+    }
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, FALSE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    /* Implementation behavior is wildly divergent here.
+     * AMD: Seems to let one of the branches "win" where the texture sampling result is forwarded as-is to output without that path being considered taken.
+     * Makes sense as a way to resolve phi(undef, x) -> x.
+     * NV: (0, 0, 0, 1) is returned for pixel (0, 0).
+     * WARP: Always returns (0, 0, 0, 0). */
+
+    /* We pick flush to 0 for everything. */
+    check_sub_resource_vec4(context.render_target, 0, context.queue, context.list, &expected, 0);
+
+    ID3D12Resource_Release(resource);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
+void test_uninitialized_pixel_output_dxbc(void)
+{
+    test_uninitialized_pixel_output(false);
+}
+
+void test_uninitialized_pixel_output_dxil(void)
+{
+    test_uninitialized_pixel_output(true);
+}
