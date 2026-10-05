@@ -603,3 +603,5 @@ decl_test(test_shader_execution_reordering_basic);
 decl_test(test_shader_execution_reordering_trace);
 decl_test(test_shader_execution_reordering_ray_query);
 decl_test(test_descriptor_hoisting_root_descriptor);
+decl_test(test_uninitialized_pixel_output_dxbc);
+decl_test(test_uninitialized_pixel_output_dxil);
