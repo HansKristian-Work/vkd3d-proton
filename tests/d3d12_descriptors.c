@@ -6910,6 +6910,72 @@ void test_descriptor_heap_broken_table_va(void)
     destroy_test_context(&context);
 }
 
+void test_descriptor_heap_oob_behavior(void)
+{
+    struct test_context_desc context_desc;
+    D3D12_DESCRIPTOR_RANGE rs_range[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    ID3D12PipelineState *desc_pso;
+    ID3D12PipelineState *raw_pso;
+    ID3D12RootSignature *desc_rs;
+    struct test_context context;
+    ID3D12RootSignature *raw_rs;
+    ID3D12DescriptorHeap *heap;
+
+#include "shaders/descriptors/headers/memcpy_raw.h"
+#include "shaders/descriptors/headers/memcpy_desc.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_render_target = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(rs_range, 0, sizeof(rs_range));
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    create_root_signature(context.device, &rs_desc, &raw_rs);
+
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_range);
+    rs_param[0].DescriptorTable.pDescriptorRanges = rs_range;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param[1].Constants.Num32BitValues = 1;
+
+    rs_range[0].NumDescriptors = UINT32_MAX;
+    rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    rs_range[1].NumDescriptors = UINT32_MAX;
+    rs_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    create_root_signature(context.device, &rs_desc, &desc_rs);
+
+    raw_pso = create_compute_pipeline_state(context.device, raw_rs, memcpy_raw_dxil);
+    desc_pso = create_compute_pipeline_state(context.device, desc_rs, memcpy_desc_dxil);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1000000);
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, raw_rs);
+    ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, 0x2000);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, 0x1000);
+    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+    ID3D12PipelineState_Release(raw_pso);
+    ID3D12PipelineState_Release(desc_pso);
+    ID3D12RootSignature_Release(raw_rs);
+    ID3D12RootSignature_Release(desc_rs);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 void test_buffer_descriptor_byte_offset(void)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS22 options22;
