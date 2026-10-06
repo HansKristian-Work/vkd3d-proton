@@ -1284,6 +1284,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_LatencySleep(d3d_low_l
 {
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     struct d3d12_device *device;
+    HRESULT hr = S_OK;
 
     device = d3d12_device_from_ID3DLowLatencyDevice(iface);
 
@@ -1297,11 +1298,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_LatencySleep(d3d_low_l
 
     if (low_latency_swapchain)
     {
-        dxgi_vk_swap_chain_latency_sleep(low_latency_swapchain);
+        hr = dxgi_vk_swap_chain_latency_sleep(low_latency_swapchain);
         dxgi_vk_swap_chain_decref(low_latency_swapchain);
     }
 
-    return S_OK;
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencySleepMode(d3d_low_latency_device_iface *iface,

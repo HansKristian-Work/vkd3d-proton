@@ -3963,13 +3963,14 @@ bool dxgi_vk_swap_chain_low_latency_enabled(struct dxgi_vk_swap_chain *chain)
     return chain->present.low_latency_state.mode;
 }
 
-void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain)
+HRESULT dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     struct vkd3d_queue_timeline_trace_cookie cookie;
     VkLatencySleepInfoNV latency_sleep_info;
     VkSemaphoreWaitInfo sem_wait_info;
     bool should_sleep = false;
+    VkResult vr = VK_SUCCESS;
 
     /* Increment the low latency sem value before the wait */
     chain->present.low_latency_sem_value++;
@@ -3984,8 +3985,10 @@ void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain)
 
     if (chain->present.vk_swapchain)
     {
-        should_sleep = true;
-        VK_CALL(vkLatencySleepNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &latency_sleep_info));
+        vr = VK_CALL(vkLatencySleepNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &latency_sleep_info));
+        should_sleep = vr == VK_SUCCESS;
+        if (vr != VK_SUCCESS)
+            ERR("Failed to request latency sleep, vr %d.\n", vr);
     }
 
     pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
@@ -4002,10 +4005,14 @@ void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain)
 
         cookie = vkd3d_queue_timeline_trace_register_low_latency_sleep(
                 &chain->queue->device->queue_timeline_trace, chain->present.low_latency_sem_value);
-        VK_CALL(vkWaitSemaphores(chain->queue->device->vk_device, &sem_wait_info, UINT64_MAX));
+        vr = VK_CALL(vkWaitSemaphores(chain->queue->device->vk_device, &sem_wait_info, UINT64_MAX));
         vkd3d_queue_timeline_trace_complete_low_latency_sleep(
                 &chain->queue->device->queue_timeline_trace, cookie);
+        if (vr != VK_SUCCESS)
+            ERR("Failed to wait for latency sleep, vr %d.\n", vr);
     }
+
+    return hresult_from_vk_result(vr);
 }
 
 void dxgi_vk_swap_chain_set_latency_sleep_mode(struct dxgi_vk_swap_chain *chain, bool low_latency_mode,

@@ -3827,7 +3827,7 @@ struct dxgi_vk_swap_chain_factory
 struct dxgi_vk_swap_chain;
 
 bool dxgi_vk_swap_chain_low_latency_enabled(struct dxgi_vk_swap_chain *chain);
-void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain);
+HRESULT dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain);
 void dxgi_vk_swap_chain_set_latency_sleep_mode(struct dxgi_vk_swap_chain *chain,
 	bool low_latency_mode, bool low_latency_boost, uint32_t minimum_interval_us);
 void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain *chain,
