@@ -3419,10 +3419,10 @@ static void dxgi_vk_swap_chain_update_frame_statistics(struct dxgi_vk_swap_chain
 {
     uint64_t time;
 
-    if (chain->present.timing)
+    if (chain->present.timing && present_id)
     {
         dxgi_vk_swap_chain_poll_past_presentation(chain);
-        if (chain->frame_statistics.count < present_count && present_id)
+        if (chain->frame_statistics.count < present_count)
         {
             /* Vulkan spec does not guarantee this, but it's unclear if we are allowed to
              * skip or arbitrarily delay reports in DXGI.
