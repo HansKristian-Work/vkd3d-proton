@@ -1125,6 +1125,19 @@ void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_i
             device->device_info.float_controls2_features.shaderFloatControls2 = VK_FALSE;
             device->vk_info.KHR_shader_float_controls2 = false;
         }
+
+        /* Pre-Ada GPUs have no OMM hardware. With VK_KHR_opacity_micromap enabled, Cyberpunk 2077
+         * with ray tracing hangs the GPU (Xid 109, CTX SWITCH TIMEOUT) on GA104 with 615.71.09,
+         * whether the game is offered OMMs through NVAPI or through DXR 1.2. */
+        if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+                info->properties2.properties.deviceID < 0x2600 &&
+                info->opacity_micromap_features.micromap)
+        {
+            WARN("Disabling VK_KHR_opacity_micromap on pre-Ada NV GPUs due to GPU hangs.\n");
+            device->device_info.opacity_micromap_features.micromap = VK_FALSE;
+            device->device_info.supports_opacity_micromap = false;
+            device->vk_info.KHR_opacity_micromap = false;
+        }
     }
 }
 
