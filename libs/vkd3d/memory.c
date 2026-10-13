@@ -271,6 +271,54 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
     return new_value >= wait_value;
 }
 
+static bool vkd3d_memory_transfer_queue_transfer_overlaps(const struct vkd3d_memory_transfer_info *first, const struct vkd3d_memory_transfer_info *next)
+{
+    const struct vkd3d_memory_transfer_info *curr;
+    VkOffset3D curr_lo, curr_hi, next_lo, next_hi;
+
+    for (curr = first; curr != next; curr++)
+    {
+        if (curr->op != VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE &&
+                next->op != VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE)
+        {
+            /* Check overlapping buffer writes */
+            if (curr->vk_buffer == next->vk_buffer &&
+                    curr->vk_buffer_offset + curr->vk_buffer_size > next->vk_buffer_offset &&
+                    next->vk_buffer_offset + next->vk_buffer_size > curr->vk_buffer_offset)
+                return true;
+        }
+        else if (curr->op == VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE &&
+                next->op == VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE)
+        {
+            /* For WRITE_SUBRESOURCE, check for overlapping image writes */
+            if (curr->resource == next->resource && curr->subresource_idx == next->subresource_idx)
+            {
+                curr_lo = curr->offset;
+                curr_hi.x = curr_lo.x + (int32_t)curr->extent.width;
+                curr_hi.y = curr_lo.y + (int32_t)curr->extent.height;
+                curr_hi.z = curr_lo.z + (int32_t)curr->extent.depth;
+
+                next_lo = next->offset;
+                next_hi.x = next_lo.x + (int32_t)next->extent.width;
+                next_hi.y = next_lo.y + (int32_t)next->extent.height;
+                next_hi.z = next_lo.z + (int32_t)next->extent.depth;
+
+                if (curr_lo.x < next_hi.x && curr_lo.y < next_hi.y && curr_lo.z < next_hi.z &&
+                        curr_hi.x > next_lo.x && curr_hi.y > next_lo.y && curr_hi.z > next_lo.z)
+                    return true;
+            }
+        }
+        else
+        {
+            /* We have no reliable way to check overlap between a clear and
+             * WRITE_SUBRESOURCE, just assume a hazard by default. */
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_transfer_queue *queue)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
@@ -279,6 +327,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     VkImageSubresourceLayers vk_subresource_layers;
     VkCopyBufferToImageInfo2 buffer_to_image_copy;
     VkCommandBufferSubmitInfo cmd_buffer_info;
+    VkDependencyInfo dep_barrier, dep_image;
     VkCommandBufferBeginInfo begin_info;
     VkImageMemoryBarrier2 image_barrier;
     VkImageSubresource vk_subresource;
@@ -286,13 +335,12 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     VkCommandBuffer vk_cmd_buffer;
     VkMemoryBarrier2 vk_barrier;
     VkDeviceSize buffer_offset;
-    VkDependencyInfo dep_info;
     VkSubmitInfo2 submit_info;
+    size_t i, last_barrier;
     VkExtent3D mip_extent;
     bool need_transition;
     VkQueue vk_queue;
     VkResult vr;
-    size_t i;
 
     if (!queue->transfer_count)
         return S_OK;
@@ -332,12 +380,36 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         return hresult_from_vk_result(vr);
     }
 
-    memset(&dep_info, 0, sizeof(dep_info));
-    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    memset(&dep_image, 0, sizeof(dep_image));
+    dep_image.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_image.imageMemoryBarrierCount = 1;
+    dep_image.pImageMemoryBarriers = &image_barrier;
+
+    memset(&dep_barrier, 0, sizeof(dep_barrier));
+    dep_barrier.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_barrier.memoryBarrierCount = 1;
+    dep_barrier.pMemoryBarriers = &vk_barrier;
+
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+    last_barrier = 0;
 
     for (i = 0; i < queue->transfer_count; i++)
     {
         const struct vkd3d_memory_transfer_info *transfer = &queue->transfers[i];
+
+        if (vkd3d_memory_transfer_queue_transfer_overlaps(&queue->transfers[last_barrier], transfer))
+        {
+            VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_barrier));
+
+            vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+            vk_barrier.srcAccessMask = VK_ACCESS_2_NONE;
+
+            last_barrier = i;
+        }
 
         switch (transfer->op)
         {
@@ -352,21 +424,8 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
                             transfer->op == VKD3D_MEMORY_TRANSFER_OP_DEBUG_FILL_ALLOCATION ? transfer->fill_value : 0));
                 }
 
-                if (transfer->op == VKD3D_MEMORY_TRANSFER_OP_DEBUG_FILL_ALLOCATION)
-                {
-                    /* If a full allocation is debug-cleared followed by a normal zero-vram clear we need barrier. */
-                    dep_info.imageMemoryBarrierCount = 0;
-                    dep_info.memoryBarrierCount = 1;
-                    dep_info.pMemoryBarriers = &vk_barrier;
-
-                    memset(&vk_barrier, 0, sizeof(vk_barrier));
-                    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-                    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-                    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                    vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                    vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
-                    VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_info));
-                }
+                vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_CLEAR_BIT;
+                vk_barrier.srcAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
                 break;
 
             case VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE:
@@ -377,13 +436,10 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
                 if (need_transition && vk_image_memory_barrier_for_initial_transition(transfer->resource, &image_barrier))
                 {
-                    dep_info.memoryBarrierCount = 0;
-                    dep_info.imageMemoryBarrierCount = 1;
-                    dep_info.pImageMemoryBarriers = &image_barrier;
                     image_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
                     image_barrier.dstAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
-                    VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_info));
+                    VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_image));
                 }
 
                 vk_subresource = d3d12_resource_get_vk_subresource(transfer->resource, transfer->subresource_idx, false);
@@ -413,15 +469,24 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
                 VK_CALL(vkCmdCopyBufferToImage2(vk_cmd_buffer, &buffer_to_image_copy));
 
+                vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
+                vk_barrier.srcAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
                 vkd3d_memory_transfer_queue_track_resource_locked(queue,
                         transfer->resource, queue->next_signal_value);
                 break;
 
             case VKD3D_MEMORY_TRANSFER_OP_BUILD_NULL_RTAS:
                 vkd3d_build_null_rtas_va(queue->device, vk_cmd_buffer);
+
+                vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                vk_barrier.srcAccessMask |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
                 break;
         }
     }
+
+    if (vk_barrier.srcStageMask)
+        VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_barrier));
 
     if ((vr = VK_CALL(vkEndCommandBuffer(vk_cmd_buffer))) < 0)
     {
