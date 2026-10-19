@@ -111,7 +111,8 @@ static bool vkd3d_driver_implicitly_syncs_host_readback(VkDriverId driver_id)
     return driver_id == VK_DRIVER_ID_MESA_RADV ||
             driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
             driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
-            driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY;
+            driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY ||
+            driver_id == VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA;
 }
 
 HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, uint32_t queue_index,
