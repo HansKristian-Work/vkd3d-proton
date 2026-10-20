@@ -4767,6 +4767,32 @@ void test_write_buffer_immediate(void)
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
 
+    /* Test overlap / synchronization */
+    parameters[0].Dest = ID3D12Resource_GetGPUVirtualAddress(buffer);
+    parameters[0].Value = 1;
+    parameters[1].Dest = parameters[0].Dest + 8u;
+    parameters[1].Value = 0xaeaeaeae;
+    parameters[2].Dest = parameters[1].Dest;
+    parameters[2].Value = 0xdeadbeef;
+
+    ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, 3, &parameters[0], NULL);
+
+    parameters[1].Dest = parameters[0].Dest + 4u;
+    parameters[1].Value = 2;
+    parameters[2].Dest = parameters[0].Dest + 8u;
+    parameters[2].Value = 3;
+    ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, 2, &parameters[1], NULL);
+
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
+    value = get_readback_uint(&rb, 0, 0, 0);
+    ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
+    value = get_readback_uint(&rb, 1, 0, 0);
+    ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    value = get_readback_uint(&rb, 2, 0, 0);
+    ok(value == parameters[2].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[2].Value);
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
     modes[0] = 0x7fffffff;
     ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, modes);
     hr = ID3D12GraphicsCommandList_Close(command_list);
