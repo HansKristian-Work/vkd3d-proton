@@ -3777,48 +3777,91 @@ static void d3d12_command_list_resolve_transfer_waw(struct d3d12_command_list *l
     }
 }
 
+static bool vkd3d_tracked_buffer_ranges_may_alias(VkBuffer a_buffer, VkDeviceSize a_begin,
+        VkDeviceSize a_size, VkBuffer b_buffer, VkDeviceSize b_begin, VkDeviceSize b_size)
+{
+    /* If either resource is sparse, check whether there can be overlap at a tile level.
+     * This is relevant for WBI use cases, because a single dword write to offset 0
+     * cannot overlap with another one to offset 12 under any circumstance. */
+    if (!a_buffer || !b_buffer)
+    {
+        /* Ranges as large as a tile cover every possible address within */
+        if (a_size >= VKD3D_TILE_SIZE || b_size >= VKD3D_TILE_SIZE)
+            return true;
+
+        /* If a range straddles two pages, subdivide and check individual sub-ranges */
+        a_begin %= VKD3D_TILE_SIZE;
+        b_begin %= VKD3D_TILE_SIZE;
+
+        if (a_begin + a_size > VKD3D_TILE_SIZE)
+        {
+            return vkd3d_tracked_buffer_ranges_may_alias(a_buffer, a_begin,
+                    VKD3D_TILE_SIZE, b_buffer, b_begin, b_begin + b_size) ||
+                vkd3d_tracked_buffer_ranges_may_alias(a_buffer, 0u,
+                    (a_begin + a_size) % VKD3D_TILE_SIZE, b_buffer, b_begin, b_begin + b_size);
+        }
+
+        if (b_begin + b_size > VKD3D_TILE_SIZE)
+        {
+            return vkd3d_tracked_buffer_ranges_may_alias(a_buffer, a_begin,
+                        a_begin + a_size, b_buffer, b_begin, VKD3D_TILE_SIZE) ||
+                    vkd3d_tracked_buffer_ranges_may_alias(a_buffer, a_begin,
+                        a_begin + a_size, b_buffer, 0u, (b_begin + b_size) % VKD3D_TILE_SIZE);
+        }
+    }
+    else if (a_buffer != b_buffer)
+        return false;
+
+    return a_begin < b_begin + b_size && b_begin < a_begin + a_size;
+}
+
 static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list *list, VkBuffer vk_buffer,
         VkDeviceSize offset, VkDeviceSize size, bool sparse)
 {
     struct d3d12_tracked_buffer_copy *tracked_buffer;
-    VkDeviceSize range_end;
+    bool has_existing_range = false;
+    bool has_hazard;
     unsigned int i;
 
     if (sparse)
     {
         vk_buffer = VK_NULL_HANDLE;
-        offset = 0;
-        size = VK_WHOLE_SIZE;
+        offset %= VKD3D_TILE_SIZE;
     }
-
-    range_end = offset + size;
 
     for (i = 0; i < list->transfer_batch.tracked_copy_buffer_count; i++)
     {
         tracked_buffer = &list->transfer_batch.tracked_copy_buffers[i];
 
         /* Any write to a sparse buffer will be considered to be aliasing with any other resource. */
-        if (tracked_buffer->vk_buffer == vk_buffer || tracked_buffer->vk_buffer == VK_NULL_HANDLE || sparse)
+        has_hazard = vkd3d_tracked_buffer_ranges_may_alias(vk_buffer, offset, size,
+                tracked_buffer->vk_buffer, tracked_buffer->hazard_begin,
+                tracked_buffer->hazard_end - tracked_buffer->hazard_begin);
+
+        if (has_hazard)
         {
-            if (range_end > tracked_buffer->hazard_begin && offset < tracked_buffer->hazard_end)
-            {
-                /* Hazard. Inject barrier. */
-                d3d12_command_list_resolve_transfer_waw(list);
-                tracked_buffer = &list->transfer_batch.tracked_copy_buffers[0];
-                tracked_buffer->vk_buffer = vk_buffer;
-                tracked_buffer->hazard_begin = offset;
-                tracked_buffer->hazard_end = range_end;
-                list->transfer_batch.tracked_copy_buffer_count = 1;
-                list->transfer_batch.vk_stages |= VK_PIPELINE_STAGE_2_COPY_BIT;
-            }
-            else
-            {
-                tracked_buffer->hazard_begin = min(offset, tracked_buffer->hazard_begin);
-                tracked_buffer->hazard_end = max(range_end, tracked_buffer->hazard_end);
-            }
+            /* Hazard. Inject barrier. */
+            d3d12_command_list_resolve_transfer_waw(list);
+            tracked_buffer = &list->transfer_batch.tracked_copy_buffers[0];
+            tracked_buffer->vk_buffer = vk_buffer;
+            tracked_buffer->hazard_begin = offset;
+            tracked_buffer->hazard_end = offset + size;
+            list->transfer_batch.tracked_copy_buffer_count = 1;
+            list->transfer_batch.vk_stages |= VK_PIPELINE_STAGE_2_COPY_BIT;
             return;
         }
+        else if (tracked_buffer->vk_buffer == vk_buffer)
+        {
+            /* Need to keep checking for possible sparse hazards after this... */
+            tracked_buffer->hazard_begin = min(offset, tracked_buffer->hazard_begin);
+            tracked_buffer->hazard_end = max(offset + size, tracked_buffer->hazard_end);
+
+            has_existing_range = true;
+        }
     }
+
+    if (has_existing_range)
+        return;
 
     /* Keep the tracking data structures lean and mean. If we have decent overlap, this isn't a real problem. */
     if (list->transfer_batch.tracked_copy_buffer_count == ARRAY_SIZE(list->transfer_batch.tracked_copy_buffers))
@@ -3827,7 +3870,7 @@ static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list 
     tracked_buffer = &list->transfer_batch.tracked_copy_buffers[list->transfer_batch.tracked_copy_buffer_count++];
     tracked_buffer->vk_buffer = vk_buffer;
     tracked_buffer->hazard_begin = offset;
-    tracked_buffer->hazard_end = range_end;
+    tracked_buffer->hazard_end = offset + size;
     list->transfer_batch.vk_stages |= VK_PIPELINE_STAGE_2_COPY_BIT;
 }
 
