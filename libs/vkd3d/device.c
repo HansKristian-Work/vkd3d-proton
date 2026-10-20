@@ -9358,8 +9358,10 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
      *
      * TIER_2 is most appropriate since it allows for fast path in certain situations and
      * fallback in some other cases.
-     * Turnip does not support multiviewGeom/Tess. This should not come up, so shove it under the rug for now. */
+     * Turnip does not support multiviewGeom/Tess. This should not come up, so shove it under the rug for now.
+     * At least one game requires the really awkward cases for multiview that we don't support yet. */
     options3->ViewInstancingTier =
+            !vkd3d_application_attempts_complex_multiview() &&
             device->device_info.vulkan_1_1_features.multiview &&
             device->device_info.vulkan_1_2_features.shaderOutputLayer &&
             device->device_info.vulkan_1_2_features.shaderOutputViewportIndex &&
