@@ -1137,6 +1137,153 @@ void test_multithread_fence_wait(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
+struct shared_event_fence_wait_data
+{
+    ID3D12Fence *fence; /* NULL: only wait on wait_handle. */
+    HANDLE register_handle;
+    HANDLE wait_handle;
+    HANDLE ready_event;
+    uint64_t value;
+    unsigned int wait_result;
+};
+
+static void fence_shared_event_wait_main(void *untyped_data)
+{
+    struct shared_event_fence_wait_data *data = untyped_data;
+    HRESULT hr;
+
+    if (data->fence)
+    {
+        hr = ID3D12Fence_SetEventOnCompletion(data->fence, data->value, data->register_handle);
+        ok(SUCCEEDED(hr), "Failed to set event on completion, hr %#x.\n", (int)hr);
+    }
+
+    signal_event(data->ready_event);
+    data->wait_result = wait_event(data->wait_handle, 5000);
+}
+
+void test_multithread_fence_wait_shared_event(void)
+{
+#ifdef _WIN32
+    enum shared_event_trigger
+    {
+        TRIGGER_SET_EVENT_TWICE,
+        TRIGGER_CPU_SIGNAL,
+        TRIGGER_QUEUE_SIGNAL,
+    };
+
+    static const struct
+    {
+        const char *name;
+        enum shared_event_trigger trigger;
+        bool use_fence;
+        bool duplicate_handle;
+    }
+    tests[] =
+    {
+        /* Control: two blocked waiters on one auto-reset event, two SetEvent() calls. */
+        { "SetEvent twice", TRIGGER_SET_EVENT_TWICE, false, false },
+        { "CPU signal, same handle", TRIGGER_CPU_SIGNAL, true, false },
+        { "queue signal, same handle", TRIGGER_QUEUE_SIGNAL, true, false },
+        /* Control: the second thread registers a duplicated handle to the same event. */
+        { "CPU signal, duplicated handle", TRIGGER_CPU_SIGNAL, true, true },
+    };
+
+    struct shared_event_fence_wait_data thread_data[2];
+    HANDLE threads[2], shared_event, alias;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int i, j, ret;
+    uint64_t value = 0;
+    ID3D12Fence *fence;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
+
+    /* Several threads wait on the same auto-reset event for the same fence value.
+     * Each SetEventOnCompletion() must signal the event once, so every waiter wakes up. */
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u (%s)", i, tests[i].name);
+
+        shared_event = create_event();
+        ok(shared_event, "Failed to create event.\n");
+        alias = NULL;
+        if (tests[i].duplicate_handle)
+        {
+            ok(DuplicateHandle(GetCurrentProcess(), shared_event, GetCurrentProcess(), &alias,
+                    0, FALSE, DUPLICATE_SAME_ACCESS), "Failed to duplicate handle.\n");
+        }
+        ++value;
+
+        for (j = 0; j < ARRAY_SIZE(threads); j++)
+        {
+            thread_data[j].fence = tests[i].use_fence ? fence : NULL;
+            thread_data[j].register_handle = (j && alias) ? alias : shared_event;
+            thread_data[j].wait_handle = shared_event;
+            thread_data[j].ready_event = create_event();
+            thread_data[j].value = value;
+            thread_data[j].wait_result = ~0u;
+            ok(thread_data[j].ready_event, "Failed to create event.\n");
+            threads[j] = create_thread(fence_shared_event_wait_main, &thread_data[j]);
+            ok(threads[j], "Failed to create thread.\n");
+            ret = wait_event(thread_data[j].ready_event, INFINITE);
+            ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
+        }
+
+        /* Give both threads time to block in the wait. The two SetEvent() calls only
+         * coalesce if neither thread is blocked yet when the event is signaled. If one
+         * thread is waiting, it consumes the first signal and the second one stays
+         * set for the other thread. */
+        vkd3d_sleep(100);
+
+        switch (tests[i].trigger)
+        {
+            case TRIGGER_SET_EVENT_TWICE:
+                signal_event(shared_event);
+                signal_event(shared_event);
+                break;
+            case TRIGGER_CPU_SIGNAL:
+                hr = ID3D12Fence_Signal(fence, value);
+                ok(hr == S_OK, "Failed to signal fence, hr %#x.\n", (int)hr);
+                break;
+            case TRIGGER_QUEUE_SIGNAL:
+                queue_signal(queue, fence, value);
+                break;
+        }
+
+        for (j = 0; j < ARRAY_SIZE(threads); j++)
+        {
+            ok(join_thread(threads[j]), "Failed to join thread.\n");
+            ok(thread_data[j].wait_result == WAIT_OBJECT_0,
+                    "Thread %u: got unexpected wait result %#x.\n", j, thread_data[j].wait_result);
+            destroy_event(thread_data[j].ready_event);
+        }
+
+        if (alias)
+            CloseHandle(alias);
+        destroy_event(shared_event);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Fence_Release(fence);
+    ID3D12CommandQueue_Release(queue);
+    ID3D12Device_Release(device);
+#else
+    /* The eventfd emulation used for native builds does not implement
+     * auto-reset semantics for multiple waiters. */
+    skip("Shared event wait test requires Win32 events.\n");
+#endif
+}
+
 void test_create_fence(void)
 {
     ID3D12Device *device, *tmp_device;
