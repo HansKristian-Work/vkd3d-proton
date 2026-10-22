@@ -1416,7 +1416,6 @@ static HRESULT d3d12_fence_set_native_sync_handle_on_completion_explicit(struct 
         enum vkd3d_waiting_event_type wait_type, UINT64 value, vkd3d_native_sync_handle handle, uint32_t *payload)
 {
     struct vkd3d_waiting_event event;
-    unsigned int i;
     HRESULT hr;
     bool latch;
     int rc;
@@ -1445,21 +1444,9 @@ static HRESULT d3d12_fence_set_native_sync_handle_on_completion_explicit(struct 
     event.timeline_cookie = vkd3d_queue_timeline_trace_register_event_signal(&fence->device->queue_timeline_trace,
             handle, &fence->ID3D12Fence_iface, value);
 
-    if (wait_type == VKD3D_WAITING_EVENT_SINGLE && vkd3d_native_sync_handle_is_valid(handle))
-    {
-        for (i = 0; i < fence->event_count; ++i)
-        {
-            struct vkd3d_waiting_event *current = &fence->events[i];
-            if (current->wait_type == VKD3D_WAITING_EVENT_SINGLE && current->value == value &&
-                    vkd3d_native_sync_handle_eq(current->handle, handle))
-            {
-                WARN("Event completion for native sync handle is already in the list.\n");
-                pthread_mutex_unlock(&fence->mutex);
-                return S_OK;
-            }
-        }
-    }
-
+    /* Do not deduplicate identical (value, event) pairs. Every SetEventOnCompletion()
+     * must signal the event once. Multiple threads may wait on the same auto-reset event
+     * for the same value, and each of them needs its own SetEvent() to wake up. */
     if (!vkd3d_array_reserve((void **)&fence->events, &fence->events_size,
             fence->event_count + 1, sizeof(*fence->events)))
     {
