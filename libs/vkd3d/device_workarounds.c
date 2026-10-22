@@ -131,7 +131,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
     /* World of Warcraft retail. Broken MSAA code where it renders to multi-sampled target with single sampled PSO. */
     /* Descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
-    { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_DYNAMIC_MSAA = 1, .AVOID_IMAGE_BUFFER_ALIASING = 1, .DESCRIPTOR_HEAP = 1) },
+    { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_DYNAMIC_MSAA = 1, .AVOID_IMAGE_BUFFER_ALIASING = 1) },
     /* The Last of Us Part I (1888930). Submits hundreds of command buffers per frame.
      * Some of the lighting shaders are extremely sensitive to tiling layouts, and using thin tiling for 3D UAVs has profound
      * performance effects. */
@@ -212,7 +212,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "AssettoCorsaEVO.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_RAW_VA_CBV = 1) },
     /* World of Warcraft Classic */
     /* Like in retail WoW, descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
-    { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1, .DESCRIPTOR_HEAP = 1) },
+    { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1) },
     /* World of Warcraft Forever beta. Same MSAA issue as WoW Retail. */
     { VKD3D_STRING_COMPARE_EXACT, "WowB.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_DYNAMIC_MSAA = 1) },
     /* Teardown.
@@ -221,8 +221,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * template makes those ExecuteIndirect draws disappear, and the game handles a failed
      * CreateCommandSignature by issuing the draws from the CPU instead. */
     { VKD3D_STRING_COMPARE_EXACT, "teardown.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FAIL_UNSUPPORTED_STATE_TEMPLATE = 1) },
-    /* NBA 2K27 (4356430) */
-    { VKD3D_STRING_COMPARE_EXACT, "NBA2K27.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.DESCRIPTOR_HEAP = 1) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
