@@ -957,7 +957,7 @@ void vkd3d_instance_apply_global_shader_quirks(void)
     struct override
     {
         union vkd3d_config_flags config;
-        uint32_t quirk;
+        vkd3d_shader_quirks_t quirk;
         bool negative;
     };
 
@@ -981,7 +981,7 @@ void vkd3d_instance_apply_global_shader_quirks(void)
         static const struct
         {
             unsigned int level;
-            uint32_t quirk;
+            vkd3d_shader_quirks_t quirk;
         } mapping[] = {
             { 4, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 },
             { 8, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8 },
