@@ -7431,3 +7431,217 @@ void test_conservative_ssbo_vectorization_dxil_root_desc(void)
 {
     test_conservative_ssbo_vectorization_inner(true, true);
 }
+
+static void test_misaligned_root_desc(bool use_dxil)
+{
+    D3D12_WRITEBUFFERIMMEDIATE_PARAMETER wbi_args[2];
+    uint32_t got_raw, got_structured, expected;
+    D3D12_GPU_VIRTUAL_ADDRESS src_va, dst_va;
+    ID3D12Resource *src_buffer, *dst_buffer;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    unsigned int src_offset, dst_offset;
+    ID3D12GraphicsCommandList2 *list2;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC buffer_desc;
+    D3D12_ROOT_PARAMETER rs_args[5];
+    struct resource_readback rb;
+    struct test_context context;
+    unsigned int raw_uav_offset;
+    unsigned int i, j, k;
+    HRESULT hr;
+
+#include "shaders/descriptors/headers/misaligned_root_desc.h"
+
+    struct
+    {
+        uint32_t structured_offset;
+        uint32_t raw_offset;
+        uint32_t value;
+        bool maybe_aligned;
+    }
+    values[] =
+    {
+        /* cbv */
+        {    0,   0, 0xae000000, true },
+        {    4,   4, 0xae000001, true },
+        {    8,   8, 0xae000002, true },
+        {   12,  12, 0xae000003, true },
+
+        {   48,  16, 0xae000006, true },
+        {   52,  20, 0xae000007, true },
+
+        {   88,  32, 0xae000009, true },
+
+        /* srv structured */
+        {   96,  48, 0xae000000, false },
+        {  100,  52, 0xae000001, false },
+        {  104,  56, 0xae000002, false },
+        {  108,  60, 0xae000003, false },
+
+        {  144,  64, 0xae00000e, false },
+        {  148,  68, 0xae00000f, false },
+
+        {  184,  80, 0xae00000d, false },
+
+        /* srv raw */
+        {  192,  96, 0xae000000, false },
+        {  196, 100, 0xae000001, false },
+        {  200, 104, 0xae000002, false },
+        {  204, 108, 0xae000003, false },
+
+        {  240, 112, 0xae000004, false },
+        {  244, 116, 0xae000005, false },
+
+        {  280, 128, 0xae000008, false },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (use_warp_device)
+    {
+        /* WARP throws device removed errors, ignore */
+        skip("WARP does not provide meaningful results for this test.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList2, (void**)&list2);
+
+    if (FAILED(hr))
+    {
+        skip("ID3D12GraphicsCommandList2 not available.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_args, 0, sizeof(rs_args));
+    rs_args[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rs_args[0].Descriptor.ShaderRegister = 0;
+
+    rs_args[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_args[1].Descriptor.ShaderRegister = 0;
+    rs_args[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_args[2].Descriptor.ShaderRegister = 1;
+
+    rs_args[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_args[3].Descriptor.ShaderRegister = 0;
+    rs_args[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_args[4].Descriptor.ShaderRegister = 1;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_args);
+    rs_desc.pParameters = rs_args;
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", (int)hr);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device,
+        context.root_signature, use_dxil ? misaligned_root_desc_dxil : misaligned_root_desc_dxbc);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&buffer_desc, 0, sizeof(buffer_desc));
+    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer_desc.Width = 4096;
+    buffer_desc.Height = 1;
+    buffer_desc.DepthOrArraySize = 1;
+    buffer_desc.MipLevels = 1;
+    buffer_desc.SampleDesc.Count = 1;
+    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&src_buffer);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
+
+    buffer_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&dst_buffer);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", (int)hr);
+
+    src_va = ID3D12Resource_GetGPUVirtualAddress(src_buffer);
+    dst_va = ID3D12Resource_GetGPUVirtualAddress(dst_buffer);
+
+    raw_uav_offset = buffer_desc.Width / 2u;
+
+    for (i = 0; i < 16; i += sizeof(uint32_t))
+    {
+        for (j = 0; j < 2; j++)
+        {
+            vkd3d_test_set_context("Test %u, %u", i / sizeof(uint32_t), j);
+
+            src_offset = j ? 0 : i;
+            dst_offset = j ? i : 0;
+
+            for (k = 0; k < buffer_desc.Width; k += sizeof(uint32_t))
+            {
+                memset(wbi_args, 0, sizeof(wbi_args));
+                wbi_args[0].Dest =  src_va + k;
+                wbi_args[0].Value = 0xae000000 | (k / sizeof(UINT32));
+
+                wbi_args[1].Dest = dst_va + k;
+                wbi_args[1].Value = 0xdeadbeef;
+
+                ID3D12GraphicsCommandList2_WriteBufferImmediate(list2, ARRAY_SIZE(wbi_args), wbi_args, NULL);
+            }
+
+            transition_resource_state(context.list, src_buffer, D3D12_RESOURCE_STATE_COPY_DEST,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+            transition_resource_state(context.list, dst_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+            ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+            ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(context.list, 0, src_va + src_offset);
+            ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, src_va + src_offset);
+            ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 2, src_va + src_offset);
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 3, dst_va + dst_offset);
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 4, dst_va + dst_offset + raw_uav_offset);
+            ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+            transition_resource_state(context.list, dst_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            get_buffer_readback_with_command_list(dst_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+            for (k = 0; k < ARRAY_SIZE(values); k++)
+            {
+                got_structured = get_readback_uint(&rb, (values[k].structured_offset + dst_offset) / sizeof(uint32_t), 0, 0);
+                got_raw = get_readback_uint(&rb, (values[k].raw_offset + raw_uav_offset + dst_offset) / sizeof(uint32_t), 0, 0);
+
+                /* Root CBV rounds down on Nvidia, misaligned SRV and UAV both work fine */
+                expected = values[k].value + src_offset / sizeof(uint32_t);
+
+                if (got_structured != expected && values[k].maybe_aligned)
+                    expected = values[k].value;
+
+                ok(got_structured== expected, "Got %#x, expected %#x at %u.\n", got_structured, expected, k);
+                ok(got_raw == expected, "Got %#x, expected %#x at %u.\n", got_raw, expected, k);
+            }
+
+            release_resource_readback(&rb);
+            reset_command_list(context.list, context.allocator);
+
+            transition_resource_state(context.list, src_buffer,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+                    D3D12_RESOURCE_STATE_COPY_DEST);
+            transition_resource_state(context.list, dst_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        }
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Resource_Release(src_buffer);
+    ID3D12Resource_Release(dst_buffer);
+
+    ID3D12GraphicsCommandList2_Release(list2);
+    destroy_test_context(&context);
+}
+
+void test_misaligned_root_desc_dxbc()
+{
+    test_misaligned_root_desc(false);
+}
+
+void test_misaligned_root_desc_dxil()
+{
+    test_misaligned_root_desc(true);
+}
