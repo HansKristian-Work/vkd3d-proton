@@ -123,7 +123,6 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
 {
     VkAccelerationStructureGeometryAabbsDataKHR *aabbs;
     const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
-    bool have_triangles, have_aabbs;
     uint32_t primitive_count;
     unsigned int i;
 
@@ -187,9 +186,6 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
     }
     else
     {
-        have_triangles = false;
-        have_aabbs = false;
-
         /* Don't hoist this memset since top-level geometries forces NumDescs == 1 assumption. */
         memset(geometry_infos, 0, sizeof(*geometry_infos) * desc->NumDescs);
         if (omm_triangles_infos)
@@ -221,27 +217,11 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
             switch (geom_desc->Type)
             {
                 case D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES:
-                    /* Runtime validates this. */
-                    if (have_aabbs)
-                    {
-                        ERR("Cannot mix and match geometry types in a BLAS.\n");
-                        return false;
-                    }
-                    have_triangles = true;
-
                     vkd3d_acceleration_structure_convert_triangles(device,
                             &geom_desc->Triangles, &geometry_infos[i], &primitive_count);
                     break;
 
                 case D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS:
-                    /* Runtime validates this. */
-                    if (have_triangles)
-                    {
-                        ERR("Cannot mix and match geometry types in a BLAS.\n");
-                        return false;
-                    }
-                    have_aabbs = true;
-
                     geometry_infos[i].geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
                     aabbs = &geometry_infos[i].geometry.aabbs;
                     aabbs->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
@@ -252,14 +232,6 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                     break;
 
                 case D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES:
-                    /* Does the runtime validate this as well? */
-                    if (have_aabbs)
-                    {
-                        ERR("Cannot mix and match geometry types in a BLAS.\n");
-                        return false;
-                    }
-                    have_triangles = true;
-
                     if (!device->device_info.supports_opacity_micromap)
                     {
                         ERR("Opacity micromap is not supported.\n");
@@ -280,6 +252,13 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                 default:
                     FIXME("Unsupported geometry type %u.\n", geom_desc->Type);
                     return false;
+            }
+
+            /* OMM and ordinary triangles have the same Vulkan geometry type. */
+            if (i && geometry_infos[i].geometryType != geometry_infos[0].geometryType)
+            {
+                ERR("Cannot mix and match geometry types in a BLAS.\n");
+                return false;
             }
 
             if (primitive_counts)
