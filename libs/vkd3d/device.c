@@ -165,6 +165,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_RAW_ACCESS_CHAINS, NV_raw_access_chains),
     VK_EXTENSION(NV_COOPERATIVE_MATRIX_2, NV_cooperative_matrix2),
     VK_EXTENSION_DISABLE_COND(NV_RAY_TRACING_INVOCATION_REORDER, NV_ray_tracing_invocation_reorder, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
+    VK_EXTENSION_DISABLE_COND(NV_RAY_TRACING_LINEAR_SWEPT_SPHERES, NV_ray_tracing_linear_swept_spheres, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
     VK_EXTENSION(NV_SHADER_ATOMIC_FLOAT16_VECTOR, NV_shader_atomic_float16_vector),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
@@ -1790,6 +1791,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->ray_tracing_invocation_reorder_features_nv.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV;
         vk_prepend_struct(&info->features2, &info->ray_tracing_invocation_reorder_features_nv);
+    }
+
+    if (vulkan_info->NV_ray_tracing_linear_swept_spheres)
+    {
+        info->ray_tracing_linear_swept_spheres_features_nv.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_LINEAR_SWEPT_SPHERES_FEATURES_NV;
+        vk_prepend_struct(&info->features2, &info->ray_tracing_linear_swept_spheres_features_nv);
     }
 
     if (vulkan_info->EXT_descriptor_heap)
