@@ -255,7 +255,7 @@ bool vkd3d_acceleration_structure_convert_opacity_micromap(struct d3d12_device *
 
 bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
-        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos)
+        union vkd3d_acceleration_structure_geometry_data *geometry_data)
 {
     const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
     D3D12_GPU_VIRTUAL_ADDRESS va;
@@ -278,9 +278,9 @@ bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *devic
         if (!va)
             continue;
 
-        omm_triangles_infos[i].micromap = vkd3d_va_map_place_acceleration_structure(
+        geometry_data[i].omm_triangles.micromap = vkd3d_va_map_place_acceleration_structure(
                 &device->memory_allocator.va_map, device, va, VKD3D_RTAS_KIND_NON_TLAS);
-        if (omm_triangles_infos[i].micromap == VK_NULL_HANDLE)
+        if (geometry_data[i].omm_triangles.micromap == VK_NULL_HANDLE)
             return false;
     }
 

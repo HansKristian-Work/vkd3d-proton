@@ -18,6 +18,7 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "vkd3d_private.h"
+#include "vkd3d_ext_nvapi_types.h"
 
 #define RT_TRACE TRACE
 
@@ -66,6 +67,13 @@ uint32_t vkd3d_acceleration_structure_get_geometry_count(
         return 1;
     else
         return desc->NumDescs;
+}
+
+bool vkd3d_acceleration_structure_needs_geometry_data(const struct d3d12_device *device)
+{
+    return device->device_info.supports_opacity_micromap ||
+            device->device_info.ray_tracing_linear_swept_spheres_features_nv.spheres ||
+            device->device_info.ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres;
 }
 
 static void vkd3d_acceleration_structure_convert_triangles(const struct d3d12_device *device,
@@ -117,7 +125,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
         VkAccelerationStructureGeometryKHR *geometry_infos,
-        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos,
+        union vkd3d_acceleration_structure_geometry_data *geometry_data,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
         uint32_t *primitive_counts)
 {
@@ -158,8 +166,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         /* There is risk of desc->NumDescs being != 1, although it should not happen. */
         memset(geometry_infos, 0, sizeof(*geometry_infos));
         /* Safety since we check for sentinel when completing batch. */
-        if (omm_triangles_infos)
-            memset(omm_triangles_infos, 0, sizeof(*omm_triangles_infos));
+        if (geometry_data)
+            memset(geometry_data, 0, sizeof(*geometry_data));
         geometry_infos[0].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
         geometry_infos[0].geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
         geometry_infos[0].geometry.instances.sType =
@@ -188,8 +196,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
     {
         /* Don't hoist this memset since top-level geometries forces NumDescs == 1 assumption. */
         memset(geometry_infos, 0, sizeof(*geometry_infos) * desc->NumDescs);
-        if (omm_triangles_infos)
-            memset(omm_triangles_infos, 0, sizeof(*omm_triangles_infos) * desc->NumDescs);
+        if (geometry_data)
+            memset(geometry_data, 0, sizeof(*geometry_data) * desc->NumDescs);
         if (primitive_counts)
             memset(primitive_counts, 0, sizeof(*primitive_counts) * desc->NumDescs);
 
@@ -242,7 +250,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                             geom_desc->OmmTriangles.pTriangles, &geometry_infos[i], &primitive_count);
 
                     if (!vkd3d_acceleration_structure_convert_opacity_micromap(device,
-                            geom_desc, &geometry_infos[i], &omm_triangles_infos[i]))
+                            geom_desc, &geometry_infos[i], &geometry_data[i].omm_triangles))
                     {
                         return false;
                     }
