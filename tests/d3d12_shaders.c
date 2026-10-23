@@ -14769,7 +14769,7 @@ static void test_uninitialized_pixel_output(bool use_dxil)
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", (int)hr);
 
     ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, FALSE, NULL);
     ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, white, 0, NULL);
