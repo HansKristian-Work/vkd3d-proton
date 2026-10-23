@@ -771,6 +771,16 @@ static bool vkd3d_dxil_converter_set_quirks(dxil_spv_converter converter,
         }
     }
 
+    if (quirks & VKD3D_SHADER_QUIRK_LEGACY_STRUCTURIZER)
+    {
+        dxil_spv_option_legacy_structurizer legacy = { { DXIL_SPV_OPTION_LEGACY_STRUCTURIZER }, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &legacy.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support LEGACY_STRUCTURIZER.\n");
+            return false;
+        }
+    }
+
     return true;
 }
 
