@@ -194,6 +194,62 @@ static bool vkd3d_acceleration_structure_convert_spheres(const struct d3d12_devi
     return true;
 }
 
+static bool vkd3d_acceleration_structure_convert_lss(const struct d3d12_device *device,
+        const D3D12_VK_EXT_RAYTRACING_GEOMETRY_LSS_DESC_NVAPI *desc,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        VkAccelerationStructureGeometryLinearSweptSpheresDataNV *lss, uint32_t *primitive_count)
+{
+    if (!vkd3d_acceleration_structure_convert_sphere_formats(device,
+            desc->VertexPositionFormat, desc->VertexRadiusFormat, &lss->vertexFormat, &lss->radiusFormat) ||
+            !vkd3d_acceleration_structure_convert_sphere_index_type(device, desc->IndexFormat, &lss->indexType))
+        return false;
+
+    switch (desc->PrimitiveFormat)
+    {
+        case D3D12_VK_EXT_RAYTRACING_LSS_PRIMITIVE_FORMAT_NVAPI_LIST:
+            lss->indexingMode = VK_RAY_TRACING_LSS_INDEXING_MODE_LIST_NV;
+            break;
+        case D3D12_VK_EXT_RAYTRACING_LSS_PRIMITIVE_FORMAT_NVAPI_SUCCESSIVE_IMPLICIT:
+            /* Prebuild queries may omit buffer addresses. */
+            if (lss->indexType == VK_INDEX_TYPE_NONE_KHR)
+            {
+                ERR("Successive LSS indexing requires an index buffer.\n");
+                return false;
+            }
+            lss->indexingMode = VK_RAY_TRACING_LSS_INDEXING_MODE_SUCCESSIVE_NV;
+            break;
+        default:
+            ERR("Unsupported LSS primitive format %#x.\n", desc->PrimitiveFormat);
+            return false;
+    }
+
+    switch (desc->EndcapMode)
+    {
+        case D3D12_VK_EXT_RAYTRACING_LSS_ENDCAP_MODE_NVAPI_NONE:
+            lss->endCapsMode = VK_RAY_TRACING_LSS_PRIMITIVE_END_CAPS_MODE_NONE_NV;
+            break;
+        case D3D12_VK_EXT_RAYTRACING_LSS_ENDCAP_MODE_NVAPI_CHAINED:
+            lss->endCapsMode = VK_RAY_TRACING_LSS_PRIMITIVE_END_CAPS_MODE_CHAINED_NV;
+            break;
+        default:
+            ERR("Unsupported LSS endcap mode %#x.\n", desc->EndcapMode);
+            return false;
+    }
+
+    lss->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_LINEAR_SWEPT_SPHERES_DATA_NV;
+    lss->vertexData.deviceAddress = desc->VertexPositionBuffer.StartAddress;
+    lss->vertexStride = desc->VertexPositionBuffer.StrideInBytes;
+    lss->radiusData.deviceAddress = desc->VertexRadiusBuffer.StartAddress;
+    lss->radiusStride = desc->VertexRadiusBuffer.StrideInBytes;
+    lss->indexData.deviceAddress = lss->indexType == VK_INDEX_TYPE_NONE_KHR ? 0 : desc->IndexBuffer.StartAddress;
+    lss->indexStride = desc->IndexBuffer.StrideInBytes;
+    *primitive_count = desc->PrimitiveCount;
+
+    geometry_info->geometryType = VK_GEOMETRY_TYPE_LINEAR_SWEPT_SPHERES_NV;
+    vk_prepend_struct(geometry_info, lss);
+    return true;
+}
+
 bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
@@ -341,6 +397,19 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                     ext_geom_desc = (const D3D12_VK_EXT_RAYTRACING_GEOMETRY_DESC *)geom_desc;
                     if (!vkd3d_acceleration_structure_convert_spheres(device, ext_geom_desc->Spheres,
                             &geometry_infos[i], &geometry_data[i].spheres, &primitive_count))
+                        return false;
+                    break;
+
+                case D3D12_VK_EXT_RAYTRACING_GEOMETRY_TYPE_LSS_NVAPI:
+                    if (!device->device_info.ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres)
+                    {
+                        ERR("Ray tracing linear swept spheres are not supported.\n");
+                        return false;
+                    }
+
+                    ext_geom_desc = (const D3D12_VK_EXT_RAYTRACING_GEOMETRY_DESC *)geom_desc;
+                    if (!vkd3d_acceleration_structure_convert_lss(device, ext_geom_desc->LSS,
+                            &geometry_infos[i], &geometry_data[i].lss, &primitive_count))
                         return false;
                     break;
 
