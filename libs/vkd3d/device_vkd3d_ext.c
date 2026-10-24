@@ -723,14 +723,50 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetAGSUAVSlot(d3d12_devi
 static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupported(d3d12_device_vkd3d_ext_iface *iface,
         UINT32 op_code)
 {
+    const VkPhysicalDeviceRayTracingLinearSweptSpheresFeaturesNV *lss_features;
+    const VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV *ser_features;
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+
     TRACE("iface %p, op_code %"PRIu32".\n", iface, op_code);
 
     if (!device->vendor_hacks.nv_shader.initialized)
         return FALSE;
 
+    ser_features = &device->device_info.ray_tracing_invocation_reorder_features_nv;
+    lss_features = &device->device_info.ray_tracing_linear_swept_spheres_features_nv;
+
     switch (op_code)
     {
+        case NV_EXTN_OP_RT_SPHERE_OBJECT_POSITION_AND_RADIUS:
+        case NV_EXTN_OP_RT_CANDIDATE_SPHERE_OBJECT_POSITION_AND_RADIUS:
+        case NV_EXTN_OP_RT_COMMITTED_SPHERE_OBJECT_POSITION_AND_RADIUS:
+        case NV_EXTN_OP_RT_IS_SPHERE_HIT:
+        case NV_EXTN_OP_RT_CANDIDATE_IS_NONOPAQUE_SPHERE:
+        case NV_EXTN_OP_RT_COMMITTED_IS_SPHERE:
+            return lss_features->spheres ? TRUE : FALSE;
+
+        case NV_EXTN_OP_RT_LSS_OBJECT_POSITIONS_AND_RADII:
+        case NV_EXTN_OP_RT_CANDIDATE_LSS_OBJECT_POSITIONS_AND_RADII:
+        case NV_EXTN_OP_RT_COMMITTED_LSS_OBJECT_POSITIONS_AND_RADII:
+        case NV_EXTN_OP_RT_IS_LSS_HIT:
+        case NV_EXTN_OP_RT_CANDIDATE_IS_NONOPAQUE_LSS:
+        case NV_EXTN_OP_RT_COMMITTED_IS_LSS:
+        case NV_EXTN_OP_RT_CANDIDATE_LSS_HIT_PARAMETER:
+        case NV_EXTN_OP_RT_COMMITTED_LSS_HIT_PARAMETER:
+            return lss_features->linearSweptSpheres ? TRUE : FALSE;
+
+        case NV_EXTN_OP_HIT_OBJECT_GET_SPHERE_OBJECT_POSITION_AND_RADIUS:
+        case NV_EXTN_OP_HIT_OBJECT_IS_SPHERE_HIT:
+            return lss_features->spheres && ser_features->rayTracingInvocationReorder ? TRUE : FALSE;
+
+        case NV_EXTN_OP_HIT_OBJECT_GET_LSS_OBJECT_POSITIONS_AND_RADII:
+        case NV_EXTN_OP_HIT_OBJECT_IS_LSS_HIT:
+            return lss_features->linearSweptSpheres && ser_features->rayTracingInvocationReorder ? TRUE : FALSE;
+
+        case NV_EXTN_OP_RT_CANDIDATE_BUILTIN_PRIMITIVE_RAY_T:
+        case NV_EXTN_OP_RT_COMMIT_NONOPAQUE_BUILTIN_PRIMITIVE_HIT:
+            return lss_features->spheres || lss_features->linearSweptSpheres ? TRUE : FALSE;
+
         case NV_EXTN_OP_HIT_OBJECT_TRACE_RAY:
         case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT:
         case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT_WITH_RECORD_INDEX:
@@ -750,7 +786,8 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupport
         case NV_EXTN_OP_HIT_OBJECT_IS_HIT:
         case NV_EXTN_OP_HIT_OBJECT_IS_NOP:
         case NV_EXTN_OP_HIT_OBJECT_MAKE_NOP:
-            return device->device_info.ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder ? TRUE : FALSE;
+            return ser_features->rayTracingInvocationReorder ? TRUE : FALSE;
+
         default:
             return FALSE;
     }
