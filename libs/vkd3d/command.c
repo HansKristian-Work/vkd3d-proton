@@ -11584,6 +11584,22 @@ static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *lis
     }
 }
 
+/* Work recorded straight into the Vulkan command buffer behind vkd3d's back (cubin launches through
+ * VK_NVX_binary_import): no render pass may be open, pending batched transfers must be in the command buffer
+ * first, and afterwards every piece of compute/graphics state vkd3d believes is bound has to be emitted again,
+ * because the launch implementation binds its own pipeline, descriptor sets and push constants. */
+void d3d12_command_list_begin_external_compute(struct d3d12_command_list *list)
+{
+    d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_end_transfer_batch(list, true);
+}
+
+void d3d12_command_list_end_external_compute(struct d3d12_command_list *list)
+{
+    d3d12_command_list_invalidate_all_state(list);
+    list->descriptor_heap.buffers.global_heap_dirty = true;
+}
+
 static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;

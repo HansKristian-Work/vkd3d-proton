@@ -3565,6 +3565,8 @@ bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
         VkQueryPool vk_pool, uint32_t index);
 void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend);
 void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list);
+void d3d12_command_list_begin_external_compute(struct d3d12_command_list *list);
+void d3d12_command_list_end_external_compute(struct d3d12_command_list *list);
 
 void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
         float r, float g, float b, float a);
