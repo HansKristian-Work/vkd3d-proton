@@ -3305,7 +3305,7 @@ static void dxgi_vk_swap_chain_update_past_presentation(struct dxgi_vk_swap_chai
         }
     }
 
-    delta = (int64_t)time - (int64_t)chain->timing.calibration[i][1];
+    delta = (int64_t)time - (int64_t)calibration[1];
 
 #ifdef _WIN32
     {
@@ -3315,7 +3315,7 @@ static void dxgi_vk_swap_chain_update_past_presentation(struct dxgi_vk_swap_chai
     }
 #endif
 
-    time = chain->timing.calibration[i][0] + delta;
+    time = calibration[0] + delta;
 
     if (present_count > chain->frame_statistics.count)
     {
