@@ -439,11 +439,25 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlags
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     VKD3D_UNUSED VkPipelineCreateFlags2 ray_tracing_pipeline_create_flags;
-    bool enable_opacity_micromap;
+    bool enable_opacity_micromap, enable_spheres, enable_lss;
 
     TRACE("iface %p, pipeline_state_flags %d.\n", iface, pipeline_state_flags);
 
     enable_opacity_micromap = (pipeline_state_flags & D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_ENABLE_OMM_SUPPORT) != 0;
+    enable_spheres = (pipeline_state_flags & D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_ENABLE_SPHERE_SUPPORT) != 0;
+    enable_lss = (pipeline_state_flags & D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_ENABLE_LSS_SUPPORT) != 0;
+
+    if (enable_spheres && !device->device_info.ray_tracing_linear_swept_spheres_features_nv.spheres)
+    {
+        ERR("Ray tracing spheres primitive is not supported.\n");
+        return FALSE;
+    }
+
+    if (enable_lss && !device->device_info.ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres)
+    {
+        ERR("Ray tracing LSS primitive is not supported.\n");
+        return FALSE;
+    }
 
     if (enable_opacity_micromap)
     {
@@ -471,6 +485,19 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlags
         ray_tracing_pipeline_create_flags = vkd3d_atomic_uint64_and(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
                 ~VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) &
                 ~VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+    }
+
+    if (enable_spheres || enable_lss)
+    {
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint64_or(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV, vkd3d_memory_order_relaxed) |
+                VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV;
+    }
+    else
+    {
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint64_and(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                ~VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV, vkd3d_memory_order_relaxed) &
+                ~VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV;
     }
 
     TRACE("flags %#"PRIx64".\n", ray_tracing_pipeline_create_flags);
