@@ -222,39 +222,44 @@ static enum vkd3d_application_engine_class get_engine_version_from_exe(
     enum vkd3d_application_engine_class engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
     VS_FIXEDFILEINFO *fi;
     DWORD *translation;
-    char buf[64];
-    void *block;
+    const void *block;
+    WCHAR buf[64], *s;
+    HMODULE hmod;
+    HGLOBAL hmem;
+    HRSRC hrsrc;
     UINT size;
-    char *s;
 
-    if (!(size = GetFileVersionInfoSizeW(path, NULL)))
+    if (!(hmod = LoadLibraryExW(path, NULL, LOAD_LIBRARY_AS_DATAFILE)))
         return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
-    if (!(block = malloc(size)))
-        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
-    if (!GetFileVersionInfoW(path, 0, size, block))
+
+    if (!(hrsrc = FindResourceW(hmod, MAKEINTRESOURCEW(VS_VERSION_INFO), (LPCWSTR)RT_VERSION)) ||
+        !(hmem = LoadResource(hmod, hrsrc)) ||
+        !(block = LockResource(hmem)))
         goto done;
 
-    if (!VerQueryValueA(block, "\\", (void **)&fi, &size) || size != sizeof(VS_FIXEDFILEINFO))
+    if (!VerQueryValueW(block, L"\\", (void **)&fi, &size) || size != sizeof(VS_FIXEDFILEINFO))
         goto done;
-    if (!VerQueryValueA(block, "\\VarFileInfo\\Translation", (void **)&translation, &size) || size != 4)
+    if (!VerQueryValueW(block, L"\\VarFileInfo\\Translation", (void **)&translation, &size) || size != 4)
         goto done;
 
-    sprintf(buf, "\\StringFileInfo\\%08lx\\InternalName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
-    if (VerQueryValueA(block, buf, (void **)&s, &size))
+    swprintf(buf, ARRAY_SIZE(buf), L"\\StringFileInfo\\%08lx\\InternalName",
+            MAKELONG(HIWORD(*translation), LOWORD(*translation)));
+    if (VerQueryValueW(block, buf, (void **)&s, &size))
     {
-        TRACE("InternalName: %s\n", s);
-        if (!strcmp(s, "UnrealEngine"))
+        TRACE("InternalName: %s\n", debugstr_w(s));
+        if (!wcscmp(s, L"UnrealEngine"))
         {
             engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
             goto done;
         }
     }
 
-    sprintf(buf, "\\StringFileInfo\\%08lx\\ProductName", MAKELONG(HIWORD(*translation), LOWORD(*translation)));
-    if (VerQueryValueA(block, buf, (void **)&s, &size))
+    swprintf(buf, ARRAY_SIZE(buf), L"\\StringFileInfo\\%08lx\\ProductName",
+            MAKELONG(HIWORD(*translation), LOWORD(*translation)));
+    if (VerQueryValueW(block, buf, (void **)&s, &size))
     {
-        TRACE("ProductName: %s\n", s);
-        if (!strcmp(s, "UnrealEngine") || !strcmp(s, "Unreal Engine"))
+        TRACE("ProductName: %s\n", debugstr_w(s));
+        if (!wcscmp(s, L"UnrealEngine") || !wcscmp(s, L"Unreal Engine"))
             engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
     }
 
@@ -265,7 +270,7 @@ done:
         *minor = LOWORD(fi->dwProductVersionMS);
         *patch = HIWORD(fi->dwProductVersionLS);
     }
-    free(block);
+    FreeLibrary(hmod);
     return engine_class;
 }
 
@@ -278,7 +283,8 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
 
     *major = *minor = *patch = 0;
     GetModuleFileNameW(NULL, exe_path, VKD3D_PATH_MAX);
-    engine_class = get_engine_version_from_exe(exe_path, major, minor, patch);
+    if ((engine_class = get_engine_version_from_exe(exe_path, major, minor, patch)))
+        return engine_class;
     PathCchRemoveFileSpec(exe_path, ARRAY_SIZE(exe_path));
 
     if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
