@@ -957,20 +957,32 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
         vkd3d_report_memory_budget(device);
 }
 
+static bool vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(
+        const struct VkPhysicalDeviceMemoryProperties *props, uint32_t type_mask)
+{
+    uint32_t heap_mask = 0;
+    if (!type_mask)
+        return false;
+    while (type_mask)
+        heap_mask |= 1u << props->memoryTypes[vkd3d_bitmask_iter32(&type_mask)].heapIndex;
+    return !!(heap_mask & (heap_mask - 1u));
+}
+
 static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, const uint32_t base_type_mask,
         void *pNext, bool respect_budget, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkPhysicalDeviceMemoryProperties *memory_props = &device->memory_properties;
-    uint32_t type_mask, device_local_mask, candidate_mask, heap_index;
+    uint32_t type_mask, device_local_mask, host_visible_mask, candidate_mask, heap_index;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_memory_info *memory_info = &device->memory_info;
     VkDeviceSize *type_current, heap_size;
     VkMemoryAllocateInfo allocate_info;
-    bool rebar_budget;
+    bool rebar_budget, can_fallback_sysmem;
     VkResult vr;
 
     device_local_mask = 0u;
+    host_visible_mask = 0u;
     candidate_mask = 0u;
 
     type_mask = base_type_mask;
@@ -985,6 +997,8 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
 
             if (memory_props->memoryTypes[type_index].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
                 device_local_mask |= 1u << type_index;
+            if (memory_props->memoryTypes[type_index].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+                host_visible_mask |= 1u << type_index;
         }
     }
 
@@ -994,12 +1008,12 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     if (!(type_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && (candidate_mask != device_local_mask))
         candidate_mask &= ~device_local_mask;
 
-    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocate_info.pNext = pNext;
-    allocate_info.allocationSize = size;
-    allocate_info.memoryTypeIndex = vkd3d_bitmask_tzcnt32(candidate_mask);
+    /* If host-visible memory is not explicitly requested and the candidate mask covers device-only memory,
+     * ensure that we don't accidentally use HVV / PCI-e BAR for pure device-local allocations. */
+    if (!(type_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) && (candidate_mask != host_visible_mask))
+        candidate_mask &= ~host_visible_mask;
 
-    if (allocate_info.memoryTypeIndex >= memory_props->memoryTypeCount)
+    if (!candidate_mask)
     {
         /* We consider CACHED optional here if we cannot find a memory type that supports it.
          * Failing to allocate CACHED is not a scenario where we would fall back. */
@@ -1026,24 +1040,24 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         }
     }
 
-    /* Once we have found a suitable memory type, only attempt to allocate that memory type.
-     * This avoids some problems by design:
-     * - If we want to allocate DEVICE_LOCAL memory, we don't try to fallback to PCI-e BAR memory by mistake.
-     * - If we want to allocate system memory, we don't try to fallback to PCI-e BAR memory by mistake.
-     * - There is no reasonable scenario where we can expect one memory type to fail, and another memory type
-     *   with more memory property bits set to pass. This makes use of the rule where memory types which are a super-set
-     *   of another must have a larger type index.
-     * - We will only attempt to allocate PCI-e BAR memory if DEVICE_LOCAL | HOST_VISIBLE is set, otherwise we
-     *   will find a candidate memory type which is either DEVICE_LOCAL or HOST_VISIBLE before we find a PCI-e BAR type.
-     * - For iGPU where everything is DEVICE_LOCAL | HOST_VISIBLE, we will just find that memory type first anyways,
-     *   but there we don't have anything to worry about w.r.t. PCI-e BAR.
-     */
+    can_fallback_sysmem = vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(&device->memory_properties, base_type_mask);
 
-    /* Budgets only apply to PCI-e BAR */
-    rebar_budget = !!(memory_info->rebar_budget_mask & (1u << allocate_info.memoryTypeIndex));
-    if (rebar_budget)
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.pNext = pNext;
+    allocate_info.allocationSize = size;
+    vr = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+
+    /* Try candidate memory types in priority order. If one fails (e.g. uncached system memory
+     * fails on large contiguous allocation, or ReBAR budget is exceeded), fall back to subsequent
+     * compatible memory types in candidate_mask. */
+    while (candidate_mask)
     {
-        if (respect_budget)
+        uint32_t candidate_type_index = vkd3d_bitmask_iter32(&candidate_mask);
+        allocate_info.memoryTypeIndex = candidate_type_index;
+
+        /* Budgets only apply to PCI-e BAR */
+        rebar_budget = !!(memory_info->rebar_budget_mask & (1u << candidate_type_index));
+        if (rebar_budget && respect_budget)
         {
             pthread_mutex_lock(&memory_info->budget_lock);
             if (memory_info->rebar_current + size > memory_info->rebar_budget)
@@ -1051,43 +1065,57 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
                 if (VKD3D_CONFIG_FLAG_IS_SET(LOG_MEMORY_BUDGET))
                 {
                     INFO("Attempting to allocate from memory type %u, but exceeding fixed ReBAR budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
-                            allocate_info.memoryTypeIndex, memory_info->rebar_current, size, memory_info->rebar_budget);
+                            candidate_type_index, memory_info->rebar_current, size, memory_info->rebar_budget);
                 }
                 pthread_mutex_unlock(&memory_info->budget_lock);
-                return E_OUTOFMEMORY;
+                continue;
             }
         }
-    }
 
-    /* Don't create device-local allocations that are unlikely to fully fit into VRAM
-     * if a fallback to system memory is possible. On Nvidia, creating a device-local
-     * allocation larger than VRAM may succeed, but causes various problems and will
-     * end up in system memory anyway. */
-    if ((type_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && candidate_mask != device_local_mask)
-    {
-        heap_index = device->memory_properties.memoryTypes[allocate_info.memoryTypeIndex].heapIndex;
-
-        heap_size = device->memory_properties.memoryHeaps[heap_index].size;
-        heap_size -= heap_size / 8u;
-
-        if (allocate_info.allocationSize > heap_size)
+        /* Don't create device-local allocations that are unlikely to fully fit into VRAM
+         * if a fallback to system memory is possible. On Nvidia, creating a device-local
+         * allocation larger than VRAM may succeed, but causes various problems and will
+         * end up in system memory anyway. */
+        if ((type_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && can_fallback_sysmem)
         {
-            ERR("Allocation size %"PRIu64" exceeds maximum allocation size on heap %u (%"PRIu64").\n", allocate_info.allocationSize, heap_index, heap_size);
-            return E_OUTOFMEMORY;
+            heap_index = device->memory_properties.memoryTypes[candidate_type_index].heapIndex;
+
+            heap_size = device->memory_properties.memoryHeaps[heap_index].size;
+            heap_size -= heap_size / 8u;
+
+            if (allocate_info.allocationSize > heap_size)
+            {
+                if (rebar_budget && respect_budget)
+                    pthread_mutex_unlock(&memory_info->budget_lock);
+                ERR("Allocation size %"PRIu64" exceeds maximum allocation size on heap %u (%"PRIu64").\n",
+                        allocate_info.allocationSize, heap_index, heap_size);
+                continue;
+            }
         }
+
+        /* Not a hard limit, but may fail at a driver level */
+        if (allocate_info.allocationSize > device->device_info.vulkan_1_1_properties.maxMemoryAllocationSize)
+        {
+            WARN("Allocation size %"PRIu64" exceeds maxMemoryAllocationSize of %"PRIu64".\n",
+                    allocate_info.allocationSize, device->device_info.vulkan_1_1_properties.maxMemoryAllocationSize);
+        }
+
+        /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
+        vkd3d_address_binding_tracker_mark_user_thread();
+
+        vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
+        if (vr == VK_SUCCESS)
+            break;
+
+        if (rebar_budget && respect_budget)
+            pthread_mutex_unlock(&memory_info->budget_lock);
+
+        WARN("Failed to allocate %"PRIu64" bytes on memory type %u, vr %d.\n",
+                size, candidate_type_index, vr);
     }
 
-    /* Not a hard limit, but may fail at a driver level */
-    if (allocate_info.allocationSize > device->device_info.vulkan_1_1_properties.maxMemoryAllocationSize)
-    {
-        WARN("Allocation size %"PRIu64" exceeds maxMemoryAllocationSize of %"PRIu64".\n",
-                allocate_info.allocationSize, device->device_info.vulkan_1_1_properties.maxMemoryAllocationSize);
-    }
-
-    /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
-    vkd3d_address_binding_tracker_mark_user_thread();
-
-    vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
+    if (vr != VK_SUCCESS)
+        return E_OUTOFMEMORY;
 
     if (vr == VK_SUCCESS)
     {
@@ -1146,17 +1174,6 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     allocation->vk_memory_type = allocate_info.memoryTypeIndex;
     allocation->size = size;
     return S_OK;
-}
-
-static bool vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(
-        const struct VkPhysicalDeviceMemoryProperties *props, uint32_t type_mask)
-{
-    uint32_t heap_mask = 0;
-    if (!type_mask)
-        return false;
-    while (type_mask)
-        heap_mask |= 1u << props->memoryTypes[vkd3d_bitmask_iter32(&type_mask)].heapIndex;
-    return !!(heap_mask & (heap_mask - 1u));
 }
 
 HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
