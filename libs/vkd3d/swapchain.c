@@ -1730,41 +1730,53 @@ static VkColorSpaceKHR convert_color_space(DXGI_COLOR_SPACE_TYPE dxgi_color_spac
     }
 }
 
-static bool dxgi_vk_swap_chain_accept_format(const VkSurfaceFormatKHR *format, VkFormat vk_format)
+static unsigned int get_present_format_bit_depth(VkFormat format)
 {
-    if (vk_format == VK_FORMAT_UNDEFINED)
+    switch (format)
     {
-        switch (format->format)
-        {
-            case VK_FORMAT_R8G8B8A8_UNORM:
-            case VK_FORMAT_B8G8R8A8_UNORM:
-            case VK_FORMAT_A8B8G8R8_UNORM_PACK32:
-                return true;
+        case VK_FORMAT_R8G8B8A8_UNORM:
+        case VK_FORMAT_B8G8R8A8_UNORM:
+        case VK_FORMAT_A8B8G8R8_UNORM_PACK32:
+            return 8;
 
-            default:
-                return false;
-        }
-    }
-    else
-    {
-        return format->format == vk_format;
+        case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+        case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+            return 10;
+
+        default:
+            return 0;
     }
 }
 
+/* Presentation blits or draws into the swapchain image, so if there is no exact match,
+ * any format with the same bit depth works regardless of channel order.
+ * Mesa on X11 at 30-bit color depth exposes only A2R10G10B10 while DXGI R10G10B10A2 maps to A2B10G10R10. */
 static bool dxgi_vk_swap_chain_find_surface_format(struct dxgi_vk_swap_chain *chain, VkFormat vk_format,
         VkColorSpaceKHR color_space, VkSurfaceFormatKHR *format)
 {
+    unsigned int bit_depth = get_present_format_bit_depth(vk_format);
+    const VkSurfaceFormatKHR *surface_format;
     bool ret = false;
     uint32_t i;
 
     pthread_mutex_lock(&chain->properties.lock);
     dxgi_vk_swap_chain_update_formats_locked(chain, false);
-    for (i = 0; i < chain->properties.format_count && !ret; i++)
+    for (i = 0; i < chain->properties.format_count; i++)
     {
-        if (dxgi_vk_swap_chain_accept_format(&chain->properties.formats[i], vk_format) &&
-                chain->properties.formats[i].colorSpace == color_space)
+        surface_format = &chain->properties.formats[i];
+        if (surface_format->colorSpace != color_space)
+            continue;
+
+        if (surface_format->format == vk_format)
         {
-            *format = chain->properties.formats[i];
+            *format = *surface_format;
+            ret = true;
+            break;
+        }
+
+        if (!ret && bit_depth && get_present_format_bit_depth(surface_format->format) == bit_depth)
+        {
+            *format = *surface_format;
             ret = true;
         }
     }
@@ -1782,10 +1794,12 @@ static bool dxgi_vk_swap_chain_select_format(struct dxgi_vk_swap_chain *chain, V
 
     /* If we're using sRGB swapchains, we can fallback.
      * Usually happens for RGBA8 or 10-bit UNORM and display does not support it as a present format.
-     * This can be trivially worked around by selecting e.g. BGRA8. */
+     * This can be trivially worked around by selecting e.g. BGRA8.
+     * Mesa on X11 at 30-bit color depth exposes only A2B10G10R10 UNORM. */
     if (vk_color_space == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
     {
-        return dxgi_vk_swap_chain_find_surface_format(chain, VK_FORMAT_UNDEFINED, vk_color_space, format);
+        return dxgi_vk_swap_chain_find_surface_format(chain, VK_FORMAT_B8G8R8A8_UNORM, vk_color_space, format) ||
+                dxgi_vk_swap_chain_find_surface_format(chain, VK_FORMAT_A2B10G10R10_UNORM_PACK32, vk_color_space, format);
     }
     else
     {
