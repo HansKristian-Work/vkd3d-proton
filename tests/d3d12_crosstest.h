@@ -169,7 +169,7 @@ static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
          * only one will succeed when auto-reset events are used. */
         if (read(fd, &dummy, sizeof(dummy)) > 0)
             return WAIT_OBJECT_0;
-        else if (timeout != INFINITE)
+        else if (timeout != -1)
             return WAIT_TIMEOUT;
     }
 }
