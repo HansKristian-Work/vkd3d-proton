@@ -60,6 +60,7 @@ decl_test(test_reset_command_allocator);
 decl_test(test_cpu_signal_fence);
 decl_test(test_gpu_signal_fence);
 decl_test(test_multithread_fence_wait);
+decl_test(test_multithread_fence_wait_duplicate_handle);
 decl_test(test_fence_values);
 decl_test(test_fence_pending_signal_cpu_rewind_plain);
 decl_test(test_fence_ping_pong_deadlock_stress_plain);

@@ -1028,6 +1028,7 @@ struct multithread_fence_wait_data
     HANDLE event;
     ID3D12Fence *fence;
     uint64_t value;
+    HANDLE wait_event;
 };
 
 static void fence_event_wait_main(void *untyped_data)
@@ -1037,7 +1038,7 @@ static void fence_event_wait_main(void *untyped_data)
     HANDLE event;
     HRESULT hr;
 
-    event = create_event();
+    event = data->wait_event ? data->wait_event : create_event();
     ok(event, "Failed to create event.\n");
 
     hr = ID3D12Fence_SetEventOnCompletion(data->fence, data->value, event);
@@ -1048,7 +1049,8 @@ static void fence_event_wait_main(void *untyped_data)
     ret = wait_event(event, INFINITE);
     ok(ret == WAIT_OBJECT_0, "Got unexpected return value %#x.\n", ret);
 
-    destroy_event(event);
+    if (event != data->wait_event)
+        destroy_event(event);
 }
 
 static void fence_busy_wait_main(void *untyped_data)
@@ -1079,6 +1081,7 @@ void test_multithread_fence_wait(void)
 
     queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
+    memset(&thread_data, 0, sizeof(thread_data));
     thread_data.event = create_event();
     thread_data.value = 0;
     ok(thread_data.event, "Failed to create event.\n");
@@ -1132,6 +1135,76 @@ void test_multithread_fence_wait(void)
 
     destroy_event(thread_data.event);
     ID3D12Fence_Release(thread_data.fence);
+    ID3D12CommandQueue_Release(queue);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
+}
+
+void test_multithread_fence_wait_duplicate_handle(void)
+{
+    struct multithread_fence_wait_data thread_data[2];
+    ID3D12CommandQueue *queue;
+    HANDLE wait_event_handle;
+    unsigned int refcount;
+    ID3D12Device *device;
+    unsigned int ret;
+    HANDLE thread[2];
+    unsigned int i;
+    HRESULT hr;
+
+    memset(&thread_data, 0, sizeof(thread_data));
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    queue = create_command_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+
+    /* To make the test passable on Linux. Use EFD_SEMAPHORE to get auto-reset wakeup semantics
+     * for concurrent waiters. */
+    wait_event_handle = create_event_semaphore_semantics();
+
+    for (i = 0; i < ARRAY_SIZE(thread); i++)
+    {
+        thread_data[i].event = create_event();
+        thread_data[i].value = 0;
+        thread_data[i].wait_event = wait_event_handle;
+        ok(thread_data[i].event, "Failed to create event.\n");
+    }
+
+    hr = ID3D12Device_CreateFence(device, thread_data[0].value, D3D12_FENCE_FLAG_NONE,
+        &IID_ID3D12Fence, (void **)&thread_data[0].fence);
+    ok(hr == S_OK, "Failed to create fence, hr %#x.\n", (int)hr);
+    thread_data[1].fence = thread_data[0].fence;
+
+    /* Signal fence on device. */
+    for (i = 0; i < ARRAY_SIZE(thread); i++)
+    {
+        ++thread_data[i].value;
+        thread[i] = create_thread(fence_event_wait_main, &thread_data[i]);
+        ok(thread[i], "Failed to create thread.\n");
+
+        /* Wait until the event wait has been registered. */
+        ret = wait_event(thread_data[i].event, INFINITE);
+        ok(ret == WAIT_OBJECT_0, "Failed to wait for thread start, return value %#x.\n", ret);
+    }
+
+    /* Just nudge to make reasonably sure both threads are actually blocking in wait_event() on same event HANDLE. */
+    vkd3d_sleep(10);
+
+    /* Signal once, both threads need to wake up as a result. */
+    queue_signal(queue, thread_data[0].fence, thread_data[0].value);
+
+    for (i = 0; i < ARRAY_SIZE(thread); i++)
+    {
+        ok(join_thread(thread[i]), "Failed to join thread.\n");
+        destroy_event(thread_data[i].event);
+    }
+
+    destroy_event(wait_event_handle);
+    ID3D12Fence_Release(thread_data[0].fence);
     ID3D12CommandQueue_Release(queue);
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
