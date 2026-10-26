@@ -10263,6 +10263,14 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_SHADER_ABORT;
     }
+
+    /* NVIDIA has been observed to treat unsigned int-to-float conversions as signed in DXBC shaders.
+     * The workaround goes through Int64, which other drivers may not support. */
+    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_WIDEN_UNSIGNED_ITOF;
+    }
 }
 
 static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)

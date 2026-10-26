@@ -1035,6 +1035,9 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
 
     if (compiler_args)
     {
+        dxil_spv_option_widen_unsigned_itof widen_unsigned_itof =
+                { { DXIL_SPV_OPTION_WIDEN_UNSIGNED_ITOF }, DXIL_SPV_FALSE };
+
         for (i = 0; i < compiler_args->target_extension_count; i++)
         {
             if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION)
@@ -1312,6 +1315,16 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_WIDEN_UNSIGNED_ITOF)
+            {
+                widen_unsigned_itof.enabled = DXIL_SPV_TRUE;
+            }
+        }
+
+        if (dxil_spv_converter_add_option(converter, &widen_unsigned_itof.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support WIDEN_UNSIGNED_ITOF.\n");
+            return VKD3D_ERROR_NOT_IMPLEMENTED;
         }
 
         if (compiler_args->driver_version)
