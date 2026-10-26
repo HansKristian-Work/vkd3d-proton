@@ -86,6 +86,11 @@ static inline HANDLE create_event(void)
     return CreateEventA(NULL, FALSE, FALSE, NULL);
 }
 
+static inline HANDLE create_event_semaphore_semantics(void)
+{
+    return create_event();
+}
+
 static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
 {
     return WaitForSingleObject(event, milliseconds);
@@ -106,12 +111,12 @@ static inline void destroy_event(HANDLE event)
 #define WAIT_TIMEOUT 1
 #define WAIT_TIMEOUT 1
 
-static inline HANDLE create_event(void)
+static inline HANDLE create_event_inner(bool semaphore_semantics)
 {
     HANDLE handle;
     int fd;
 
-    fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK | (semaphore_semantics ? EFD_SEMAPHORE : 0));
     if (fd < 0)
         return NULL;
 
@@ -125,6 +130,20 @@ static inline HANDLE create_event(void)
 
     handle = (HANDLE)(intptr_t)fd;
     return handle;
+}
+
+static inline HANDLE create_event(void)
+{
+    return create_event_inner(false);
+}
+
+static inline HANDLE create_event_semaphore_semantics(void)
+{
+    /* Special case to deal with concurrent waiters on the same eventfd.
+     * With auto-reset on Win32, each signal means a unique wakeup which does not match
+     * eventfd semantics. EFD_SEMAPHORE is the closest match.
+     * Could also add ntsync testing here, but that's overkill. */
+    return create_event_inner(true);
 }
 
 static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
