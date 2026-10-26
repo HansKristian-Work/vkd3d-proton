@@ -195,7 +195,7 @@ static dxil_spv_bool dxil_remap_inner(
                     else if (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV)
                         vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_UBO;
                     else
-                        vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+                        vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO_SCALAR_ALIGNED;
 
                     vk_binding->set = binding->binding.set;
                     vk_binding->binding = binding->binding.binding;
@@ -366,8 +366,11 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
             d3d_binding, &vk_binding->buffer_binding, resource_flags_ssbo))
     {
         /* For heap, we may turn a root SSBO into BDA if alignments don't work out. */
-        if (vk_binding->buffer_binding.descriptor_type != DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS)
+        if (vk_binding->buffer_binding.descriptor_type != DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS &&
+            vk_binding->buffer_binding.descriptor_type != DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO_SCALAR_ALIGNED)
+        {
             vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+        }
 
         if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
         {
@@ -532,8 +535,11 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
                 &vk_binding->buffer_binding, resource_flags_ssbo))
         {
             /* For heap, we may turn a root SSBO into BDA if alignments don't work out. */
-            if (vk_binding->buffer_binding.descriptor_type != DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS)
+            if (vk_binding->buffer_binding.descriptor_type != DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS &&
+                vk_binding->buffer_binding.descriptor_type != DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO_SCALAR_ALIGNED)
+            {
                 vk_binding->buffer_binding.descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+            }
 
             if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER)
             {
