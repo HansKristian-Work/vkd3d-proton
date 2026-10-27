@@ -1,5 +1,57 @@
 # Change Log
 
+## 3.1
+
+This release is mostly just tagged now to facilitate bumping the build version shortly after to 3.2.
+A ton of important changes will happen for 3.2, so this marks the last "stable" release before plunging into
+uncharted territory.
+
+### Features
+
+- Add `VK_EXT_descriptor_heap` support. This has been supported as an opt-in feature for many months now and has been battle tested quite a lot on NVIDIA.
+  It is unfortunately not enabled by default in this release due to driver quality concerns.
+  (This will change imminently on master however, which is one of the reasons this release is happening now.)
+- Add support for `KHR_opacity_micromap` and remove old and broken `EXT` path. Expose DXR 1.2 when supported.
+- Add support for Shader Model 6.9 which includes Shader Execution Reordering and long vector.
+  Currently only lights up on NVIDIA since SM 6.9 is a very RT/ML-centric update.
+- Add support for various NVAPI intrinsics in dxil-spirv.
+- Expose AgilitySDK 619 features.
+- Expose view instancing by default as more games rely on this.
+  It's not a fully conformant implementation (but let's be real, no implementation even on Windows is ...),
+  so we have an opt-out for certain games that try to push the feature to its outer limits.
+
+### Performance
+
+- Implement an optimized path for ClearUAV. It now goes through `vkCmdClearColorImage` or `vkCmdFillBuffer` when possible.
+  This allows implementations to optimize the clear in some cases.
+- Optimize some pathological COPY -> RESOURCE -> COPY barrier patterns. Cannot trust applications to write competent code :')
+- Avoid some compositor roundtrips in `IDXGISwapChain::Present()` related to occlusion checks. Should improve performance
+  when CPU bound on the main rendering thread.
+- Batch more RTAS build commands before inserting barriers. Massively increases RT performance in some cases.
+
+### Fixes
+
+- Steam Frame is now a supported platform, so various fixes catering to QCOM hardware have been added, and aarch64 builds are supported.
+- Handle D24 <-> buffer copies correctly on AMD GPUs where we emulate it as D32. This fixed some jank in e.g. MGS4 remaster.
+- Various fixes for `low_latency2` paths submitted by NVIDIA to match spec version 3 update.
+- Fix some UB behavior around udiv/umod/sdiv/srem. NVIDIA compilers take advantage of the allowed UB in some cases which broke things.
+- Fix undocumented render pass API resolve behavior.
+- Update tight alignment behavior to match AgilitySDK 619.5 behavior.
+- Massively simplify the `AMD_anti_lag` implementation and fixes a lot of bugs with frame attribution.
+- ... A ton of random dxil-spirv fixes too numerous to list. These problems will soon go away ...
+
+### Workarounds
+
+- Add various workarounds to make it easier to use AMD GCN hardware and QCOM hardware with games that assumes Wave32 is supported.
+  A lot of games have started to simply break in half recently due to games not caring about these GPUs.
+  Most of the time this can be patched in.
+- Add more detailed UE5 / RE Engine detection which is intended to aid Mesa drivers perform some more annoying workarounds
+  which cannot be tied directly to vkd3d-proton detection.
+- Workaround broken root SRV/UAV behavior which impacts NV. Games can get away with out-of-spec behavior on Windows which we didn't replicate.
+  Should remove some glitches and crashes on those GPUs in the wild.
+- Rewrite how the use-after-free workarounds are implemented. Works around lots of broken behavior around FSR4 UE plugin.
+- ... A ton of random game workarounds too numerous to list.
+
 ## 3.0.1
 
 This is likely the last release before `VK_EXT_descriptor_heap` lands.
