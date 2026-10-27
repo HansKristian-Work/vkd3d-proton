@@ -8190,6 +8190,12 @@ static HRESULT vkd3d_bindless_state_init_heap(struct vkd3d_bindless_state *bindl
         bindless_state->sampler_size,
         (bindless_state->heap.uav_counter_embedded_offset ? "on" : "off"));
 
+    /* Too much content in the wild is just straight up broken.
+     * Apply heap robustness globally when using heap.
+     * We can get a very fast path for this using the inline redzone. */
+    if (!VKD3D_CONFIG_FLAG_IS_SET(NO_DEFAULT_HEAP_ROBUSTNESS))
+        device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS;
+
     return S_OK;
 }
 
