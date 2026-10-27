@@ -20343,6 +20343,7 @@ static bool d3d12_command_list_deduce_attachment_resolve(struct d3d12_command_li
     VkImageSubresourceLayers src, dst, dst_base;
     struct d3d12_resource *resolve_dst;
     struct d3d12_resource *resolve_src;
+    VkExtent3D subresource_extent;
     unsigned int i;
 
     /* Resolving from NULL resource makes no sense. */
@@ -20456,12 +20457,13 @@ static bool d3d12_command_list_deduce_attachment_resolve(struct d3d12_command_li
         }
 
         /* Validate that we resolve the entire attachment as we would expect. */
-        if (subresource_args->DstX != 0 ||
-                subresource_args->DstY != 0 ||
-                subresource_args->SrcRect.left != 0 ||
-                subresource_args->SrcRect.top != 0 ||
-                subresource_args->SrcRect.right != (int)list->fb_width ||
-                subresource_args->SrcRect.bottom != (int)list->fb_height)
+        subresource_extent = d3d12_resource_desc_get_vk_subresource_extent(
+                &resolve_src->desc, resolve_src->format, &src);
+
+        if (subresource_args->DstX != 0 || subresource_args->DstY != 0 ||
+                subresource_args->SrcRect.left != 0 || subresource_args->SrcRect.top != 0 ||
+                (subresource_args->SrcRect.right != 0 ? subresource_args->SrcRect.right : (int)subresource_extent.width) != (int)list->fb_width ||
+                (subresource_args->SrcRect.bottom != 0 ? subresource_args->SrcRect.bottom : (int)subresource_extent.height) != (int)list->fb_height)
         {
             FIXME_ONCE("Need to resolve the entire subresource to be able to use attachment resolve.\n");
             return false;
@@ -20542,6 +20544,12 @@ static bool d3d12_command_list_add_render_pass_resolve(struct d3d12_command_list
         region.extent.width = (uint32_t)(subresource_args->SrcRect.right - subresource_args->SrcRect.left);
         region.extent.height = (uint32_t)(subresource_args->SrcRect.bottom - subresource_args->SrcRect.top);
         region.extent.depth = 1u;
+
+        if (!region.srcOffset.x && !region.srcOffset.y && !region.extent.width && !region.extent.height)
+        {
+            region.extent = d3d12_resource_desc_get_vk_subresource_extent(&resolve->src_resource->desc,
+                    resolve->src_resource->format, &region.srcSubresource);
+        }
 
         /* Merge with existing mip region if possible. To keep things simple, only consider
          * ordered subresource indices. */
