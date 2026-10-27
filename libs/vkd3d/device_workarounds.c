@@ -611,6 +611,10 @@ static const struct vkd3d_shader_quirk_info half_sword_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
 };
 
+static const struct vkd3d_shader_quirk_info arc_raiders_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
+};
+
 static const struct vkd3d_shader_quirk_hash ac8_hashes[] = {
     { "SkyTraceCS", 0, VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS },
 };
@@ -727,6 +731,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_APPID, "1245620", &elden_ring_quirks },
     /* Half Sword (2397300) */
     { VKD3D_STRING_COMPARE_EXACT, "HalfSwordUE5-Win64-Shipping.exe", &half_sword_quirks },
+    /* ARC Raiders (1808500) */
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "PioneerGame", &arc_raiders_quirks },
     /* ACE COMBAT 8 (2288340) */
     { VKD3D_STRING_COMPARE_APPID, "2288340", &ac8_quirks },
     /* Unreal Engine 4 */
