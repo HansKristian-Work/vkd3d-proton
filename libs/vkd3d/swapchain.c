@@ -3126,7 +3126,8 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (vr < 0)
         dxgi_vk_swap_chain_destroy_swapchain_in_present_task(chain);
 
-    if (vr == VK_ERROR_OUT_OF_DATE_KHR)
+    /* Full timing queue should never happen, but if it does anyway ... */
+    if (vr == VK_ERROR_OUT_OF_DATE_KHR || vr == VK_ERROR_PRESENT_TIMING_QUEUE_FULL_EXT)
     {
         if (retry_counter < 3)
             dxgi_vk_swap_chain_present_iteration(chain, present_count, retry_counter + 1);
