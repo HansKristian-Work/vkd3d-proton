@@ -122,31 +122,6 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
 
 # include <windows.h>
 # include <pathcch.h>
-# include <psapi.h>
-
-#ifdef _MSC_VER
-/* This struct is exposed on MinGW, but not MSVC.
- * It's not really a public API ... */
-typedef enum _PROCESSINFOCLASS
-{
-    ProcessBasicInformation,
-} PROCESSINFOCLASS;
-
-typedef struct _PROCESS_BASIC_INFORMATION {
-    NTSTATUS ExitStatus;
-    void *PebBaseAddress;
-    KAFFINITY AffinityMask;
-    LONG BasePriority;
-    ULONG_PTR UniqueProcessId;
-    ULONG_PTR InheritedFromUniqueProcessId;
-} PROCESS_BASIC_INFORMATION, *PPROCESS_BASIC_INFORMATION;
-#else
-# include <winternl.h>
-#endif
-
-typedef NTSTATUS (* NTAPI PFN_NtQueryInformationProcess)(
-    HANDLE ProcessHandle, PROCESSINFOCLASS ProcessInformationClass,
-    PVOID ProcessInformation, ULONG ProcessInformationLength, PULONG ReturnLength);
 
 vkd3d_module_t vkd3d_dlopen(const char *name)
 {
@@ -273,70 +248,43 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
 {
     WCHAR exe_path[VKD3D_PATH_MAX], path[VKD3D_PATH_MAX];
     enum vkd3d_application_engine_class engine_class;
-    HMODULE ntdll;
-    DWORD size;
 
     *major = *minor = *patch = 0;
     GetModuleFileNameW(NULL, exe_path, VKD3D_PATH_MAX);
-    engine_class = get_engine_version_from_exe(exe_path, major, minor, patch);
+    if ((engine_class = get_engine_version_from_exe(exe_path, major, minor, patch)))
+        return engine_class;
+
     PathCchRemoveFileSpec(exe_path, ARRAY_SIZE(exe_path));
 
-    if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
-            L"..\\..\\..\\Engine\\Binaries\\Win64\\CrashReportClient.exe", PATHCCH_NONE)))
-        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
-    if ((engine_class = get_engine_version_from_exe(path, major, minor, patch)))
+    if (SUCCEEDED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+            L"..\\..\\..\\Engine\\Binaries\\Win64\\CrashReportClient.exe", PATHCCH_NONE)) &&
+        (engine_class = get_engine_version_from_exe(path, major, minor, patch)))
         return engine_class;
 
-    if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
-            L"..\\..\\..\\Engine\\Binaries\\Win64\\UnrealCEFSubProcess.exe", PATHCCH_NONE)))
-        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
-    if ((engine_class = get_engine_version_from_exe(path, major, minor, patch)))
+    if (SUCCEEDED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+            L"..\\..\\..\\Engine\\Binaries\\Win64\\UnrealCEFSubProcess.exe", PATHCCH_NONE)) &&
+        (engine_class = get_engine_version_from_exe(path, major, minor, patch)))
         return engine_class;
-
-    if ((ntdll = GetModuleHandleA("ntdll.dll")))
-    {
-        PFN_NtQueryInformationProcess pfn_NtQueryInformationProcess;
-        PROCESS_BASIC_INFORMATION pbi;
-        HANDLE parent;
-
-        pfn_NtQueryInformationProcess =
-            (PFN_NtQueryInformationProcess)(void *)GetProcAddress(ntdll, "NtQueryInformationProcess");
-
-        if (pfn_NtQueryInformationProcess &&
-            !pfn_NtQueryInformationProcess(GetCurrentProcess(), ProcessBasicInformation, &pbi, sizeof(pbi), NULL) &&
-           (parent = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pbi.InheritedFromUniqueProcessId)))
-        {
-            size = ARRAY_SIZE(path);
-            if (QueryFullProcessImageNameW(parent, 0, path, &size))
-                engine_class = get_engine_version_from_exe(path, major, minor, patch);
-            CloseHandle(parent);
-            if (engine_class)
-                return engine_class;
-        }
-    }
 
     /* Dubious checks where we spelunk the filesystem. */
 
     /* This file specifically seems to exist as top-level asset file.
      * An earlier attempt was made to check for CAPCOM CompanyName,
      * but some games do not have that. This check seems more robust overall. */
-    if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
-            L"re_chunk_000.pak", PATHCCH_NONE)))
-        return engine_class;
-
-    if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+    if (SUCCEEDED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+            L"re_chunk_000.pak", PATHCCH_NONE)) &&
+        GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
         return VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE;
 
     /* Some games override their metadata to not mention UnrealEngine at all.
      * As a last ditch effort, try to see if Content/Paks folder exists.
      * This one seems to be rather universal. */
-    if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
-            L"..\\..\\Content\\Paks", PATHCCH_NONE)))
-        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    if (SUCCEEDED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
+            L"..\\..\\Content\\Paks", PATHCCH_NONE)) &&
+        GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
 
-    return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES
-               ? VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE
-               : VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
 }
 
 #else
