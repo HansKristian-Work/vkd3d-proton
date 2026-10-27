@@ -2129,6 +2129,10 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
             block_extent.width = 256;
             block_extent.height = 256;
         }
+        block_extent.depth = 1;
+
+        vk_info->formatProperties.imageGranularity = block_extent;
+        vk_info->formatProperties.aspectMask = format->vk_aspect_mask;
 
         tile_shape->WidthInTexels = block_extent.width;
         tile_shape->HeightInTexels = block_extent.height;
