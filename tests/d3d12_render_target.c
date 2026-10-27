@@ -1663,14 +1663,15 @@ void test_renderpass_rendering(void)
         rtv_infos[i].EndingAccess.Resolve.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         rtv_infos[i].EndingAccess.Resolve.PreserveResolveSource = TRUE;
 
+        /* Empty rect means full subresource */
         rtv_resolves[i].SrcSubresource = i;
         rtv_resolves[i].DstSubresource = i;
         rtv_resolves[i].DstX = 0;
         rtv_resolves[i].DstY = 0;
         rtv_resolves[i].SrcRect.left = 0;
         rtv_resolves[i].SrcRect.top = 0;
-        rtv_resolves[i].SrcRect.right = 4;
-        rtv_resolves[i].SrcRect.bottom = 4;
+        rtv_resolves[i].SrcRect.right = 0;
+        rtv_resolves[i].SrcRect.bottom = 0;
     }
 
     rtv_infos[0].EndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_MIN;
