@@ -5806,6 +5806,8 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_default(d3d
             if ((vr = VK_CALL(vkGetImageViewAddressNVX(device->vk_device, imageViewHandleInfo.imageView, &out_info))) < 0)
             {
                 ERR("Failed to get imageview address, vr %d.\n", vr);
+                /* Disarm the capture anyway: the caller's struct may be gone by the next UAV creation. */
+                d3d12_uav_info = NULL;
                 return;
             }
 
