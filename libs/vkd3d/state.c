@@ -5060,12 +5060,6 @@ static HRESULT d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_s
         if (graphics->cached_desc.bytecode_stages[i] == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
             graphics->patch_vertex_count = graphics->code[i].meta.patch_vertex_count;
 
-        if (graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_USES_SAMPLE_RATE_SHADING)
-        {
-            graphics->ms_desc.sampleShadingEnable = VK_TRUE;
-            graphics->ms_desc.minSampleShading = 1.0f;
-        }
-
         if ((graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_REPLACED) &&
                 device->debug_ring.active)
         {
@@ -6910,6 +6904,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.pViewportState = &vp_desc;
     pipeline_desc.pRasterizationState = &graphics->rs_desc;
     pipeline_desc.pDepthStencilState = &graphics->ds_desc;
+    pipeline_desc.pMultisampleState = &multisample_info;
     pipeline_desc.pDynamicState = &dynamic_create_info;
     pipeline_desc.layout = graphics->pipeline_layout;
     pipeline_desc.basePipelineIndex = -1;
@@ -6928,14 +6923,12 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         pipeline_desc.pInputAssemblyState = &vertex_input_desc.ia_info;
     }
 
-    if (has_fragment_output_state || graphics->ms_desc.sampleShadingEnable)
+    if (has_fragment_output_state)
     {
         multisample_info = graphics->ms_desc;
 
         if (key && key->rasterization_samples)
             multisample_info.rasterizationSamples = key->rasterization_samples;
-
-        pipeline_desc.pMultisampleState = &multisample_info;
     }
 
     if (has_fragment_output_state)
