@@ -1761,25 +1761,28 @@ static bool dxgi_vk_swap_chain_find_surface_format(struct dxgi_vk_swap_chain *ch
 
     pthread_mutex_lock(&chain->properties.lock);
     dxgi_vk_swap_chain_update_formats_locked(chain, false);
-    for (i = 0; i < chain->properties.format_count; i++)
+
+    for (i = 0; i < chain->properties.format_count && !ret; i++)
     {
         surface_format = &chain->properties.formats[i];
-        if (surface_format->colorSpace != color_space)
-            continue;
-
-        if (surface_format->format == vk_format)
-        {
-            *format = *surface_format;
-            ret = true;
-            break;
-        }
-
-        if (!ret && bit_depth && get_present_format_bit_depth(surface_format->format) == bit_depth)
+        if (surface_format->colorSpace == color_space && surface_format->format == vk_format)
         {
             *format = *surface_format;
             ret = true;
         }
     }
+
+    for (i = 0; i < chain->properties.format_count && !ret; i++)
+    {
+        surface_format = &chain->properties.formats[i];
+        if (surface_format->colorSpace == color_space && bit_depth &&
+            get_present_format_bit_depth(surface_format->format) == bit_depth)
+        {
+            *format = *surface_format;
+            ret = true;
+        }
+    }
+
     pthread_mutex_unlock(&chain->properties.lock);
     return ret;
 }
