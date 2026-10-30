@@ -138,6 +138,12 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * performance effects. */
     { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i",
             VKD3D_CONFIG_FLAG_INIT_STATIC(.NO_STAGGERED_SUBMIT = 1, .PREFER_THIN_UAV_TILING = 1) },
+    /* Uncharted: Legacy of Thieves Collection (1659420).
+     * ReBAR upload heap causes Xid 13 / VK_ERROR_DEVICE_LOST on NVIDIA GPUs during gameplay streaming. */
+    { VKD3D_STRING_COMPARE_EXACT, "u4.exe", VKD3D_CONFIG_FLAG_STATIC(NO_UPLOAD_HVV) },
+    { VKD3D_STRING_COMPARE_EXACT, "u4-l.exe", VKD3D_CONFIG_FLAG_STATIC(NO_UPLOAD_HVV) },
+    { VKD3D_STRING_COMPARE_EXACT, "tll.exe", VKD3D_CONFIG_FLAG_STATIC(NO_UPLOAD_HVV) },
+    { VKD3D_STRING_COMPARE_EXACT, "tll-l.exe", VKD3D_CONFIG_FLAG_STATIC(NO_UPLOAD_HVV) },
     /* Skull and Bones (2853730). Seems to require unsupported dcomp when reflex is enabled for some reason *shrug */
     { VKD3D_STRING_COMPARE_EXACT, "skullandbones.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX },
     /* Star Wars Outlaws (2842040). Attempt to workaround a possible NV driver bug. */
