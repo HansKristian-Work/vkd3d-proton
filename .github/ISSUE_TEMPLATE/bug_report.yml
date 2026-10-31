@@ -9,7 +9,7 @@ body:
           required: true
   - type: textarea
     attributes:
-      label: Description and steps to reproduce
+      label: Description
       value: |
         Please describe your issue as accurately as possible without being overly verbose (no wall of AI/LLM output). Include screenshots or videos if relevant
 
