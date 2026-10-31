@@ -1114,9 +1114,6 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
                 size, candidate_type_index, vr);
     }
 
-    if (vr != VK_SUCCESS)
-        return E_OUTOFMEMORY;
-
     if (vr == VK_SUCCESS)
     {
         vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
