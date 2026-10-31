@@ -224,6 +224,98 @@ static bool has_extension(const VkExtensionProperties *extensions,
     return false;
 }
 
+/* libxess.dll expects its host to query it for the Vulkan instance/device extensions
+ * and features it needs before creating them, so do that here. Best-effort: if it's
+ * not present we just skip. Typedefs below mirror its public ABI. */
+#define VKD3D_XESS_MAX_EXTENSIONS 16
+#define VKD3D_XESS_RESULT_SUCCESS 0
+
+typedef int (*PFN_xessVKGetRequiredInstanceExtensions)(
+        uint32_t *count, const char * const **extensions, uint32_t *min_vk_api_version);
+typedef int (*PFN_xessVKGetRequiredDeviceExtensions)(
+        VkInstance instance, VkPhysicalDevice physical_device,
+        uint32_t *count, const char * const **extensions);
+typedef int (*PFN_xessVKGetRequiredDeviceFeatures)(
+        VkInstance instance, VkPhysicalDevice physical_device, void **features);
+
+static vkd3d_module_t vkd3d_xess_load(void)
+{
+#ifdef _WIN32
+    return vkd3d_dlopen("libxess.dll");
+#else
+    /* libxess.dll is a Windows DLL, native builds can't load it. */
+    return NULL;
+#endif
+}
+
+static uint32_t vkd3d_query_xess_instance_extensions(vkd3d_module_t xess_module,
+        const char *out_extensions[VKD3D_XESS_MAX_EXTENSIONS])
+{
+    PFN_xessVKGetRequiredInstanceExtensions get_extensions;
+    const char * const *extensions;
+    uint32_t count, min_api_version;
+
+    if (!xess_module)
+        return 0;
+    if (!(get_extensions = (void *)vkd3d_dlsym(xess_module, "xessVKGetRequiredInstanceExtensions")))
+        return 0;
+    if (get_extensions(&count, &extensions, &min_api_version) != VKD3D_XESS_RESULT_SUCCESS || !count)
+        return 0;
+
+    if (count > VKD3D_XESS_MAX_EXTENSIONS)
+    {
+        WARN("XeSS requires %u instance extensions, more than the %u we reserved space for; ignoring.\n",
+                count, VKD3D_XESS_MAX_EXTENSIONS);
+        return 0;
+    }
+
+    TRACE("XeSS requires %u instance extensions (min API version %#x).\n", count, min_api_version);
+    memcpy(out_extensions, extensions, count * sizeof(*out_extensions));
+    return count;
+}
+
+static uint32_t vkd3d_query_xess_device_extensions(vkd3d_module_t xess_module,
+        VkInstance vk_instance, VkPhysicalDevice vk_physical_device,
+        const char *out_extensions[VKD3D_XESS_MAX_EXTENSIONS])
+{
+    PFN_xessVKGetRequiredDeviceExtensions get_extensions;
+    const char * const *extensions;
+    uint32_t count;
+
+    if (!xess_module)
+        return 0;
+    if (!(get_extensions = (void *)vkd3d_dlsym(xess_module, "xessVKGetRequiredDeviceExtensions")))
+        return 0;
+    if (get_extensions(vk_instance, vk_physical_device, &count, &extensions) != VKD3D_XESS_RESULT_SUCCESS || !count)
+        return 0;
+
+    if (count > VKD3D_XESS_MAX_EXTENSIONS)
+    {
+        WARN("XeSS requires %u device extensions, more than the %u we reserved space for; ignoring.\n",
+                count, VKD3D_XESS_MAX_EXTENSIONS);
+        return 0;
+    }
+
+    TRACE("XeSS requires %u device extensions.\n", count);
+    memcpy(out_extensions, extensions, count * sizeof(*out_extensions));
+    return count;
+}
+
+/* features2 must already be a valid chain head; libxess finds-or-appends by sType. */
+static void vkd3d_query_xess_device_features(vkd3d_module_t xess_module,
+        VkInstance vk_instance, VkPhysicalDevice vk_physical_device, VkPhysicalDeviceFeatures2 *features2)
+{
+    PFN_xessVKGetRequiredDeviceFeatures get_features;
+    void *chain = features2;
+
+    if (!xess_module)
+        return;
+    if (!(get_features = (void *)vkd3d_dlsym(xess_module, "xessVKGetRequiredDeviceFeatures")))
+        return;
+
+    get_features(vk_instance, vk_physical_device, &chain);
+}
+
 static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensions, unsigned int count,
         const char * const *required_extensions, unsigned int required_extension_count,
         const struct vkd3d_optional_extension_info *optional_extensions, unsigned int optional_extension_count,
@@ -424,6 +516,7 @@ static bool vkd3d_disable_nvx_extensions(struct d3d12_device *device, const char
 
 static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
         const struct vkd3d_instance_create_info *create_info,
+        const char * const *xess_extensions, unsigned int xess_extension_count,
         uint32_t *instance_extension_count, bool *user_extension_supported)
 {
     const struct vkd3d_vk_global_procs *vk_procs = &instance->vk_global_procs;
@@ -454,7 +547,8 @@ static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
         return hresult_from_vk_result(vr);
     }
 
-    *instance_extension_count = vkd3d_check_extensions(vk_extensions, count, NULL, 0,
+    *instance_extension_count = vkd3d_check_extensions(vk_extensions, count,
+            xess_extensions, xess_extension_count,
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
             create_info->instance_extensions,
             create_info->instance_extension_count,
@@ -630,6 +724,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 {
     const struct vkd3d_vk_global_procs *vk_global_procs = &instance->vk_global_procs;
     const char *debug_layer_name = "VK_LAYER_KHRONOS_validation";
+    const char *xess_instance_extensions[VKD3D_XESS_MAX_EXTENSIONS] = {0};
+    uint32_t xess_instance_extension_count;
     bool *user_extension_supported = NULL;
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
@@ -640,6 +736,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     uint32_t layer_count, i;
     VkInstance vk_instance;
     bool dirty_tree_build;
+    vkd3d_module_t xess_module;
     VkResult vr;
     HRESULT hr;
     uint32_t loader_version = VK_API_VERSION_1_0;
@@ -656,6 +753,12 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         return hr;
     }
 
+    /* Transient: safe to unload right after, the returned strings outlive it. */
+    xess_module = vkd3d_xess_load();
+    xess_instance_extension_count = vkd3d_query_xess_instance_extensions(xess_module, xess_instance_extensions);
+    if (xess_module)
+        vkd3d_dlclose(xess_module);
+
     if (create_info->optional_instance_extension_count)
     {
         if (!(user_extension_supported = vkd3d_calloc(create_info->optional_instance_extension_count, sizeof(bool))))
@@ -663,6 +766,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     }
 
     if (FAILED(hr = vkd3d_init_instance_caps(instance, create_info,
+            xess_instance_extensions, xess_instance_extension_count,
             &extension_count, user_extension_supported)))
     {
         vkd3d_free(user_extension_supported);
@@ -729,7 +833,8 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance_info.pApplicationInfo = &application_info;
     instance_info.enabledLayerCount = 0;
     instance_info.ppEnabledLayerNames = NULL;
-    instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions, NULL, 0,
+    instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
+            xess_instance_extensions, xess_instance_extension_count,
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
             create_info->instance_extensions,
             create_info->instance_extension_count,
@@ -2280,6 +2385,7 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
 
 static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info,
+        const char * const *xess_extensions, unsigned int xess_extension_count,
         uint32_t *device_extension_count, bool *user_extension_supported)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
@@ -2310,7 +2416,8 @@ static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
         return hresult_from_vk_result(vr);
     }
 
-    *device_extension_count = vkd3d_check_extensions(vk_extensions, count, NULL, 0,
+    *device_extension_count = vkd3d_check_extensions(vk_extensions, count,
+            xess_extensions, xess_extension_count,
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
             create_info->device_extensions,
             create_info->device_extension_count,
@@ -3157,6 +3264,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         const struct vkd3d_device_create_info *create_info)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    const char *xess_device_extensions[VKD3D_XESS_MAX_EXTENSIONS] = {0};
+    uint32_t xess_device_extension_count;
     struct vkd3d_device_queue_info device_queue_info;
     VkPhysicalDeviceProperties device_properties;
     bool *user_extension_supported = NULL;
@@ -3165,6 +3274,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     unsigned int device_index;
     uint32_t extension_count;
     const char **extensions;
+    vkd3d_module_t xess_module;
     VkDevice vk_device;
     VkResult vr;
     HRESULT hr;
@@ -3184,16 +3294,28 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 
+    /* Kept loaded until after the features query below, freed right after. */
+    xess_module = vkd3d_xess_load();
+    xess_device_extension_count = vkd3d_query_xess_device_extensions(xess_module,
+            device->vkd3d_instance->vk_instance, physical_device, xess_device_extensions);
+
     if (create_info->optional_device_extension_count)
     {
         if (!(user_extension_supported = vkd3d_calloc(create_info->optional_device_extension_count, sizeof(bool))))
+        {
+            if (xess_module)
+                vkd3d_dlclose(xess_module);
             return E_OUTOFMEMORY;
+        }
     }
 
     if (FAILED(hr = vkd3d_init_device_extensions(device, create_info,
+            xess_device_extensions, xess_device_extension_count,
             &extension_count, user_extension_supported)))
     {
         vkd3d_free(user_extension_supported);
+        if (xess_module)
+            vkd3d_dlclose(xess_module);
         return hr;
     }
 
@@ -3206,6 +3328,12 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     vkd3d_physical_device_info_init(&device->device_info, device);
     vkd3d_physical_device_info_apply_workarounds(&device->device_info, device);
+
+    /* Let libxess find-or-append whatever features it needs onto the chain. */
+    vkd3d_query_xess_device_features(xess_module,
+            device->vkd3d_instance->vk_instance, physical_device, &device->device_info.features2);
+    if (xess_module)
+        vkd3d_dlclose(xess_module);
 
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device->device_info)))
     {
@@ -3256,7 +3384,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     device_info.pQueueCreateInfos = device_queue_info.vk_queue_create_info;
     device_info.enabledLayerCount = 0;
     device_info.ppEnabledLayerNames = NULL;
-    device_info.enabledExtensionCount = vkd3d_enable_extensions(extensions, NULL, 0,
+    device_info.enabledExtensionCount = vkd3d_enable_extensions(extensions,
+            xess_device_extensions, xess_device_extension_count,
             optional_device_extensions, ARRAY_SIZE(optional_device_extensions),
             create_info->device_extensions,
             create_info->device_extension_count,
