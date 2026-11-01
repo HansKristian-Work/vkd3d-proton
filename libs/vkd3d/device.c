@@ -7568,7 +7568,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
     memset(&heap_desc, 0, sizeof(heap_desc));
     heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS |
-            (address ? (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
+            ((address && device->vk_info.EXT_external_memory_host) ?
+             (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
     heap_desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
     heap_desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
@@ -7590,11 +7591,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
         const void *address, REFIID riid, void **heap)
 {
 #ifdef _WIN32
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
     MEMORY_BASIC_INFORMATION info;
     size_t allocation_size;
 
     TRACE("iface %p, address %p, riid %s, heap %p\n",
           iface, address, debugstr_guid(riid), heap);
+
+    if (!device->vk_info.EXT_external_memory_host)
+        return E_INVALIDARG;
 
     if (!VirtualQuery(address, &info, sizeof(info)))
     {
