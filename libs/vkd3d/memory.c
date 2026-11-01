@@ -1211,6 +1211,13 @@ HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
                 WARN("Memory allocation failed, but it is not possible to fallback to system memory here. Deferring allocation.\n");
                 return hr;
             }
+
+            if (FAILED(hr) && respect_budget)
+            {
+                WARN("Fallback to system memory failed, retrying on device-local memory without budget restriction.\n");
+                hr = vkd3d_try_allocate_device_memory(device, size,
+                        type_flags, type_mask, pNext, false, allocation);
+            }
         }
 
         /* If we fail to allocate, and only have one heap to work with (iGPU),
