@@ -7,7 +7,15 @@ if vkd3d_platform == 'windows'
   d3d12core_name_prefix = ''
   d3d12core_dependencies = [ vkd3d_dep, lib_gdi32, lib_dxgi ]
   wrc = import('windows')
-  d3d12core_src += wrc.compile_resources('d3d12core.rc')
+  d3d12core_rc_args = []
+  if not vkd3d_is_msvc
+    if host_machine.cpu_family() == 'x86'
+      d3d12core_rc_args += ['--target=pe-i386']
+    elif host_machine.cpu_family() == 'x86_64'
+      d3d12core_rc_args += ['--target=pe-x86-64']
+    endif
+  endif
+  d3d12core_src += wrc.compile_resources('d3d12core.rc', args: d3d12core_rc_args)
 else
   d3d12core_name_prefix = 'libvkd3d-proton-'
   d3d12core_dependencies = [ vkd3d_dep, lib_dl ]

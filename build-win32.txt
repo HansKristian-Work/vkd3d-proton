@@ -3,6 +3,7 @@ c = 'i686-w64-mingw32-gcc'
 cpp = 'i686-w64-mingw32-g++'
 ar = 'i686-w64-mingw32-ar'
 strip = 'i686-w64-mingw32-strip'
+windres = 'i686-w64-mingw32-windres'
 widl-mingw-tools-fallback = 'i686-w64-mingw32-widl'
 
 [properties]
