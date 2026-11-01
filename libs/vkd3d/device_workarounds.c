@@ -308,6 +308,9 @@ static const struct vkd3d_shader_quirk_hash mhr_hashes[] = {
      * There some places where catastrophic cancellation occurs
      * and one ULP difference is the difference between blown out bloom and not. */
     { NULL, 0xd892f8024f52d3ca, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH },
+    /* Compute shader reads groupshared memory without a barrier.
+     * Causes view-dependent flickering of instanced foliage, rocks and other environmental elements on NVIDIA. */
+    { NULL, 0xaae07660844b89cf, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS },
 };
 
 static const struct vkd3d_shader_quirk_info mhr_quirks = {
