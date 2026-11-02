@@ -7567,8 +7567,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
 
     memset(&heap_desc, 0, sizeof(heap_desc));
     heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS |
-            (address ? (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    if (address && device->vk_info.EXT_external_memory_host)
+        heap_desc.Flags |= D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER;
+    else if (address)
+        FIXME("Attempting to import host memory, but VK_EXT_external_memory_host is not supported. Falling back.\n");
     heap_desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
     heap_desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
