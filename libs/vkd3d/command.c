@@ -18207,10 +18207,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     {
         if (!d3d12_command_list_update_compute_pipeline(list))
             return;
-
-        /* Needed for workarounds later. */
-        if (!(list->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
-            list->cmd.uses_dgc_compute_in_async_compute = true;
     }
     else
     {
@@ -24126,14 +24122,6 @@ VKD3D_METHODENTRY(void) d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQue
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;
 
-        /* Submission logic for IB fallbacks seems to have exposed something ... very dodgy in RADV. */
-        if (cmd_list->cmd.uses_dgc_compute_in_async_compute &&
-                !VKD3D_CONFIG_FLAG_IS_SET(SKIP_DRIVER_WORKAROUNDS) &&
-                command_queue->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
-        {
-            sub.execute.split_submission = true;
-        }
-
 #ifdef VKD3D_ENABLE_BREADCRUMBS
         if (breadcrumb_indices)
             breadcrumb_indices[i] = cmd_list->breadcrumb_context_index;
@@ -25661,11 +25649,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
                 vkd3d_queue_release(command_queue->device->memory_transfers.vkd3d_queue);
                 WARN("Performing a fallback copy queue submit. Bad perf :(\n");
             }
-        }
-        else if (exec->split_submission)
-        {
-            vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue,
-                    num_submits, submit_desc);
         }
         else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
         {
