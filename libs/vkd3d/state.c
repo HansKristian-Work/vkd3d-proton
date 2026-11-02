@@ -4132,10 +4132,9 @@ static void blend_attachment_from_d3d12(struct d3d12_device *device, struct VkPi
             vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
 
         /* RGB9E5 is quirky with write masks, RGB must be either all set or unset. Drivers
-         * are supposed to ignore alpha, however this is currently broken on RADV. */
-        if (format && format->vk_format == VK_FORMAT_E5B9G9R9_UFLOAT_PACK32 &&
-                !VKD3D_CONFIG_FLAG_IS_SET(SKIP_DRIVER_WORKAROUNDS) &&
-                device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+         * are supposed to ignore alpha, however this is currently broken on RADV.
+         * Vulkan specs recently changed the rules so we must do this fixup unconditionally. */
+        if (format && format->vk_format == VK_FORMAT_E5B9G9R9_UFLOAT_PACK32)
         {
             vk_desc->colorWriteMask &= ~VK_COLOR_COMPONENT_A_BIT;
 
