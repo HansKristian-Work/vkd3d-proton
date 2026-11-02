@@ -36,22 +36,28 @@ These extensions will likely become mandatory later.
 
 ### AMD (RADV)
 
-For AMD, RADV is the recommended driver and the one that sees most testing on AMD GPUs.
-The minimum requirement at the moment is Mesa 22.0.
+For AMD, RADV is the recommended driver and the one that sees most testing on AMD GPUs. Version 26.1+ is recommended.
+The absolute minimum requirement at the moment is Mesa 22.0,
+but may not work correctly in some cases due to ancient workarounds that have been removed over time.
 
-NOTE: For older Mesa versions, use the v2.6 release.
+NOTE: For ancient Mesa versions, use the v2.6 release.
 
 ### NVIDIA
 
 The [Vulkan beta drivers](https://developer.nvidia.com/vulkan-driver) generally contain the latest
 driver fixes that we identify while getting games to work.
-The latest drivers (stable, beta or Vulkan beta tracks) are always preferred.
+The latest drivers (stable, beta or Vulkan beta tracks) are always preferred,
+especially when descriptor heap is enabled.
 If you're having problems, always try the latest drivers.
-At minimum, 535 series drivers are needed, which fixes a bunch of bugs.
+At minimum, 595 series drivers are recommended.
 
 ### Intel
 
-We have not done any testing against Intel GPUs yet.
+Get the latest possible Mesa. There is no known cutoff.
+
+### QCOM (Turnip)
+
+Get the latest possible Mesa. There is no known cutoff.
 
 ------
 
