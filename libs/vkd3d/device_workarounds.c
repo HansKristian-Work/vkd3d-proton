@@ -730,6 +730,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_STARTS_WITH, "PioneerGame", &global_wave32_quirks },
     /* ACE COMBAT 8 (2288340) */
     { VKD3D_STRING_COMPARE_APPID, "2288340", &ac8_quirks },
+    /* STAR WARS: Galactic Racer (4078430) */
+    { VKD3D_STRING_COMPARE_EXACT, "SWGR-Win64-Shipping.exe", &global_wave32_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
