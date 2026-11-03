@@ -7636,12 +7636,12 @@ static void test_misaligned_root_desc(bool use_dxil)
     destroy_test_context(&context);
 }
 
-void test_misaligned_root_desc_dxbc()
+void test_misaligned_root_desc_dxbc(void)
 {
     test_misaligned_root_desc(false);
 }
 
-void test_misaligned_root_desc_dxil()
+void test_misaligned_root_desc_dxil(void)
 {
     test_misaligned_root_desc(true);
 }
