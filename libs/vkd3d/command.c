@@ -14488,6 +14488,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
         struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(heaps[i]);
         if (heap)
             d3d12_command_allocator_retain_descriptor_heap(list->allocator, heap);
+
+        VKD3D_BREADCRUMB_AUX64(heap->descriptor_buffer.va);
+        VKD3D_BREADCRUMB_AUX64(heap->desc.NumDescriptors);
+        VKD3D_BREADCRUMB_TAG(heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ? "CBV_SRV_UAV heap" : "SAMPLER heap");
     }
 
     if (d3d12_device_use_descriptor_heap(list->device))
