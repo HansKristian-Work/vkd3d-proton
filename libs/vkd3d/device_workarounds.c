@@ -576,7 +576,7 @@ static const struct vkd3d_shader_quirk_info wow_classic_quirks = {
     wow_classic_hashes, ARRAY_SIZE(wow_classic_hashes), 0,
 };
 
-static const struct vkd3d_shader_quirk_info empire_of_the_ants_quirks = {
+static const struct vkd3d_shader_quirk_info global_wave32_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
 };
 
@@ -608,14 +608,6 @@ static const struct vkd3d_shader_quirk_hash elden_ring_hashes[] = {
 
 static const struct vkd3d_shader_quirk_info elden_ring_quirks = {
     elden_ring_hashes, ARRAY_SIZE(elden_ring_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_info half_sword_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
-};
-
-static const struct vkd3d_shader_quirk_info arc_raiders_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
 };
 
 static const struct vkd3d_shader_quirk_hash ac8_hashes[] = {
@@ -721,7 +713,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Resonance.exe", &plague_tale_resonance_robustness_quirks },
     /* Empire of the Ants (2287330). With Terrain Tessellation on, some shaders
      * seem to assume Wave32 by mistake leading to GPU timeout. */
-    { VKD3D_STRING_COMPARE_EXACT, "Empire-Win64-Shipping.exe", &empire_of_the_ants_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "Empire-Win64-Shipping.exe", &global_wave32_quirks },
     /* 007: First Light (3768760) */
     { VKD3D_STRING_COMPARE_EXACT, "007FirstLight.exe", &first_light_quirks },
     /* Resident Evil Requiem (3764200) */
@@ -733,9 +725,9 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Elden Ring (1245620) */
     { VKD3D_STRING_COMPARE_APPID, "1245620", &elden_ring_quirks },
     /* Half Sword (2397300) */
-    { VKD3D_STRING_COMPARE_EXACT, "HalfSwordUE5-Win64-Shipping.exe", &half_sword_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "HalfSwordUE5-Win64-Shipping.exe", &global_wave32_quirks },
     /* ARC Raiders (1808500) */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "PioneerGame", &arc_raiders_quirks },
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "PioneerGame", &global_wave32_quirks },
     /* ACE COMBAT 8 (2288340) */
     { VKD3D_STRING_COMPARE_APPID, "2288340", &ac8_quirks },
     /* Unreal Engine 4 */
