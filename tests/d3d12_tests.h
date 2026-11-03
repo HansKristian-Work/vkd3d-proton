@@ -612,3 +612,4 @@ decl_test(test_conservative_ssbo_vectorization_dxil_heap_desc);
 decl_test(test_conservative_ssbo_vectorization_dxil_root_desc);
 decl_test(test_misaligned_root_desc_dxbc);
 decl_test(test_misaligned_root_desc_dxil);
+decl_test(test_descriptor_heap_rebind_invalidation);
