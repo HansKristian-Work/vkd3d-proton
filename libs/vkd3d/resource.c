@@ -1518,6 +1518,30 @@ void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device
     hash_map_free(&view_map->map);
 }
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+void vkd3d_view_map_register_eviction_state(struct vkd3d_view_map *view_map, struct d3d12_device *device, bool resident)
+{
+    uint32_t i;
+
+    rw_spinlock_acquire_read(&view_map->spinlock);
+
+    for (i = 0; i < view_map->map.entry_count; i++)
+    {
+        struct vkd3d_view_entry *e = (struct vkd3d_view_entry *)hash_map_get_entry(&view_map->map, i);
+
+        if (e->entry.flags & HASH_MAP_ENTRY_OCCUPIED)
+        {
+            if (resident)
+                vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, e->view->cookie, vkd3d_null_cookie());
+            else
+                vkd3d_descriptor_debug_unregister_cookie(device->descriptor_qa_global_info, e->view->cookie);
+        }
+    }
+
+    rw_spinlock_release_read(&view_map->spinlock);
+}
+#endif
+
 static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type);
 
 static HRESULT d3d12_create_sampler(struct d3d12_device *device,
@@ -1620,9 +1644,6 @@ struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
     if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
         vkd3d_view_tag_debug_name(view, device);
 
-    vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info,
-            view->cookie, view_map->resource_cookie);
-
     entry.key = *key;
     entry.view = view;
 
@@ -1653,6 +1674,31 @@ struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
         view = e->view;
         rw_spinlock_release_write(&view_map->spinlock);
     }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    /* Need to do this after we add the view to the hashmap.
+     * Otherwise, it's possible that we assume the wrong state for the resource, then
+     * the resource is evicted or made resident, but the view hasn't yet been added to the hashmap,
+     * so we get false positives. */
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
+    {
+        /* TODO: We don't deal correctly with placed or sparse resources, just assume they're resident. */
+        bool is_resident = true;
+
+        if (base_resource && base_resource->priority.allows_dynamic_residency)
+        {
+            spinlock_acquire(&base_resource->priority.spinlock);
+            is_resident = base_resource->priority.residency_count != 0;
+            spinlock_release(&base_resource->priority.spinlock);
+        }
+
+        if (is_resident)
+        {
+            vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info,
+                    view->cookie, view_map->resource_cookie);
+        }
+    }
+#endif
 
     return view;
 }
@@ -4315,8 +4361,13 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
 
     d3d12_device_add_ref(device);
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    /* Register then immediately unregister to make sure we see the resource creation appear in descriptor qa log. */
     vkd3d_descriptor_debug_register_resource_cookie(device->descriptor_qa_global_info,
             object->res.cookie, desc);
+    if (!object->priority.residency_count)
+        vkd3d_descriptor_debug_unregister_cookie(device->descriptor_qa_global_info, object->res.cookie);
+#endif
 
     *resource = object;
     return S_OK;

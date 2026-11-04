@@ -1156,6 +1156,9 @@ struct vkd3d_sampler_view_map
 
 HRESULT vkd3d_view_map_init(struct vkd3d_view_map *view_map);
 void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device *device);
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+void vkd3d_view_map_register_eviction_state(struct vkd3d_view_map *view_map, struct d3d12_device *device, bool resident);
+#endif
 
 struct vkd3d_subresource_layout
 {
