@@ -40,7 +40,7 @@
 
 static bool require_space(size_t offset, size_t count, size_t size, size_t data_size)
 {
-    return !count || (data_size - offset) / count >= size;
+    return !count || (offset <= data_size && (data_size - offset) / count >= size);
 }
 
 static void read_dword(const char **ptr, DWORD *d)
