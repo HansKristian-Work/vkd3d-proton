@@ -226,6 +226,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "SpaceEngineers2.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_ATTEMPTS_COMPLEX_MULTIVIEW },
     /* Resonance of Fate Enhanced Remaster (645730). */
     { VKD3D_STRING_COMPARE_EXACT, "Resonance of Fate.exe", VKD3D_CONFIG_FLAG_STATIC(CLEAR_TABLE_OFFSETS_ON_REBIND) },
+    /* STAR WARS: Galactic Racer (4078430). Observed bad image <-> buffer aliasing in descriptor QA. */
+    { VKD3D_STRING_COMPARE_EXACT, "SWGR-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
