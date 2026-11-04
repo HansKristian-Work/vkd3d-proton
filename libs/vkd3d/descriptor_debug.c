@@ -663,6 +663,11 @@ uint32_t vkd3d_descriptor_debug_get_shader_interface_flags(
     return flags;
 }
 
+static VKAPI_ATTR void VKAPI_CALL dummy_vkSetDeviceMemoryPriorityEXT(VkDevice device, VkDeviceMemory memory, float prio)
+{
+    WARN("Dummy call to vkSetDeviceMemoryPriorityEXT, device %p, memory #%"PRIx64", prio %f\n", device, (uint64_t)memory, prio);
+}
+
 static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
         struct vkd3d_descriptor_qa_global_info **out_global_info, unsigned int num_cookies,
         struct d3d12_device *device)
@@ -746,6 +751,13 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
     }
 
     vkd3d_descriptor_debug_parse_shader_ranges(global_info, VKD3D_SHADER_HASH_RANGE_KIND_QA);
+
+    if (!device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory)
+    {
+        /* Pretend this is supported, only to allow the code paths to detect Evict/MakeResident. */
+        device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory = VK_TRUE;
+        device->vk_procs.vkSetDeviceMemoryPriorityEXT = dummy_vkSetDeviceMemoryPriorityEXT;
+    }
 
     *out_global_info = global_info;
     return S_OK;
