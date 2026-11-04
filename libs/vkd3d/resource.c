@@ -1579,7 +1579,7 @@ struct vkd3d_view *vkd3d_view_map_get_view(struct vkd3d_view_map *view_map,
 
 struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key,
-        enum vkd3d_rtas_kind rtas_kind)
+        enum vkd3d_rtas_kind rtas_kind, struct d3d12_resource *base_resource)
 {
     struct vkd3d_view_entry entry, *e;
     struct vkd3d_view *redundant_view;
@@ -5564,7 +5564,7 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
     else
         key.u.buffer.usage = VK_BUFFER_USAGE_2_STORAGE_TEXEL_BUFFER_BIT;
 
-    return !!(*view = vkd3d_view_map_create_view(&resource->view_map, device, &key));
+    return !!(*view = vkd3d_view_map_create_view_for_resource(resource, device, &key));
 }
 
 static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
@@ -7035,7 +7035,7 @@ static struct vkd3d_view *vkd3d_create_texture_uav_view(struct d3d12_device *dev
     if (!vkd3d_setup_texture_uav_view(device, resource, desc, &key.u.texture))
         return NULL;
 
-    return vkd3d_view_map_create_view(&resource->view_map, device, &key);
+    return vkd3d_view_map_create_view_for_resource(resource, device, &key);
 }
 
 static bool vkd3d_setup_texture_srv_view(struct d3d12_device *device,
@@ -7170,12 +7170,12 @@ static struct vkd3d_view *vkd3d_create_texture_srv_view(struct d3d12_device *dev
             for (i = starting_mip; i < mip_count; i++)
             {
                 preallocate_key.u.texture.miplevel_clamp = (float)(i);
-                vkd3d_view_map_create_view(&resource->view_map, device, &preallocate_key);
+                vkd3d_view_map_create_view_for_resource(resource, device, &preallocate_key);
             }
         }
     }
 
-    return vkd3d_view_map_create_view(&resource->view_map, device, &key);
+    return vkd3d_view_map_create_view_for_resource(resource, device, &key);
 }
 
 static void vkd3d_create_texture_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
@@ -8758,7 +8758,7 @@ void d3d12_desc_create_sampler_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
     key.u.sampler = *desc;
 
-    if (!(view = vkd3d_view_map_create_view(&device->sampler_map.map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view_standalone(&device->sampler_map.map, device, &key)))
         return;
 
     get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
@@ -8795,7 +8795,7 @@ void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t desc_va,
     key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
     key.u.sampler = *desc;
 
-    if (!(view = vkd3d_view_map_create_view(&device->sampler_map.map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view_standalone(&device->sampler_map.map, device, &key)))
         return;
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, vkd3d_null_cookie());
@@ -8936,7 +8936,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view_for_resource(resource, device, &key)))
         return;
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, resource->res.cookie);
@@ -9030,7 +9030,7 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view_for_resource(resource, device, &key)))
         return;
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, resource->res.cookie);

@@ -20676,7 +20676,7 @@ static void d3d12_command_list_setup_render_pass_attachment_resolve(
     key.u.texture.layer_idx = dst.baseArrayLayer;
     key.u.texture.layer_count = resolve->SubresourceCount;
 
-    if (!(view = vkd3d_view_map_create_view(&resource->view_map, list->device, &key)))
+    if (!(view = vkd3d_view_map_create_view_for_resource(resource, list->device, &key)))
     {
         ERR("Failed to create image view.\n");
         return;
