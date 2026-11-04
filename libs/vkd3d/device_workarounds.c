@@ -224,8 +224,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "teardown.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FAIL_UNSUPPORTED_STATE_TEMPLATE = 1) },
     /* Space Engineers 2 (1133870) */
     { VKD3D_STRING_COMPARE_EXACT, "SpaceEngineers2.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_ATTEMPTS_COMPLEX_MULTIVIEW },
-    /* STAR WARS: Galactic Racer (4078430). Observed bad image <-> buffer aliasing in descriptor QA. */
-    { VKD3D_STRING_COMPARE_EXACT, "SWGR-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1) },
+    /* STAR WARS: Galactic Racer (4078430). Observed bad image <-> buffer aliasing in descriptor QA.
+     * Also some evidence of game using Evict/MakeResident in broken ways, leading to terrible performance.
+     */
+    { VKD3D_STRING_COMPARE_EXACT, "SWGR-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1, .NO_EVICT_RESIDENCY_PRIORITY = 1) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 

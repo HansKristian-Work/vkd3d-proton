@@ -752,7 +752,8 @@ static HRESULT vkd3d_descriptor_debug_alloc_global_info_descriptors(
 
     vkd3d_descriptor_debug_parse_shader_ranges(global_info, VKD3D_SHADER_HASH_RANGE_KIND_QA);
 
-    if (!device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory)
+    if (!device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory &&
+        !VKD3D_CONFIG_FLAG_IS_SET(NO_EVICT_RESIDENCY_PRIORITY))
     {
         /* Pretend this is supported, only to allow the code paths to detect Evict/MakeResident. */
         device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory = VK_TRUE;
