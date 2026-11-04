@@ -138,6 +138,12 @@ static int parse_dxbc(const char *data, size_t data_size,
     read_dword(&ptr, &chunk_count);
     TRACE("chunk count: %#x\n", (int)chunk_count);
 
+    if (!require_space(VKD3D_DXBC_HEADER_SIZE, chunk_count, sizeof(DWORD), data_size))
+    {
+        WARN("DXBC chunk count %u exceeds available data.\n", (int)chunk_count);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
     for (i = 0; i < chunk_count; ++i)
     {
         DWORD chunk_tag, chunk_size;
