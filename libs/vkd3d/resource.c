@@ -4290,21 +4290,22 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
             FIXME_ONCE("ReadFromSubresource may be buggy on host-visible images with ALLOW_SIMULTANEOUS_ACCESS | ALLOW_UNORDERED_ACCESS.\n");
     }
 
-    if ((flags & VKD3D_RESOURCE_COMMITTED) &&
-        device->device_info.memory_priority_features.memoryPriority &&
-        (desc->Flags & high_priority_resource_flags))
+    if ((flags & VKD3D_RESOURCE_COMMITTED) && device->device_info.memory_priority_features.memoryPriority)
     {
-        size_t resource_size = d3d12_resource_is_texture(object) ?
-            vkd3d_compute_resource_layouts_from_desc(device, &object->desc, NULL) :
-            object->desc.Width;
-        uint32_t adjust = vkd3d_get_priority_adjust(resource_size);
-
-        object->priority.d3d12priority = D3D12_RESIDENCY_PRIORITY_HIGH | adjust;
-
-        if (device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory)
+        if (desc->Flags & high_priority_resource_flags)
         {
-            if (object->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT)
-                object->priority.residency_count = 0;
+            size_t resource_size = d3d12_resource_is_texture(object) ?
+                vkd3d_compute_resource_layouts_from_desc(device, &object->desc, NULL) :
+                object->desc.Width;
+            uint32_t adjust = vkd3d_get_priority_adjust(resource_size);
+
+            object->priority.d3d12priority = D3D12_RESIDENCY_PRIORITY_HIGH | adjust;
+        }
+
+        if (device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory &&
+            (object->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT))
+        {
+            object->priority.residency_count = 0;
         }
     }
 
