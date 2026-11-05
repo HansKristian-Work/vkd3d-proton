@@ -224,6 +224,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "teardown.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FAIL_UNSUPPORTED_STATE_TEMPLATE = 1) },
     /* Space Engineers 2 (1133870) */
     { VKD3D_STRING_COMPARE_EXACT, "SpaceEngineers2.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_ATTEMPTS_COMPLEX_MULTIVIEW },
+    /* Resonance of Fate Enhanced Remaster (645730). */
+    { VKD3D_STRING_COMPARE_EXACT, "Resonance of Fate.exe", VKD3D_CONFIG_FLAG_STATIC(CLEAR_TABLE_OFFSETS_ON_REBIND) },
     { VKD3D_STRING_COMPARE_NEVER, NULL },
 };
 
