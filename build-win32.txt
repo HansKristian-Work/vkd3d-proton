@@ -4,6 +4,7 @@ cpp = 'i686-w64-mingw32-g++'
 ar = 'i686-w64-mingw32-ar'
 strip = 'i686-w64-mingw32-strip'
 widl-mingw-tools-fallback = 'i686-w64-mingw32-widl'
+windres = 'i686-w64-mingw32-windres'
 
 [properties]
 needs_exe_wrapper = true

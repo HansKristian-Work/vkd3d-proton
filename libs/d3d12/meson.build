@@ -5,6 +5,8 @@ d3d12_src = [
 if vkd3d_platform == 'windows'
   d3d12_name_prefix = ''
   d3d12_dependencies = [ vkd3d_common_dep, lib_gdi32, lib_dxgi ]
+  windows = import('windows')
+  d3d12_res = windows.compile_resources('version.rc')
 else
   d3d12_name_prefix = 'libvkd3d-proton-'
   # Link explicitly against d3d12core here so that we can alway find it
@@ -15,11 +17,12 @@ else
   # If the libraries are installed, the DT_RUNPATH is dropped, but at that point, LD_LIBRARY_PATH is more or less
   # expected.
   d3d12_dependencies = [ vkd3d_common_dep, lib_dl, d3d12core_dep ]
+  d3d12_res = []
 endif
 
 d3d12_needs_defs = (not vkd3d_is_msvc) and (vkd3d_platform == 'windows')
 
-d3d12_lib = shared_library(d3d12_name_prefix + 'd3d12', d3d12_src,
+d3d12_lib = shared_library(d3d12_name_prefix + 'd3d12', d3d12_src + d3d12_res,
   name_prefix         : '',
   dependencies        : d3d12_dependencies,
   include_directories : vkd3d_private_includes,

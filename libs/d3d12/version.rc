@@ -1,0 +1,32 @@
+#include <windows.h>
+
+// DLL version information.
+VS_VERSION_INFO    VERSIONINFO
+FILEVERSION        10,0,19041,1
+PRODUCTVERSION     10,0,19041,1
+FILEFLAGSMASK      VS_FFI_FILEFLAGSMASK
+FILEFLAGS          0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_DLL
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080904b0"
+    BEGIN
+      VALUE "CompanyName",      "vkd3d-proton"
+      VALUE "FileDescription",  "Direct3D 12 Loader"
+      VALUE "FileVersion",      "10.0.19041.1 (WinBuild.160101.0800)"
+      VALUE "InternalName",     "d3d12.dll"
+      VALUE "LegalCopyright",   "LGPLv2+ license"
+      VALUE "OriginalFilename", "d3d12.dll"
+      VALUE "ProductName",      "vkd3d-proton"
+      VALUE "ProductVersion",   "10.0.19041.1"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0809, 1200
+  END
+END
+
