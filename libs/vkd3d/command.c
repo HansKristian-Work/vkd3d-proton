@@ -18110,9 +18110,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             fallback_predication = true;
         }
 
-        /* Predication works on NV driver here, so we assume it's intended by spec.
-         * It does not work on RADV yet, so we'll fold predication in with our optimization work which
-         * generates a predicate anyway. */
         if (fallback_predication)
         {
             union vkd3d_predicate_command_direct_args args;
