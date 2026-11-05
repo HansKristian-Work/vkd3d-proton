@@ -6,14 +6,17 @@ d3d12core_src = [
 if vkd3d_platform == 'windows'
   d3d12core_name_prefix = ''
   d3d12core_dependencies = [ vkd3d_dep, lib_gdi32, lib_dxgi ]
+  windows = import('windows')
+  d3d12core_res = windows.compile_resources('version.rc')
 else
   d3d12core_name_prefix = 'libvkd3d-proton-'
   d3d12core_dependencies = [ vkd3d_dep, lib_dl ]
+  d3d12core_res = []
 endif
 
 d3d12core_needs_defs = (not vkd3d_is_msvc) and (vkd3d_platform == 'windows')
 
-d3d12core_lib = shared_library(d3d12core_name_prefix + 'd3d12core', d3d12core_src,
+d3d12core_lib = shared_library(d3d12core_name_prefix + 'd3d12core', d3d12core_src + d3d12core_res,
   name_prefix         : '',
   dependencies        : d3d12core_dependencies,
   include_directories : vkd3d_private_includes,
