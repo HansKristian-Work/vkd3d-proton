@@ -346,7 +346,7 @@ VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3
     key.u.buffer.format = NULL;
     key.u.buffer.usage = 0;
 
-    view = vkd3d_view_map_create_view2(view_map, device, &key, rtas_kind);
+    view = vkd3d_view_map_create_view2(view_map, device, &key, rtas_kind, NULL);
     if (!view)
         return VK_NULL_HANDLE;
 

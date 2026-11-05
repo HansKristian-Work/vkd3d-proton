@@ -1518,6 +1518,30 @@ void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device
     hash_map_free(&view_map->map);
 }
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+void vkd3d_view_map_register_eviction_state(struct vkd3d_view_map *view_map, struct d3d12_device *device, bool resident)
+{
+    uint32_t i;
+
+    rw_spinlock_acquire_read(&view_map->spinlock);
+
+    for (i = 0; i < view_map->map.entry_count; i++)
+    {
+        struct vkd3d_view_entry *e = (struct vkd3d_view_entry *)hash_map_get_entry(&view_map->map, i);
+
+        if (e->entry.flags & HASH_MAP_ENTRY_OCCUPIED)
+        {
+            if (resident)
+                vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, e->view->cookie, vkd3d_null_cookie());
+            else
+                vkd3d_descriptor_debug_unregister_cookie(device->descriptor_qa_global_info, e->view->cookie);
+        }
+    }
+
+    rw_spinlock_release_read(&view_map->spinlock);
+}
+#endif
+
 static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type);
 
 static HRESULT d3d12_create_sampler(struct d3d12_device *device,
@@ -1579,7 +1603,7 @@ struct vkd3d_view *vkd3d_view_map_get_view(struct vkd3d_view_map *view_map,
 
 struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key,
-        enum vkd3d_rtas_kind rtas_kind)
+        enum vkd3d_rtas_kind rtas_kind, struct d3d12_resource *base_resource)
 {
     struct vkd3d_view_entry entry, *e;
     struct vkd3d_view *redundant_view;
@@ -1620,9 +1644,6 @@ struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
     if (VKD3D_CONFIG_FLAG_IS_SET(DEBUG_UTILS))
         vkd3d_view_tag_debug_name(view, device);
 
-    vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info,
-            view->cookie, view_map->resource_cookie);
-
     entry.key = *key;
     entry.view = view;
 
@@ -1653,6 +1674,31 @@ struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
         view = e->view;
         rw_spinlock_release_write(&view_map->spinlock);
     }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    /* Need to do this after we add the view to the hashmap.
+     * Otherwise, it's possible that we assume the wrong state for the resource, then
+     * the resource is evicted or made resident, but the view hasn't yet been added to the hashmap,
+     * so we get false positives. */
+    if (vkd3d_descriptor_debug_active_descriptor_qa_checks())
+    {
+        /* TODO: We don't deal correctly with placed or sparse resources, just assume they're resident. */
+        bool is_resident = true;
+
+        if (base_resource && base_resource->priority.allows_dynamic_residency)
+        {
+            spinlock_acquire(&base_resource->priority.spinlock);
+            is_resident = base_resource->priority.residency_count != 0;
+            spinlock_release(&base_resource->priority.spinlock);
+        }
+
+        if (is_resident)
+        {
+            vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info,
+                    view->cookie, view_map->resource_cookie);
+        }
+    }
+#endif
 
     return view;
 }
@@ -4290,21 +4336,22 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
             FIXME_ONCE("ReadFromSubresource may be buggy on host-visible images with ALLOW_SIMULTANEOUS_ACCESS | ALLOW_UNORDERED_ACCESS.\n");
     }
 
-    if ((flags & VKD3D_RESOURCE_COMMITTED) &&
-        device->device_info.memory_priority_features.memoryPriority &&
-        (desc->Flags & high_priority_resource_flags))
+    if ((flags & VKD3D_RESOURCE_COMMITTED) && device->device_info.memory_priority_features.memoryPriority)
     {
-        size_t resource_size = d3d12_resource_is_texture(object) ?
-            vkd3d_compute_resource_layouts_from_desc(device, &object->desc, NULL) :
-            object->desc.Width;
-        uint32_t adjust = vkd3d_get_priority_adjust(resource_size);
-
-        object->priority.d3d12priority = D3D12_RESIDENCY_PRIORITY_HIGH | adjust;
-
-        if (device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory)
+        if (desc->Flags & high_priority_resource_flags)
         {
-            if (object->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT)
-                object->priority.residency_count = 0;
+            size_t resource_size = d3d12_resource_is_texture(object) ?
+                vkd3d_compute_resource_layouts_from_desc(device, &object->desc, NULL) :
+                object->desc.Width;
+            uint32_t adjust = vkd3d_get_priority_adjust(resource_size);
+
+            object->priority.d3d12priority = D3D12_RESIDENCY_PRIORITY_HIGH | adjust;
+        }
+
+        if (device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory &&
+            (object->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT))
+        {
+            object->priority.residency_count = 0;
         }
     }
 
@@ -4314,8 +4361,13 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
 
     d3d12_device_add_ref(device);
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    /* Register then immediately unregister to make sure we see the resource creation appear in descriptor qa log. */
     vkd3d_descriptor_debug_register_resource_cookie(device->descriptor_qa_global_info,
             object->res.cookie, desc);
+    if (!object->priority.residency_count)
+        vkd3d_descriptor_debug_unregister_cookie(device->descriptor_qa_global_info, object->res.cookie);
+#endif
 
     *resource = object;
     return S_OK;
@@ -5564,7 +5616,7 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
     else
         key.u.buffer.usage = VK_BUFFER_USAGE_2_STORAGE_TEXEL_BUFFER_BIT;
 
-    return !!(*view = vkd3d_view_map_create_view(&resource->view_map, device, &key));
+    return !!(*view = vkd3d_view_map_create_view_for_resource(resource, device, &key));
 }
 
 static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
@@ -7035,7 +7087,7 @@ static struct vkd3d_view *vkd3d_create_texture_uav_view(struct d3d12_device *dev
     if (!vkd3d_setup_texture_uav_view(device, resource, desc, &key.u.texture))
         return NULL;
 
-    return vkd3d_view_map_create_view(&resource->view_map, device, &key);
+    return vkd3d_view_map_create_view_for_resource(resource, device, &key);
 }
 
 static bool vkd3d_setup_texture_srv_view(struct d3d12_device *device,
@@ -7170,12 +7222,12 @@ static struct vkd3d_view *vkd3d_create_texture_srv_view(struct d3d12_device *dev
             for (i = starting_mip; i < mip_count; i++)
             {
                 preallocate_key.u.texture.miplevel_clamp = (float)(i);
-                vkd3d_view_map_create_view(&resource->view_map, device, &preallocate_key);
+                vkd3d_view_map_create_view_for_resource(resource, device, &preallocate_key);
             }
         }
     }
 
-    return vkd3d_view_map_create_view(&resource->view_map, device, &key);
+    return vkd3d_view_map_create_view_for_resource(resource, device, &key);
 }
 
 static void vkd3d_create_texture_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
@@ -8758,7 +8810,7 @@ void d3d12_desc_create_sampler_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
     key.u.sampler = *desc;
 
-    if (!(view = vkd3d_view_map_create_view(&device->sampler_map.map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view_standalone(&device->sampler_map.map, device, &key)))
         return;
 
     get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
@@ -8795,7 +8847,7 @@ void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t desc_va,
     key.view_type = VKD3D_VIEW_TYPE_SAMPLER;
     key.u.sampler = *desc;
 
-    if (!(view = vkd3d_view_map_create_view(&device->sampler_map.map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view_standalone(&device->sampler_map.map, device, &key)))
         return;
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, vkd3d_null_cookie());
@@ -8936,7 +8988,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view_for_resource(resource, device, &key)))
         return;
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, resource->res.cookie);
@@ -9030,7 +9082,7 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 
     assert(d3d12_resource_is_texture(resource));
 
-    if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
+    if (!(view = vkd3d_view_map_create_view_for_resource(resource, device, &key)))
         return;
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, resource->res.cookie);

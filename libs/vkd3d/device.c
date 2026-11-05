@@ -131,7 +131,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_IMAGE_SLICED_VIEW_OF_3D, EXT_image_sliced_view_of_3d),
     VK_EXTENSION(EXT_GRAPHICS_PIPELINE_LIBRARY, EXT_graphics_pipeline_library),
     VK_EXTENSION(EXT_FRAGMENT_SHADER_INTERLOCK, EXT_fragment_shader_interlock),
-    VK_EXTENSION(EXT_PAGEABLE_DEVICE_LOCAL_MEMORY, EXT_pageable_device_local_memory),
+    VK_EXTENSION_DISABLE_COND(EXT_PAGEABLE_DEVICE_LOCAL_MEMORY, EXT_pageable_device_local_memory, VKD3D_CONFIG_FLAG_STATIC(NO_EVICT_RESIDENCY_PRIORITY)),
     VK_EXTENSION(EXT_MEMORY_PRIORITY, EXT_memory_priority),
     VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
     VK_EXTENSION(EXT_LINE_RASTERIZATION, EXT_line_rasterization),
@@ -7083,6 +7083,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_MakeResident(d3d12_device_iface *i
                     spinlock_acquire(&resource_object->priority.spinlock);
                     priority = resource_object->priority.d3d12priority;
                     resource_object->priority.residency_count++;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+                    if (resource_object->priority.residency_count == 1)
+                    {
+                        vkd3d_view_map_register_eviction_state(&resource_object->view_map, device, true);
+                        vkd3d_descriptor_debug_register_resource_cookie(device->descriptor_qa_global_info,
+                                resource_object->res.cookie, &resource_object->desc);
+                    }
+#endif
                     spinlock_release(&resource_object->priority.spinlock);
                 }
 
@@ -7144,6 +7152,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_Evict(d3d12_device_iface *iface,
                     memory = heap_object->allocation.device_allocation.vk_memory;
                     spinlock_acquire(&heap_object->priority.spinlock);
                     now_evicted = (0 == --heap_object->priority.residency_count);
+                    /* TODO: For descriptor QA, we ideally need to maintain a list of all resources bound to the heap
+                     * and mark those placed resources (and their dependent views) as evicted.
+                     * For sparse, this gets even hairier since the resource may be partially evicted on a page-to-page basis ...
+                     * Skip this complexity for now. */
                     spinlock_release(&heap_object->priority.spinlock);
                 }
 
@@ -7158,6 +7170,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_Evict(d3d12_device_iface *iface,
                     memory = resource_object->mem.device_allocation.vk_memory;
                     spinlock_acquire(&resource_object->priority.spinlock);
                     now_evicted = (0 == --resource_object->priority.residency_count);
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+                    if (now_evicted)
+                    {
+                        vkd3d_view_map_register_eviction_state(&resource_object->view_map, device, false);
+                        vkd3d_descriptor_debug_unregister_cookie(device->descriptor_qa_global_info, resource_object->res.cookie);
+                    }
+#endif
                     spinlock_release(&resource_object->priority.spinlock);
                 }
 

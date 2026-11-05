@@ -1156,6 +1156,9 @@ struct vkd3d_sampler_view_map
 
 HRESULT vkd3d_view_map_init(struct vkd3d_view_map *view_map);
 void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device *device);
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+void vkd3d_view_map_register_eviction_state(struct vkd3d_view_map *view_map, struct d3d12_device *device, bool resident);
+#endif
 
 struct vkd3d_subresource_layout
 {
@@ -7001,11 +7004,19 @@ struct vkd3d_view_key
 struct vkd3d_view *vkd3d_view_map_get_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key);
 struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
-        struct d3d12_device *device, const struct vkd3d_view_key *key, enum vkd3d_rtas_kind rtas_kind);
-static inline struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
+        struct d3d12_device *device, const struct vkd3d_view_key *key, enum vkd3d_rtas_kind rtas_kind,
+        struct d3d12_resource *base_resource);
+
+static inline struct vkd3d_view *vkd3d_view_map_create_view_for_resource(struct d3d12_resource *resource,
         struct d3d12_device *device, const struct vkd3d_view_key *key)
 {
-    return vkd3d_view_map_create_view2(view_map, device, key, VKD3D_RTAS_KIND_UNKNOWN);
+    return vkd3d_view_map_create_view2(&resource->view_map, device, key, VKD3D_RTAS_KIND_UNKNOWN, resource);
+}
+
+static inline struct vkd3d_view *vkd3d_view_map_create_view_standalone(struct vkd3d_view_map *view_map,
+        struct d3d12_device *device, const struct vkd3d_view_key *key)
+{
+    return vkd3d_view_map_create_view2(view_map, device, key, VKD3D_RTAS_KIND_UNKNOWN, NULL);
 }
 
 /* This is not a hard limit, just an arbitrary value which lets us avoid allocation for

@@ -6507,3 +6507,122 @@ void test_suballocate_va_alignment(void)
 
     destroy_test_context(&context);
 }
+
+void test_resource_residency(void)
+{
+    /* This test is mostly relevant to test descriptor QA behavior and make sure we can hit the cases we care about.
+     * It's intentionally testing UB (in D3D12) by accessing Evict()-ed resources.
+     * In vkd3d-proton we translate this to memprio = 0 instead, which is valid, but potentially a disaster to perf. */
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_HEAP_PROPERTIES heap_props;
+    D3D12_DESCRIPTOR_RANGE rs_range;
+    ID3D12PipelineState *texel_pso;
+    D3D12_ROOT_PARAMETER rs_param;
+    ID3D12PipelineState *raw_pso;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Resource *buffer;
+    unsigned int iter;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/resource/headers/resource_residency_raw.h"
+#include "shaders/resource/headers/resource_residency_texel_buffer.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+
+    /* Ensure it doesn't get suballocated in our implementation. */
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 2 * 1024 * 1024;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.MipLevels = 1;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT,
+            &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&buffer);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x\n", (int)hr);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&rs_range, 0, sizeof(rs_range));
+    memset(&rs_param, 0, sizeof(rs_param));
+
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param.DescriptorTable.NumDescriptorRanges = 1;
+    rs_param.DescriptorTable.pDescriptorRanges = &rs_range;
+    rs_range.NumDescriptors = 1;
+    rs_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    texel_pso = create_compute_pipeline_state(context.device, context.root_signature, resource_residency_texel_buffer_dxbc);
+    raw_pso = create_compute_pipeline_state(context.device, context.root_signature, resource_residency_raw_dxbc);
+
+    for (iter = 0; iter < 3; iter++)
+    {
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Buffer.FirstElement = 2 * iter + 0;
+        uav_desc.Buffer.NumElements = 1;
+        uav_desc.Buffer.StructureByteStride = 4;
+        ID3D12Device_CreateUnorderedAccessView(context.device, buffer, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 0));
+
+        uav_desc.Format = DXGI_FORMAT_R32_UINT;
+        uav_desc.Buffer.FirstElement = 2 * iter + 1;
+        uav_desc.Buffer.NumElements = 1;
+        uav_desc.Buffer.StructureByteStride = 0;
+        ID3D12Device_CreateUnorderedAccessView(context.device, buffer, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 1));
+
+        for (i = 0; i < 2; i++)
+        {
+            uint32_t value;
+            ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+            ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, i ? texel_pso : raw_pso);
+            ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, get_gpu_descriptor_handle(&context, heap, i));
+            ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+            transition_resource_state(context.list, buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+            reset_command_list(context.list, context.allocator);
+
+            value = get_readback_uint(&rb, 2 * iter + i, 0, 0);
+            if (iter != 1 && value == 0)
+                skip("Iter %u, test %u: Descriptor write was masked as expected by descriptor QA checks!\n", iter, i);
+            ok(value == 100 || (value == 0 && iter != 1), "Unexpected value %u for iter %u, test %u\n", value, iter, i);
+            release_resource_readback(&rb);
+        }
+
+        if (iter == 0)
+        {
+            /* Activate the resource, now it should not get masked. */
+            hr = ID3D12Device_MakeResident(context.device, 1, (ID3D12Pageable * const *)&buffer);
+            ok(SUCCEEDED(hr), "Failed to make resident, hr #%x\n", (int)hr);
+        }
+        else if (iter == 1)
+        {
+            /* Deactivate the resource, now it should not get masked. */
+            hr = ID3D12Device_Evict(context.device, 1, (ID3D12Pageable * const *)&buffer);
+            ok(SUCCEEDED(hr), "Failed to evict, hr #%x\n", (int)hr);
+        }
+    }
+
+    ID3D12PipelineState_Release(texel_pso);
+    ID3D12PipelineState_Release(raw_pso);
+    ID3D12Resource_Release(buffer);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
