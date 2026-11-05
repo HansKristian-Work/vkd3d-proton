@@ -7664,7 +7664,6 @@ void test_descriptor_heap_rebind_invalidation(void)
     ID3D12Resource *tex2;
     ID3D12Resource *tex3;
     bool is_amd_windows;
-    bool is_nv_windows;
     unsigned int x, y;
 
 #include "shaders/descriptors/headers/heap_rebind_invalidation.h"
@@ -7716,7 +7715,6 @@ void test_descriptor_heap_rebind_invalidation(void)
     output = create_default_buffer(context.device, 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
 
     is_amd_windows = is_amd_windows_device(context.device);
-    is_nv_windows = is_nvidia_windows_device(context.device);
 
     {
         const float data1[2][2] = { { 1, 2 }, { 3, 4 } };
@@ -7827,8 +7825,7 @@ void test_descriptor_heap_rebind_invalidation(void)
         }
     }
 
-    /* Assumption, the table offsets are reset to 0.
-     * tex1 is read with the CLAMP sampler. */
+    /* Assumption, the table offsets are kept. */
     for (y = 0; y < 4; y++)
     {
         for (x = 0; x < 4; x++)
@@ -7848,7 +7845,7 @@ void test_descriptor_heap_rebind_invalidation(void)
                 sampled_y &= 1;
                 expected = 10.0f + 5.0f + (float)sampled_x + 2.0f * (float)sampled_y;
             }
-            else if (is_nv_windows)
+            else
             {
                 /* The sampler mapping is retained. */
                 sampled_x &= 1;
@@ -7856,12 +7853,6 @@ void test_descriptor_heap_rebind_invalidation(void)
 
                 /* Heap index seems to remain 1, except we now point into a new heap. */
                 expected = 10.0f + 1.0f + (float)sampled_x + 2.0f * (float)sampled_y;
-            }
-            else
-            {
-                sampled_x = max(min(sampled_x, 1), 0);
-                sampled_y = max(min(sampled_y, 1), 0);
-                expected = 10.0f + 9.0f + (float)sampled_x + 2.0f * (float)sampled_y;
             }
 
             ok(value == expected, "coord %u, %u: expected %f, got %f\n", x, y, expected, value);
@@ -7887,7 +7878,7 @@ void test_descriptor_heap_rebind_invalidation(void)
                 sampled_y &= 1;
                 expected = 10.0f + 5.0f + (float)sampled_x + 2.0f * (float)sampled_y;
             }
-            else if (is_nv_windows)
+            else
             {
                 /* The sampler mapping retains index 1, which is CLAMP in second heap. */
                 sampled_x = max(min(sampled_x, 1), 0);
@@ -7895,12 +7886,6 @@ void test_descriptor_heap_rebind_invalidation(void)
 
                 /* Heap index seems to remain 1, except we now point into a new heap. */
                 expected = 10.0f + 1.0f + (float)sampled_x + 2.0f * (float)sampled_y;
-            }
-            else
-            {
-                sampled_x &= 1;
-                sampled_y &= 1;
-                expected = 10.0f + 9.0f + (float)sampled_x + 2.0f * (float)sampled_y;
             }
 
             ok(value == expected, "coord %u, %u: expected %f, got %f\n", x, y, expected, value);
