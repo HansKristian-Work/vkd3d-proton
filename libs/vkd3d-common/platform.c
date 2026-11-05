@@ -217,7 +217,7 @@ bool vkd3d_get_linux_kernel_version(uint32_t *major, uint32_t *minor, uint32_t *
 }
 
 static enum vkd3d_application_engine_class get_engine_version_from_exe(
-        const WCHAR *path, uint32_t *major, uint32_t *minor, uint32_t *patch)
+        const WCHAR *path, uint32_t *major, uint32_t *minor, uint32_t *patch, bool known_unreal_engine)
 {
     enum vkd3d_application_engine_class engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
     VS_FIXEDFILEINFO *fi;
@@ -239,6 +239,16 @@ static enum vkd3d_application_engine_class get_engine_version_from_exe(
 
     if (!VerQueryValueW(block, L"\\", (void **)&fi, &size) || size != sizeof(VS_FIXEDFILEINFO))
         goto done;
+
+    if (known_unreal_engine)
+    {
+        /* Some UE games customize their string metadata, but retain the engine's numeric product version.
+         * Only accept known engine major versions, since games can also use their own product version. */
+        if (HIWORD(fi->dwProductVersionMS) == 4 || HIWORD(fi->dwProductVersionMS) == 5)
+            engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
+        goto done;
+    }
+
     if (!VerQueryValueW(block, L"\\VarFileInfo\\Translation", (void **)&translation, &size) || size != 4)
         goto done;
 
@@ -278,25 +288,26 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
 {
     WCHAR exe_path[VKD3D_PATH_MAX], path[VKD3D_PATH_MAX];
     enum vkd3d_application_engine_class engine_class;
+    const WCHAR *name;
     HMODULE ntdll;
     DWORD size;
 
     *major = *minor = *patch = 0;
     GetModuleFileNameW(NULL, exe_path, VKD3D_PATH_MAX);
-    if ((engine_class = get_engine_version_from_exe(exe_path, major, minor, patch)))
+    if ((engine_class = get_engine_version_from_exe(exe_path, major, minor, patch, false)))
         return engine_class;
     PathCchRemoveFileSpec(exe_path, ARRAY_SIZE(exe_path));
 
     if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
             L"..\\..\\..\\Engine\\Binaries\\Win64\\CrashReportClient.exe", PATHCCH_NONE)))
         return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
-    if ((engine_class = get_engine_version_from_exe(path, major, minor, patch)))
+    if ((engine_class = get_engine_version_from_exe(path, major, minor, patch, false)))
         return engine_class;
 
     if (FAILED(PathCchCombineEx(path, ARRAY_SIZE(path), exe_path,
             L"..\\..\\..\\Engine\\Binaries\\Win64\\UnrealCEFSubProcess.exe", PATHCCH_NONE)))
         return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
-    if ((engine_class = get_engine_version_from_exe(path, major, minor, patch)))
+    if ((engine_class = get_engine_version_from_exe(path, major, minor, patch, false)))
         return engine_class;
 
     if ((ntdll = GetModuleHandleA("ntdll.dll")))
@@ -314,7 +325,7 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
         {
             size = ARRAY_SIZE(path);
             if (QueryFullProcessImageNameW(parent, 0, path, &size))
-                engine_class = get_engine_version_from_exe(path, major, minor, patch);
+                engine_class = get_engine_version_from_exe(path, major, minor, patch, false);
             CloseHandle(parent);
             if (engine_class)
                 return engine_class;
@@ -340,9 +351,27 @@ enum vkd3d_application_engine_class vkd3d_get_engine_version(uint32_t *major, ui
             L"..\\..\\Content\\Paks", PATHCCH_NONE)))
         return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
 
-    return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES
-               ? VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE
-               : VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    engine_class = GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES
+            ? VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE
+            : VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+
+    /* Keep the metadata checks above authoritative. If only the filesystem layout or executable name
+     * identifies UE, try the game's numeric product version as a last resort. */
+    GetModuleFileNameW(NULL, path, ARRAY_SIZE(path));
+    if ((name = wcsrchr(path, L'\\')))
+        ++name;
+    else if ((name = wcsrchr(path, L'/')))
+        ++name;
+    else
+        name = path;
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE || wcsstr(name, L"Win64-Shipping.exe"))
+    {
+        get_engine_version_from_exe(path, major, minor, patch, true);
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
+    }
+
+    return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
 }
 
 #else
