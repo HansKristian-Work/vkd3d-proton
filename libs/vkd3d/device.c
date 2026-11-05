@@ -2616,20 +2616,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         }
     }
 
-    if (!physical_device_info->vulkan_1_2_properties.robustBufferAccessUpdateAfterBind)
-    {
-        /* Generally, we cannot enable robustness if this is not supported,
-         * but this means we cannot support D3D12 at all, so just disabling robustBufferAccess is not a viable option.
-         * This can be observed on RADV, where this feature for some reason is not supported at all,
-         * but this apparently was just a missed feature bit.
-         * https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/9281.
-         *
-         * Another reason to not disable it, is that we will end up with two
-         * split application infos in Fossilize, which is annoying for pragmatic reasons.
-         * Validation does not appear to complain, so we just go ahead and enable robustness anyways. */
-        WARN("Device does not expose robust buffer access for the update after bind feature, enabling it anyways.\n");
-    }
-
     if (!physical_device_info->vulkan_1_2_features.samplerMirrorClampToEdge)
     {
         ERR("samplerMirrorClampToEdge is not supported by this implementation. This is required for correct operation.\n");
