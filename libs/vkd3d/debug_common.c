@@ -66,6 +66,8 @@ void vkd3d_shader_hash_range_parse(FILE *file, struct vkd3d_shader_hash_range **
                     (*ranges)[new_count].flags = VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW;
                 else if (strcmp(end_ptr, "before-render-pass") == 0)
                     (*ranges)[new_count].flags = VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS;
+                else if (strcmp(end_ptr, "after-render-pass") == 0)
+                    (*ranges)[new_count].flags = VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_AFTER_RENDER_PASS;
                 else
                     end_ptr = "N/A";
 
