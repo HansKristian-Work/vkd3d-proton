@@ -10687,6 +10687,18 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
         d3d12_command_list_check_and_resolve_pending_transfer_image_write(list, batch,
                 dst_resource->res.vk_image, info->dst.SubresourceIndex,
                 info->copy.image.dstOffset, info->copy.image.extent);
+
+        /* If we did COPY_DEST -> RESOURCE barrier and elided it,
+         * it's possible the game might have relied on COPY_SOURCE being valid to use anyway.
+         * In most cases, it would "just work", but if we skip the barrier entirely, bad things happen
+         * in multiple games sharing the War Thunder engine.
+         * If we're in this limbo state, check hazards for source images as well to catch it. */
+        if (list->transfer_batch.read_after_write_hazard_stages)
+        {
+            d3d12_command_list_check_and_resolve_pending_transfer_image_write(list, batch,
+                    src_resource->res.vk_image, info->src.SubresourceIndex,
+                    info->copy.image.srcOffset, info->copy.image.extent);
+        }
     }
 
     if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER)
@@ -11169,6 +11181,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                                 copy_info.copy.image.extent,
                                 other_info->copy.image.dstOffset,
                                 other_info->copy.image.extent);
+
+                    /* See rationale in d3d12_command_list_before_copy_texture_region. */
+                    if (!alias && list->transfer_batch.read_after_write_hazard_stages)
+                    {
+                        alias = vk_image_copy_subresource_overlaps(
+                                    copy_info.src.pResource, &copy_info.copy.image.srcSubresource,
+                                    other_info->dst.pResource, &other_info->copy.image.dstSubresource) &&
+                                vk_offset_extent_region_overlaps(
+                                    copy_info.copy.image.srcOffset,
+                                    copy_info.copy.image.extent,
+                                    other_info->copy.image.dstOffset,
+                                    other_info->copy.image.extent);
+                    }
                     break;
                 default:
                     assert(false);
@@ -11341,6 +11366,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
                     VkOffset3D offset = { 0 };
                     d3d12_command_list_check_and_resolve_pending_transfer_image_write(list, &barriers,
                             dst_resource->res.vk_image, UINT32_MAX, offset, extent);
+
+                    /* See rationale in d3d12_command_list_before_copy_texture_region. */
+                    if (list->transfer_batch.read_after_write_hazard_stages)
+                    {
+                        d3d12_command_list_check_and_resolve_pending_transfer_image_write(list, &barriers,
+                                src_resource->res.vk_image, UINT32_MAX, offset, extent);
+                    }
                 }
 
                 d3d12_command_list_copy_image_transition_images(list, &barriers, dst_resource, dst_resource->format,
