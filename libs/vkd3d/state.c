@@ -3158,15 +3158,16 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
         compile_arguments->output_swizzle_count = state->graphics.rt_count;
     }
 
+    if (stage != VK_SHADER_STAGE_COMPUTE_BIT)
+    {
+        const VkShaderStageFlags active_pre_raster = state->graphics.stage_flags & ~VK_SHADER_STAGE_FRAGMENT_BIT;
+        compile_arguments->last_pre_rasterization =
+                (active_pre_raster & ~(stage | (stage - 1))) == 0;
+    }
+
     if (stage != VK_SHADER_STAGE_COMPUTE_BIT && state->graphics.multiview.view_mask)
     {
-        VkShaderStageFlags active_pre_raster = state->graphics.stage_flags & ~VK_SHADER_STAGE_FRAGMENT_BIT;
         compile_arguments->multiview.enable = state->graphics.multiview.view_mask != 0;
-        /* Only last pre-raster stage needs to "support" multiview properly.
-         * Other stages can query ViewID. */
-        compile_arguments->multiview.last_pre_rasterization =
-                (active_pre_raster & ~(stage | (stage - 1))) == 0;
-
         /* Pass down concrete values via spec-constants later. */
     }
 }
