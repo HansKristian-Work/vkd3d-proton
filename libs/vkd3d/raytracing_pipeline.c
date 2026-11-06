@@ -1897,7 +1897,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     struct vkd3d_shader_library_entry_point *entry;
     struct d3d12_rt_state_object_variant *variant;
     const struct D3D12_HIT_GROUP_DESC *hit_group;
-    VkPipelineCreateFlags global_rt_create_flags;
+    VkPipelineCreateFlags2 global_rt_create_flags;
     VkPipelineLibraryCreateInfoKHR library_info;
     size_t local_static_sampler_bindings_count;
     size_t local_static_sampler_bindings_size;
@@ -1979,12 +1979,12 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     if (object->device->debug_ring.active)
         data->spec_info_buffer = vkd3d_calloc(data->entry_points_count, sizeof(*data->spec_info_buffer));
 
-    global_rt_create_flags = vkd3d_atomic_uint32_load_explicit(
+    global_rt_create_flags = vkd3d_atomic_uint64_load_explicit(
             &object->device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
             vkd3d_memory_order_relaxed);
     rtpso_has_omm =
             (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS) ||
-            (global_rt_create_flags & VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR);
+            (global_rt_create_flags & VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR);
 
     for (i = 0; i < data->entry_points_count; i++)
     {
@@ -2551,7 +2551,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     if (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS)
         flags2.flags |= VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
 
-    pipeline_create_info.flags |= global_rt_create_flags;
+    flags2.flags |= global_rt_create_flags;
 
     library_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
     library_info.pNext = NULL;

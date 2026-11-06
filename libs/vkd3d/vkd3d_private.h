@@ -5936,8 +5936,10 @@ struct d3d12_device
 
         /* Set by SetCreatePipelineStateOptions (NVAPI). NVAPI has no per-pipeline OMM opt-in
          * (unlike DXR 1.2's ALLOW_OPACITY_MICROMAPS flag), so this global is OR'd into every
-         * RT pipeline creation to implement the device-wide enable/disable semantic. */
-        VkPipelineCreateFlags global_ray_tracing_pipeline_create_flags;
+         * RT pipeline creation to implement the device-wide enable/disable semantic.
+         *
+         * The type is UINT64 to ensure atomic operations are correct on 32-bit platforms. */
+        UINT64 global_ray_tracing_pipeline_create_flags;
 
         /* Sticky one-way bit: set the first time NVAPI ENABLE_OMM_SUPPORT is observed on this
          * device and never cleared. Drives the dxil-spirv RayQuery legacy-SM execution-mode
