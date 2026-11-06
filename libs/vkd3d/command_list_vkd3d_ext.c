@@ -85,11 +85,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShaderE
     TRACE("iface %p, handle %p, block_x %u, block_y %u, block_z %u, smem_size %u, params %p, param_size %u, raw_params %p, raw_params_count %u\n",
            iface, handle, block_x, block_y, block_z, smem_size, params, param_size, raw_params, raw_params_count);
 
-    d3d12_command_list_flush_dgc_batch(command_list);
-    d3d12_command_list_update_global_descriptor_heap(command_list);
-
     if (!handle || !params || !param_size)
         return E_INVALIDARG;
+
+    d3d12_command_list_flush_dgc_batch(command_list);
+    d3d12_command_list_begin_external_compute(command_list);
+    d3d12_command_list_update_global_descriptor_heap(command_list);
 
     launchInfo.function = handle->vkCuFunction;
     launchInfo.gridDimX = block_x;
@@ -106,6 +107,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShaderE
     
     vk_procs = &command_list->device->vk_procs;
     VK_CALL(vkCmdCuLaunchKernelNVX(command_list->cmd.vk_command_buffer, &launchInfo));
+    d3d12_command_list_end_external_compute(command_list);
     return S_OK;
 }
 
