@@ -5400,3 +5400,81 @@ void test_render_target_support_validation(void)
 
     destroy_test_context(&context);
 }
+
+static void test_unusual_builtin_stage_io(bool use_dxil)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    struct test_context context;
+    HRESULT hr;
+
+    /* Pass along RT + viewport index until GS which emits a normal color.
+     * This requires special handling to deal with. */
+#include "shaders/pso/headers/vs_layer_viewport.h"
+#include "shaders/pso/headers/hs_layer_viewport.h"
+#include "shaders/pso/headers/ds_layer_viewport.h"
+#include "shaders/pso/headers/gs_layer_viewport.h"
+#include "shaders/pso/headers/ps_layer_viewport.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.rt_format = DXGI_FORMAT_R32G32_UINT;
+    context_desc.rt_width = 4;
+    context_desc.rt_height = 4;
+    context_desc.no_pipeline = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R32G32_UINT, NULL, NULL, NULL);
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DepthStencilState.StencilEnable = FALSE;
+    pso_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+
+    if (use_dxil)
+    {
+        pso_desc.VS = vs_layer_viewport_dxil;
+        pso_desc.HS = hs_layer_viewport_dxil;
+        pso_desc.DS = ds_layer_viewport_dxil;
+        pso_desc.GS = gs_layer_viewport_dxil;
+        pso_desc.PS = ps_layer_viewport_dxil;
+    }
+    else
+    {
+        pso_desc.VS = vs_layer_viewport_dxbc;
+        pso_desc.HS = hs_layer_viewport_dxbc;
+        pso_desc.DS = ds_layer_viewport_dxbc;
+        pso_desc.GS = gs_layer_viewport_dxbc;
+        pso_desc.PS = ps_layer_viewport_dxbc;
+    }
+
+    /* dxilconv on native segfaults here :') */
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to crate PSO, hr #%x.\n", (int)hr);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint64(context.render_target, 0, context.queue, context.list, (10001ull << 32) | 1000ull, 0);
+
+    destroy_test_context(&context);
+}
+
+void test_unusual_builtin_stage_io_dxbc(void)
+{
+    test_unusual_builtin_stage_io(false);
+}
+
+void test_unusual_builtin_stage_io_dxil(void)
+{
+    test_unusual_builtin_stage_io(true);
+}
+
