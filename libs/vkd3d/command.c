@@ -13183,9 +13183,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
          * Other shader stages tend to be highly reused anyway.
          * FRAGMENT is always last if it exists. */
         if (state->graphics.stages[state->graphics.stage_count - 1].stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+        {
             list->current_meta_flags = state->graphics.code[state->graphics.stage_count - 1].meta.flags;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+            list->current_meta_flags |= vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
+                    &list->device->breadcrumb_tracer,
+                    state->graphics.code[state->graphics.stage_count - 1].meta.hash);
+#endif
+        }
         else
+        {
             list->current_meta_flags = 0;
+        }
 
         if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW)
         {
