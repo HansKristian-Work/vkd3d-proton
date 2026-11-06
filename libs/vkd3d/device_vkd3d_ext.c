@@ -438,7 +438,7 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlags
         D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAG pipeline_state_flags)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
-    VKD3D_UNUSED VkPipelineCreateFlags ray_tracing_pipeline_create_flags;
+    VKD3D_UNUSED VkPipelineCreateFlags2 ray_tracing_pipeline_create_flags;
     bool enable_opacity_micromap;
 
     TRACE("iface %p, pipeline_state_flags %d.\n", iface, pipeline_state_flags);
@@ -453,9 +453,9 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlags
             return FALSE;
         }
 
-        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint32_or(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
-                VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) |
-                VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint64_or(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) |
+                VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
 
         /* Set force_ray_query_omm to true the first time ENABLE_OMM_SUPPORT is set.
          * This causes any RayQuery shader with SM < 6.9 to consult the OMM.
@@ -468,12 +468,12 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlags
     }
     else
     {
-        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint32_and(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
-                ~VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) &
-                ~VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint64_and(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                ~VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) &
+                ~VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
     }
 
-    TRACE("flags #%x.\n", ray_tracing_pipeline_create_flags);
+    TRACE("flags %#"PRIx64".\n", ray_tracing_pipeline_create_flags);
 
     return TRUE;
 }
