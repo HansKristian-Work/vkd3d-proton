@@ -641,10 +641,11 @@ struct vkd3d_shader_compile_arguments
     uint32_t nv_shader_extn_uav_slot;
     uint32_t nv_shader_extn_uav_space;
 
+    bool last_pre_rasterization;
+
     struct
     {
         bool enable;
-        bool last_pre_rasterization;
     } multiview;
 };
 
