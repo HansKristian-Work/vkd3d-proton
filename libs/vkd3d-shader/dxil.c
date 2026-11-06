@@ -1402,11 +1402,15 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
             }
         }
 
+        dxil_spv_converter_set_can_feed_rasterizer(converter,
+            compiler_args->last_pre_rasterization ? DXIL_SPV_TRUE : DXIL_SPV_FALSE);
+
         if (compiler_args->multiview.enable)
         {
             struct dxil_spv_option_view_instancing helper = {{ DXIL_SPV_OPTION_VIEW_INSTANCING }};
             helper.enabled = DXIL_SPV_TRUE;
-            helper.last_pre_rasterization_stage = compiler_args->multiview.last_pre_rasterization ?
+            /* Kinda obsolete now. */
+            helper.last_pre_rasterization_stage = compiler_args->last_pre_rasterization ?
                     DXIL_SPV_TRUE : DXIL_SPV_FALSE;
             /* TODO: If we have forced view instancing, we need to set this to UINT32_MAX. */
             /* TODO: If we dynamically cannot do view instancing, we need to set meta descriptors. */
