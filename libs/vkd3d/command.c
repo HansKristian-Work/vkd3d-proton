@@ -3660,7 +3660,7 @@ static void d3d12_command_list_sync_tiler_renderpass_writes(struct d3d12_command
     VkDependencyInfo dep_info;
 
     /* tilers can emit these with minimal sync overhead, IMRs get annihilated */
-    if (list->device->workarounds.tiler_renderpass_barriers)
+    if (list->device->workarounds.tiler_renderpass_barriers || list->rendering_info.force_barrier_on_end)
     {
         bool depth_resolve =
                 rendering_info->pDepthAttachment &&
@@ -3691,6 +3691,14 @@ static void d3d12_command_list_sync_tiler_renderpass_writes(struct d3d12_command
         dep_info.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_barrier;
+
+        if (list->rendering_info.force_barrier_on_end)
+        {
+            vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+            dep_info.dependencyFlags = 0;
+            list->rendering_info.force_barrier_on_end = false;
+        }
 
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
         d3d12_command_list_check_render_pass_validation(list, NULL, true);
@@ -13175,14 +13183,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
          * Other shader stages tend to be highly reused anyway.
          * FRAGMENT is always last if it exists. */
         if (state->graphics.stages[state->graphics.stage_count - 1].stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+        {
             list->current_meta_flags = state->graphics.code[state->graphics.stage_count - 1].meta.flags;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+            list->current_meta_flags |= vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
+                    &list->device->breadcrumb_tracer,
+                    state->graphics.code[state->graphics.stage_count - 1].meta.hash);
+#endif
+        }
         else
+        {
             list->current_meta_flags = 0;
+        }
 
         if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW)
         {
             d3d12_command_list_emit_workaround_graphics_barrier(list);
             list->current_meta_flags &= ~VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW;
+        }
+
+        /* The meta flags get cleared all the time when shaders are rebound. */
+        if (list->current_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BARRIER_AFTER_RENDER_PASS)
+        {
+            /* Make sure EndRendering is only called after we have performed the draw we care about. */
+            d3d12_command_list_end_current_render_pass(list, false);
+            list->rendering_info.force_barrier_on_end = true;
         }
 
         /* If we change feedback loop state, restart the render pass so we can pick that change up. */
