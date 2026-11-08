@@ -6858,7 +6858,8 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
             /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
             if (addr_info.format == VK_FORMAT_UNDEFINED)
             {
-                if (is_byte_address)
+                /* Structured SRVs without an SSBO are read with scalar texel indices. */
+                if (is_byte_address || (!emit_ssbo && !(stride & 3)))
                 {
                     addr_info.format = VK_FORMAT_R32_UINT;
                 }
