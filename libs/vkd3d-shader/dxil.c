@@ -185,6 +185,11 @@ static dxil_spv_bool dxil_remap_inner(
 
             if (vkd3d_shader_binding_is_root_descriptor(binding))
             {
+                /* Can happen if dxil-spirv attempts to get a texel buffer fallback when sparse feedback is used.
+                 * If we map to a root descriptor, feedback is undefined, so reject the fallback. */
+                if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER)
+                    return DXIL_SPV_FALSE;
+
                 if ((remap->shader_interface_flags & VKD3D_SHADER_INTERFACE_HEAP_LOWERING) &&
                     (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_CBV ||
                         d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE ||
