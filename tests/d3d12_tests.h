@@ -295,6 +295,8 @@ decl_test(test_buffer_feedback_instructions_sm51);
 decl_test(test_buffer_feedback_instructions_dxil);
 decl_test(test_texture_feedback_instructions_sm51);
 decl_test(test_texture_feedback_instructions_dxil);
+decl_test(test_buffer_feedback_edge_cases_sm51);
+decl_test(test_buffer_feedback_edge_cases_dxil);
 decl_test(test_aliasing_barrier);
 decl_test(test_discard_resource);
 decl_test(test_clock_calibration);

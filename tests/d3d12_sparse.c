@@ -2875,3 +2875,199 @@ void test_sparse_default_mapping(void)
     destroy_test_context(&context);
 #undef TILE_SIZE
 }
+
+void test_buffer_feedback_edge_cases(bool use_dxil)
+{
+    static const uint32_t initial_data[] = { 100, 200, 300, 400 };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_DESCRIPTOR_RANGE rs_range[2];
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[3];
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Resource *resource;
+    ID3D12Heap *sparse_heap;
+    ID3D12Resource *output;
+    ID3D12Resource *upload;
+    unsigned int iter;
+    HRESULT hr;
+
+#include "shaders/sparse/headers/buffer_feedback_raw.h"
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) ||
+        options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_2)
+    {
+        skip("Sparse tier 2 not supported. Skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&rs_range, 0, sizeof(rs_range));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_range[0].NumDescriptors = 1;
+    rs_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_range[1].NumDescriptors = 1;
+    rs_range[1].BaseShaderRegister = 1;
+    rs_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_param[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[2].DescriptorTable.NumDescriptorRanges = 1;
+    rs_param[2].DescriptorTable.pDescriptorRanges = &rs_range[1];
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = 128 * 1024;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create reserved resource, hr #%x\n", (int)hr);
+
+    output = create_default_buffer(context.device, 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.SizeInBytes = 64 * 1024;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&sparse_heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", (int)hr);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Buffer.StructureByteStride = 4;
+        srv_desc.Buffer.NumElements = 128 * 1024 / sizeof(uint32_t);
+        ID3D12Device_CreateShaderResourceView(context.device, resource, &srv_desc, get_cpu_descriptor_handle(&context, heap, 0));
+
+        srv_desc.Format = DXGI_FORMAT_R32_UINT;
+        srv_desc.Buffer.StructureByteStride = 0;
+        ID3D12Device_CreateShaderResourceView(context.device, resource, &srv_desc, get_cpu_descriptor_handle(&context, heap, 1));
+    }
+
+    {
+        D3D12_TILE_RANGE_FLAGS range_flags = D3D12_TILE_RANGE_FLAG_NONE;
+        D3D12_TILED_RESOURCE_COORDINATE start_coord;
+        D3D12_TILE_REGION_SIZE region_size;
+        UINT heap_offset = 0;
+        UINT range_count = 1;
+
+        memset(&start_coord, 0, sizeof(start_coord));
+        memset(&region_size, 0, sizeof(region_size));
+        start_coord.X = 1;
+        region_size.NumTiles = 1;
+
+        ID3D12CommandQueue_UpdateTileMappings(context.queue, resource, 1, &start_coord, &region_size,
+                sparse_heap, 1, &range_flags, &heap_offset, &range_count, D3D12_TILE_MAPPING_FLAG_NONE);
+    }
+
+    upload = create_upload_buffer(context.device, sizeof(initial_data), initial_data);
+    ID3D12GraphicsCommandList_CopyBufferRegion(context.list, resource, 64 * 1024, upload, 0, sizeof(initial_data));
+    transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+    for (iter = 0; iter < 2; iter++)
+    {
+        struct resource_readback rb;
+        bool descriptor = iter == 0;
+
+        if (!descriptor && is_amd_windows_device(context.device))
+        {
+            skip("Native driver segfaults trying to compile sparse feedback + root desc.\n");
+            continue;
+        }
+
+        if (descriptor)
+        {
+            rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            rs_param[1].DescriptorTable.NumDescriptorRanges = 1;
+            rs_param[1].DescriptorTable.pDescriptorRanges = &rs_range[0];
+        }
+        else
+        {
+            rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+            rs_param[1].Descriptor.RegisterSpace = 0;
+            rs_param[1].Descriptor.ShaderRegister = 0;
+        }
+
+        create_root_signature(context.device, &rs_desc, &context.root_signature);
+        context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+                use_dxil ? buffer_feedback_raw_dxil : buffer_feedback_raw_dxbc);
+        ok(!!context.pipeline_state, "Failed to create PSO.\n");
+
+        if (context.pipeline_state)
+        {
+            const uint32_t expected[] = { 0, 0, 0, 0, 100, 1, 100, 1 };
+            unsigned int i;
+
+            ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+            ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+            if (descriptor)
+                ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 1, get_gpu_descriptor_handle(&context, heap, 0));
+            else
+                ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(resource));
+            ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2, get_gpu_descriptor_handle(&context, heap, 1));
+
+            ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+            transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+            for (i = 0; i < ARRAY_SIZE(expected); i++)
+            {
+                uint32_t value = get_readback_uint(&rb, i, 0, 0);
+                bool is_bug = false;
+
+                /* NVIDIA seems to not understand this case. It returns 0 for sparse feedback. */
+                if (is_nvidia_windows_device(context.device) && i == 5)
+                    is_bug = true;
+
+                /* Sparse feedback for a root descriptor is undefined, but spec says it must not crash (AMD of course ignores that). */
+                if (!descriptor && (i == 1 || i == 5))
+                    continue;
+
+                bug_if(is_bug) ok(value == expected[i], "Iteration %u, value %u: expected %u, got %u\n", iter, i, expected[i], value);
+            }
+
+            reset_command_list(context.list, context.allocator);
+            release_resource_readback(&rb);
+        }
+
+        ID3D12RootSignature_Release(context.root_signature);
+        if (context.pipeline_state)
+            ID3D12PipelineState_Release(context.pipeline_state);
+        context.root_signature = NULL;
+        context.pipeline_state = NULL;
+    }
+
+    ID3D12Resource_Release(upload);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Heap_Release(sparse_heap);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(resource);
+    destroy_test_context(&context);
+}
+
+void test_buffer_feedback_edge_cases_sm51(void)
+{
+    test_buffer_feedback_edge_cases(false);
+}
+
+void test_buffer_feedback_edge_cases_dxil(void)
+{
+    test_buffer_feedback_edge_cases(true);
+}
