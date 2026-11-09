@@ -5479,13 +5479,23 @@ static DXGI_FORMAT vkd3d_structured_srv_to_texel_buffer_dxgi_format(unsigned int
     /* If AMD reads a structured buffer as a texel buffer, it's effectively
      * the same stride that is read. NV seems to use the largest texel buffer type
      * that cleanly subdivides the large stride. For strides <= 16, this is easy,
-     * but for strides > 16, it gets a little more complicated. */
+     * but for strides > 16, it gets a little more complicated.
+     * However, if we need to read an SSBO as a texel buffer (sparse feedback on SSBO is a possible case),
+     * this will not work, since we expect it to be 32-bit.
+     * Descriptor heap for NV is effectively purely R32_UINT alias too.
+     * We cannot get perfect match with native, so do the simple thing we used to do.
+     * To enable this path again, we'd need some mechanism to teach dxil-spirv about the texel buffer type mapping first.
+     */
+
+#if 0
     if ((stride & 15) == 0)
         return DXGI_FORMAT_R32G32B32A32_UINT;
     if (stride % 12 == 0)
         return DXGI_FORMAT_R32G32B32_UINT;
     if ((stride & 7) == 0)
         return DXGI_FORMAT_R32G32_UINT;
+#endif
+
     if ((stride & 3) == 0)
         return DXGI_FORMAT_R32_UINT;
 

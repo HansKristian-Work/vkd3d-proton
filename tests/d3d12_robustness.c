@@ -961,7 +961,7 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     ID3D12Resource *input;
     unsigned int i, j;
     bool is_amd_win;
-    bool is_nv_heap;
+    bool is_r32ui_alias_path;
 
 #include "shaders/robustness/headers/undefined_structured_raw_read_typed.h"
 
@@ -1051,8 +1051,14 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
     /* AMD behavior: RAW emits a descriptor without stride. Typed always reads same value at offset = 0.
      * Structured: Passed down as stride to typed. */
     is_amd_win = is_amd_windows_device(context.device);
-    is_nv_heap = (is_nvidia_device(context.device) || is_nvk_device(context.device)) &&
+
+#if 0
+    /* See commented out path for vkd3d_structured_srv_to_texel_buffer_dxgi_format. */
+    is_r32ui_alias_path = (is_nvidia_device(context.device) || is_nvk_device(context.device)) &&
             is_vk_device_extension_supported(context.device, "VK_EXT_descriptor_heap");
+#else
+    is_r32ui_alias_path = is_vkd3d_proton_device(context.device);
+#endif
 
     /* Validate structured. */
     for (i = 0; i < 8; i++)
@@ -1088,14 +1094,15 @@ static void test_undefined_structured_raw_read_typed(bool use_dxil)
                     expected.w = expected.x;
                 }
             }
-            else if (is_nv_heap)
+            else if (is_r32ui_alias_path)
             {
                 /* Magic driver behavior. SSBO is expressed as a R32_UINT texel buffer when read as one. */
                 expected.x = j < in_bounds_dwords ? (j + stride_dwords) : 0;
             }
             else
             {
-                /* NV native behavior. We try to match this in vkd3d-proton since it's implementable. */
+                /* NV native behavior. We try to match this in vkd3d-proton since it's implementable.
+                 * See commented out path in vkd3d_structured_srv_to_texel_buffer_dxgi_format. */
                 if (i >= 4 && i < 8)
                 {
                     /* Odd-ball case for structured stride > 16.
