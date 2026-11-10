@@ -3306,6 +3306,29 @@ struct d3d12_command_list_render_pass_suspend_resume
     bool block_resume;
 };
 
+#define VKD3D_CLEAR_UAV_TRACKING_MAX_CLEARS 8
+
+struct d3d12_command_list_clear_uav_tracking
+{
+    struct
+    {
+        /* There is no need to overcomplicate things.
+         * Just track which resources ever used clear. */
+        struct d3d12_resource *resource;
+        bool clear_command;
+        bool shader_command;
+    } pending_clears[VKD3D_CLEAR_UAV_TRACKING_MAX_CLEARS];
+
+    uint32_t num_pending_image_clears;
+    bool has_clear_command;
+    bool has_shader_command;
+    bool has_global_barrier;
+
+    /* Before doing a clear with CLEAR stage, need to do COMPUTE -> CLEAR barrier.
+     * We speculate that a normal UAV barrier will not imply a full CLEAR as well. */
+    bool has_visible_clear_stage;
+};
+
 struct d3d12_command_list_sequence
 {
     /* A command list can be split into multiple sequences of
@@ -3317,9 +3340,10 @@ struct d3d12_command_list_sequence
     struct d3d12_command_list_iteration iterations[VKD3D_MAX_COMMAND_LIST_SEQUENCES];
     unsigned int iteration_count;
     unsigned int active_non_inline_running_queries;
-    bool clear_uav_pending;
     bool observes_indirect_argument_barrier;
     bool has_post_indirect_barrier_work;
+
+    struct d3d12_command_list_clear_uav_tracking clear_uav;
 
     /* Number of draws, dispatches, copies etc. Used to fuse barrier-only
      * command buffers for staggered submissions. */
@@ -3584,6 +3608,26 @@ void d3d12_command_list_meta_push_data(struct d3d12_command_list *list,
         uint32_t size, const void *data);
 void d3d12_command_list_meta_push_descriptor_index(struct d3d12_command_list *list,
         VkCommandBuffer vk_command_buffer, uint32_t binding, uint32_t heap_index);
+
+void d3d12_command_list_consume_clear_uav_global_barrier(
+        struct d3d12_command_list_clear_uav_tracking *tracking, VkMemoryBarrier2 *vk_barrier,
+        VkPipelineStageFlags2 vk_dst_stages);
+
+struct d3d12_command_list_barrier_batch;
+
+/* A slightly more sophisticated version that allows per-image barriers.
+ * Especially for CLEAR stage barriers we may be able to avoid invalidating render target caches / DCC caches. */
+void d3d12_command_list_consume_clear_uav_barrier_batch(struct d3d12_command_list *list,
+        struct d3d12_command_list_barrier_batch *batch,
+        struct d3d12_resource *resource, VkImageMemoryBarrier2 *vk_resource_barrier);
+
+void d3d12_command_list_register_clear_uav_pending(
+        struct d3d12_command_list_clear_uav_tracking *tracking, struct d3d12_resource *resource, bool clear_command);
+
+static inline bool d3d12_command_list_clear_uav_pending(struct d3d12_command_list *list)
+{
+    return list->cmd.clear_uav.num_pending_image_clears != 0;
+}
 
 #define VKD3D_DESCRIPTOR_HEAP_META_PUSH_DATA_OFFSET 64
 
