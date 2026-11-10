@@ -145,15 +145,28 @@ FORCEINLINE uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, uint
     return result;
 }
 
-FORCEINLINE uint64_t vkd3d_atomic_uint64_load_explicit(uint64_t *target, vkd3d_memory_order order)
+FORCEINLINE uint64_t vkd3d_atomic_uint64_load_explicit(UINT64 *target, vkd3d_memory_order order)
 {
+#if defined(_M_IX86)
+    /* On 32-bit x86, only 32-bit aligned reads or smaller will not tear. lock cmpxchg8b reads all 8 bytes in
+     * a single atomic operation. Compare and exchanges with a value of 0, so it will never change the value. */
+    (void)order;
+    return (uint64_t)InterlockedCompareExchange64((LONG64*)target, 0, 0);
+#else
     uint64_t value = *((volatile uint64_t*)target);
     vkd3d_atomic_load_barrier(order);
     return value;
+#endif
 }
 
-FORCEINLINE void vkd3d_atomic_uint64_store_explicit(uint64_t *target, uint64_t value, vkd3d_memory_order order)
+FORCEINLINE void vkd3d_atomic_uint64_store_explicit(UINT64 *target, uint64_t value, vkd3d_memory_order order)
 {
+#if defined(_M_IX86)
+    /* On 32-bit x86, only 32-bit aligned writes or smaller will not tear. lock cmpxchg8b writes all 8 bytes in
+     * a single atomic operation. */
+    (void)order;
+    (void) InterlockedExchange64((LONG64*) target, value);
+#else
     switch (order)
     {
         case vkd3d_memory_order_release: vkd3d_atomic_rw_barrier(); /* fallthrough */
@@ -162,6 +175,7 @@ FORCEINLINE void vkd3d_atomic_uint64_store_explicit(uint64_t *target, uint64_t v
         case vkd3d_memory_order_seq_cst:
             (void) InterlockedExchange64((LONG64*) target, value);
     }
+#endif
 }
 
 FORCEINLINE uint64_t vkd3d_atomic_uint64_exchange_explicit(uint64_t *target, uint64_t value, vkd3d_memory_order order)
