@@ -16264,8 +16264,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
      * very unfortunate behavior from 11on12 where ClearUAV are implicitly barriers, similar to how
      * transfer ops work. Too many cases in the wild where this stuff just breaks,
      * so be conservative. */
-    if (!VKD3D_CONFIG_FLAG_IS_SET(NO_CLEAR_UAV_SYNC))
-        d3d12_command_list_register_clear_uav_pending(&list->cmd.clear_uav, resource, false);
+	d3d12_command_list_register_clear_uav_pending(&list->cmd.clear_uav, resource, false);
 
     d3d12_command_list_debug_mark_end_region(list);
 
@@ -17039,8 +17038,7 @@ static bool d3d12_command_list_clear_uav_builtin(struct d3d12_command_list *list
      * very unfortunate behavior from 11on12 where ClearUAV are implicitly barriers, similar to how
      * transfer ops work. Too many cases in the wild where this stuff just breaks,
      * so be conservative. */
-    if (!VKD3D_CONFIG_FLAG_IS_SET(NO_CLEAR_UAV_SYNC))
-        d3d12_command_list_register_clear_uav_pending(&list->cmd.clear_uav, resource, true);
+	d3d12_command_list_register_clear_uav_pending(&list->cmd.clear_uav, resource, true);
 
     return true;
 }
