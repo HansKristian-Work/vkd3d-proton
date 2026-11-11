@@ -463,6 +463,10 @@ struct d3d12_rt_state_object_pipeline_data
     size_t stages_size;
     size_t stages_count;
 
+    void **scratch_allocs;
+    size_t scratch_allocs_size;
+    size_t scratch_allocs_count;
+
     struct d3d12_state_object_collection *collections;
     size_t collections_size;
     size_t collections_count;
@@ -485,6 +489,10 @@ static void d3d12_state_object_pipeline_data_cleanup_modules(struct d3d12_rt_sta
         VK_CALL(vkDestroyShaderModule(device->vk_device, data->stages[i].module, NULL));
     }
     data->stages_count = 0;
+
+    for (i = 0; i < data->scratch_allocs_count; i++)
+        vkd3d_free(data->scratch_allocs[i]);
+    data->scratch_allocs_count = 0;
 }
 
 static void d3d12_state_object_pipeline_data_cleanup_compile_temporaries(struct d3d12_rt_state_object_pipeline_data *data,
@@ -519,6 +527,10 @@ static void d3d12_state_object_pipeline_data_cleanup_compile_temporaries(struct 
     data->stages = 0;
     data->stages_count = 0;
     data->stages_size = 0;
+
+    vkd3d_free(data->scratch_allocs);
+    data->scratch_allocs = NULL;
+    data->scratch_allocs_size = 0;
 
     vkd3d_free(data->collections);
     data->collections = NULL;
@@ -1905,11 +1917,8 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
     VkPipelineShaderStageCreateInfo *stage;
     uint32_t pgroup_offset, pstage_offset;
     unsigned int num_groups_to_export;
-    size_t scratch_allocs_count = 0;
-    size_t scratch_allocs_size = 0;
     struct vkd3d_shader_code spirv;
     struct vkd3d_shader_code dxil;
-    void **scratch_allocs = NULL;
     bool creating_library;
     bool rtpso_has_omm;
     size_t i, j;
@@ -2169,9 +2178,9 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
                         d3d12_state_object_fuse_root_signature_mappings(
                             empty_rs ? empty_rs : per_entry_global_signature, local_signature);
                 vk_prepend_struct(stage, &fused->mapping_info);
-                vkd3d_array_reserve((void **)&scratch_allocs, &scratch_allocs_size,
-                    scratch_allocs_count + 1, sizeof(*scratch_allocs));
-                scratch_allocs[scratch_allocs_count++] = fused;
+                vkd3d_array_reserve((void **)&data->scratch_allocs, &data->scratch_allocs_size,
+                    data->scratch_allocs_count + 1, sizeof(*data->scratch_allocs));
+                data->scratch_allocs[data->scratch_allocs_count++] = fused;
             }
             else if (per_entry_global_signature)
             {
@@ -2620,10 +2629,6 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
         vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
                 VK_NULL_HANDLE, 1, &pipeline_create_info, NULL, &variant->pipeline));
     }
-
-    for (i = 0; i < scratch_allocs_count; i++)
-        vkd3d_free(scratch_allocs[i]);
-    vkd3d_free(scratch_allocs);
 
     TRACE("Completed vkCreateRayTracingPipelinesKHR.\n");
 
