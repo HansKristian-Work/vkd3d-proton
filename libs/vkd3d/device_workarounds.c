@@ -480,15 +480,6 @@ static const struct vkd3d_shader_quirk_info crimson_desert_quirks = {
     crimson_desert_hashes, ARRAY_SIZE(crimson_desert_hashes), VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST,
 };
 
-/* Some vertex shaders use precise fma, while others don't.
- * Just forcing fma even for precise works around it and invariant gl_Position
- * takes care of the rest.
- * Works around some depth invariance issues when rendering the baby's eyeballs
- * in intro cutscenes. */
-static const struct vkd3d_shader_quirk_info ds2_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_PRECISE_FMA,
-};
-
 static const struct vkd3d_shader_quirk_hash spiderman2_hashes[] = {
     { NULL, 0x324071d329f05ccc, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
 };
@@ -674,8 +665,6 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", &hfw_quirks },
     /* Crimson Desert (3321460) */
     { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", &crimson_desert_quirks },
-    /* Death Stranding 2 (3280350) */
-    { VKD3D_STRING_COMPARE_EXACT, "DS2.exe", &ds2_quirks },
 	/* Spider Man 2 (2651280) */
     { VKD3D_STRING_COMPARE_EXACT, "Spider-Man2.exe", &spiderman2_quirks },
     /* PRAGMATA (3357650) */
