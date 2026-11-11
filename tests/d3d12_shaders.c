@@ -14809,3 +14809,210 @@ void test_uninitialized_pixel_output_dxil(void)
 {
     test_uninitialized_pixel_output(true);
 }
+
+static void test_precise_mad(bool use_dxil)
+{
+    struct test_context_desc context_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    struct test_context context;
+    ID3D12Resource *outputs;
+    ID3D12Resource *inputs;
+    double fma_result;
+    unsigned int i;
+
+#include "shaders/shaders/headers/vs_plain_mad.h"
+#include "shaders/shaders/headers/vs_precise_mad.h"
+#include "shaders/shaders/headers/cs_plain_mad.h"
+#include "shaders/shaders/headers/cs_precise_mad.h"
+#include "shaders/shaders/headers/ps_mad.h"
+
+    const struct
+    {
+        D3D12_SHADER_BYTECODE dxil;
+        D3D12_SHADER_BYTECODE dxbc;
+        bool precise;
+    } compute_tests[] = {
+        { cs_precise_mad_dxil, cs_precise_mad_dxbc, true },
+        { cs_plain_mad_dxil, cs_plain_mad_dxbc, false },
+    }, graphics_tests[] = {
+        { vs_precise_mad_dxil, vs_precise_mad_dxbc, true },
+        { vs_plain_mad_dxil, vs_plain_mad_dxbc, false },
+    };
+
+#define FP32_EPSILON (1.0f / (16.0f * 1024.0f * 1024.0f))
+    float input_data[3 * 3] = {
+        1.0f + 15 * FP32_EPSILON,
+        1.0f - 17 * FP32_EPSILON,
+    };
+
+    fma_result = (double)input_data[0] * (double)input_data[1];
+    input_data[2] = (float)(-fma_result + FP32_EPSILON);
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.rt_width = 4;
+    context_desc.rt_height = 4;
+    context_desc.rt_format = DXGI_FORMAT_R32_FLOAT;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    inputs = create_upload_buffer(context.device, sizeof(input_data), input_data);
+    outputs = create_default_buffer(context.device, 4096,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+    /* Implementations diverge here. HLSL mad() language suggests it works more like SPIR-V where it just flags invariance,
+     * but DXIL docs say it must not fuse ... We'll pick the convenient option for us,
+     * which is to always fuse since it's more compatible with broken games. */
+
+    for (i = 0; i < ARRAY_SIZE(compute_tests); i++)
+    {
+        struct resource_readback rb;
+        float expected_mad;
+        float expected_fma;
+        float value;
+
+        if (context.pipeline_state)
+            ID3D12PipelineState_Release(context.pipeline_state);
+
+        context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature,
+            use_dxil ? compute_tests[i].dxil : compute_tests[i].dxbc);
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(inputs));
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1,
+                ID3D12Resource_GetGPUVirtualAddress(outputs));
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, outputs,
+                                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(outputs, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+        value = get_readback_float(&rb, 0, 0);
+
+        expected_mad = input_data[0] * input_data[1] + input_data[2];
+        expected_fma = (float)((double)input_data[0] * (double)input_data[1] + (double)input_data[2]);
+        ok(expected_fma != expected_mad, "Useless test.\n");
+
+        if (compute_tests[i].precise && !is_vkd3d_proton_device(context.device))
+        {
+            bug_if(is_nvidia_windows_device(context.device))
+            ok(value == expected_mad, "Unexpected result. Expected %.10g, got %.10g\n", expected_mad, value);
+        }
+        else
+        {
+            if (value == expected_fma)
+                skip("This implementation seems to support true FMA.\n");
+        }
+
+        ok(value == expected_mad || value == expected_fma,
+                "Unexpected result. Expected %.10g (MAD) or %.10g (FMA), got %.10g\n",
+                expected_mad, expected_fma, value);
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(graphics_tests); i++)
+    {
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+        struct resource_readback rb;
+        D3D12_SHADER_BYTECODE vs;
+        D3D12_SHADER_BYTECODE ps;
+        float expected_mad;
+        float expected_fma;
+        float value;
+
+        if (context.pipeline_state)
+        {
+            ID3D12PipelineState_Release(context.pipeline_state);
+            context.pipeline_state = NULL;
+        }
+
+        if (use_dxil)
+        {
+            vs = graphics_tests[i].dxil;
+            ps = ps_mad_dxil;
+        }
+        else
+        {
+            vs = graphics_tests[i].dxbc;
+            ps = ps_mad_dxbc;
+        }
+
+        init_pipeline_state_desc_shaders(&pso_desc, context.root_signature,
+                DXGI_FORMAT_R32_FLOAT, NULL, vs.pShaderBytecode, vs.BytecodeLength,
+                ps.pShaderBytecode, ps.BytecodeLength);
+        pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+        ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(context.list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(inputs));
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+        transition_resource_state(context.list, context.render_target,
+                                  D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+
+        value = get_readback_float(&rb, 0, 0);
+
+        expected_mad = input_data[0] * input_data[1] + input_data[2];
+        expected_fma = (float)((double)input_data[0] * (double)input_data[1] + (double)input_data[2]);
+        ok(expected_fma != expected_mad, "Useless test.\n");
+
+        if (compute_tests[i].precise && !is_vkd3d_proton_device(context.device))
+        {
+            bug_if(is_nvidia_windows_device(context.device))
+            ok(value == expected_mad, "Unexpected result. Expected %.10g, got %.10g\n", expected_mad, value);
+        }
+        else
+        {
+            if (value == expected_fma)
+                skip("This implementation seems to support true FMA.\n");
+        }
+
+        ok(value == expected_mad || value == expected_fma,
+                "Unexpected result. Expected %.10g (MAD) or %.10g (FMA), got %.10g\n",
+                expected_mad, expected_fma, value);
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(
+            context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12Resource_Release(inputs);
+    ID3D12Resource_Release(outputs);
+    destroy_test_context(&context);
+}
+
+void test_precise_mad_dxbc(void)
+{
+    test_precise_mad(false);
+}
+
+void test_precise_mad_dxil(void)
+{
+    test_precise_mad(true);
+}
