@@ -7201,8 +7201,11 @@ void test_r16_texel_buffer_atomic(void)
     uav_desc.Buffer.FirstElement = 0;
     uav_desc.Buffer.NumElements = 64;
     ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 0));
+
+    vkd3d_mute_validation_message("12351", "Intentionally skirting spec.");
     uav_desc.Buffer.FirstElement = 15;
     ID3D12Device_CreateUnorderedAccessView(context.device, output, NULL, &uav_desc, get_cpu_descriptor_handle(&context, heap, 1));
+    vkd3d_unmute_validation_message("12351");
 
     ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
     ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
