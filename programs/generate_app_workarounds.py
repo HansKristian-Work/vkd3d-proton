@@ -37,6 +37,9 @@ def build_config_flags(flags):
     str += ')'
     return str
 
+def build_config_flags_small(flags):
+    return '[' + ', '.join(flags) + ']'
+
 def build_bitmask_or(base, flags, empty):
     str = ''
     for flag in flags:
@@ -53,32 +56,38 @@ def build_shader_quirks_mask(flags):
     return build_bitmask_or('VKD3D_SHADER_QUIRK', flags, '0')
 
 def generate_app_workaround(comparator, match, meta):
-    str = 'VKD3D_STRING_COMPARE_' + comparator + ', '
-    str += '"' + match + '"' + ', '
+    match_str = 'VKD3D_STRING_COMPARE_' + comparator + ', '
+    match_str += '"' + match + '"' + ', '
+    app_str = ''
 
     if 'configEnable' in meta:
-        str += build_config_flags(meta['configEnable'])
+        str = build_config_flags(meta['configEnable'])
+        app_str += 'enable(' + build_config_flags_small(meta['configEnable']) + ') '
     else:
-        str += 'VKD3D_CONFIG_FLAGS_NONE'
+        str = 'VKD3D_CONFIG_FLAGS_NONE'
     str += ', '
 
     if 'configDisable' in meta:
         str += build_config_flags(meta['configDisable'])
+        app_str += 'disable(' + build_config_flags_small(meta['configDisable']) + ') '
     else:
         str += 'VKD3D_CONFIG_FLAGS_NONE'
     str += ', '
 
     if 'applicationFeatures' in meta:
         str += build_application_features(meta['applicationFeatures'])
+        app_str += 'features(' + build_config_flags_small(meta['applicationFeatures']) + ') '
     else:
         str += 'VKD3D_APPLICATION_FEATURE_OVERRIDE_NONE'
 
-    return str
+    str += ', "app: ' + app_str + '"\n'
+    return match_str + str
 
 def generate_shader_quirks(comparator, match, quirks):
     tag = 'x' + hashlib.sha1((match + comparator).encode('utf-8')).hexdigest()
 
     specifics = []
+    comment_str = ''
 
     war = 'static const struct vkd3d_shader_quirk_info quirks_' + tag + ' = {'
     
@@ -88,16 +97,22 @@ def generate_shader_quirks(comparator, match, quirks):
         if 'perEntryQuirks' in quirks:
             entry_quirks = quirks['perEntryQuirks']
             for entry, flags in entry_quirks.items():
-                specifics.append('"' + entry + '"' + ', 0, ' + build_shader_quirks_mask(flags))
+                mask = build_shader_quirks_mask(flags)
+                specifics.append('"' + entry + '"' + ', 0, ' + mask)
+                comment_str += '"' + 'entry ' + entry + ' : ' + mask + r'\n"'
         if 'perHashQuirks' in quirks:
             hash_quirks = quirks['perHashQuirks']
             for entry, flags in hash_quirks.items():
-                specifics.append('NULL, 0x' + entry + 'ull, ' + build_shader_quirks_mask(flags))
+                mask = build_shader_quirks_mask(flags)
+                specifics.append('NULL, 0x' + entry + 'ull, ' + mask)
+                comment_str += '"' + 'hash ' + entry + ' : ' + mask + r'\n"'
 
         war += ' hashes_' + tag + ', ARRAY_SIZE(hashes_' + tag + '), '
 
     if 'globalQuirks' in quirks:
-        war += build_shader_quirks_mask(quirks['globalQuirks'])
+        global_quirks = build_shader_quirks_mask(quirks['globalQuirks'])
+        war += global_quirks
+        comment_str += '"global: ' + global_quirks + r'\n"'
 
     war += '};'
 
@@ -110,7 +125,8 @@ def generate_shader_quirks(comparator, match, quirks):
 
     link = 'VKD3D_STRING_COMPARE_' + comparator + ', '
     link += '"' + match + '"' + ', '
-    link += '&quirks_' + tag
+    link += '&quirks_' + tag + ', '
+    link += comment_str
 
     return (war, link)
 

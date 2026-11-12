@@ -50,6 +50,7 @@ struct vkd3d_instance_application_meta
     union vkd3d_config_flags global_flags_add;
     union vkd3d_config_flags global_flags_remove;
     vkd3d_application_feature_override_flags override;
+    const char *comment;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
@@ -236,6 +237,7 @@ struct vkd3d_shader_quirk_meta
     enum vkd3d_string_compare_mode mode;
     const char *name;
     const struct vkd3d_shader_quirk_info *info;
+    const char *comment;
 };
 
 static const struct vkd3d_shader_quirk_hash ue4_hashes[] = {
@@ -929,6 +931,8 @@ void vkd3d_instance_apply_application_workarounds(void)
                  app, vkd3d_config_flag_popcount(meta->global_flags_add),
                  vkd3d_config_flag_popcount(meta->global_flags_remove));
             vkd3d_application_feature_override = meta->override;
+            if (meta->comment)
+                INFO("%s\n", meta->comment);
             break;
         }
     }
@@ -976,6 +980,8 @@ void vkd3d_instance_apply_application_workarounds(void)
         {
             vkd3d_shader_quirk_info_template = *meta->info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
+            if (meta->comment)
+                INFO("%s\n", meta->comment);
             break;
         }
     }
