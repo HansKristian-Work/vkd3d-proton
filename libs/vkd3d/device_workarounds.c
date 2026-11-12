@@ -53,13 +53,6 @@ struct vkd3d_instance_application_meta
     const char *comment;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
-    /* Shadow of the Tomb Raider (750920).
-     * Invariant workarounds actually cause more issues than they resolve on NV.
-     * RADV already has workarounds by default.
-     * FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders
-     * are broken enough that normal invariance is not enough. */
-    { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .REQUIRE_INPUT_ATTACHMENTS = 1) },
     /* Elden Ring (1245620).
      * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
      * It seems to work just fine however to skip the clears. */

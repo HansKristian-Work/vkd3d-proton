@@ -43,6 +43,15 @@
       "comment": [ "Workaround amdgpu kernel bug with host memory import and concurrent submissions." ],
       "name": "APlagueTaleRequiem_x64.exe",
       "configEnable": [ "USE_HOST_IMPORT_FALLBACK", "DISABLE_UAV_COMPRESSION" ]
+    },
+    {
+      "comment": [
+        "Invariant workarounds actually cause more issues than they resolve on NV.",
+        "RADV already has workarounds by default.",
+        "FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders",
+        "are broken enough that normal invariance is not enough." ],
+      "name": "SOTTR.exe",
+      "configEnable": [ "FORCE_NO_INVARIANT_POSITION", "REQUIRE_INPUT_ATTACHMENTS" ]
     }
   ]
 }
