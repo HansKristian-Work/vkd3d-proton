@@ -50,6 +50,7 @@ struct vkd3d_instance_application_meta
     union vkd3d_config_flags global_flags_add;
     union vkd3d_config_flags global_flags_remove;
     vkd3d_application_feature_override_flags override;
+    const char *comment;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
@@ -238,6 +239,7 @@ struct vkd3d_shader_quirk_meta
     enum vkd3d_string_compare_mode mode;
     const char *name;
     const struct vkd3d_shader_quirk_info *info;
+    const char *comment;
 };
 
 static const struct vkd3d_shader_quirk_hash ue4_hashes[] = {
@@ -710,6 +712,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
 
+#include "vkd3d_proton_app_workarounds.h"
+
 static uint32_t vkd3d_application_version;
 
 uint32_t vkd3d_get_instance_application_version(void)
@@ -906,27 +910,35 @@ void vkd3d_instance_apply_application_workarounds(void)
 
     /* If we don't have any application specific patterns we hit, engage default engine workarounds. */
 
-    for (i = 0; i < ARRAY_SIZE(application_override); i++)
+    for (i = 0; i < ARRAY_SIZE(application_override) + ARRAY_SIZE(application_override2); i++)
     {
+        const struct vkd3d_instance_application_meta *meta =
+                i < ARRAY_SIZE(application_override)
+                    ? &application_override[i]
+                    : &application_override2[i - ARRAY_SIZE(application_override)];
+
         bool match;
-        if (application_override[i].mode == VKD3D_STRING_COMPARE_APPID)
-            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, application_override[i].name);
+        if (meta->mode == VKD3D_STRING_COMPARE_APPID)
+            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, meta->name);
         else
-            match = vkd3d_string_compare(application_override[i].mode, app, application_override[i].name);
+            match = vkd3d_string_compare(meta->mode, app, meta->name);
 
         if (match)
         {
-            vkd3d_config_flag_global_add(application_override[i].global_flags_add);
-            vkd3d_config_flag_global_remove(application_override[i].global_flags_remove);
+            vkd3d_config_flag_global_add(meta->global_flags_add);
+            vkd3d_config_flag_global_remove(meta->global_flags_remove);
             INFO("Detected game %s, adding %u configs, removing %u configs.\n",
-                 app, vkd3d_config_flag_popcount(application_override[i].global_flags_add),
-                 vkd3d_config_flag_popcount(application_override[i].global_flags_remove));
-            vkd3d_application_feature_override = application_override[i].override;
+                 app, vkd3d_config_flag_popcount(meta->global_flags_add),
+                 vkd3d_config_flag_popcount(meta->global_flags_remove));
+            vkd3d_application_feature_override = meta->override;
+            if (meta->comment)
+                INFO("%s\n", meta->comment);
             break;
         }
     }
 
-    if (i == ARRAY_SIZE(application_override) && engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
+    if (i == (ARRAY_SIZE(application_override) + ARRAY_SIZE(application_override2)) &&
+        engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
     {
 		/* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
 		 * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
@@ -951,23 +963,31 @@ void vkd3d_instance_apply_application_workarounds(void)
         }
     }
 
-    for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
+    for (i = 0; i < ARRAY_SIZE(application_shader_quirks) + ARRAY_SIZE(application_shader_quirks2); i++)
     {
+        const struct vkd3d_shader_quirk_meta *meta =
+                i < ARRAY_SIZE(application_shader_quirks)
+                    ? &application_shader_quirks[i]
+                    : &application_shader_quirks2[i - ARRAY_SIZE(application_shader_quirks)];
+
         bool match;
-        if (application_shader_quirks[i].mode == VKD3D_STRING_COMPARE_APPID)
-            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, application_shader_quirks[i].name);
+        if (meta->mode == VKD3D_STRING_COMPARE_APPID)
+            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, meta->name);
         else
-            match = vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name);
+            match = vkd3d_string_compare(meta->mode, app, meta->name);
 
         if (match)
         {
-            vkd3d_shader_quirk_info_template = *application_shader_quirks[i].info;
+            vkd3d_shader_quirk_info_template = *meta->info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
+            if (meta->comment)
+                INFO("%s\n", meta->comment);
             break;
         }
     }
 
-    if (i == ARRAY_SIZE(application_shader_quirks) && engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
+    if (i == (ARRAY_SIZE(application_shader_quirks) + ARRAY_SIZE(application_shader_quirks2)) &&
+        engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
     {
         INFO("Applying default RE Engine shader quirks.\n");
         vkd3d_shader_quirk_info_template = re_engine_quirks;
