@@ -80,6 +80,11 @@ idl_generator = generator(idl_compiler,
   output    : [ '@BASENAME@.h' ],
   arguments : [ '-h', '-o', '@OUTPUT@', '@INPUT@' ])
 
+py3 = find_program('python3')
+workaround_generator = generator(py3,
+  output    : [ '@BASENAME@.h' ],
+  arguments : [ join_paths(meson.source_root(), 'programs/generate_app_workarounds.py'), '--output', '@OUTPUT@', '@INPUT@' ])
+
 glsl_compiler  = find_program('glslang', 'glslangValidator')
 glsl_args = [ '-V', '--target-env', 'vulkan1.3', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@', '--depfile', '@DEPFILE@', '--quiet' ]
 glsl_generator = generator(glsl_compiler,
