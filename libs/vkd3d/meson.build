@@ -118,7 +118,8 @@ if enable_profiling
   vkd3d_src += ['timestamp_profiler.c']
 endif
 
-vkd3d_lib = static_library('vkd3d-proton', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_build, vkd3d_version,
+vkd3d_lib = static_library('vkd3d-proton', vkd3d_src, glsl_generator.process(vkd3d_shaders),
+  workaround_generator.process('vkd3d_proton_app_workarounds.json'), vkd3d_build, vkd3d_version,
   dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
   include_directories : vkd3d_private_includes)
 

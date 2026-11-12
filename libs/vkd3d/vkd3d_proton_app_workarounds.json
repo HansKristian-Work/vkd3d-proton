@@ -1,0 +1,26 @@
+{
+  "asset" : "vkd3d-proton-app-workarounds",
+  "version" : 1,
+  "applications": [
+    {
+      "comment": "Example entry that exercises all paths.",
+      "SteamAppID" : "dummyappid",
+      "name": "DUMMY.EXE",
+      "comparator": "NEVER",
+      "applicationFeatures" : [ "LIMIT_DXR_1_0", "DISABLE_ANTI_LAG" ],
+      "configEnable" : [ "NO_DXR" ],
+      "configDisable" : [ "DESCRIPTOR_HEAP_ROBUSTNESS" ],
+      "shaderQuirks" : {
+        "globalQuirks" : [ "FORCE_DENORM_LEGACY_FP16_CONVERSIONS", "DESCRIPTOR_HEAP_ROBUSTNESS" ],
+        "perEntryQuirks" : {
+          "CS_Blah" : [ "DESCRIPTOR_HEAP_ROBUSTNESS" ],
+          "CS_Dummy" : [ "FORCE_DENORM_LEGACY_FP16_CONVERSIONS", "DESCRIPTOR_HEAP_ROBUSTNESS" ]
+        },
+        "perHashQuirks" : {
+          "abcd" : [ "DESCRIPTOR_HEAP_ROBUSTNESS" ],
+          "1234" : [ "FORCE_DENORM_LEGACY_FP16_CONVERSIONS", "DESCRIPTOR_HEAP_ROBUSTNESS" ]
+        }
+      }
+    }
+  ]
+}
