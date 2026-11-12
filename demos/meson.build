@@ -20,10 +20,10 @@ executable('gears', 'gears.c',
   dependencies        : demo_vkd3d_deps,
   include_directories : vkd3d_public_includes,
   install             : true,
-  gui_app             : true)
+  win_subsystem       : 'windows')
 
 executable('triangle', 'triangle.c',
   dependencies        : demo_vkd3d_deps,
   include_directories : vkd3d_public_includes,
   install             : true,
-  gui_app             : true)
+  win_subsystem       : 'windows')
