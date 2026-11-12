@@ -62,6 +62,12 @@
         "MEMORY_ALLOCATOR_SKIP_CLEAR", "PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER",
         "RECYCLE_COMMAND_POOLS" ],
       "applicationFeatures": [ "REQUIRES_MIN16_DENORMS" ]
+    },
+    {
+      "comment": [
+        "Invariant workarounds cause graphical glitches when rendering foliage on NV." ],
+      "name": "Sam4.exe",
+      "configEnable": [ "FORCE_NO_INVARIANT_POSITION", "SMALL_VRAM_REBAR" ]
     }
   ]
 }
