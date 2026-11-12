@@ -715,6 +715,134 @@ uint32_t vkd3d_get_instance_application_version(void)
     return vkd3d_application_version;
 }
 
+static enum vkd3d_application_engine_class parse_engine_class(const char *str)
+{
+    if (strcmp(str, "UnrealEngine") == 0)
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
+    else if (strcmp(str, "REEngine") == 0)
+        return VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE;
+    else
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+}
+
+static enum vkd3d_application_engine_class vkd3d_get_engine_version_from_db(
+        const char *exe_name, const char *match_appid, uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    enum vkd3d_application_engine_class engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    char env[VKD3D_PATH_MAX];
+    FILE *file = NULL;
+    char line[1024];
+
+    if (!vkd3d_get_env_var("VKD3D_APP_DB_PATH", env, sizeof(env)))
+        goto end;
+
+    INFO("Loading VKD3D_APP_DB_PATH from \"%s\"\n", env);
+
+    file = fopen(env, "r");
+    if (!file)
+    {
+        ERR("Failed to open \"%s\"\n", env);
+        goto end;
+    }
+
+    if (!fgets(line, sizeof(line), file) || strcmp(line, "{vkd3d-proton-app-db v1}\n") != 0)
+    {
+        ERR("Database is corrupt.\n");
+        goto end;
+    }
+
+    while (fgets(line, sizeof(line), file))
+    {
+        char *endp = NULL;
+        char *tokens[6];
+        bool has_match;
+        unsigned int i;
+
+        if (line[0] == '#')
+            continue;
+
+        memset(tokens, 0, sizeof(tokens));
+
+#ifdef _MSC_VER
+#define strtok_r strtok_s
+#endif
+
+        tokens[0] = strtok_r(line, ",", &endp);
+        for (i = 1; i < ARRAY_SIZE(tokens) && tokens[i - 1]; i++)
+            tokens[i] = strtok_r(NULL, ",", &endp);
+
+        /* Need at least appid, exe, version. */
+        if (!tokens[0] || !tokens[1] || !tokens[2])
+        {
+            ERR("Invalid line found {%s} {%s} {%s}\n",
+                    tokens[0] ? tokens[0] : "null",
+                    tokens[1] ? tokens[1] : "null",
+                    tokens[2] ? tokens[2] : "null");
+            continue;
+        }
+
+        has_match = match_appid[0] != '\0' && strcmp(tokens[0], match_appid) == 0;
+
+        if (!has_match)
+        {
+            enum vkd3d_string_compare_mode mode = VKD3D_STRING_COMPARE_EXACT;
+            const char *parsed_exe = tokens[1];
+
+            if (parsed_exe[0] == '=')
+            {
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '<')
+            {
+                mode = VKD3D_STRING_COMPARE_STARTS_WITH;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '>')
+            {
+                mode = VKD3D_STRING_COMPARE_ENDS_WITH;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '?')
+            {
+                mode = VKD3D_STRING_COMPARE_CONTAINS;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '@')
+            {
+                mode = VKD3D_STRING_COMPARE_HASH_EQUAL;
+                parsed_exe++;
+            }
+
+            has_match = vkd3d_string_compare(mode, exe_name, parsed_exe);
+        }
+
+        if (!has_match)
+            continue;
+
+        engine_class = parse_engine_class(tokens[2]);
+
+        if (tokens[3])
+            *major = strtoul(tokens[3], NULL, 0);
+        if (tokens[4])
+            *minor = strtoul(tokens[4], NULL, 0);
+        if (tokens[5])
+            *patch = strtoul(tokens[5], NULL, 0);
+
+        break;
+    }
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
+        INFO("Detected UnrealEngine from database, version %u.%u.%u\n", *major, *minor, *patch);
+    else if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
+        INFO("Detected REEngine from database, version %u.%u.%u\n", *major, *minor, *patch);
+
+end:
+    if (file)
+        fclose(file);
+
+    return engine_class;
+}
+
 void vkd3d_instance_apply_application_workarounds(void)
 {
     uint32_t engine_major = 0, engine_minor = 0, engine_patch = 0;
@@ -731,38 +859,43 @@ void vkd3d_instance_apply_application_workarounds(void)
     else
         appid[0] = '\0';
 
-    if ((engine_class = vkd3d_get_engine_version(&engine_major, &engine_minor, &engine_patch)))
+    engine_class = vkd3d_get_engine_version_from_db(app, appid, &engine_major, &engine_minor, &engine_patch);
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN)
     {
-        switch (engine_class)
+        if ((engine_class = vkd3d_get_engine_version(&engine_major, &engine_minor, &engine_patch)))
         {
-            case VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE:
-                if (engine_major == 0)
-                    INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
-                else
-                    INFO("Detected Unreal Engine %u.%u.%u.\n", engine_major, engine_minor, engine_patch);
+            switch (engine_class)
+            {
+                case VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE:
+                    if (engine_major == 0)
+                        INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
+                    else
+                        INFO("Detected Unreal Engine %u.%u.%u.\n", engine_major, engine_minor, engine_patch);
 
-                if (engine_major == 5)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
-                else if (engine_major == 4)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
-                else if (engine_major == 0)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
-                break;
+                    if (engine_major == 5)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
+                    else if (engine_major == 4)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
+                    else if (engine_major == 0)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+                    break;
 
-            case VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE:
-                INFO("Detected RE Engine\n");
-                vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_RE_ENGINE;
-                break;
+                case VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE:
+                    INFO("Detected RE Engine\n");
+                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_RE_ENGINE;
+                    break;
 
-            default:
-                break;
+                default:
+                    break;
+            }
         }
-    }
-    else if (strstr(app, "Win64-Shipping.exe"))
-    {
-        engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
-        INFO("Detected Unreal Engine by means of .exe name detection. Version unknown.\n");
-        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+        else if (strstr(app, "Win64-Shipping.exe"))
+        {
+            engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
+            INFO("Detected Unreal Engine by means of .exe name detection. Version unknown.\n");
+            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+        }
     }
 
     /* If we don't have any application specific patterns we hit, engage default engine workarounds. */
