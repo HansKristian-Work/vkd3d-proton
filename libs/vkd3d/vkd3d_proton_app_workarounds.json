@@ -68,6 +68,15 @@
         "Invariant workarounds cause graphical glitches when rendering foliage on NV." ],
       "name": "Sam4.exe",
       "configEnable": [ "FORCE_NO_INVARIANT_POSITION", "SMALL_VRAM_REBAR" ]
+    },
+    {
+      "name": "Cyberpunk2077.exe",
+      "configEnable": [ "ALLOW_SBT_COLLECTION" ]
+    },
+    {
+      "comment": [ "Control fails to detect DXR if 1.1 is exposed." ],
+      "name": "Control_DX12.exe",
+      "applicationFeatures": [ "LIMIT_DXR_1_0" ]
     }
   ]
 }
