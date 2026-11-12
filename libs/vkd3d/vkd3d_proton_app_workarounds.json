@@ -21,6 +21,10 @@
           "1234" : [ "FORCE_DENORM_LEGACY_FP16_CONVERSIONS", "DESCRIPTOR_HEAP_ROBUSTNESS" ]
         }
       }
+    },
+    {
+      "name": "GravityMark.exe",
+      "configEnable" : [ "FORCE_MINIMUM_SUBGROUP_SIZE" ]
     }
   ]
 }
