@@ -52,6 +52,16 @@
         "are broken enough that normal invariance is not enough." ],
       "name": "SOTTR.exe",
       "configEnable": [ "FORCE_NO_INVARIANT_POSITION", "REQUIRE_INPUT_ATTACHMENTS" ]
+    },
+    {
+      "comment": [
+        "Elden Ring. Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.",
+        "It seems to work just fine however to skip the clears." ],
+      "SteamAppID": "1245620",
+      "configEnable": [
+        "MEMORY_ALLOCATOR_SKIP_CLEAR", "PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER",
+        "RECYCLE_COMMAND_POOLS" ],
+      "applicationFeatures": [ "REQUIRES_MIN16_DENORMS" ]
     }
   ]
 }
