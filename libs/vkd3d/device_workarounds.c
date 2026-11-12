@@ -53,9 +53,6 @@ struct vkd3d_instance_application_meta
     const char *comment;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
-    /* (1182900) Workaround amdgpu kernel bug with host memory import and concurrent submissions. */
-    { VKD3D_STRING_COMPARE_EXACT, "APlagueTaleRequiem_x64.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.USE_HOST_IMPORT_FALLBACK = 1, .DISABLE_UAV_COMPRESSION = 1) },
     /* Shadow of the Tomb Raider (750920).
      * Invariant workarounds actually cause more issues than they resolve on NV.
      * RADV already has workarounds by default.

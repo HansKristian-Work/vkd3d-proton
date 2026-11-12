@@ -38,6 +38,11 @@
       "configEnable": [ "FORCE_RAW_VA_CBV", "USE_HOST_IMPORT_FALLBACK",
         "PREALLOCATE_SRV_MIP_CLAMPS",
         "NO_UPLOAD_HVV" ]
+    },
+    {
+      "comment": [ "Workaround amdgpu kernel bug with host memory import and concurrent submissions." ],
+      "name": "APlagueTaleRequiem_x64.exe",
+      "configEnable": [ "USE_HOST_IMPORT_FALLBACK", "DISABLE_UAV_COMPRESSION" ]
     }
   ]
 }
