@@ -25,6 +25,19 @@
     {
       "name": "GravityMark.exe",
       "configEnable" : [ "FORCE_MINIMUM_SUBGROUP_SIZE" ]
+    },
+    {
+      "comment": [
+        "Game relies on NON_ZEROED committed UAVs to be cleared to zero on allocation.",
+        "This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled.",
+        "Game also relies on indirectly modifying CBV root descriptors, which means we are forced to rely on RAW_VA_CBV.",
+        "It also relies on multi-dispatch indirect with state updates which is ... ye.",
+        "Need another config flag to workaround that as well.",
+        "Poor loading times and performance with ReBar on some devices."],
+      "name": "HaloInfinite.exe",
+      "configEnable": [ "FORCE_RAW_VA_CBV", "USE_HOST_IMPORT_FALLBACK",
+        "PREALLOCATE_SRV_MIP_CLAMPS",
+        "NO_UPLOAD_HVV" ]
     }
   ]
 }
