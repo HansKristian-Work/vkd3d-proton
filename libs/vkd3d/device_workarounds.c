@@ -865,6 +865,8 @@ void vkd3d_instance_apply_application_workarounds(void)
     else
         appid[0] = '\0';
 
+    INFO("Application DB JSON hash: %s\n", application_override_db_hash);
+
     engine_class = vkd3d_get_engine_version_from_db(app, appid, &engine_major, &engine_minor, &engine_patch);
 
     if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN)

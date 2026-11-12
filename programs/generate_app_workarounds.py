@@ -126,7 +126,9 @@ def main():
         raise AssertionError('Need output path.')
 
     with open(args.json, 'r') as f:
-        parsed = json.loads(f.read())
+        file_data = f.read()
+        json_hash = hashlib.sha1(file_data.encode('utf-8')).hexdigest()
+        parsed = json.loads(file_data)
 
     if parsed['asset'] != 'vkd3d-proton-app-workarounds':
         raise AssertionError('Unexpected asset.')
@@ -136,6 +138,8 @@ def main():
     with open(args.output, 'w') as f:
         print('#ifndef VKD3D_PROTON_APP_WORKAROUNDS_H_', file = f)
         print('#define VKD3D_PROTON_APP_WORKAROUNDS_H_', file = f)
+
+        print('static const char application_override_db_hash[] = "' + json_hash + '";', file = f)
 
         print('static const struct vkd3d_instance_application_meta application_override2[] = {', file = f)
         for app in parsed['applications']:
