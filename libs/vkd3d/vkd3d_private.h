@@ -3012,6 +3012,9 @@ struct vkd3d_rendering_info
     /* If true, we have pending work in loadOp/resolveOp which must happen. */
     bool has_pending_render_pass_load_store_work;
     bool keep_resolves_and_discards;
+
+    /* For debugging and workarounds. */
+    bool force_barrier_on_end;
 };
 
 /* ID3D12CommandListExt */
