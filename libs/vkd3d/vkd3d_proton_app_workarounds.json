@@ -1,0 +1,82 @@
+{
+  "asset" : "vkd3d-proton-app-workarounds",
+  "version" : 1,
+  "applications": [
+    {
+      "comment": "Example entry that exercises all paths.",
+      "SteamAppID" : "dummyappid",
+      "name": "DUMMY.EXE",
+      "comparator": "NEVER",
+      "applicationFeatures" : [ "LIMIT_DXR_1_0", "DISABLE_ANTI_LAG" ],
+      "configEnable" : [ "NO_DXR" ],
+      "configDisable" : [ "DESCRIPTOR_HEAP_ROBUSTNESS" ],
+      "shaderQuirks" : {
+        "globalQuirks" : [ "FORCE_DENORM_LEGACY_FP16_CONVERSIONS", "DESCRIPTOR_HEAP_ROBUSTNESS" ],
+        "perEntryQuirks" : {
+          "CS_Blah" : [ "DESCRIPTOR_HEAP_ROBUSTNESS" ],
+          "CS_Dummy" : [ "FORCE_DENORM_LEGACY_FP16_CONVERSIONS", "DESCRIPTOR_HEAP_ROBUSTNESS" ]
+        },
+        "perHashQuirks" : {
+          "abcd" : [ "DESCRIPTOR_HEAP_ROBUSTNESS" ],
+          "1234" : [ "FORCE_DENORM_LEGACY_FP16_CONVERSIONS", "DESCRIPTOR_HEAP_ROBUSTNESS" ]
+        }
+      }
+    },
+    {
+      "name": "GravityMark.exe",
+      "configEnable" : [ "FORCE_MINIMUM_SUBGROUP_SIZE" ]
+    },
+    {
+      "comment": [
+        "Game relies on NON_ZEROED committed UAVs to be cleared to zero on allocation.",
+        "This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled.",
+        "Game also relies on indirectly modifying CBV root descriptors, which means we are forced to rely on RAW_VA_CBV.",
+        "It also relies on multi-dispatch indirect with state updates which is ... ye.",
+        "Need another config flag to workaround that as well.",
+        "Poor loading times and performance with ReBar on some devices."],
+      "name": "HaloInfinite.exe",
+      "configEnable": [ "FORCE_RAW_VA_CBV", "USE_HOST_IMPORT_FALLBACK",
+        "PREALLOCATE_SRV_MIP_CLAMPS",
+        "NO_UPLOAD_HVV" ]
+    },
+    {
+      "comment": [ "Workaround amdgpu kernel bug with host memory import and concurrent submissions." ],
+      "name": "APlagueTaleRequiem_x64.exe",
+      "configEnable": [ "USE_HOST_IMPORT_FALLBACK", "DISABLE_UAV_COMPRESSION" ]
+    },
+    {
+      "comment": [
+        "Invariant workarounds actually cause more issues than they resolve on NV.",
+        "RADV already has workarounds by default.",
+        "FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders",
+        "are broken enough that normal invariance is not enough." ],
+      "name": "SOTTR.exe",
+      "configEnable": [ "FORCE_NO_INVARIANT_POSITION", "REQUIRE_INPUT_ATTACHMENTS" ]
+    },
+    {
+      "comment": [
+        "Elden Ring. Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.",
+        "It seems to work just fine however to skip the clears." ],
+      "SteamAppID": "1245620",
+      "configEnable": [
+        "MEMORY_ALLOCATOR_SKIP_CLEAR", "PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER",
+        "RECYCLE_COMMAND_POOLS" ],
+      "applicationFeatures": [ "REQUIRES_MIN16_DENORMS" ]
+    },
+    {
+      "comment": [
+        "Invariant workarounds cause graphical glitches when rendering foliage on NV." ],
+      "name": "Sam4.exe",
+      "configEnable": [ "FORCE_NO_INVARIANT_POSITION", "SMALL_VRAM_REBAR" ]
+    },
+    {
+      "name": "Cyberpunk2077.exe",
+      "configEnable": [ "ALLOW_SBT_COLLECTION" ]
+    },
+    {
+      "comment": [ "Control fails to detect DXR if 1.1 is exposed." ],
+      "name": "Control_DX12.exe",
+      "applicationFeatures": [ "LIMIT_DXR_1_0" ]
+    }
+  ]
+}

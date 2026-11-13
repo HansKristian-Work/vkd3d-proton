@@ -50,51 +50,9 @@ struct vkd3d_instance_application_meta
     union vkd3d_config_flags global_flags_add;
     union vkd3d_config_flags global_flags_remove;
     vkd3d_application_feature_override_flags override;
+    const char *comment;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
-    /* MSVC fails to compile empty array. */
-    { VKD3D_STRING_COMPARE_EXACT, "GravityMark.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_MINIMUM_SUBGROUP_SIZE) },
-    /* Halo Infinite (1240440).
-     * Game relies on NON_ZEROED committed UAVs to be cleared to zero on allocation.
-     * This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled.
-     * Game also relies on indirectly modifying CBV root descriptors, which means we are forced to rely on RAW_VA_CBV.
-     * It also relies on multi-dispatch indirect with state updates which is ... ye.
-     * Need another config flag to workaround that as well.
-     * Poor loading times and performance with ReBar on some devices.
-     */
-    { VKD3D_STRING_COMPARE_EXACT, "HaloInfinite.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(
-                .FORCE_RAW_VA_CBV = 1, .USE_HOST_IMPORT_FALLBACK = 1,
-                .PREALLOCATE_SRV_MIP_CLAMPS = 1,
-                .NO_UPLOAD_HVV = 1) },
-    /* (1182900) Workaround amdgpu kernel bug with host memory import and concurrent submissions. */
-    { VKD3D_STRING_COMPARE_EXACT, "APlagueTaleRequiem_x64.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.USE_HOST_IMPORT_FALLBACK = 1, .DISABLE_UAV_COMPRESSION = 1) },
-    /* Shadow of the Tomb Raider (750920).
-     * Invariant workarounds actually cause more issues than they resolve on NV.
-     * RADV already has workarounds by default.
-     * FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders
-     * are broken enough that normal invariance is not enough. */
-    { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .REQUIRE_INPUT_ATTACHMENTS = 1) },
-    /* Elden Ring (1245620).
-     * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
-     * It seems to work just fine however to skip the clears. */
-    { VKD3D_STRING_COMPARE_APPID, "1245620",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(
-                .MEMORY_ALLOCATOR_SKIP_CLEAR = 1, .PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER = 1,
-                .RECYCLE_COMMAND_POOLS = 1), VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_REQUIRES_MIN16_DENORMS },
-    /* Serious Sam 4 (257420).
-     * Invariant workarounds cause graphical glitches when rendering foliage on NV. */
-    { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .SMALL_VRAM_REBAR = 1) },
-    /* Cyberpunk 2077 (1091500). For whatever reason, anti-lag is always used if it is supported (impossible to disable),
-     * leading to bad performance in some cases. Currently only affects Proton-GE which ships amdxc64.dll shim by default.
-     * The workaround is obsolete how however, since Mesa does not enable anti-lag by default,
-     * and it will not be enabled by default until it's confirmed to be rock solid. */
-    { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_STATIC(ALLOW_SBT_COLLECTION) },
-    /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
-    { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
     /* Hellblade: Senua's Sacrifice (414340). Enables RT by default if supported which is ... jarring and particularly jarring on Deck. */
     { VKD3D_STRING_COMPARE_EXACT, "HellbladeGame-Win64-Shipping.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
     /* PARANOID (946920). Similar concern with DXR. Add default UE configs. Also requires non-native FP16 somehow. */
@@ -238,6 +196,7 @@ struct vkd3d_shader_quirk_meta
     enum vkd3d_string_compare_mode mode;
     const char *name;
     const struct vkd3d_shader_quirk_info *info;
+    const char *comment;
 };
 
 static const struct vkd3d_shader_quirk_hash ue4_hashes[] = {
@@ -710,11 +669,145 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
 
+#include "vkd3d_proton_app_workarounds.h"
+
 static uint32_t vkd3d_application_version;
 
 uint32_t vkd3d_get_instance_application_version(void)
 {
     return vkd3d_application_version;
+}
+
+static enum vkd3d_application_engine_class parse_engine_class(const char *str)
+{
+    if (strcmp(str, "UnrealEngine") == 0)
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
+    else if (strcmp(str, "REEngine") == 0)
+        return VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE;
+    else
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+}
+
+/* See vkd3d-proton-app-db-example.txt for how the format looks.
+ * It's super basic and does the minimal thing needed for engine detection.
+ */
+
+static enum vkd3d_application_engine_class vkd3d_get_engine_version_from_db(
+        const char *exe_name, const char *match_appid, uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    enum vkd3d_application_engine_class engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    char env[VKD3D_PATH_MAX];
+    FILE *file = NULL;
+    char line[1024];
+
+    if (!vkd3d_get_env_var("VKD3D_APP_DB_PATH", env, sizeof(env)))
+        goto end;
+
+    INFO("Loading VKD3D_APP_DB_PATH from \"%s\"\n", env);
+
+    file = fopen(env, "r");
+    if (!file)
+    {
+        ERR("Failed to open \"%s\"\n", env);
+        goto end;
+    }
+
+    if (!fgets(line, sizeof(line), file) || strcmp(line, "{vkd3d-proton-app-db v1}\n") != 0)
+    {
+        ERR("Database is corrupt.\n");
+        goto end;
+    }
+
+    while (fgets(line, sizeof(line), file))
+    {
+        char *endp = NULL;
+        char *tokens[6];
+        bool has_match;
+        unsigned int i;
+
+        if (line[0] == '#')
+            continue;
+
+        memset(tokens, 0, sizeof(tokens));
+
+#ifdef _MSC_VER
+#define strtok_r strtok_s
+#endif
+
+        tokens[0] = strtok_r(line, ",", &endp);
+        for (i = 1; i < ARRAY_SIZE(tokens) && tokens[i - 1]; i++)
+            tokens[i] = strtok_r(NULL, ",", &endp);
+
+        /* Need at least appid, exe, version. */
+        if (!tokens[0] || !tokens[1] || !tokens[2])
+        {
+            ERR("Invalid line found {%s} {%s} {%s}\n",
+                    tokens[0] ? tokens[0] : "null",
+                    tokens[1] ? tokens[1] : "null",
+                    tokens[2] ? tokens[2] : "null");
+            continue;
+        }
+
+        has_match = match_appid[0] != '\0' && strcmp(tokens[0], match_appid) == 0;
+
+        if (!has_match)
+        {
+            enum vkd3d_string_compare_mode mode = VKD3D_STRING_COMPARE_EXACT;
+            const char *parsed_exe = tokens[1];
+
+            if (parsed_exe[0] == '=')
+            {
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '<')
+            {
+                mode = VKD3D_STRING_COMPARE_STARTS_WITH;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '>')
+            {
+                mode = VKD3D_STRING_COMPARE_ENDS_WITH;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '?')
+            {
+                mode = VKD3D_STRING_COMPARE_CONTAINS;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '@')
+            {
+                mode = VKD3D_STRING_COMPARE_HASH_EQUAL;
+                parsed_exe++;
+            }
+
+            has_match = vkd3d_string_compare(mode, exe_name, parsed_exe);
+        }
+
+        if (!has_match)
+            continue;
+
+        engine_class = parse_engine_class(tokens[2]);
+
+        if (tokens[3])
+            *major = strtoul(tokens[3], NULL, 0);
+        if (tokens[4])
+            *minor = strtoul(tokens[4], NULL, 0);
+        if (tokens[5])
+            *patch = strtoul(tokens[5], NULL, 0);
+
+        break;
+    }
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
+        INFO("Detected UnrealEngine from database, version %u.%u.%u\n", *major, *minor, *patch);
+    else if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
+        INFO("Detected REEngine from database, version %u.%u.%u\n", *major, *minor, *patch);
+
+end:
+    if (file)
+        fclose(file);
+
+    return engine_class;
 }
 
 void vkd3d_instance_apply_application_workarounds(void)
@@ -733,63 +826,78 @@ void vkd3d_instance_apply_application_workarounds(void)
     else
         appid[0] = '\0';
 
-    if ((engine_class = vkd3d_get_engine_version(&engine_major, &engine_minor, &engine_patch)))
+    INFO("Application DB JSON hash: %s\n", application_override_db_hash);
+
+    engine_class = vkd3d_get_engine_version_from_db(app, appid, &engine_major, &engine_minor, &engine_patch);
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN)
     {
-        switch (engine_class)
+        if ((engine_class = vkd3d_get_engine_version(&engine_major, &engine_minor, &engine_patch)))
         {
-            case VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE:
-                if (engine_major == 0)
-                    INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
-                else
-                    INFO("Detected Unreal Engine %u.%u.%u.\n", engine_major, engine_minor, engine_patch);
+            switch (engine_class)
+            {
+                case VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE:
+                    if (engine_major == 0)
+                        INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
+                    else
+                        INFO("Detected Unreal Engine %u.%u.%u.\n", engine_major, engine_minor, engine_patch);
 
-                if (engine_major == 5)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
-                else if (engine_major == 4)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
-                else if (engine_major == 0)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
-                break;
+                    if (engine_major == 5)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
+                    else if (engine_major == 4)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
+                    else if (engine_major == 0)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+                    break;
 
-            case VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE:
-                INFO("Detected RE Engine\n");
-                vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_RE_ENGINE;
-                break;
+                case VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE:
+                    INFO("Detected RE Engine\n");
+                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_RE_ENGINE;
+                    break;
 
-            default:
-                break;
+                default:
+                    break;
+            }
         }
-    }
-    else if (strstr(app, "Win64-Shipping.exe"))
-    {
-        engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
-        INFO("Detected Unreal Engine by means of .exe name detection. Version unknown.\n");
-        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+        else if (strstr(app, "Win64-Shipping.exe"))
+        {
+            engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
+            INFO("Detected Unreal Engine by means of .exe name detection. Version unknown.\n");
+            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+        }
     }
 
     /* If we don't have any application specific patterns we hit, engage default engine workarounds. */
 
-    for (i = 0; i < ARRAY_SIZE(application_override); i++)
+    for (i = 0; i < ARRAY_SIZE(application_override) + ARRAY_SIZE(application_override2); i++)
     {
+        const struct vkd3d_instance_application_meta *meta =
+                i < ARRAY_SIZE(application_override)
+                    ? &application_override[i]
+                    : &application_override2[i - ARRAY_SIZE(application_override)];
+
         bool match;
-        if (application_override[i].mode == VKD3D_STRING_COMPARE_APPID)
-            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, application_override[i].name);
+        if (meta->mode == VKD3D_STRING_COMPARE_APPID)
+            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, meta->name);
         else
-            match = vkd3d_string_compare(application_override[i].mode, app, application_override[i].name);
+            match = vkd3d_string_compare(meta->mode, app, meta->name);
 
         if (match)
         {
-            vkd3d_config_flag_global_add(application_override[i].global_flags_add);
-            vkd3d_config_flag_global_remove(application_override[i].global_flags_remove);
+            vkd3d_config_flag_global_add(meta->global_flags_add);
+            vkd3d_config_flag_global_remove(meta->global_flags_remove);
             INFO("Detected game %s, adding %u configs, removing %u configs.\n",
-                 app, vkd3d_config_flag_popcount(application_override[i].global_flags_add),
-                 vkd3d_config_flag_popcount(application_override[i].global_flags_remove));
-            vkd3d_application_feature_override = application_override[i].override;
+                 app, vkd3d_config_flag_popcount(meta->global_flags_add),
+                 vkd3d_config_flag_popcount(meta->global_flags_remove));
+            vkd3d_application_feature_override = meta->override;
+            if (meta->comment)
+                INFO("%s\n", meta->comment);
             break;
         }
     }
 
-    if (i == ARRAY_SIZE(application_override) && engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
+    if (i == (ARRAY_SIZE(application_override) + ARRAY_SIZE(application_override2)) &&
+        engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
     {
 		/* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
 		 * AMD windows drivers also seem to have some kind of general app-opt for UE titles.
@@ -814,23 +922,31 @@ void vkd3d_instance_apply_application_workarounds(void)
         }
     }
 
-    for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
+    for (i = 0; i < ARRAY_SIZE(application_shader_quirks) + ARRAY_SIZE(application_shader_quirks2); i++)
     {
+        const struct vkd3d_shader_quirk_meta *meta =
+                i < ARRAY_SIZE(application_shader_quirks)
+                    ? &application_shader_quirks[i]
+                    : &application_shader_quirks2[i - ARRAY_SIZE(application_shader_quirks)];
+
         bool match;
-        if (application_shader_quirks[i].mode == VKD3D_STRING_COMPARE_APPID)
-            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, application_shader_quirks[i].name);
+        if (meta->mode == VKD3D_STRING_COMPARE_APPID)
+            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, meta->name);
         else
-            match = vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name);
+            match = vkd3d_string_compare(meta->mode, app, meta->name);
 
         if (match)
         {
-            vkd3d_shader_quirk_info_template = *application_shader_quirks[i].info;
+            vkd3d_shader_quirk_info_template = *meta->info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
+            if (meta->comment)
+                INFO("%s\n", meta->comment);
             break;
         }
     }
 
-    if (i == ARRAY_SIZE(application_shader_quirks) && engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
+    if (i == (ARRAY_SIZE(application_shader_quirks) + ARRAY_SIZE(application_shader_quirks2)) &&
+        engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
     {
         INFO("Applying default RE Engine shader quirks.\n");
         vkd3d_shader_quirk_info_template = re_engine_quirks;
