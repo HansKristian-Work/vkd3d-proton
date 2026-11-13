@@ -439,11 +439,25 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlags
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     VKD3D_UNUSED VkPipelineCreateFlags2 ray_tracing_pipeline_create_flags;
-    bool enable_opacity_micromap;
+    bool enable_opacity_micromap, enable_spheres, enable_lss;
 
     TRACE("iface %p, pipeline_state_flags %d.\n", iface, pipeline_state_flags);
 
     enable_opacity_micromap = (pipeline_state_flags & D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_ENABLE_OMM_SUPPORT) != 0;
+    enable_spheres = (pipeline_state_flags & D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_ENABLE_SPHERE_SUPPORT) != 0;
+    enable_lss = (pipeline_state_flags & D3D12_VK_EXT_PIPELINE_CREATION_STATE_FLAGS_ENABLE_LSS_SUPPORT) != 0;
+
+    if (enable_spheres && !device->device_info.ray_tracing_linear_swept_spheres_features_nv.spheres)
+    {
+        ERR("Ray tracing spheres primitive is not supported.\n");
+        return FALSE;
+    }
+
+    if (enable_lss && !device->device_info.ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres)
+    {
+        ERR("Ray tracing LSS primitive is not supported.\n");
+        return FALSE;
+    }
 
     if (enable_opacity_micromap)
     {
@@ -471,6 +485,19 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetCreatePipelineStateFlags
         ray_tracing_pipeline_create_flags = vkd3d_atomic_uint64_and(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
                 ~VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR, vkd3d_memory_order_relaxed) &
                 ~VK_PIPELINE_CREATE_2_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR;
+    }
+
+    if (enable_spheres || enable_lss)
+    {
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint64_or(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV, vkd3d_memory_order_relaxed) |
+                VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV;
+    }
+    else
+    {
+        ray_tracing_pipeline_create_flags = vkd3d_atomic_uint64_and(&device->vendor_hacks.global_ray_tracing_pipeline_create_flags,
+                ~VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV, vkd3d_memory_order_relaxed) &
+                ~VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV;
     }
 
     TRACE("flags %#"PRIx64".\n", ray_tracing_pipeline_create_flags);
@@ -696,14 +723,50 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_SetAGSUAVSlot(d3d12_devi
 static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupported(d3d12_device_vkd3d_ext_iface *iface,
         UINT32 op_code)
 {
+    const VkPhysicalDeviceRayTracingLinearSweptSpheresFeaturesNV *lss_features;
+    const VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV *ser_features;
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+
     TRACE("iface %p, op_code %"PRIu32".\n", iface, op_code);
 
     if (!device->vendor_hacks.nv_shader.initialized)
         return FALSE;
 
+    ser_features = &device->device_info.ray_tracing_invocation_reorder_features_nv;
+    lss_features = &device->device_info.ray_tracing_linear_swept_spheres_features_nv;
+
     switch (op_code)
     {
+        case NV_EXTN_OP_RT_SPHERE_OBJECT_POSITION_AND_RADIUS:
+        case NV_EXTN_OP_RT_CANDIDATE_SPHERE_OBJECT_POSITION_AND_RADIUS:
+        case NV_EXTN_OP_RT_COMMITTED_SPHERE_OBJECT_POSITION_AND_RADIUS:
+        case NV_EXTN_OP_RT_IS_SPHERE_HIT:
+        case NV_EXTN_OP_RT_CANDIDATE_IS_NONOPAQUE_SPHERE:
+        case NV_EXTN_OP_RT_COMMITTED_IS_SPHERE:
+            return lss_features->spheres ? TRUE : FALSE;
+
+        case NV_EXTN_OP_RT_LSS_OBJECT_POSITIONS_AND_RADII:
+        case NV_EXTN_OP_RT_CANDIDATE_LSS_OBJECT_POSITIONS_AND_RADII:
+        case NV_EXTN_OP_RT_COMMITTED_LSS_OBJECT_POSITIONS_AND_RADII:
+        case NV_EXTN_OP_RT_IS_LSS_HIT:
+        case NV_EXTN_OP_RT_CANDIDATE_IS_NONOPAQUE_LSS:
+        case NV_EXTN_OP_RT_COMMITTED_IS_LSS:
+        case NV_EXTN_OP_RT_CANDIDATE_LSS_HIT_PARAMETER:
+        case NV_EXTN_OP_RT_COMMITTED_LSS_HIT_PARAMETER:
+            return lss_features->linearSweptSpheres ? TRUE : FALSE;
+
+        case NV_EXTN_OP_HIT_OBJECT_GET_SPHERE_OBJECT_POSITION_AND_RADIUS:
+        case NV_EXTN_OP_HIT_OBJECT_IS_SPHERE_HIT:
+            return lss_features->spheres && ser_features->rayTracingInvocationReorder ? TRUE : FALSE;
+
+        case NV_EXTN_OP_HIT_OBJECT_GET_LSS_OBJECT_POSITIONS_AND_RADII:
+        case NV_EXTN_OP_HIT_OBJECT_IS_LSS_HIT:
+            return lss_features->linearSweptSpheres && ser_features->rayTracingInvocationReorder ? TRUE : FALSE;
+
+        case NV_EXTN_OP_RT_CANDIDATE_BUILTIN_PRIMITIVE_RAY_T:
+        case NV_EXTN_OP_RT_COMMIT_NONOPAQUE_BUILTIN_PRIMITIVE_HIT:
+            return lss_features->spheres || lss_features->linearSweptSpheres ? TRUE : FALSE;
+
         case NV_EXTN_OP_HIT_OBJECT_TRACE_RAY:
         case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT:
         case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT_WITH_RECORD_INDEX:
@@ -723,7 +786,8 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupport
         case NV_EXTN_OP_HIT_OBJECT_IS_HIT:
         case NV_EXTN_OP_HIT_OBJECT_IS_NOP:
         case NV_EXTN_OP_HIT_OBJECT_MAKE_NOP:
-            return device->device_info.ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder ? TRUE : FALSE;
+            return ser_features->rayTracingInvocationReorder ? TRUE : FALSE;
+
         default:
             return FALSE;
     }

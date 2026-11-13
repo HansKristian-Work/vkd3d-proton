@@ -223,6 +223,7 @@ struct vkd3d_vulkan_info
     bool NV_raw_access_chains;
     bool NV_cooperative_matrix2;
     bool NV_ray_tracing_invocation_reorder;
+    bool NV_ray_tracing_linear_swept_spheres;
     bool NV_shader_atomic_float16_vector;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
@@ -3169,6 +3170,13 @@ struct vk_acceleration_structure_postbuild_info
     enum vkd3d_rtas_kind rtas_kind; /* Only used for immediate BLAS or TLAS build. */
 };
 
+union vkd3d_acceleration_structure_geometry_data
+{
+    VkAccelerationStructureTrianglesOpacityMicromapKHR omm_triangles;
+    VkAccelerationStructureGeometrySpheresDataNV spheres;
+    VkAccelerationStructureGeometryLinearSweptSpheresDataNV lss;
+};
+
 struct d3d12_rtas_batch_state
 {
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE build_type;
@@ -3183,8 +3191,8 @@ struct d3d12_rtas_batch_state
     size_t geometry_info_count;
     size_t geometry_info_size;
 
-    VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos;
-    size_t omm_triangles_info_size;
+    union vkd3d_acceleration_structure_geometry_data *geometry_data;
+    size_t geometry_data_size;
 
     VkAccelerationStructureBuildRangeInfoKHR *range_infos;
     size_t range_info_size;
@@ -5445,6 +5453,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDevicePresentWait2FeaturesKHR present_wait2_features;
     VkPhysicalDevicePresentTimingFeaturesEXT present_timing_features;
     VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV ray_tracing_invocation_reorder_features_nv;
+    VkPhysicalDeviceRayTracingLinearSweptSpheresFeaturesNV ray_tracing_linear_swept_spheres_features_nv;
     VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptor_heap_features;
     VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR device_address_commands_features;
     VkPhysicalDeviceShaderFloatControls2FeaturesKHR float_controls2_features;
@@ -7060,16 +7069,17 @@ static inline struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_ma
 
 uint32_t vkd3d_acceleration_structure_get_geometry_count(
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc);
+bool vkd3d_acceleration_structure_needs_geometry_data(const struct d3d12_device *device);
 bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
         VkAccelerationStructureGeometryKHR *geometry_infos,
-        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos,
+        union vkd3d_acceleration_structure_geometry_data *geometry_data,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
         uint32_t *primitive_counts);
 bool vkd3d_acceleration_structure_resolve_omm_va_maps(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
-        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos);
+        union vkd3d_acceleration_structure_geometry_data *geometry_data);
 void vkd3d_acceleration_structure_flush_postbuild_batch(struct d3d12_command_list *list,
         const struct vk_acceleration_structure_postbuild_info *infos, size_t count);
 void vkd3d_acceleration_structure_write_postbuild_info(

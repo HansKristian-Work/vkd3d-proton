@@ -18,6 +18,7 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "vkd3d_private.h"
+#include "vkd3d_ext_nvapi_types.h"
 
 #define RT_TRACE TRACE
 
@@ -68,6 +69,13 @@ uint32_t vkd3d_acceleration_structure_get_geometry_count(
         return desc->NumDescs;
 }
 
+bool vkd3d_acceleration_structure_needs_geometry_data(const struct d3d12_device *device)
+{
+    return device->device_info.supports_opacity_micromap ||
+            device->device_info.ray_tracing_linear_swept_spheres_features_nv.spheres ||
+            device->device_info.ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres;
+}
+
 static void vkd3d_acceleration_structure_convert_triangles(const struct d3d12_device *device,
         const D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC *desc,
         VkAccelerationStructureGeometryKHR *geometry_info,
@@ -113,14 +121,144 @@ static void vkd3d_acceleration_structure_convert_triangles(const struct d3d12_de
     RT_TRACE("  Vertex stride: %"PRIu64" bytes\n", desc->VertexBuffer.StrideInBytes);
 }
 
+static bool vkd3d_acceleration_structure_convert_sphere_formats(const struct d3d12_device *device,
+        DXGI_FORMAT vertex_format, DXGI_FORMAT radius_format, VkFormat *vk_vertex_format, VkFormat *vk_radius_format)
+{
+    const struct vkd3d_format *vertex, *radius;
+
+    vertex = vkd3d_get_format(device, vertex_format, false);
+    radius = vkd3d_get_format(device, radius_format, false);
+
+    if (!vertex || !(vertex->vk_format_features_buffer & VK_FORMAT_FEATURE_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR))
+    {
+        ERR("Unsupported sphere vertex format %#x.\n", vertex_format);
+        return false;
+    }
+
+    if ((radius_format != DXGI_FORMAT_R32_FLOAT && radius_format != DXGI_FORMAT_R16_FLOAT) ||
+            !radius || !(radius->vk_format_features_buffer & VK_FORMAT_FEATURE_2_ACCELERATION_STRUCTURE_RADIUS_BUFFER_BIT_NV))
+    {
+        ERR("Unsupported sphere radius format %#x.\n", radius_format);
+        return false;
+    }
+
+    *vk_vertex_format = vertex->vk_format;
+    *vk_radius_format = radius->vk_format;
+    return true;
+}
+
+static bool vkd3d_acceleration_structure_convert_sphere_index_type(const struct d3d12_device *device,
+        DXGI_FORMAT format, VkIndexType *index_type)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_UNKNOWN:
+            *index_type = VK_INDEX_TYPE_NONE_KHR;
+            return true;
+        case DXGI_FORMAT_R32_UINT:
+            *index_type = VK_INDEX_TYPE_UINT32;
+            return true;
+        case DXGI_FORMAT_R16_UINT:
+            *index_type = VK_INDEX_TYPE_UINT16;
+            return true;
+        case DXGI_FORMAT_R8_UINT:
+            ERR("UINT8 sphere indices are not supported in Vulkan.\n");
+            return false;
+        default:
+            ERR("Unsupported sphere index format %#x.\n", format);
+            return false;
+    }
+}
+
+static bool vkd3d_acceleration_structure_convert_spheres(const struct d3d12_device *device,
+        const D3D12_VK_EXT_RAYTRACING_GEOMETRY_SPHERES_DESC_NVAPI *desc,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        VkAccelerationStructureGeometrySpheresDataNV *spheres, uint32_t *primitive_count)
+{
+    if (!vkd3d_acceleration_structure_convert_sphere_formats(device,
+            desc->VertexPositionFormat, desc->VertexRadiusFormat, &spheres->vertexFormat, &spheres->radiusFormat) ||
+            !vkd3d_acceleration_structure_convert_sphere_index_type(device, desc->IndexFormat, &spheres->indexType))
+        return false;
+
+    spheres->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_SPHERES_DATA_NV;
+    spheres->vertexData.deviceAddress = desc->VertexPositionBuffer.StartAddress;
+    spheres->vertexStride = desc->VertexPositionBuffer.StrideInBytes;
+    spheres->radiusData.deviceAddress = desc->VertexRadiusBuffer.StartAddress;
+    spheres->radiusStride = desc->VertexRadiusBuffer.StrideInBytes;
+    spheres->indexData.deviceAddress = spheres->indexType == VK_INDEX_TYPE_NONE_KHR ? 0 : desc->IndexBuffer.StartAddress;
+    spheres->indexStride = desc->IndexBuffer.StrideInBytes;
+    *primitive_count = spheres->indexType == VK_INDEX_TYPE_NONE_KHR ? desc->VertexCount : desc->IndexCount;
+
+    geometry_info->geometryType = VK_GEOMETRY_TYPE_SPHERES_NV;
+    vk_prepend_struct(geometry_info, spheres);
+    return true;
+}
+
+static bool vkd3d_acceleration_structure_convert_lss(const struct d3d12_device *device,
+        const D3D12_VK_EXT_RAYTRACING_GEOMETRY_LSS_DESC_NVAPI *desc,
+        VkAccelerationStructureGeometryKHR *geometry_info,
+        VkAccelerationStructureGeometryLinearSweptSpheresDataNV *lss, uint32_t *primitive_count)
+{
+    if (!vkd3d_acceleration_structure_convert_sphere_formats(device,
+            desc->VertexPositionFormat, desc->VertexRadiusFormat, &lss->vertexFormat, &lss->radiusFormat) ||
+            !vkd3d_acceleration_structure_convert_sphere_index_type(device, desc->IndexFormat, &lss->indexType))
+        return false;
+
+    switch (desc->PrimitiveFormat)
+    {
+        case D3D12_VK_EXT_RAYTRACING_LSS_PRIMITIVE_FORMAT_NVAPI_LIST:
+            lss->indexingMode = VK_RAY_TRACING_LSS_INDEXING_MODE_LIST_NV;
+            break;
+        case D3D12_VK_EXT_RAYTRACING_LSS_PRIMITIVE_FORMAT_NVAPI_SUCCESSIVE_IMPLICIT:
+            /* Prebuild queries may omit buffer addresses. */
+            if (lss->indexType == VK_INDEX_TYPE_NONE_KHR)
+            {
+                ERR("Successive LSS indexing requires an index buffer.\n");
+                return false;
+            }
+            lss->indexingMode = VK_RAY_TRACING_LSS_INDEXING_MODE_SUCCESSIVE_NV;
+            break;
+        default:
+            ERR("Unsupported LSS primitive format %#x.\n", desc->PrimitiveFormat);
+            return false;
+    }
+
+    switch (desc->EndcapMode)
+    {
+        case D3D12_VK_EXT_RAYTRACING_LSS_ENDCAP_MODE_NVAPI_NONE:
+            lss->endCapsMode = VK_RAY_TRACING_LSS_PRIMITIVE_END_CAPS_MODE_NONE_NV;
+            break;
+        case D3D12_VK_EXT_RAYTRACING_LSS_ENDCAP_MODE_NVAPI_CHAINED:
+            lss->endCapsMode = VK_RAY_TRACING_LSS_PRIMITIVE_END_CAPS_MODE_CHAINED_NV;
+            break;
+        default:
+            ERR("Unsupported LSS endcap mode %#x.\n", desc->EndcapMode);
+            return false;
+    }
+
+    lss->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_LINEAR_SWEPT_SPHERES_DATA_NV;
+    lss->vertexData.deviceAddress = desc->VertexPositionBuffer.StartAddress;
+    lss->vertexStride = desc->VertexPositionBuffer.StrideInBytes;
+    lss->radiusData.deviceAddress = desc->VertexRadiusBuffer.StartAddress;
+    lss->radiusStride = desc->VertexRadiusBuffer.StrideInBytes;
+    lss->indexData.deviceAddress = lss->indexType == VK_INDEX_TYPE_NONE_KHR ? 0 : desc->IndexBuffer.StartAddress;
+    lss->indexStride = desc->IndexBuffer.StrideInBytes;
+    *primitive_count = desc->PrimitiveCount;
+
+    geometry_info->geometryType = VK_GEOMETRY_TYPE_LINEAR_SWEPT_SPHERES_NV;
+    vk_prepend_struct(geometry_info, lss);
+    return true;
+}
+
 bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         VkAccelerationStructureBuildGeometryInfoKHR *build_info,
         VkAccelerationStructureGeometryKHR *geometry_infos,
-        VkAccelerationStructureTrianglesOpacityMicromapKHR *omm_triangles_infos,
+        union vkd3d_acceleration_structure_geometry_data *geometry_data,
         VkAccelerationStructureBuildRangeInfoKHR *range_infos,
         uint32_t *primitive_counts)
 {
+    const D3D12_VK_EXT_RAYTRACING_GEOMETRY_DESC *ext_geom_desc;
     VkAccelerationStructureGeometryAabbsDataKHR *aabbs;
     const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
     uint32_t primitive_count;
@@ -158,8 +296,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
         /* There is risk of desc->NumDescs being != 1, although it should not happen. */
         memset(geometry_infos, 0, sizeof(*geometry_infos));
         /* Safety since we check for sentinel when completing batch. */
-        if (omm_triangles_infos)
-            memset(omm_triangles_infos, 0, sizeof(*omm_triangles_infos));
+        if (geometry_data)
+            memset(geometry_data, 0, sizeof(*geometry_data));
         geometry_infos[0].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
         geometry_infos[0].geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
         geometry_infos[0].geometry.instances.sType =
@@ -188,8 +326,8 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
     {
         /* Don't hoist this memset since top-level geometries forces NumDescs == 1 assumption. */
         memset(geometry_infos, 0, sizeof(*geometry_infos) * desc->NumDescs);
-        if (omm_triangles_infos)
-            memset(omm_triangles_infos, 0, sizeof(*omm_triangles_infos) * desc->NumDescs);
+        if (geometry_data)
+            memset(geometry_data, 0, sizeof(*geometry_data) * desc->NumDescs);
         if (primitive_counts)
             memset(primitive_counts, 0, sizeof(*primitive_counts) * desc->NumDescs);
 
@@ -214,7 +352,7 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
             geometry_infos[i].flags = d3d12_geometry_flags_to_vk(geom_desc->Flags);
             RT_TRACE("  Flags = #%x\n", geom_desc->Flags);
 
-            switch (geom_desc->Type)
+            switch ((D3D12_VK_EXT_RAYTRACING_GEOMETRY_TYPE)geom_desc->Type)
             {
                 case D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES:
                     vkd3d_acceleration_structure_convert_triangles(device,
@@ -242,11 +380,37 @@ bool vkd3d_acceleration_structure_convert_inputs(struct d3d12_device *device,
                             geom_desc->OmmTriangles.pTriangles, &geometry_infos[i], &primitive_count);
 
                     if (!vkd3d_acceleration_structure_convert_opacity_micromap(device,
-                            geom_desc, &geometry_infos[i], &omm_triangles_infos[i]))
+                            geom_desc, &geometry_infos[i], &geometry_data[i].omm_triangles))
                     {
                         return false;
                     }
 
+                    break;
+
+                case D3D12_VK_EXT_RAYTRACING_GEOMETRY_TYPE_SPHERES_NVAPI:
+                    if (!device->device_info.ray_tracing_linear_swept_spheres_features_nv.spheres)
+                    {
+                        ERR("Ray tracing spheres are not supported.\n");
+                        return false;
+                    }
+
+                    ext_geom_desc = (const D3D12_VK_EXT_RAYTRACING_GEOMETRY_DESC *)geom_desc;
+                    if (!vkd3d_acceleration_structure_convert_spheres(device, ext_geom_desc->Spheres,
+                            &geometry_infos[i], &geometry_data[i].spheres, &primitive_count))
+                        return false;
+                    break;
+
+                case D3D12_VK_EXT_RAYTRACING_GEOMETRY_TYPE_LSS_NVAPI:
+                    if (!device->device_info.ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres)
+                    {
+                        ERR("Ray tracing linear swept spheres are not supported.\n");
+                        return false;
+                    }
+
+                    ext_geom_desc = (const D3D12_VK_EXT_RAYTRACING_GEOMETRY_DESC *)geom_desc;
+                    if (!vkd3d_acceleration_structure_convert_lss(device, ext_geom_desc->LSS,
+                            &geometry_infos[i], &geometry_data[i].lss, &primitive_count))
+                        return false;
                     break;
 
                 default:
