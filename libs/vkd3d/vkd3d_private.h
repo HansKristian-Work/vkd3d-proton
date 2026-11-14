@@ -1257,6 +1257,35 @@ static inline struct vkd3d_cookie vkd3d_null_cookie(void)
 }
 
 bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource);
+
+/* VKD3D_CONFIG=readback_map_sync, see readback_sync.c. */
+struct vkd3d_readback_sync_entry
+{
+    const struct d3d12_resource *resource;
+    const void *list;
+    const void *queue;
+    ID3D12Fence *fence;
+    uint64_t value;
+    uint64_t generation;
+    unsigned int state;
+};
+
+struct vkd3d_readback_sync
+{
+    pthread_mutex_t mutex;
+    struct vkd3d_readback_sync_entry entries[32];
+};
+
+void vkd3d_readback_sync_init(struct vkd3d_readback_sync *sync);
+void vkd3d_readback_sync_cleanup(struct vkd3d_readback_sync *sync);
+void vkd3d_readback_sync_record_copy(struct vkd3d_readback_sync *sync, const void *list,
+        struct d3d12_resource *dst, UINT64 byte_count);
+void vkd3d_readback_sync_reset_list(struct vkd3d_readback_sync *sync, const void *list);
+void vkd3d_readback_sync_submit(struct vkd3d_readback_sync *sync, const void *queue,
+        ID3D12CommandList * const *lists, UINT count);
+void vkd3d_readback_sync_signal(struct vkd3d_readback_sync *sync, const void *queue,
+        ID3D12Fence *fence, UINT64 value);
+void vkd3d_readback_sync_wait_for_map(struct vkd3d_readback_sync *sync, struct d3d12_resource *resource);
 void d3d12_resource_promote_desc(const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_DESC1 *desc1);
 HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
         UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
@@ -5879,6 +5908,7 @@ struct d3d12_device
 
     pthread_mutex_t mutex;
     pthread_mutex_t global_submission_mutex;
+    struct vkd3d_readback_sync readback_sync;
     spinlock_t low_latency_swapchain_spinlock;
 
     VkPhysicalDeviceMemoryProperties memory_properties;

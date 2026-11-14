@@ -3951,6 +3951,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
     rwlock_destroy(&device->fragment_output_lock);
     rwlock_destroy(&device->vertex_input_lock);
+    vkd3d_readback_sync_cleanup(&device->readback_sync);
     pthread_mutex_destroy(&device->mutex);
     d3d12_device_close_kmt(device);
     if (device->parent)
@@ -10596,6 +10597,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     device->vk_device = VK_NULL_HANDLE;
 
+    vkd3d_readback_sync_init(&device->readback_sync);
     if ((rc = pthread_mutex_init(&device->mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
@@ -10774,6 +10776,7 @@ out_free_fragment_output_lock:
 out_free_vertex_input_lock:
     rwlock_destroy(&device->vertex_input_lock);
 out_free_mutex:
+    vkd3d_readback_sync_cleanup(&device->readback_sync);
     pthread_mutex_destroy(&device->mutex);
     return hr;
 }

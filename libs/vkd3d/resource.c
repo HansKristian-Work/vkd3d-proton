@@ -2627,6 +2627,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface,
 
     if (data)
     {
+        if (VKD3D_CONFIG_FLAG_IS_SET(READBACK_MAP_SYNC))
+            vkd3d_readback_sync_wait_for_map(&resource->device->readback_sync, resource);
         d3d12_resource_get_map_ptr(resource, data);
         TRACE("Returning pointer %p.\n", *data);
     }

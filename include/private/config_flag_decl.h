@@ -74,6 +74,7 @@ VKD3D_DECL_CONFIG("fail_unsupported_state_template", FAIL_UNSUPPORTED_STATE_TEMP
 VKD3D_DECL_CONFIG("ignore_shared_fence", IGNORE_SHARED_FENCE)
 VKD3D_DECL_CONFIG("adreno_7xx_extra_compat", ADRENO_7XX_EXTRA_COMPAT)
 VKD3D_DECL_CONFIG("descriptor_heap_robustness", DESCRIPTOR_HEAP_ROBUSTNESS)
+VKD3D_DECL_CONFIG("readback_map_sync", READBACK_MAP_SYNC)
 VKD3D_DECL_CONFIG("legacy_structurizer", LEGACY_STRUCTURIZER)
 VKD3D_DECL_CONFIG("no_default_heap_robustness", NO_DEFAULT_HEAP_ROBUSTNESS)
 VKD3D_DECL_CONFIG("clear_table_offsets_on_rebind", CLEAR_TABLE_OFFSETS_ON_REBIND)

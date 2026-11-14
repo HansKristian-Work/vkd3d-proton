@@ -90,6 +90,7 @@ vkd3d_src = [
   'opacity_micromap.c',
   'swapchain.c',
   'queue_timeline.c',
+  'readback_sync.c',
   'address_binding_tracker.c',
   'workgraphs.c'
 ]

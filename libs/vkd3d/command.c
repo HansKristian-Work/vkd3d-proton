@@ -7250,6 +7250,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(d3d12_command_list_ifa
     TRACE("iface %p, allocator %p, initial_pipeline_state %p.\n",
             iface, allocator, initial_pipeline_state);
 
+    if (VKD3D_CONFIG_FLAG_IS_SET(READBACK_MAP_SYNC))
+        vkd3d_readback_sync_reset_list(&list->device->readback_sync, iface);
+
     if (!allocator_impl || allocator_impl->type != list->type)
     {
         WARN("Invalid command allocator.\n");
@@ -9469,6 +9472,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     TRACE("iface %p, dst_resource %p, dst_offset %#"PRIx64", src_resource %p, "
             "src_offset %#"PRIx64", byte_count %#"PRIx64".\n",
             iface, dst, dst_offset, src, src_offset, byte_count);
+
+    if (VKD3D_CONFIG_FLAG_IS_SET(READBACK_MAP_SYNC) && dst)
+        vkd3d_readback_sync_record_copy(&list->device->readback_sync, iface,
+                impl_from_ID3D12Resource(dst), byte_count);
 
     d3d12_command_list_check_render_pass_validation(list, "CopyBufferRegion called within a render pass.\n", true);
     d3d12_command_list_flush_dgc_batch(list);
@@ -24066,6 +24073,9 @@ VKD3D_METHODENTRY(void) d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQue
     if (!command_list_count)
         return;
 
+    if (VKD3D_CONFIG_FLAG_IS_SET(READBACK_MAP_SYNC))
+        vkd3d_readback_sync_submit(&command_queue->device->readback_sync, iface, command_lists, command_list_count);
+
     if (FAILED(hr = vkd3d_memory_transfer_queue_flush(&command_queue->device->memory_transfers)))
     {
         d3d12_device_mark_as_removed(command_queue->device, hr,
@@ -24463,6 +24473,9 @@ VKD3D_METHODENTRY(HRESULT) d3d12_command_queue_Signal(ID3D12CommandQueue *iface,
     struct d3d12_command_queue_submission sub;
 
     TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence_iface, value);
+
+    if (VKD3D_CONFIG_FLAG_IS_SET(READBACK_MAP_SYNC))
+        vkd3d_readback_sync_signal(&command_queue->device->readback_sync, iface, fence_iface, value);
 
     d3d12_fence_iface_inc_ref((d3d12_fence_iface *)fence_iface);
 
