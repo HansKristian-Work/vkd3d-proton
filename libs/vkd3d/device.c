@@ -73,6 +73,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_DISABLE_COND(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
     VK_EXTENSION_DISABLE_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
     VK_EXTENSION_DISABLE_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
+    VK_EXTENSION_DISABLE_COND(KHR_RAY_TRACING_POSITION_FETCH, KHR_ray_tracing_position_fetch, VKD3D_CONFIG_FLAG_STATIC(NO_DXR)),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
     VK_EXTENSION(KHR_PRESENT_MODE_FIFO_LATEST_READY, KHR_present_mode_fifo_latest_ready),
@@ -1386,6 +1387,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->ray_tracing_maintenance1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->ray_tracing_maintenance1_features);
+    }
+
+    if (vulkan_info->KHR_ray_tracing_position_fetch)
+    {
+        info->ray_tracing_position_fetch_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->ray_tracing_position_fetch_features);
     }
 
     if (vulkan_info->KHR_fragment_shading_rate)
