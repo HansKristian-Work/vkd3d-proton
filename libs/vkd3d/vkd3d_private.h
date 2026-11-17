@@ -134,6 +134,7 @@ struct vkd3d_vulkan_info
     bool KHR_ray_query;
     bool KHR_fragment_shading_rate;
     bool KHR_ray_tracing_maintenance1;
+    bool KHR_ray_tracing_position_fetch;
     bool KHR_fragment_shader_barycentric;
     bool KHR_external_memory_win32;
     bool KHR_external_semaphore_win32;
@@ -5408,6 +5409,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
     VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR ray_tracing_maintenance1_features;
+    VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR ray_tracing_position_fetch_features;
     VkPhysicalDeviceDeviceGeneratedCommandsFeaturesEXT device_generated_commands_features;
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features;
     VkPhysicalDeviceShaderModuleIdentifierFeaturesEXT shader_module_identifier_features;
