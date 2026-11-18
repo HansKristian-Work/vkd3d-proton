@@ -38,6 +38,75 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_ATTEMPTS_COMPLEX_MULTIVIEW = 1 << 9,
 };
 
+#define DECL_APPLICATION_FLAG(x) { VKD3D_APPLICATION_FEATURE_##x, #x }
+static const struct
+{
+    enum vkd3d_application_feature_override override;
+    const char *mapping;
+} application_feature_mappings[] = {
+    DECL_APPLICATION_FLAG(NO_DEFAULT_DXR_ON_DECK_AND_FRAME),
+    DECL_APPLICATION_FLAG(LIMIT_DXR_1_0),
+    DECL_APPLICATION_FLAG(DISABLE_NV_REFLEX),
+    DECL_APPLICATION_FLAG(MESH_SHADER_WITHOUT_BARYCENTRICS),
+    DECL_APPLICATION_FLAG(DISABLE_ANTI_LAG),
+    DECL_APPLICATION_FLAG(RDNA1_COMPATIBILITY),
+    DECL_APPLICATION_FLAG(ASSUMES_STRICT_BYTE_ADDRESS_WRAP),
+    DECL_APPLICATION_FLAG(BROKEN_WAVE128_REQUESTS),
+    DECL_APPLICATION_FLAG(REQUIRES_MIN16_DENORMS),
+    DECL_APPLICATION_FLAG(ATTEMPTS_COMPLEX_MULTIVIEW),
+};
+
+#define ENTRY(x) { #x, VKD3D_SHADER_QUIRK_ ## x }
+static const struct vkd3d_shader_quirk_mapping
+{
+    const char *name;
+    vkd3d_shader_quirks_t quirk;
+} vkd3d_shader_quirk_mappings[] = {
+    ENTRY(FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW),
+    ENTRY(FORCE_TGSM_BARRIERS),
+    ENTRY(INVARIANT_POSITION),
+    ENTRY(FORCE_NOCONTRACT_MATH),
+    ENTRY(LIMIT_TESS_FACTORS_32),
+    ENTRY(LIMIT_TESS_FACTORS_16),
+    ENTRY(LIMIT_TESS_FACTORS_12),
+    ENTRY(LIMIT_TESS_FACTORS_8),
+    ENTRY(LIMIT_TESS_FACTORS_4),
+    ENTRY(FORCE_SUBGROUP_SIZE_1),
+    ENTRY(FORCE_MAX_WAVE32),
+    ENTRY(FORCE_MIN16_AS_32BIT),
+    ENTRY(REWRITE_GRAD_TO_BIAS),
+    ENTRY(FORCE_LOOP),
+    ENTRY(FORCE_COMPUTE_BARRIER),
+    ENTRY(FORCE_PRE_COMPUTE_BARRIER),
+    ENTRY(DESCRIPTOR_HEAP_ROBUSTNESS),
+    ENTRY(FORCE_PRE_RASTERIZATION_BARRIER),
+    ENTRY(FORCE_GRAPHICS_BARRIER),
+    ENTRY(DISABLE_OPTIMIZATIONS),
+    ENTRY(FORCE_NOCONTRACT_MATH_VS),
+    ENTRY(FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY),
+    ENTRY(ASSUME_BROKEN_SUB_8x8_CUBE_MIPS),
+    ENTRY(FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING),
+    ENTRY(AGGRESSIVE_NONUNIFORM),
+    ENTRY(HOIST_DERIVATIVES),
+    ENTRY(FIXUP_LOOP_HEADER_UNDEF_PHIS),
+    ENTRY(FORCE_MIN_WAVE32),
+    ENTRY(PROMOTE_GROUP_TO_DEVICE_MEMORY_BARRIER),
+    ENTRY(FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS),
+    ENTRY(FIXUP_RSQRT_INF_NAN),
+    ENTRY(ROBUST_COMPUTE_QUAD_BROADCAST),
+    ENTRY(IGNORE_PRIMITIVE_SHADING_RATE),
+    ENTRY(CLAMP_WAVE_SIZE_TO_THREAD_GROUP32),
+    ENTRY(ENABLE_FAIR_SCHEDULING),
+    ENTRY(FORCE_NONUNIFORM_RT),
+    ENTRY(FORCE_GRAPHICS_BARRIER_BEFORE_DRAW),
+    ENTRY(FORCE_FEEDBACK_LOOP),
+    ENTRY(DEBUG_FORCE_MIN_WAVE64),
+    ENTRY(FORCE_DENORM_LEGACY_FP16_CONVERSIONS),
+    ENTRY(LEGACY_STRUCTURIZER),
+};
+#undef ENTRY
+
+
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
 typedef uint32_t vkd3d_application_feature_override_flags;
 union vkd3d_config_flags vkd3d_config_flags;
@@ -853,6 +922,260 @@ end:
     return engine_class;
 }
 
+static void dump_feature_flags(uint32_t flags)
+{
+    bool first = true;
+    unsigned int i;
+    printf("  \"applicationFeatures\" : [ ");
+
+    while (flags)
+    {
+        uint32_t next_flags = flags & (flags - 1);
+        uint32_t current = flags & ~next_flags;
+        flags = next_flags;
+
+        for (i = 0; i < ARRAY_SIZE(application_feature_mappings); i++)
+        {
+            if (application_feature_mappings[i].override == current)
+            {
+                if (!first)
+                    printf(", ");
+                printf("\"%s\"", application_feature_mappings[i].mapping);
+
+                first = false;
+                break;
+            }
+        }
+
+        assert(i < ARRAY_SIZE(application_feature_mappings));
+    }
+
+    printf(" ],\n");
+}
+
+static void dump_config_flags(const char *tag, union vkd3d_config_flags flags)
+{
+    bool first = true;
+    printf("  \"%s\" : [ ", tag);
+#define VKD3D_DECL_CONFIG(dummy, CONFIG) do { \
+    if (flags.bits.CONFIG) { \
+        if (!first) \
+            printf(", "); \
+        printf("\"%s\"", #CONFIG); \
+        first = false; \
+    } \
+} while(0);
+#define VKD3D_DECL_CONFIG_PLAIN(c) VKD3D_DECL_CONFIG(0, c)
+#include "config_flag_decl.h"
+#undef VKD3D_DECL_CONFIG
+#undef VKD3D_DECL_CONFIG_PLAIN
+
+    printf(" ],\n");
+}
+
+static void dump_quirk_flags(vkd3d_shader_quirks_t quirks)
+{
+    bool first = true;
+    unsigned int i;
+
+    while (quirks)
+    {
+        vkd3d_shader_quirks_t next_quirks = quirks & (quirks - 1);
+        vkd3d_shader_quirks_t current = quirks & ~next_quirks;
+        quirks = next_quirks;
+
+        for (i = 0; i < ARRAY_SIZE(vkd3d_shader_quirk_mappings); i++)
+        {
+            if (vkd3d_shader_quirk_mappings[i].quirk == current)
+            {
+                if (!first)
+                    printf(", ");
+                printf("\"%s\"", vkd3d_shader_quirk_mappings[i].name);
+                first = false;
+                break;
+            }
+        }
+
+        assert(i < ARRAY_SIZE(vkd3d_shader_quirk_mappings));
+    }
+}
+
+static void dump_shader_quirks(const struct vkd3d_shader_quirk_meta *quirk)
+{
+    unsigned int i;
+    bool first;
+    printf("  \"shaderQuirks\" : {\n");
+
+    assert(quirk->info->global_quirks == 0);
+
+    if (quirk->info->default_quirks)
+    {
+        printf("    \"defaultQuirks\" : [ ");
+        dump_quirk_flags(quirk->info->default_quirks);
+        printf(" ],\n");
+    }
+
+    first = true;
+    printf("    \"perEntryQuirks\" : {");
+    for (i = 0; i < quirk->info->num_entry_points; i++)
+    {
+        if (quirk->info->entry_points[i].entry)
+        {
+            assert(quirk->info->entry_points[i].shader_hash == 0);
+
+            if (first)
+                printf("\n");
+            else
+                printf(",\n");
+
+            printf("      \"%s\" : [ ", quirk->info->entry_points[i].entry);
+            dump_quirk_flags(quirk->info->entry_points[i].quirks);
+            printf(" ]");
+            first = false;
+        }
+    }
+
+    if (first)
+        printf("},\n");
+    else
+        printf("\n    },\n");
+
+    first = true;
+    printf("    \"perHashQuirks\" : {");
+    for (i = 0; i < quirk->info->num_entry_points; i++)
+    {
+        if (!quirk->info->entry_points[i].entry)
+        {
+            assert(quirk->info->entry_points[i].shader_hash != 0);
+
+            if (first)
+                printf("\n");
+            else
+                printf(",\n");
+
+            printf("      \"%016"PRIx64"\" : [ ", quirk->info->entry_points[i].shader_hash);
+            dump_quirk_flags(quirk->info->entry_points[i].quirks);
+            printf(" ]");
+            first = false;
+        }
+    }
+
+    if (first)
+        printf("}\n");
+    else
+        printf("\n    }\n");
+
+    printf("  },\n");
+}
+
+static void dump_app_json(
+    const struct vkd3d_instance_application_meta *meta,
+    const struct vkd3d_shader_quirk_meta *quirk)
+{
+    printf("{\n");
+
+    if (meta)
+    {
+        if (meta->override)
+            dump_feature_flags(meta->override);
+
+        if (vkd3d_config_flag_is_nonzero(meta->global_flags_add))
+            dump_config_flags("configEnable", meta->global_flags_add);
+        if (vkd3d_config_flag_is_nonzero(meta->global_flags_remove))
+            dump_config_flags("configDisable", meta->global_flags_remove);
+    }
+
+    if (quirk)
+        dump_shader_quirks(quirk);
+
+    if ((meta ? meta->mode : quirk->mode) == VKD3D_STRING_COMPARE_APPID)
+    {
+        printf("  \"SteamAppID\" : \"%s\"\n", (meta ? meta->name : quirk->name));
+    }
+    else
+    {
+        switch ((meta ? meta->mode : quirk->mode))
+        {
+        case VKD3D_STRING_COMPARE_CONTAINS:
+            printf("  \"comparator\" : \"CONTAINS\",\n");
+            break;
+
+        case VKD3D_STRING_COMPARE_ENDS_WITH:
+            printf("  \"comparator\" : \"ENDS_WITH\",\n");
+            break;
+
+        case VKD3D_STRING_COMPARE_STARTS_WITH:
+            printf("  \"comparator\" : \"STARTS_WITH\",\n");
+            break;
+
+        case VKD3D_STRING_COMPARE_HASH_EQUAL:
+            printf("  \"comparator\" : \"HASH_EQUAL\",\n");
+            break;
+
+        case VKD3D_STRING_COMPARE_EXACT:
+            break;
+
+        default:
+            abort();
+        }
+        printf("  \"name\" : \"%s\"\n", meta ? meta->name : quirk->name);
+    }
+
+    printf("},\n");
+}
+
+static void dump_json(void)
+{
+    unsigned int i, j;
+
+    for (i = 0; i < ARRAY_SIZE(application_override); i++)
+    {
+        const struct vkd3d_instance_application_meta *meta = &application_override[i];
+        const struct vkd3d_shader_quirk_meta *quirk = NULL;
+
+        if (meta->mode == VKD3D_STRING_COMPARE_NEVER)
+            continue;
+
+        for (j = 0; j < ARRAY_SIZE(application_shader_quirks); j++)
+        {
+            const struct vkd3d_shader_quirk_meta *candidate = &application_shader_quirks[i];
+            if (candidate->mode != VKD3D_STRING_COMPARE_NEVER &&
+                candidate->mode == meta->mode && strcmp(candidate->name, meta->name) == 0)
+            {
+                quirk = candidate;
+                break;
+            }
+        }
+
+        dump_app_json(meta, quirk);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
+    {
+        const struct vkd3d_shader_quirk_meta *quirk = &application_shader_quirks[i];
+        const struct vkd3d_instance_application_meta *meta = NULL;
+        if (quirk->mode == VKD3D_STRING_COMPARE_NEVER)
+            continue;
+
+        for (j = 0; j < ARRAY_SIZE(application_override); j++)
+        {
+            const struct vkd3d_instance_application_meta *candidate = &application_override[i];
+            if (candidate->mode != VKD3D_STRING_COMPARE_NEVER &&
+                candidate->mode == quirk->mode && strcmp(candidate->name, quirk->name) == 0)
+            {
+                meta = candidate;
+                break;
+            }
+        }
+
+        /* Already handled this case above. */
+        if (meta && quirk)
+            continue;
+
+        dump_app_json(meta, quirk);
+    }
+}
+
 void vkd3d_instance_apply_application_workarounds(void)
 {
     uint32_t engine_major = 0, engine_minor = 0, engine_patch = 0;
@@ -860,6 +1183,8 @@ void vkd3d_instance_apply_application_workarounds(void)
     char app[VKD3D_PATH_MAX];
     char appid[32];
     size_t i;
+
+    dump_json();
 
     if (!vkd3d_get_program_name(app))
         return;
