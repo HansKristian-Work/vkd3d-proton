@@ -294,10 +294,20 @@ static const struct vkd3d_shader_quirk_info re_quirks = {
     re_hashes, ARRAY_SIZE(re_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash re4_hashes[] = {
+    { NULL, 0xa100b53736f9c1bfull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
+    { NULL, 0x1c4c8782b75c498bull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
+    /* CS_InstancingCompaction uses a group-shared visibility mask without
+     * synchronizing the reset, atomic updates and read across invocations.
+     * This causes view-dependent missing geometry on NVIDIA. */
+    { NULL, 0x7ba6ba5976065496ull, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS },
+    { NULL, 0x9c1fdb247cf0263cull, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS },
+};
+
 /* There are lots of shaders which cause random flicker due to bad 16-bit behavior.
  * These shaders really need 32-bit it seems to render properly, so just do that. */
 static const struct vkd3d_shader_quirk_info re4_quirks = {
-    re_hashes, ARRAY_SIZE(re_hashes), VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT,
+    re4_hashes, ARRAY_SIZE(re4_hashes), VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT,
 };
 
 static const struct vkd3d_shader_quirk_hash mhr_hashes[] = {
