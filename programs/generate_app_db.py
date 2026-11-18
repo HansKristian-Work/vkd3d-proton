@@ -46,12 +46,16 @@ def main():
         print('Unexpected magic line:', file_lines[0])
         sys.exit(1)
 
-    recognized_engines = [ 'UnrealEngine', 'REEngine' ]
+    recognized_engines = {
+        'UnrealEngine' : 'UNREAL_ENGINE',
+        'REEngine' : 'RE_ENGINE'
+    }
 
     with open(args.output, 'w') as f:
         print('#ifndef VKD3D_PROTON_APP_DATABASE_H_', file = f)
         print('#define VKD3D_PROTON_APP_DATABASE_H_', file = f)
 
+        print('static const char application_database_hash[] = "' + db_hash + '";', file = f)
         print('static const struct vkd3d_application_database_entry application_database_entries[] = {', file = f)
 
         for line in file_lines[1:]:
@@ -80,7 +84,6 @@ def main():
             if engine_name not in recognized_engines:
                 print('Unrecognized engine:', engine_name)
                 sys.exit(1)
-            engine_name = '"' + engine_name + '"'
 
             comparator = 'VKD3D_STRING_COMPARE_EXACT'
             appname = tokens[1]
@@ -106,7 +109,7 @@ def main():
 
                 appname = '"' + appname + '"'
 
-            cline = '{ ' + ', '.join([appid, comparator, appname, engine_name])
+            cline = '{ ' + ', '.join([appid, comparator, appname, 'VKD3D_APPLICATION_ENGINE_CLASS_' + recognized_engines[engine_name]])
             for token in tokens[3:]:
                 cline += ', ' + token
             cline += ' },'

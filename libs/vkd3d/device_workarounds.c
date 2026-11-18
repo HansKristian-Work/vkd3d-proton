@@ -78,6 +78,18 @@ static const struct vkd3d_shader_quirk_info re_engine_quirks = {
 };
 #include "vkd3d_proton_app_workarounds.h"
 
+struct vkd3d_application_database_entry
+{
+    const char *appid;
+    enum vkd3d_string_compare_mode mode;
+    const char *name;
+    enum vkd3d_application_engine_class engine_class;
+    uint32_t major;
+    uint32_t minor;
+    uint32_t patch;
+};
+#include "vkd3d_proton_app_db.h"
+
 static uint32_t vkd3d_application_version;
 
 uint32_t vkd3d_get_instance_application_version(void)
@@ -217,6 +229,41 @@ end:
     return engine_class;
 }
 
+static enum vkd3d_application_engine_class vkd3d_get_engine_version_from_static_db(
+        const char *exe_name, const char *appid, uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    enum vkd3d_application_engine_class engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    unsigned int i;
+
+    INFO("Parsing static application database hash: %s\n", application_database_hash);
+
+    for (i = 0; i < ARRAY_SIZE(application_database_entries); i++)
+    {
+        const struct vkd3d_application_database_entry *entry = &application_database_entries[i];
+        bool match = false;
+
+        if ((entry->appid && strcmp(appid, entry->appid) == 0) ||
+             vkd3d_string_compare(entry->mode, exe_name, entry->name))
+            match = true;
+
+        if (match)
+        {
+            engine_class = entry->engine_class;
+            *major = entry->major;
+            *minor = entry->minor;
+            *patch = entry->patch;
+            break;
+        }
+    }
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
+        INFO("Detected UnrealEngine from static database, version %u.%u.%u\n", *major, *minor, *patch);
+    else if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
+        INFO("Detected REEngine from static database, version %u.%u.%u\n", *major, *minor, *patch);
+
+    return engine_class;
+}
+
 void vkd3d_instance_apply_application_workarounds(void)
 {
     uint32_t engine_major = 0, engine_minor = 0, engine_patch = 0;
@@ -236,6 +283,9 @@ void vkd3d_instance_apply_application_workarounds(void)
     INFO("Application DB JSON hash: %s\n", application_override_db_hash);
 
     engine_class = vkd3d_get_engine_version_from_db(app, appid, &engine_major, &engine_minor, &engine_patch);
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN)
+        engine_class = vkd3d_get_engine_version_from_static_db(app, appid, &engine_major, &engine_minor, &engine_patch);
 
     if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN)
     {
