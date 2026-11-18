@@ -737,6 +737,11 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupport
 
     switch (op_code)
     {
+        case NV_EXTN_OP_RT_TRIANGLE_OBJECT_POSITIONS:
+        case NV_EXTN_OP_RT_CANDIDATE_TRIANGLE_OBJECT_POSITIONS:
+        case NV_EXTN_OP_RT_COMMITTED_TRIANGLE_OBJECT_POSITIONS:
+            return device->device_info.ray_tracing_position_fetch_features.rayTracingPositionFetch ? TRUE : FALSE;
+
         case NV_EXTN_OP_RT_SPHERE_OBJECT_POSITION_AND_RADIUS:
         case NV_EXTN_OP_RT_CANDIDATE_SPHERE_OBJECT_POSITION_AND_RADIUS:
         case NV_EXTN_OP_RT_COMMITTED_SPHERE_OBJECT_POSITION_AND_RADIUS:
