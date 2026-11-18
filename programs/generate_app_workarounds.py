@@ -163,7 +163,7 @@ def main():
 
         print('static const char application_override_db_hash[] = "' + json_hash + '";', file = f)
 
-        print('static const struct vkd3d_instance_application_meta application_override2[] = {', file = f)
+        print('static const struct vkd3d_instance_application_meta application_override[] = {', file = f)
         for app in parsed['applications']:
             if 'SteamAppID' in app:
                 war = generate_app_workaround('APPID', app['SteamAppID'], app)
@@ -188,7 +188,7 @@ def main():
                 print(quirks, file = f)
                 links.append(link)
 
-        print('static const struct vkd3d_shader_quirk_meta application_shader_quirks2[] = {', file = f)
+        print('static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {', file = f)
         for link in links:
             print('    {' + link + '},', file = f)
         print('};', file = f)
