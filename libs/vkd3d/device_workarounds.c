@@ -876,5 +876,13 @@ void d3d12_device_init_workarounds(struct d3d12_device *device)
             INFO("Nooping SV_ShadingRate on RDNA4 due to unknown HW quirk causing hangs.\n");
             device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE;
         }
+
+        /* RADV before 26.3.1 did not handle coherent images properly in Vulkan memory model (MakeTexelVisible). */
+        if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
+            device->device_info.properties2.properties.driverVersion < VK_MAKE_VERSION(26, 3, 1))
+        {
+            INFO("Force legacy memory model for coherent images on older RADV versions.\n");
+            device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_LEGACY_MEMORY_MODEL_COHERENT_IMAGES;
+        }
     }
 }
