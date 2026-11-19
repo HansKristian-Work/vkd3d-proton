@@ -594,6 +594,8 @@ enum vkd3d_shader_target_extension
 /* For debugging. Will be removed eventually. */
 #define VKD3D_SHADER_QUIRK_LEGACY_STRUCTURIZER (1ull << 41)
 
+#define VKD3D_SHADER_QUIRK_LEGACY_MEMORY_MODEL_COHERENT_IMAGES (1ull << 42)
+
 typedef uint64_t vkd3d_shader_quirks_t;
 
 struct vkd3d_shader_quirk_hash
