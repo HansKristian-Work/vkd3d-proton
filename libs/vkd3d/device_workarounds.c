@@ -50,187 +50,7 @@ struct vkd3d_instance_application_meta
     union vkd3d_config_flags global_flags_add;
     union vkd3d_config_flags global_flags_remove;
     vkd3d_application_feature_override_flags override;
-};
-static const struct vkd3d_instance_application_meta application_override[] = {
-    /* MSVC fails to compile empty array. */
-    { VKD3D_STRING_COMPARE_EXACT, "GravityMark.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_MINIMUM_SUBGROUP_SIZE) },
-    /* Halo Infinite (1240440).
-     * Game relies on NON_ZEROED committed UAVs to be cleared to zero on allocation.
-     * This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled.
-     * Game also relies on indirectly modifying CBV root descriptors, which means we are forced to rely on RAW_VA_CBV.
-     * It also relies on multi-dispatch indirect with state updates which is ... ye.
-     * Need another config flag to workaround that as well.
-     * Poor loading times and performance with ReBar on some devices.
-     */
-    { VKD3D_STRING_COMPARE_EXACT, "HaloInfinite.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(
-                .FORCE_RAW_VA_CBV = 1, .USE_HOST_IMPORT_FALLBACK = 1,
-                .PREALLOCATE_SRV_MIP_CLAMPS = 1,
-                .NO_UPLOAD_HVV = 1) },
-    /* (1182900) Workaround amdgpu kernel bug with host memory import and concurrent submissions. */
-    { VKD3D_STRING_COMPARE_EXACT, "APlagueTaleRequiem_x64.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.USE_HOST_IMPORT_FALLBACK = 1, .DISABLE_UAV_COMPRESSION = 1) },
-    /* Shadow of the Tomb Raider (750920).
-     * Invariant workarounds actually cause more issues than they resolve on NV.
-     * RADV already has workarounds by default.
-     * FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders
-     * are broken enough that normal invariance is not enough. */
-    { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .REQUIRE_INPUT_ATTACHMENTS = 1) },
-    /* Elden Ring (1245620).
-     * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
-     * It seems to work just fine however to skip the clears. */
-    { VKD3D_STRING_COMPARE_APPID, "1245620",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(
-                .MEMORY_ALLOCATOR_SKIP_CLEAR = 1, .PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER = 1,
-                .RECYCLE_COMMAND_POOLS = 1), VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_REQUIRES_MIN16_DENORMS },
-    /* Serious Sam 4 (257420).
-     * Invariant workarounds cause graphical glitches when rendering foliage on NV. */
-    { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_NO_INVARIANT_POSITION = 1, .SMALL_VRAM_REBAR = 1) },
-    /* Cyberpunk 2077 (1091500). For whatever reason, anti-lag is always used if it is supported (impossible to disable),
-     * leading to bad performance in some cases. Currently only affects Proton-GE which ships amdxc64.dll shim by default.
-     * The workaround is obsolete how however, since Mesa does not enable anti-lag by default,
-     * and it will not be enabled by default until it's confirmed to be rock solid. */
-    { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_STATIC(ALLOW_SBT_COLLECTION) },
-    /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
-    { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
-    /* Hellblade: Senua's Sacrifice (414340). Enables RT by default if supported which is ... jarring and particularly jarring on Deck. */
-    { VKD3D_STRING_COMPARE_EXACT, "HellbladeGame-Win64-Shipping.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
-    /* PARANOID (946920). Similar concern with DXR. Add default UE configs. Also requires non-native FP16 somehow. */
-    { VKD3D_STRING_COMPARE_EXACT, "Paranoid-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1), VKD3D_CONFIG_FLAGS_NONE,
-            VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
-    /*Tracing Decay (1973370). Similar concern with DXR as PARANOID. */
-    { VKD3D_STRING_COMPARE_EXACT, "TracingDecay-Win64-Shipping.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
-    /* Lost Judgment (2058190) */
-    { VKD3D_STRING_COMPARE_EXACT, "LostJudgment.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
-    /* Marvel's Spider-Man Remastered (1817070). DCC stores causes glitches when RT is enabled with RADV. */
-    { VKD3D_STRING_COMPARE_EXACT, "Spider-Man.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_INITIAL_TRANSITION = 1, .DISABLE_UAV_COMPRESSION = 1) },
-    /* Marvel’s Spider-Man: Miles Morales (1817190) */
-    { VKD3D_STRING_COMPARE_EXACT, "MilesMorales.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
-    /* Deus Ex: Mankind United (337000) */
-    { VKD3D_STRING_COMPARE_EXACT, "DXMD.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
-    /* Dead Space (2023) (1693980) */
-    { VKD3D_STRING_COMPARE_EXACT, "Dead Space.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_DEDICATED_IMAGE_ALLOCATION) },
-    /* Witcher 3 (2023) (292030). Misses ALLOW_REBUILD when querying for RTAS sizes. */
-    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(
-            .DISABLE_SIMULTANEOUS_UAV_COMPRESSION = 1, .RTAS_ALLOW_BLAS_REBUILD_SIZES = 1) },
-    /* Age of Wonders 4 (1669000). Extremely stuttery performance with ReBAR. */
-    { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_STATIC(NO_UPLOAD_HVV) },
-    /* Red Dead Redemption (2668510). Inconsistent performance with ReBAR at cutscenes of the game. */
-    { VKD3D_STRING_COMPARE_EXACT, "RDR.exe", VKD3D_CONFIG_FLAG_STATIC(NO_UPLOAD_HVV) },
-    /* Starfield (1716740) */
-    { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.HUGE_NV_DGC_BUFFERS = 1, .REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT = 1) },
-    /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
-    { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK_AND_FRAME },
-    /* Basically never bothers doing initial transitions.
-     * GPU hang observed on RDNA1 cards at least during intro cutscene.
-     * Game does not use UAV barrier between ClearUAV and GDeflate shader.
-     * NVIDIA does not hit that particular hazard since it uses metacommand, but ClearUAV barrier
-     * still works around sync issues. */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "ffxvi", VKD3D_CONFIG_FLAG_STATIC(FORCE_INITIAL_TRANSITION) },
-    /* World of Warcraft retail. Broken MSAA code where it renders to multi-sampled target with single sampled PSO. */
-    /* Descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
-    { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_DYNAMIC_MSAA = 1, .AVOID_IMAGE_BUFFER_ALIASING = 1) },
-    /* The Last of Us Part I (1888930). Submits hundreds of command buffers per frame.
-     * Some of the lighting shaders are extremely sensitive to tiling layouts, and using thin tiling for 3D UAVs has profound
-     * performance effects. */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "tlou-i",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.NO_STAGGERED_SUBMIT = 1, .PREFER_THIN_UAV_TILING = 1) },
-    /* Skull and Bones (2853730). Seems to require unsupported dcomp when reflex is enabled for some reason *shrug */
-    { VKD3D_STRING_COMPARE_EXACT, "skullandbones.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_DISABLE_NV_REFLEX },
-    /* Star Wars Outlaws (2842040). Attempt to workaround a possible NV driver bug. */
-    { VKD3D_STRING_COMPARE_EXACT, "Outlaws.exe", VKD3D_CONFIG_FLAG_STATIC(ONE_TIME_SUBMIT) },
-    { VKD3D_STRING_COMPARE_EXACT, "Outlaws_Plus.exe", VKD3D_CONFIG_FLAG_STATIC(ONE_TIME_SUBMIT) },
-    /* FFVII Rebirth (2909400).
-     * Game can destroy PSOs while they are in-flight.
-     * Also, add no-staggered since this is a UE title without the common workaround,
-     * although that only seems to matter when FSR/DLSS injectors are used. */
-    { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.RETAIN_PSOS = 1, .NO_STAGGERED_SUBMIT = 1), VKD3D_CONFIG_FLAGS_NONE,
-            VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
-    /* REANIMAL (2129530). Game can destroy PSOs while they are in-flight on loading screen.
-     * Smells very similar to FFVII Rebirth.
-     * It also has bugs with FSR3 being destroyed while in flight (but that case is automatically covered already). */
-    { VKD3D_STRING_COMPARE_EXACT, "REANIMAL.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.RETAIN_PSOS = 1, .NO_STAGGERED_SUBMIT = 1) },
-    /* There aren't many games that use mesh shaders outside of UE5 Nanite fallbacks.
-     * UE5 is broken w.r.t. feature checks, so we have to do opt-in instead :( */
-    { VKD3D_STRING_COMPARE_EXACT, "AlanWake2.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_MESH_SHADER_WITHOUT_BARYCENTRICS },
-    /* Monster Hunter Wilds (2246340).
-     * There is an impossible amdgpu bug with PRT sparse.
-     * No upload HVV as a performance opt since it's very CPU intensive, and there's no obvious GPU uplift from this. */
-    { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterWilds.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.SKIP_NULL_SPARSE_TILES = 1, .NO_UPLOAD_HVV = 1) },
-    /* Wreckfest 2 (1203190). Aliases block-compressed textures with color images on the
-     * same heap and expects image data to be interpreted consistently. */
-    { VKD3D_STRING_COMPARE_EXACT, "Wreckfest2.exe", VKD3D_CONFIG_FLAG_STATIC(PLACED_TEXTURE_ALIASING) },
-    /* Eve online. Uses DGC with CBV updates. Kinda questionable exename ... */
-    { VKD3D_STRING_COMPARE_EXACT, "exefile.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_RAW_VA_CBV) },
-    /* Borderlands 4. Also UE, but uses different name. */
-    { VKD3D_STRING_COMPARE_EXACT, "Borderlands4.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1) },
-    /* New halo is UE, but doesn't use standard UE naming. */
-    { VKD3D_STRING_COMPARE_EXACT, "HaloCampaignEvolved.exe",
-            VKD3D_CONFIG_FLAG_INIT_STATIC(.SMALL_VRAM_REBAR = 1, .NO_STAGGERED_SUBMIT = 1) },
-    /* Rise of the Tomb Raider. Game renders and samples a texture at the same time */
-    { VKD3D_STRING_COMPARE_EXACT, "ROTTR.exe", VKD3D_CONFIG_FLAG_STATIC(DISABLE_COLOR_COMPRESSION) },
-    /* Death Stranding (Director's Cut and original). Massive CPU overhead due to reading from HVV in certain scenarios. */
-    /* EGS alias as well. */
-    { VKD3D_STRING_COMPARE_EXACT, "ds.exe", VKD3D_CONFIG_FLAG_STATIC(NO_UPLOAD_HVV) },
-    { VKD3D_STRING_COMPARE_EXACT, "DeathStranding.exe", VKD3D_CONFIG_FLAG_STATIC(NO_UPLOAD_HVV) },
-    /* AC: Valhalla (2208920). Very ugly use-after-free in some cases. The main culprit seems a sparse resource. */
-    { VKD3D_STRING_COMPARE_EXACT, "ACValhalla.exe", VKD3D_CONFIG_FLAG_STATIC(DEFER_RESOURCE_DESTRUCTION) },
-    /* Guardians of the Galaxy: Tries to use root descriptors with indirect rendering if it detects an Nvidia GPU. */
-    { VKD3D_STRING_COMPARE_EXACT, "gotg.exe", VKD3D_CONFIG_FLAG_STATIC(FORCE_RAW_VA_CBV) },
-    /* Crimson Desert (3321460).
-     * Game advertises being able to run on RDNA1, but when we don't expose some RDNA2+ features,
-     * it just exits on startup. It seems to rely on unstable barycentrics, which we can implement on older AMD,
-     * and VRS can be nooped. Recent game update has broken raw buffer <-> image aliasing. */
-    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", VKD3D_CONFIG_FLAG_STATIC(AVOID_IMAGE_BUFFER_ALIASING), VKD3D_CONFIG_FLAGS_NONE,
-        VKD3D_APPLICATION_FEATURE_RDNA1_COMPATIBILITY },
-    /* Ark Ascended (2399830). Very broken FSR3 usage where the entire thing is freed. We can retain the resources automatically
-     * but descriptor heap is not named, so we cannot auto-detect. Similar story for the PSOs. */
-    { VKD3D_STRING_COMPARE_EXACT, "ArkAscended.exe",
-        VKD3D_CONFIG_FLAG_INIT_STATIC(.RETAIN_PSOS = 1) },
-    /* Forza Horizon 6 (2483190).
-     * Completely broken case where it writes a texture descriptor and reads it as a buffer.
-     * With 32b embedded model on RDNA3/4, this causes a GPU hang.
-     * Lots of jank is needed to make this work:
-     * Co-siting buffers and images was attempted, but we ran into HW bugs.
-     * The only reasonable solution is to completely firewall images and raw buffers from each other by
-     * forcing 64b descriptors on heap or rely on 64b drirc workaround in RADV for DB path. */
-    { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(
-        .AVOID_IMAGE_BUFFER_ALIASING = 1, .NO_STAGGERED_SUBMIT = 1) },
-    /* SCP: Secret Laboratory (700330). DCC stores causes glitches with RADV. */
-    { VKD3D_STRING_COMPARE_EXACT, "SCPSL.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.DISABLE_UAV_COMPRESSION = 1) },
-    /* PRAGMATA (3357650) */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE,
-        VKD3D_APPLICATION_FEATURE_ASSUMES_STRICT_BYTE_ADDRESS_WRAP },
-    { VKD3D_STRING_COMPARE_EXACT, "GoWEDay-Steam.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.NO_STAGGERED_SUBMIT = 1) },
-    /* Assetto Corsa EVO (3058630) */
-    { VKD3D_STRING_COMPARE_EXACT, "AssettoCorsaEVO.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_RAW_VA_CBV = 1) },
-    /* World of Warcraft Classic */
-    /* Like in retail WoW, descriptor type mismatches causes GPU hangs in a ray query shader without 64 byte descriptors */
-    { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1) },
-    /* World of Warcraft Forever beta. Same MSAA issue as WoW Retail. */
-    { VKD3D_STRING_COMPARE_EXACT, "WowB.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FORCE_DYNAMIC_MSAA = 1) },
-    /* Teardown.
-     * Creates command signatures that modify vertex/index buffer views and root CBVs, which
-     * cannot be implemented without device generated commands. Silently dropping the state
-     * template makes those ExecuteIndirect draws disappear, and the game handles a failed
-     * CreateCommandSignature by issuing the draws from the CPU instead. */
-    { VKD3D_STRING_COMPARE_EXACT, "teardown.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.FAIL_UNSUPPORTED_STATE_TEMPLATE = 1) },
-    /* Space Engineers 2 (1133870) */
-    { VKD3D_STRING_COMPARE_EXACT, "SpaceEngineers2.exe", VKD3D_CONFIG_FLAGS_NONE, VKD3D_CONFIG_FLAGS_NONE, VKD3D_APPLICATION_FEATURE_ATTEMPTS_COMPLEX_MULTIVIEW },
-    /* Resonance of Fate Enhanced Remaster (645730). */
-    { VKD3D_STRING_COMPARE_EXACT, "Resonance of Fate.exe", VKD3D_CONFIG_FLAG_STATIC(CLEAR_TABLE_OFFSETS_ON_REBIND) },
-    /* STAR WARS: Galactic Racer (4078430). Observed bad image <-> buffer aliasing in descriptor QA. */
-    { VKD3D_STRING_COMPARE_EXACT, "SWGR-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1) },
-    /* Phantom Blade Zero (4115450) */
-    { VKD3D_STRING_COMPARE_EXACT, "PBZ.exe", VKD3D_CONFIG_FLAG_INIT_STATIC(.AVOID_IMAGE_BUFFER_ALIASING = 1) },
-    { VKD3D_STRING_COMPARE_NEVER, NULL },
+    const char *comment;
 };
 
 struct vkd3d_shader_quirk_meta
@@ -238,266 +58,7 @@ struct vkd3d_shader_quirk_meta
     enum vkd3d_string_compare_mode mode;
     const char *name;
     const struct vkd3d_shader_quirk_info *info;
-};
-
-static const struct vkd3d_shader_quirk_hash ue4_hashes[] = {
-    { NULL, 0x08a323ee81c1e393ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { NULL, 0x75dcbd76ee898815ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { NULL, 0x6c37b5a66059b751ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { NULL, 0xaf6d07d7b56a3effull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { NULL, 0xa48ead2a618e12d8ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { NULL, 0xebfd864995d3fc07ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    { NULL, 0xcca7b582db60199cull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-    /* RT glitches on AMD in multiple unrelated UE4 games are resolved with extra barriers added. */
-    { NULL, 0x80070f7c22fa9175ull, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
-};
-
-static const struct vkd3d_shader_quirk_info ue4_quirks = {
-    ue4_hashes, ARRAY_SIZE(ue4_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_info f1_2019_2020_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS,
-};
-
-static const struct vkd3d_shader_quirk_hash borderlands3_hashes[] = {
-    /* Shader breaks due to floor(a / exp(x)) being refactored to floor(a * exp(-x))
-     * and shader does not expect this.
-     * See https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/19910. */
-    { NULL, 0xbf0af7db6a7fb86bull, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH },
-};
-
-static const struct vkd3d_shader_quirk_info borderlands3_quirks = {
-    borderlands3_hashes, ARRAY_SIZE(borderlands3_hashes), 0,
-};
-
-/* Terrain is rendered with extreme tessellation factors. Limit it to something more reasonable. */
-static const struct vkd3d_shader_quirk_info team_ninja_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8,
-};
-
-/* More over-tessellated terrain, but base geometry is more coarse */
-static const struct vkd3d_shader_quirk_info atelier_yumia_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16,
-};
-
-/* The subgroup check in CACAO shader is botched and does not handle Wave64 properly.
- * Just pretend the subgroup size is non-sensical to use the normal FFX CACAO code path. */
-static const struct vkd3d_shader_quirk_hash re_hashes[] = {
-    /* RE4 */
-    { NULL, 0xa100b53736f9c1bfull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
-    /* RE2 and RE7 */
-    { NULL, 0x1c4c8782b75c498bull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
-};
-
-static const struct vkd3d_shader_quirk_info re_quirks = {
-    re_hashes, ARRAY_SIZE(re_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash re4_hashes[] = {
-    { NULL, 0xa100b53736f9c1bfull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
-    { NULL, 0x1c4c8782b75c498bull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
-    /* CS_InstancingCompaction uses a group-shared visibility mask without
-     * synchronizing the reset, atomic updates and read across invocations.
-     * This causes view-dependent missing geometry on NVIDIA. */
-    { NULL, 0x7ba6ba5976065496ull, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS },
-    { NULL, 0x9c1fdb247cf0263cull, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS },
-};
-
-/* There are lots of shaders which cause random flicker due to bad 16-bit behavior.
- * These shaders really need 32-bit it seems to render properly, so just do that. */
-static const struct vkd3d_shader_quirk_info re4_quirks = {
-    re4_hashes, ARRAY_SIZE(re4_hashes), VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT,
-};
-
-static const struct vkd3d_shader_quirk_hash mhr_hashes[] = {
-    /* Shader is extremely sensitive to nocontract behavior.
-     * There some places where catastrophic cancellation occurs
-     * and one ULP difference is the difference between blown out bloom and not. */
-    { NULL, 0xd892f8024f52d3ca, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH },
-    /* Compute shader reads groupshared memory without a barrier.
-     * Causes view-dependent flickering of instanced foliage, rocks and other environmental elements on NVIDIA. */
-    { NULL, 0xaae07660844b89cf, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS },
-};
-
-static const struct vkd3d_shader_quirk_info mhr_quirks = {
-    mhr_hashes, ARRAY_SIZE(mhr_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash witcher3_hashes[] = {
-    /* In DXR path, the game will write VBO data in a CS which is then followed
-     * by a VS -> tess -> geom pass that writes out data to a UAV in the GS.
-     * There appears to be missing synchronization here by game (no UAV -> VBO barrier) and
-     * forcing barriers fixes a ton of glitches on both NV and RADV. */
-    { NULL, 0x2c16686e5d9b04a8, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
-};
-
-static const struct vkd3d_shader_quirk_info witcher3_quirks = {
-    witcher3_hashes, ARRAY_SIZE(witcher3_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_info heap_robustness_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
-};
-
-static const struct vkd3d_shader_quirk_info forza6_quirks = {
-    NULL, 0,
-    /* Tons of OOB access in RT, even for sampler heap.
-     * Also, lots of missed nonuniformEXT in RT, so force that ... */
-    VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS | VKD3D_SHADER_QUIRK_FORCE_NONUNIFORM_RT,
-};
-
-static const struct vkd3d_shader_quirk_hash ac_mirage_hashes[] = {
-    /* There is a write-after-read hazard.
-     * Index buffer is being read from, and there is a compute shader afterwards
-     * that writes to that index buffer without a barrier. */
-    { NULL, 0x0cb130fa374982e3, VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER },
-};
-
-static const struct vkd3d_shader_quirk_info ac_mirage_quirks = {
-    ac_mirage_hashes, ARRAY_SIZE(ac_mirage_hashes), 0,
-};
-
-/* Some shaders use precise, some don't, leading to invariance issues. */
-static const struct vkd3d_shader_quirk_info hunt_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH_VS,
-};
-
-/* Hair strand shaders write to a UAV, then read it back in the same workgroup, but misses a device memory barrier in places,
- * leading to GPU hang. */
-static const struct vkd3d_shader_quirk_info veilguard_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_FORCE_DEVICE_MEMORY_BARRIER_THREAD_GROUP_COHERENCY,
-};
-
-static const struct vkd3d_shader_quirk_hash tfd_hashes[] = {
-    /* ReflectionCaptureFilteredImportanceSamplingCS is somewhat broken as it assumes
-     * that the lowest res mips are valid, but they are never written to by ReflectionCaptureGenerateMipmapCS.
-     * It stops at 8x8 (the workgroup size). The workaround just clamps the explicit LOD to whatever mips is 8x8. */
-    { NULL, 0x74b8eaf23e3d166c, VKD3D_SHADER_QUIRK_ASSUME_BROKEN_SUB_8x8_CUBE_MIPS },
-};
-
-static const struct vkd3d_shader_quirk_info tfd_quirks = {
-    tfd_hashes, ARRAY_SIZE(tfd_hashes), 0,
-};
-
-/* Game loads a CBV array into alloca(), but then proceeds to access said alloca() array OOB. */
-static const struct vkd3d_shader_quirk_info gzw_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV_LOAD_FORWARDING,
-};
-
-static const struct vkd3d_shader_quirk_info starfield_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_AGGRESSIVE_NONUNIFORM,
-};
-
-static const struct vkd3d_shader_quirk_hash rebirth_hashes[] = {
-    /* GenerateMassiveEnvironmentBatchedNodesCS(). Missing barrier after a CS based clear.
-     * Exactly same bug as before, but then it was ComputeBatchedMeshletOffsetsCS(). */
-    { NULL, 0xe6cb9c843fa1bd18, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
-    /* 1.003 update. Hash changed, but didn't fix the bug. */
-    { NULL, 0xf047c7f2f4f32111, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
-};
-
-static const struct vkd3d_shader_quirk_info rebirth_quirks = {
-    rebirth_hashes, ARRAY_SIZE(rebirth_hashes), 0,
-};
-
-/* Game misses a transition from color to resource before FSR3.
- * The shader hash is FSR3-PREPARE-INPUTS. */
-static const struct vkd3d_shader_quirk_hash satisfactory_hashes[] = {
-    { NULL, 0x1bc3c90cfe16ad1e, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER },
-};
-
-static const struct vkd3d_shader_quirk_info satisfactory_quirks = {
-    satisfactory_hashes, ARRAY_SIZE(satisfactory_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash deadspace_hashes[] = {
-    /* Shader calculates derivatives in non-uniform control flow,
-     * leading to NaN pixels on Nvidia GPUs. */
-    { NULL, 0x8b981fdafe14b649, VKD3D_SHADER_QUIRK_HOIST_DERIVATIVES },
-};
-
-static const struct vkd3d_shader_quirk_info deadspace_quirks = {
-    deadspace_hashes, ARRAY_SIZE(deadspace_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash death_stranding_hashes[] = {
-    /* Game forgets to transition RENDER_TARGET to PIXEL_SHADER_RESOURCE. */
-    { NULL, 0x014fa51aaa3f3139, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
-};
-
-static const struct vkd3d_shader_quirk_info death_stranding_quirks = {
-    death_stranding_hashes, ARRAY_SIZE(death_stranding_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash wuthering_waves_hashes[] = {
-    /* LightGridInjectionCS. Forgets to UAV barrier after ClearCS. */
-    { "LightGridInjectionCS", 0, VKD3D_SHADER_QUIRK_FORCE_PRE_COMPUTE_BARRIER },
-};
-
-static const struct vkd3d_shader_quirk_info wuthering_waves_quirks = {
-    wuthering_waves_hashes, ARRAY_SIZE(wuthering_waves_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_info dune_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_FIXUP_LOOP_HEADER_UNDEF_PHIS,
-};
-
-static const struct vkd3d_shader_quirk_hash bl4_hashes[] = {
-    /* See Mesa issue 13981. Impossible looking HW bug on RDNA2 specifically
-     * caused by NSA image_sample_d. */
-    { NULL, 0x3b9937c41027ca73, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
-    { NULL, 0x0bf58981278d2126, VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS },
-};
-
-static const struct vkd3d_shader_quirk_info bl4_quirks = {
-    bl4_hashes, ARRAY_SIZE(bl4_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash control_hashes[] = {
-    /* A closest hit shader is doing x / sqrt(dot(x, x)) where X is 0.
-     * It's fetching positions from a buffer from SBT root descriptors, so
-     * this doesn't 100% prove a game bug, but it's overwhelmingly likely. */
-    { NULL, 0xdb22fce4505969f2, VKD3D_SHADER_QUIRK_FIXUP_RSQRT_INF_NAN },
-};
-
-static const struct vkd3d_shader_quirk_info control_quirks = {
-    control_hashes, ARRAY_SIZE(control_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash rottr_hashes[] = {
-    /* Game forgets to transition depth to pixel shader resource. */
-    { NULL, 0x7d1af7d0c7d63856, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
-};
-
-static const struct vkd3d_shader_quirk_info rottr_quirks = {
-    rottr_hashes, ARRAY_SIZE(rottr_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash hfw_hashes[] = {
-    /* Classic case of a clear CS that is followed up by overwriting it without proper barrier. */
-    { NULL, 0x548a3de5dc3828ef, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
-};
-
-static const struct vkd3d_shader_quirk_info hfw_quirks = {
-    hfw_hashes, ARRAY_SIZE(hfw_hashes), 0,
-};
-
-/* Misses some sync with depth in SSDM_FillHolesDepthDisplacementPS */
-static const struct vkd3d_shader_quirk_hash crimson_desert_hashes[] = {
-    { "SSDM_FillHolesDepthDisplacementPS", 0, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_RENDER_PASS },
-};
-
-static const struct vkd3d_shader_quirk_info crimson_desert_quirks = {
-    crimson_desert_hashes, ARRAY_SIZE(crimson_desert_hashes), VKD3D_SHADER_QUIRK_ROBUST_COMPUTE_QUAD_BROADCAST,
-};
-
-static const struct vkd3d_shader_quirk_hash spiderman2_hashes[] = {
-    { NULL, 0x324071d329f05ccc, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
-};
-
-static const struct vkd3d_shader_quirk_info spiderman2_quirks = {
-    spiderman2_hashes, ARRAY_SIZE(spiderman2_hashes), 0,
+    const char *comment;
 };
 
 /* These shaders clamp the wave size to 32, but misses this in a few places of course ... */
@@ -515,216 +76,192 @@ static const struct vkd3d_shader_quirk_hash re_engine_hashes[] = {
 static const struct vkd3d_shader_quirk_info re_engine_quirks = {
     re_engine_hashes, ARRAY_SIZE(re_engine_hashes), 0,
 };
+#include "vkd3d_proton_app_workarounds.h"
 
-/* Dragon's Dogma 2 hits SQC (data) GPUVM faults after the 3.2 update,
- * with the same signature as Monster Hunter Wilds (a garbage bindless index).
- * Apply heap robustness to all shaders, and keep the RE Engine culling
- * workarounds, since a matched entry point overrides the default quirks. */
-static const struct vkd3d_shader_quirk_info dd2_quirks = {
-    re_engine_hashes, ARRAY_SIZE(re_engine_hashes), VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
+struct vkd3d_application_database_entry
+{
+    const char *appid;
+    enum vkd3d_string_compare_mode mode;
+    const char *name;
+    enum vkd3d_application_engine_class engine_class;
+    uint32_t major;
+    uint32_t minor;
+    uint32_t patch;
 };
-
-static const struct vkd3d_shader_quirk_hash wow_hashes[] = {
-    /* In addition to needing 64 byte descriptors, this ray query shader causes a heap OOB as well. */
-    { NULL, 0xef2f620cbce5630c, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
-};
-
-static const struct vkd3d_shader_quirk_info wow_quirks = {
-    wow_hashes, ARRAY_SIZE(wow_hashes), 0,
-};
-
-/* Misses a required RTV -> PIXEL_SHADER_RESOURCE barrier.
- * The shader is called Opaque_PS and is used all over the place,
- * so need to narrow it down to hashes.
- * The draw can sometimes appear in the middle of a render pass, so need a harder barrier.
- */
-static const struct vkd3d_shader_quirk_hash gotg_hashes[] = {
-    { NULL, 0x1f29288d6150a04e, VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER_BEFORE_DRAW },
-};
-
-static const struct vkd3d_shader_quirk_info gotg_quirks = {
-    gotg_hashes, ARRAY_SIZE(gotg_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash sottr_hashes[] = {
-    { NULL, 0x8227f72cbc13591d, VKD3D_SHADER_QUIRK_FORCE_FEEDBACK_LOOP },
-};
-
-static const struct vkd3d_shader_quirk_info sottr_quirks = {
-    sottr_hashes, ARRAY_SIZE(sottr_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash wow_classic_hashes[] = {
-    /* The same ray query shader from retail WoW causes a heap OOB here as well. */
-    { NULL, 0xef2f620cbce5630c, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
-};
-
-static const struct vkd3d_shader_quirk_info wow_classic_quirks = {
-    wow_classic_hashes, ARRAY_SIZE(wow_classic_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_info global_wave32_quirks = {
-    NULL, 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32,
-};
-
-static const struct vkd3d_shader_quirk_hash first_light_hashes[] = {
-    { "MeshCalcDest_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
-    { "MeshBinning_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
-    { "MeshCount_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
-    { "MeshProcessGG_CS", 0, VKD3D_SHADER_QUIRK_CLAMP_WAVE_SIZE_TO_THREAD_GROUP32 },
-};
-
-static const struct vkd3d_shader_quirk_info first_light_quirks = {
-    first_light_hashes, ARRAY_SIZE(first_light_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash plague_tale_resonance_hashes[] = {
-    { "ch_spawn", 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
-    { "ch_update", 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
-};
-
-static const struct vkd3d_shader_quirk_info plague_tale_resonance_robustness_quirks = {
-    plague_tale_resonance_hashes, ARRAY_SIZE(plague_tale_resonance_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash elden_ring_hashes[] = {
-    { "CS_WriteInScattering", 0, VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS },
-    { "CS_WriteLocalLight", 0, VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS },
-    { "CS_SolveVolumetricFog", 0, VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS },
-};
-
-static const struct vkd3d_shader_quirk_info elden_ring_quirks = {
-    elden_ring_hashes, ARRAY_SIZE(elden_ring_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash ac8_hashes[] = {
-    { "SkyTraceCS", 0, VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS },
-};
-
-static const struct vkd3d_shader_quirk_info ac8_quirks = {
-    ac8_hashes, ARRAY_SIZE(ac8_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
-    /* F1 2020 (1080110) */
-    { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
-    /* F1 2019 (928600) */
-    { VKD3D_STRING_COMPARE_EXACT, "F1_2019_dx12.exe", &f1_2019_2020_quirks },
-    /* Borderlands 3 (397540) */
-    { VKD3D_STRING_COMPARE_EXACT, "Borderlands3.exe", &borderlands3_quirks },
-    /* Wo Long: Fallen Dynasty (2285240) */
-    { VKD3D_STRING_COMPARE_EXACT, "WoLong.exe", &team_ninja_quirks },
-    /* Rise of the Ronin (1340990) */
-    { VKD3D_STRING_COMPARE_EXACT, "Ronin.exe", &team_ninja_quirks },
-    /* Resident Evil 2 (883710) */
-    { VKD3D_STRING_COMPARE_EXACT, "re2.exe", &re_quirks },
-    /* Resident Evil 7 (418370) */
-    { VKD3D_STRING_COMPARE_EXACT, "re7.exe", &re_quirks },
-    /* Resident Evil 4 (2050650) */
-    { VKD3D_STRING_COMPARE_EXACT, "re4.exe", &re4_quirks },
-    /* Monster Hunter Rise (1446780) */
-    { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterRise.exe", &mhr_quirks },
-    /* Witcher 3 (2023) (292030) */
-    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", &witcher3_quirks },
-    /* Pioneers of Pagonia (2155180) */
-    { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", &heap_robustness_quirks },
-    /* AC: Mirage */
-    { VKD3D_STRING_COMPARE_EXACT, "ACMirage.exe", &ac_mirage_quirks },
-    { VKD3D_STRING_COMPARE_EXACT, "ACMirage_plus.exe", &ac_mirage_quirks },
-    /* Hunt: Showdown 1896 (594650) */
-    { VKD3D_STRING_COMPARE_EXACT, "HuntGame.exe", &hunt_quirks },
-    /* Dragon Age: The Veilguard (1845910) */
-    { VKD3D_STRING_COMPARE_EXACT, "Dragon Age The Veilguard.exe", &veilguard_quirks },
-    /* The First Descendant (2074920) */
-    { VKD3D_STRING_COMPARE_EXACT, "M1-Win64-Shipping.exe", &tfd_quirks },
-    /* Gray Zone Warfare (2479810) */
-    { VKD3D_STRING_COMPARE_EXACT, "GZWClientSteam-Win64-Shipping.exe", &gzw_quirks },
-    /* Starfield (1716740) */
-    { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe", &starfield_quirks },
-    /* FFVII Rebirth (2909400). */
-    { VKD3D_STRING_COMPARE_EXACT, "ff7rebirth_.exe", &rebirth_quirks },
-    /* Atelier Yumia (3123410) */
-    { VKD3D_STRING_COMPARE_EXACT, "Atelier_Yumia.exe", &atelier_yumia_quirks },
-    /* Monster Hunter Wilds (2246340).
-     * As a follow-up for SKIP_NULL_SPARSE, it seems possible that application
-     * can end up loading bogus bindless indices from pages which should have been NULL.
-     * Chasing through UMR wave dumps and captures,
-     * we observe that a faulting index depends on a load from a sparse buffer.
-     * This hasn't been confirmed to be a game bug or indirect vkd3d-proton bug,
-     * but it's plausible enough to be caused by SKIP_NULL_SPARSE that we can justify this hack
-     * until a proper fix is in place. */
-    { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterWilds.exe", &heap_robustness_quirks },
-    /* Satisfactory (526870). */
-    { VKD3D_STRING_COMPARE_EXACT, "FactoryGameSteam-Win64-Shipping.exe", &satisfactory_quirks },
-    { VKD3D_STRING_COMPARE_EXACT, "FactoryGameEGS-Win64-Shipping.exe", &satisfactory_quirks },
-    /* Wuthering Waves */
-    { VKD3D_STRING_COMPARE_EXACT, "Client-Win64-Shipping.exe", &wuthering_waves_quirks },
-    /* Dead Space (2023) */
-    { VKD3D_STRING_COMPARE_ENDS_WITH, "Dead Space.exe", &deadspace_quirks },
-    /* Death Stranding  */
-    { VKD3D_STRING_COMPARE_EXACT, "ds.exe", &death_stranding_quirks },
-    { VKD3D_STRING_COMPARE_EXACT, "DeathStranding.exe", &death_stranding_quirks },
-    { VKD3D_STRING_COMPARE_EXACT, "3DMarkPortRoyal.exe", &heap_robustness_quirks },
-    /* Dune: Awakening (1172710) */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "DuneSandbox", &dune_quirks },
-    /* Borderlands 4 (1285190) */
-    { VKD3D_STRING_COMPARE_EXACT, "Borderlands4.exe", &bl4_quirks },
-    /* Control (870780). */
-    { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", &control_quirks },
-	/* Rise of the Tomb Raider */
-    { VKD3D_STRING_COMPARE_EXACT, "ROTTR.exe", &rottr_quirks },
-    /* Horizon Forbidden West (2420110). */
-    { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", &hfw_quirks },
-    /* Crimson Desert (3321460) */
-    { VKD3D_STRING_COMPARE_EXACT, "CrimsonDesert.exe", &crimson_desert_quirks },
-	/* Spider Man 2 (2651280) */
-    { VKD3D_STRING_COMPARE_EXACT, "Spider-Man2.exe", &spiderman2_quirks },
-    /* PRAGMATA (3357650) */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "PRAGMATA", &re_engine_quirks },
-    /* Forza Horizon 6 (2483190). */
-    { VKD3D_STRING_COMPARE_EXACT, "forzahorizon6.exe", &forza6_quirks },
-    /* World of Warcraft */
-    { VKD3D_STRING_COMPARE_EXACT, "Wow.exe", &wow_quirks },
-    /* Guardians of the Galaxy */
-    { VKD3D_STRING_COMPARE_EXACT, "gotg.exe", &gotg_quirks },
-    /* Shadow of the Tomb Raider */
-    { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe", &sottr_quirks },
-    /* MSVC fails to compile empty array. */
-    /* World of Warcraft Classic */
-    { VKD3D_STRING_COMPARE_EXACT, "WoWClassic.exe", &wow_classic_quirks },
-    /* Plague Tale Resonance (2713000). */
-    { VKD3D_STRING_COMPARE_EXACT, "Resonance.exe", &plague_tale_resonance_robustness_quirks },
-    /* Empire of the Ants (2287330). With Terrain Tessellation on, some shaders
-     * seem to assume Wave32 by mistake leading to GPU timeout. */
-    { VKD3D_STRING_COMPARE_EXACT, "Empire-Win64-Shipping.exe", &global_wave32_quirks },
-    /* 007: First Light (3768760) */
-    { VKD3D_STRING_COMPARE_EXACT, "007FirstLight.exe", &first_light_quirks },
-    /* Resident Evil Requiem (3764200) */
-    { VKD3D_STRING_COMPARE_EXACT, "re9.exe", &re_engine_quirks },
-    /* Monster Hunter Stories 3 (2852190) */
-    { VKD3D_STRING_COMPARE_EXACT, "MONSTER_HUNTER_STORIES_3_TWISTED_REFLECTION.exe", &re_engine_quirks },
-    /* Dragon's Dogma 2 (2054970) */
-    { VKD3D_STRING_COMPARE_EXACT, "DD2.exe", &dd2_quirks },
-    /* Elden Ring (1245620) */
-    { VKD3D_STRING_COMPARE_APPID, "1245620", &elden_ring_quirks },
-    /* Half Sword (2397300) */
-    { VKD3D_STRING_COMPARE_EXACT, "HalfSwordUE5-Win64-Shipping.exe", &global_wave32_quirks },
-    /* ARC Raiders (1808500) */
-    { VKD3D_STRING_COMPARE_STARTS_WITH, "PioneerGame", &global_wave32_quirks },
-    /* ACE COMBAT 8 (2288340) */
-    { VKD3D_STRING_COMPARE_APPID, "2288340", &ac8_quirks },
-    /* STAR WARS: Galactic Racer (4078430) */
-    { VKD3D_STRING_COMPARE_EXACT, "SWGR-Win64-Shipping.exe", &global_wave32_quirks },
-    /* Unreal Engine 4 */
-    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
-    { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
-};
+#include "vkd3d_proton_app_db.h"
 
 static uint32_t vkd3d_application_version;
 
 uint32_t vkd3d_get_instance_application_version(void)
 {
     return vkd3d_application_version;
+}
+
+static enum vkd3d_application_engine_class parse_engine_class(const char *str)
+{
+    if (strcmp(str, "UnrealEngine") == 0)
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
+    else if (strcmp(str, "REEngine") == 0)
+        return VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE;
+    else
+        return VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+}
+
+/* See vkd3d-proton-app-db-example.txt for how the format looks.
+ * It's super basic and does the minimal thing needed for engine detection.
+ */
+
+static enum vkd3d_application_engine_class vkd3d_get_engine_version_from_db(
+        const char *exe_name, const char *match_appid, uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    enum vkd3d_application_engine_class engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    char env[VKD3D_PATH_MAX];
+    FILE *file = NULL;
+    char line[1024];
+
+    if (!vkd3d_get_env_var("VKD3D_APP_DB_PATH", env, sizeof(env)))
+        goto end;
+
+    INFO("Loading VKD3D_APP_DB_PATH from \"%s\"\n", env);
+
+    file = fopen(env, "r");
+    if (!file)
+    {
+        ERR("Failed to open \"%s\"\n", env);
+        goto end;
+    }
+
+    if (!fgets(line, sizeof(line), file) || strcmp(line, "{vkd3d-proton-app-db v1}\n") != 0)
+    {
+        ERR("Database is corrupt.\n");
+        goto end;
+    }
+
+    while (fgets(line, sizeof(line), file))
+    {
+        char *endp = NULL;
+        char *tokens[6];
+        bool has_match;
+        unsigned int i;
+
+        if (line[0] == '#' || line[0] == '\n')
+            continue;
+
+        memset(tokens, 0, sizeof(tokens));
+
+#ifdef _MSC_VER
+#define strtok_r strtok_s
+#endif
+
+        tokens[0] = strtok_r(line, ",", &endp);
+        for (i = 1; i < ARRAY_SIZE(tokens) && tokens[i - 1]; i++)
+            tokens[i] = strtok_r(NULL, ",", &endp);
+
+        /* Need at least appid, exe, engine. */
+        if (!tokens[0] || !tokens[1] || !tokens[2])
+        {
+            ERR("Invalid line found {%s} {%s} {%s}\n",
+                    tokens[0] ? tokens[0] : "null",
+                    tokens[1] ? tokens[1] : "null",
+                    tokens[2] ? tokens[2] : "null");
+            continue;
+        }
+
+        has_match = match_appid[0] != '\0' && strcmp(tokens[0], match_appid) == 0;
+
+        if (!has_match)
+        {
+            enum vkd3d_string_compare_mode mode = VKD3D_STRING_COMPARE_EXACT;
+            const char *parsed_exe = tokens[1];
+
+            if (parsed_exe[0] == '=')
+            {
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '<')
+            {
+                mode = VKD3D_STRING_COMPARE_STARTS_WITH;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '>')
+            {
+                mode = VKD3D_STRING_COMPARE_ENDS_WITH;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '?')
+            {
+                mode = VKD3D_STRING_COMPARE_CONTAINS;
+                parsed_exe++;
+            }
+            else if (parsed_exe[0] == '@')
+            {
+                mode = VKD3D_STRING_COMPARE_HASH_EQUAL;
+                parsed_exe++;
+            }
+
+            has_match = vkd3d_string_compare(mode, exe_name, parsed_exe);
+        }
+
+        if (!has_match)
+            continue;
+
+        engine_class = parse_engine_class(tokens[2]);
+
+        if (tokens[3])
+            *major = strtoul(tokens[3], NULL, 0);
+        if (tokens[4])
+            *minor = strtoul(tokens[4], NULL, 0);
+        if (tokens[5])
+            *patch = strtoul(tokens[5], NULL, 0);
+
+        break;
+    }
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
+        INFO("Detected UnrealEngine from database, version %u.%u.%u\n", *major, *minor, *patch);
+    else if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
+        INFO("Detected REEngine from database, version %u.%u.%u\n", *major, *minor, *patch);
+
+end:
+    if (file)
+        fclose(file);
+
+    return engine_class;
+}
+
+static enum vkd3d_application_engine_class vkd3d_get_engine_version_from_static_db(
+        const char *exe_name, const char *appid, uint32_t *major, uint32_t *minor, uint32_t *patch)
+{
+    enum vkd3d_application_engine_class engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN;
+    unsigned int i;
+
+    INFO("Parsing static application database hash: %s\n", application_database_hash);
+
+    for (i = 0; i < ARRAY_SIZE(application_database_entries); i++)
+    {
+        const struct vkd3d_application_database_entry *entry = &application_database_entries[i];
+        bool match = false;
+
+        if ((entry->appid && strcmp(appid, entry->appid) == 0) ||
+             vkd3d_string_compare(entry->mode, exe_name, entry->name))
+            match = true;
+
+        if (match)
+        {
+            engine_class = entry->engine_class;
+            *major = entry->major;
+            *minor = entry->minor;
+            *patch = entry->patch;
+            break;
+        }
+    }
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE)
+        INFO("Detected UnrealEngine from static database, version %u.%u.%u\n", *major, *minor, *patch);
+    else if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE)
+        INFO("Detected REEngine from static database, version %u.%u.%u\n", *major, *minor, *patch);
+
+    return engine_class;
 }
 
 void vkd3d_instance_apply_application_workarounds(void)
@@ -743,58 +280,72 @@ void vkd3d_instance_apply_application_workarounds(void)
     else
         appid[0] = '\0';
 
-    if ((engine_class = vkd3d_get_engine_version(&engine_major, &engine_minor, &engine_patch)))
+    INFO("Application DB JSON hash: %s\n", application_override_db_hash);
+
+    engine_class = vkd3d_get_engine_version_from_db(app, appid, &engine_major, &engine_minor, &engine_patch);
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN)
+        engine_class = vkd3d_get_engine_version_from_static_db(app, appid, &engine_major, &engine_minor, &engine_patch);
+
+    if (engine_class == VKD3D_APPLICATION_ENGINE_CLASS_UNKNOWN)
     {
-        switch (engine_class)
+        if ((engine_class = vkd3d_get_engine_version(&engine_major, &engine_minor, &engine_patch)))
         {
-            case VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE:
-                if (engine_major == 0)
-                    INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
-                else
-                    INFO("Detected Unreal Engine %u.%u.%u.\n", engine_major, engine_minor, engine_patch);
+            switch (engine_class)
+            {
+                case VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE:
+                    if (engine_major == 0)
+                        INFO("Detected Unreal Engine through dubious means, version is unknown.\n");
+                    else
+                        INFO("Detected Unreal Engine %u.%u.%u.\n", engine_major, engine_minor, engine_patch);
 
-                if (engine_major == 5)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
-                else if (engine_major == 4)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
-                else if (engine_major == 0)
-                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
-                break;
+                    if (engine_major == 5)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_5;
+                    else if (engine_major == 4)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_4;
+                    else if (engine_major == 0)
+                        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+                    break;
 
-            case VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE:
-                INFO("Detected RE Engine\n");
-                vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_RE_ENGINE;
-                break;
+                case VKD3D_APPLICATION_ENGINE_CLASS_RE_ENGINE:
+                    INFO("Detected RE Engine\n");
+                    vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_RE_ENGINE;
+                    break;
 
-            default:
-                break;
+                default:
+                    break;
+            }
         }
-    }
-    else if (strstr(app, "Win64-Shipping.exe"))
-    {
-        engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
-        INFO("Detected Unreal Engine by means of .exe name detection. Version unknown.\n");
-        vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+        else if (strstr(app, "Win64-Shipping.exe"))
+        {
+            engine_class = VKD3D_APPLICATION_ENGINE_CLASS_UNREAL_ENGINE;
+            INFO("Detected Unreal Engine by means of .exe name detection. Version unknown.\n");
+            vkd3d_application_version = VKD3D_APPLICATION_VERSION_ENGINE_UNREAL_ENGINE_UNKNOWN;
+        }
     }
 
     /* If we don't have any application specific patterns we hit, engage default engine workarounds. */
 
     for (i = 0; i < ARRAY_SIZE(application_override); i++)
     {
+        const struct vkd3d_instance_application_meta *meta = &application_override[i];
+
         bool match;
-        if (application_override[i].mode == VKD3D_STRING_COMPARE_APPID)
-            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, application_override[i].name);
+        if (meta->mode == VKD3D_STRING_COMPARE_APPID)
+            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, meta->name);
         else
-            match = vkd3d_string_compare(application_override[i].mode, app, application_override[i].name);
+            match = vkd3d_string_compare(meta->mode, app, meta->name);
 
         if (match)
         {
-            vkd3d_config_flag_global_add(application_override[i].global_flags_add);
-            vkd3d_config_flag_global_remove(application_override[i].global_flags_remove);
+            vkd3d_config_flag_global_add(meta->global_flags_add);
+            vkd3d_config_flag_global_remove(meta->global_flags_remove);
             INFO("Detected game %s, adding %u configs, removing %u configs.\n",
-                 app, vkd3d_config_flag_popcount(application_override[i].global_flags_add),
-                 vkd3d_config_flag_popcount(application_override[i].global_flags_remove));
-            vkd3d_application_feature_override = application_override[i].override;
+                 app, vkd3d_config_flag_popcount(meta->global_flags_add),
+                 vkd3d_config_flag_popcount(meta->global_flags_remove));
+            vkd3d_application_feature_override = meta->override;
+            if (meta->comment)
+                INFO("%s\n", meta->comment);
             break;
         }
     }
@@ -826,16 +377,20 @@ void vkd3d_instance_apply_application_workarounds(void)
 
     for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
     {
+        const struct vkd3d_shader_quirk_meta *meta = &application_shader_quirks[i];
+
         bool match;
-        if (application_shader_quirks[i].mode == VKD3D_STRING_COMPARE_APPID)
-            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, application_shader_quirks[i].name);
+        if (meta->mode == VKD3D_STRING_COMPARE_APPID)
+            match = vkd3d_string_compare(VKD3D_STRING_COMPARE_EXACT, appid, meta->name);
         else
-            match = vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name);
+            match = vkd3d_string_compare(meta->mode, app, meta->name);
 
         if (match)
         {
-            vkd3d_shader_quirk_info_template = *application_shader_quirks[i].info;
+            vkd3d_shader_quirk_info_template = *meta->info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
+            if (meta->comment)
+                INFO("%s\n", meta->comment);
             break;
         }
     }
@@ -1320,6 +875,14 @@ void d3d12_device_init_workarounds(struct d3d12_device *device)
         {
             INFO("Nooping SV_ShadingRate on RDNA4 due to unknown HW quirk causing hangs.\n");
             device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_IGNORE_PRIMITIVE_SHADING_RATE;
+        }
+
+        /* RADV before 26.3.1 did not handle coherent images properly in Vulkan memory model (MakeTexelVisible). */
+        if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
+            device->device_info.properties2.properties.driverVersion < VK_MAKE_VERSION(26, 3, 1))
+        {
+            INFO("Force legacy memory model for coherent images on older RADV versions.\n");
+            device->workarounds.quirks.global_quirks |= VKD3D_SHADER_QUIRK_LEGACY_MEMORY_MODEL_COHERENT_IMAGES;
         }
     }
 }
