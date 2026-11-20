@@ -297,7 +297,9 @@
         "perEntryQuirks" : {},
         "perHashQuirks" : {
           "a100b53736f9c1bf" : [ "FORCE_SUBGROUP_SIZE_1" ],
-          "1c4c8782b75c498b" : [ "FORCE_SUBGROUP_SIZE_1" ]
+          "1c4c8782b75c498b" : [ "FORCE_SUBGROUP_SIZE_1" ],
+          "7ba6ba5976065496" : [ "FORCE_TGSM_BARRIERS" ],
+          "9c1fdb247cf0263c" : [ "FORCE_TGSM_BARRIERS" ]
         }
       },
       "name" : "re4.exe"
