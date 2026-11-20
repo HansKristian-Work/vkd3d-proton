@@ -737,6 +737,32 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupport
 
     switch (op_code)
     {
+        case NV_EXTN_OP_HIT_OBJECT_TRACE_RAY:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT_WITH_RECORD_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_MISS:
+        case NV_EXTN_OP_HIT_OBJECT_REORDER_THREAD:
+        case NV_EXTN_OP_HIT_OBJECT_INVOKE:
+        case NV_EXTN_OP_HIT_OBJECT_IS_MISS:
+        case NV_EXTN_OP_HIT_OBJECT_GET_INSTANCE_ID:
+        case NV_EXTN_OP_HIT_OBJECT_GET_INSTANCE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_PRIMITIVE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_GEOMETRY_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_GET_HIT_KIND:
+        case NV_EXTN_OP_HIT_OBJECT_GET_RAY_DESC:
+        case NV_EXTN_OP_HIT_OBJECT_GET_ATTRIBUTES:
+        case NV_EXTN_OP_HIT_OBJECT_GET_SHADER_TABLE_INDEX:
+        case NV_EXTN_OP_HIT_OBJECT_LOAD_LOCAL_ROOT_TABLE_CONSTANT:
+        case NV_EXTN_OP_HIT_OBJECT_IS_HIT:
+        case NV_EXTN_OP_HIT_OBJECT_IS_NOP:
+        case NV_EXTN_OP_HIT_OBJECT_MAKE_NOP:
+            return ser_features->rayTracingInvocationReorder ? TRUE : FALSE;
+
+        case NV_EXTN_OP_RT_TRIANGLE_OBJECT_POSITIONS:
+        case NV_EXTN_OP_RT_CANDIDATE_TRIANGLE_OBJECT_POSITIONS:
+        case NV_EXTN_OP_RT_COMMITTED_TRIANGLE_OBJECT_POSITIONS:
+            return device->device_info.ray_tracing_position_fetch_features.rayTracingPositionFetch ? TRUE : FALSE;
+
         case NV_EXTN_OP_RT_SPHERE_OBJECT_POSITION_AND_RADIUS:
         case NV_EXTN_OP_RT_CANDIDATE_SPHERE_OBJECT_POSITION_AND_RADIUS:
         case NV_EXTN_OP_RT_COMMITTED_SPHERE_OBJECT_POSITION_AND_RADIUS:
@@ -766,27 +792,6 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_IsNvShaderExtnOpCodeSupport
         case NV_EXTN_OP_RT_CANDIDATE_BUILTIN_PRIMITIVE_RAY_T:
         case NV_EXTN_OP_RT_COMMIT_NONOPAQUE_BUILTIN_PRIMITIVE_HIT:
             return lss_features->spheres || lss_features->linearSweptSpheres ? TRUE : FALSE;
-
-        case NV_EXTN_OP_HIT_OBJECT_TRACE_RAY:
-        case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT:
-        case NV_EXTN_OP_HIT_OBJECT_MAKE_HIT_WITH_RECORD_INDEX:
-        case NV_EXTN_OP_HIT_OBJECT_MAKE_MISS:
-        case NV_EXTN_OP_HIT_OBJECT_REORDER_THREAD:
-        case NV_EXTN_OP_HIT_OBJECT_INVOKE:
-        case NV_EXTN_OP_HIT_OBJECT_IS_MISS:
-        case NV_EXTN_OP_HIT_OBJECT_GET_INSTANCE_ID:
-        case NV_EXTN_OP_HIT_OBJECT_GET_INSTANCE_INDEX:
-        case NV_EXTN_OP_HIT_OBJECT_GET_PRIMITIVE_INDEX:
-        case NV_EXTN_OP_HIT_OBJECT_GET_GEOMETRY_INDEX:
-        case NV_EXTN_OP_HIT_OBJECT_GET_HIT_KIND:
-        case NV_EXTN_OP_HIT_OBJECT_GET_RAY_DESC:
-        case NV_EXTN_OP_HIT_OBJECT_GET_ATTRIBUTES:
-        case NV_EXTN_OP_HIT_OBJECT_GET_SHADER_TABLE_INDEX:
-        case NV_EXTN_OP_HIT_OBJECT_LOAD_LOCAL_ROOT_TABLE_CONSTANT:
-        case NV_EXTN_OP_HIT_OBJECT_IS_HIT:
-        case NV_EXTN_OP_HIT_OBJECT_IS_NOP:
-        case NV_EXTN_OP_HIT_OBJECT_MAKE_NOP:
-            return ser_features->rayTracingInvocationReorder ? TRUE : FALSE;
 
         default:
             return FALSE;
