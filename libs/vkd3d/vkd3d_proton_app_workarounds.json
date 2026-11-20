@@ -273,7 +273,10 @@
     },
     {
       "shaderQuirks" : {
-        "perEntryQuirks" : {},
+        "_comment" : [
+          "Older RE engine titles had bugs. Newer titles use wave ops so this workaround is limited to a finite number of games."
+        ],
+        "perEntryQuirks" : { "CS_InstancingCompaction" : [ "FORCE_TGSM_BARRIERS" ] },
         "perHashQuirks" : {
           "a100b53736f9c1bf" : [ "FORCE_SUBGROUP_SIZE_1" ],
           "1c4c8782b75c498b" : [ "FORCE_SUBGROUP_SIZE_1" ]
@@ -283,7 +286,13 @@
     },
     {
       "shaderQuirks" : {
-        "perEntryQuirks" : {},
+        "perEntryQuirks" : { "CS_InstancingCompaction" : [ "FORCE_TGSM_BARRIERS" ] }
+      },
+      "name" : "re3.exe"
+    },
+    {
+      "shaderQuirks" : {
+        "perEntryQuirks" : { "CS_InstancingCompaction" : [ "FORCE_TGSM_BARRIERS" ] },
         "perHashQuirks" : {
           "a100b53736f9c1bf" : [ "FORCE_SUBGROUP_SIZE_1" ],
           "1c4c8782b75c498b" : [ "FORCE_SUBGROUP_SIZE_1" ]
@@ -293,23 +302,30 @@
     },
     {
       "shaderQuirks" : {
+        "perEntryQuirks" : { "CS_InstancingCompaction" : [ "FORCE_TGSM_BARRIERS" ] }
+      },
+      "name" : "re8.exe",
+      "perHashQuirks" : {
+        "a100b53736f9c1bf" : [ "FORCE_SUBGROUP_SIZE_1" ],
+        "1c4c8782b75c498b" : [ "FORCE_SUBGROUP_SIZE_1" ]
+      }
+    },
+    {
+      "shaderQuirks" : {
         "defaultQuirks" : [ "FORCE_MIN16_AS_32BIT" ],
-        "perEntryQuirks" : {},
+        "perEntryQuirks" : { "CS_InstancingCompaction" : [ "FORCE_TGSM_BARRIERS" ] },
         "perHashQuirks" : {
           "a100b53736f9c1bf" : [ "FORCE_SUBGROUP_SIZE_1" ],
-          "1c4c8782b75c498b" : [ "FORCE_SUBGROUP_SIZE_1" ],
-          "7ba6ba5976065496" : [ "FORCE_TGSM_BARRIERS" ],
-          "9c1fdb247cf0263c" : [ "FORCE_TGSM_BARRIERS" ]
+          "1c4c8782b75c498b" : [ "FORCE_SUBGROUP_SIZE_1" ]
         }
       },
       "name" : "re4.exe"
     },
     {
       "shaderQuirks" : {
-        "perEntryQuirks" : {},
+        "perEntryQuirks" : { "CS_InstancingCompaction" : [ "FORCE_TGSM_BARRIERS" ] },
         "perHashQuirks" : {
-          "d892f8024f52d3ca" : [ "FORCE_NOCONTRACT_MATH" ],
-          "aae07660844b89cf" : [ "FORCE_TGSM_BARRIERS" ]
+          "d892f8024f52d3ca" : [ "FORCE_NOCONTRACT_MATH" ]
         }
       },
       "name" : "MonsterHunterRise.exe"
