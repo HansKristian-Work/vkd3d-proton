@@ -332,6 +332,12 @@
     },
     {
       "shaderQuirks" : {
+        "perEntryQuirks" : { "CS_InstancingCompaction" : [ "FORCE_TGSM_BARRIERS" ] }
+      },
+      "name" : "StreetFighter6.exe"
+    },
+    {
+      "shaderQuirks" : {
         "perEntryQuirks" : {},
         "perHashQuirks" : {
           "2c16686e5d9b04a8" : [ "FORCE_COMPUTE_BARRIER" ]
