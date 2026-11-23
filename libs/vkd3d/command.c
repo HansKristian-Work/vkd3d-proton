@@ -12949,7 +12949,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
     if (dyn_state->viewport_count != viewport_count)
     {
         dyn_state->viewport_count = viewport_count;
-        d3d12_command_list_invalidate_current_pipeline(list, false);
     }
 
     /* Always dirty scissor to recompute the implicit clip area */
