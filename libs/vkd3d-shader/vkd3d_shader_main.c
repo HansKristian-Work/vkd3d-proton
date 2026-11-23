@@ -762,6 +762,7 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
     SpvExecutionModel execution_model = SpvExecutionModelMax;
     size_t spirv_words = code->size / sizeof(uint32_t);
     unsigned int i, tracked_builtin_count = 0;
+    vkd3d_shader_meta_flags_t meta = 0;
     const uint32_t *spirv = code->code;
     SpvExecutionMode execution_mode;
     SpvStorageClass storage_class;
@@ -769,7 +770,6 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
     SpvDecoration decoration;
     SpvBuiltIn builtin;
     size_t offset = 5;
-    uint32_t meta = 0;
     uint32_t var_id;
 
     /* This array must be large enough to hold all variable IDs that may
