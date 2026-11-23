@@ -1522,6 +1522,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     unsigned int heuristic_min_wave_size;
     unsigned int heuristic_max_wave_size;
     dxil_spv_converter converter = NULL;
+    unsigned int cs_workgroup_size[3];
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
     vkd3d_shader_quirks_t quirks;
@@ -1707,9 +1708,9 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     }
 
     dxil_spv_converter_get_compute_workgroup_dimensions(converter,
-            &spirv->meta.cs_workgroup_size[0],
-            &spirv->meta.cs_workgroup_size[1],
-            &spirv->meta.cs_workgroup_size[2]);
+            &cs_workgroup_size[0], &cs_workgroup_size[1], &cs_workgroup_size[2]);
+    for (i = 0; i < 3; i++)
+        spirv->meta.cs_workgroup_size[i] = (uint16_t)cs_workgroup_size[i];
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
 
     if (stage == DXIL_SPV_STAGE_HULL)
