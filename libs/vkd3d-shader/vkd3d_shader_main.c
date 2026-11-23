@@ -779,7 +779,7 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
         uint32_t var_id;
         SpvBuiltIn builtin;
     }
-    tracked_builtins[2];
+    tracked_builtins[4];
 
     while (offset < spirv_words)
     {
@@ -950,7 +950,7 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
             {
                 builtin = spirv[offset + delta + 3];
 
-                if (builtin == SpvBuiltInSampleMask)
+                if (builtin == SpvBuiltInSampleMask || builtin == SpvBuiltInViewportIndex)
                 {
                     if (tracked_builtin_count < ARRAY_SIZE(tracked_builtins))
                     {
@@ -991,6 +991,11 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                         case SpvBuiltInSampleMask:
                             if (storage_class == SpvStorageClassOutput)
                                 meta |= VKD3D_SHADER_META_FLAG_EXPORTS_SAMPLE_MASK;
+                            break;
+
+                        case SpvBuiltInViewportIndex:
+                            if (storage_class == SpvStorageClassOutput)
+                                meta |= VKD3D_SHADER_META_FLAG_EXPORTS_VIEWPORT_INDEX;
                             break;
 
                         default:;
