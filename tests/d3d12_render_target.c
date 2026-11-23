@@ -3365,3 +3365,214 @@ void test_render_pass_suspend_resume_opts_disabled(void)
     test_render_pass_suspend_resume_opts(false);
     vkd3d_set_behavior_flags(0);
 }
+
+static void test_viewport_index_robustness(bool use_dxil)
+{
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+	D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+	struct test_context_desc context_desc;
+	const float black[4] = { 0 };
+	D3D12_VIEWPORT viewports[16];
+	struct resource_readback rb;
+	struct test_context context;
+	D3D12_RECT scissors[16];
+	unsigned int i, j, x, y;
+	HRESULT hr;
+
+#include "shaders/render_target/headers/viewport_array_vs.h"
+#include "shaders/render_target/headers/viewport_array_ps.h"
+
+	static const struct
+	{
+		uint32_t first_viewport_count;
+		uint32_t first_scissor_count;
+		uint32_t first_instances;
+		uint32_t second_viewport_count;
+		uint32_t second_scissor_count;
+		uint32_t second_instances;
+	} tests[] = {
+		/* Basic case */
+		{ 2, 2, 2, 1, 1, 1 },
+
+		/* Try to mismatch scissor count and viewport count. Lower count should win. */
+		{ 2, 1, 2, 1, 1, 0 },
+		{ 1, 2, 2, 2, 1, 0 },
+
+		/* Try to render more instances than there are viewports before having programmed anything on the command buffer. */
+		{ 1, 1, 2 },
+
+		/* Try to render more instances than there are viewports after we have already programmed the viewports. */
+		{ 2, 2, 2, 1, 1, 2 },
+
+		/* Try to overflow 16 viewport limit. */
+		{ 2, 2, 18, 1, 1, 0 },
+		{ 16, 16, 18, 1, 1, 19 },
+	};
+
+	/* TODO: We currently don't explicitly implement the viewport index >= 16 clamping in dxil-spirv.
+	 * However, hardware seems to just work like we expect, at least on NVIDIA / AMD. If this is somehow a problem in the future,
+	 * we can implement it correctly in dxil-spirv, but this edge case is so esoteric that I'd rather not unless we're forced to. */
+
+	memset(&context_desc, 0, sizeof(context_desc));
+	context_desc.no_root_signature = true;
+	context_desc.no_pipeline = true;
+	context_desc.rt_width = 16;
+	context_desc.rt_height = 16;
+	context_desc.rt_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+	if (!init_test_context(&context, &context_desc))
+		return;
+
+	context.root_signature = create_32bit_constants_root_signature(context.device, 0, 1, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) ||
+		!options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation)
+	{
+		skip("Skipping viewport index test.\n");
+		destroy_test_context(&context);
+		return;
+	}
+
+	if (use_dxil)
+	{
+		init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL,
+			viewport_array_vs_code_dxil, sizeof(viewport_array_vs_code_dxil),
+			viewport_array_ps_code_dxil, sizeof(viewport_array_ps_code_dxil));
+	}
+	else
+	{
+		init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, NULL,
+			viewport_array_vs_code_dxbc, sizeof(viewport_array_vs_code_dxbc),
+			viewport_array_ps_code_dxbc, sizeof(viewport_array_ps_code_dxbc));
+	}
+
+	pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+	pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+	pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+	pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	pso_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	pso_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+	pso_desc.DepthStencilState.DepthEnable = FALSE;
+	pso_desc.DepthStencilState.StencilEnable = FALSE;
+
+	hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+	ok(SUCCEEDED(hr), "Failed to create PSO hr #%x\n", (int)hr);
+
+	for (i = 0; i < ARRAY_SIZE(viewports); i++)
+	{
+		viewports[i].Width = 1.0f;
+		viewports[i].Height = 1.0f;
+		viewports[i].TopLeftX = (float)i;
+		viewports[i].TopLeftY = (float)i;
+		viewports[i].MinDepth = 0.0f;
+		viewports[i].MaxDepth = 1.0f;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(scissors); i++)
+	{
+		scissors[i].left = 0;
+		scissors[i].top = 0;
+		scissors[i].right = 16;
+		scissors[i].bottom = 16;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(tests); i++)
+	{
+		vkd3d_test_set_context("Test %u", i);
+		ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+		ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, black, 0, NULL);
+		ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+		ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+		ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		ID3D12GraphicsCommandList_RSSetViewports(context.list, tests[i].first_viewport_count, viewports);
+		ID3D12GraphicsCommandList_RSSetScissorRects(context.list, tests[i].first_scissor_count, scissors);
+		ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0, 1, 0);
+		ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, tests[i].first_instances, 0, 0);
+
+		ID3D12GraphicsCommandList_RSSetViewports(context.list, tests[i].second_viewport_count, viewports);
+		ID3D12GraphicsCommandList_RSSetScissorRects(context.list, tests[i].second_scissor_count, scissors);
+		ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 0, 2, 0);
+		ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, tests[i].second_instances, 0, 0);
+
+		transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+		get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+
+		for (y = 0; y < 16; y++)
+		{
+			for (x = 0; x < 16; x++)
+			{
+				if (x != y)
+				{
+					ok(get_readback_uint(&rb, x, y, 0) == 0, "Expected 0 for non-diagonal pixel (%u x %u).\n", x, y);
+				}
+				else
+				{
+					uint32_t value = get_readback_uint(&rb, x, y, 0);
+					uint32_t expected_r = 0;
+					uint32_t expected_g = 0;
+					uint32_t expected_b = 0;
+					uint32_t expected;
+
+					if (x < tests[i].first_viewport_count && x < tests[i].first_instances && x < tests[i].first_scissor_count)
+					{
+						expected_r++;
+						expected_g += x;
+						expected_b += 1;
+					}
+
+					if (x < tests[i].second_viewport_count && x < tests[i].second_instances && x < tests[i].second_scissor_count)
+					{
+						expected_r++;
+						expected_g += x;
+						expected_b += 2;
+					}
+
+					if (x == 0)
+					{
+						/* According to D3D11.3 functional spec, any ViewportIndex above 16 is forced to 0
+						 * on overflow, but the stage IO variable is unclamped. */
+						for (j = 16; j < tests[i].first_instances; j++)
+						{
+							expected_r++;
+							expected_g += j;
+							expected_b += 1;
+						}
+
+						for (j = 16; j < tests[i].second_instances; j++)
+						{
+							expected_r++;
+							expected_g += j;
+							expected_b += 2;
+						}
+					}
+
+					expected_g = min(expected_g, 255);
+
+					expected = expected_r | (expected_g << 8) | (expected_b << 16);
+					ok(value == expected, "Expected #%x (%u, %u, %u) for pixel (%u, %u), got #%x.\n",
+							expected, expected_r, expected_g, expected_r, x, y, value);
+				}
+			}
+		}
+
+		reset_command_list(context.list, context.allocator);
+		transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		release_resource_readback(&rb);
+	}
+	vkd3d_test_set_context(NULL);
+
+	destroy_test_context(&context);
+}
+
+void test_viewport_index_robustness_dxbc(void)
+{
+	test_viewport_index_robustness(false);
+}
+
+void test_viewport_index_robustness_dxil(void)
+{
+	test_viewport_index_robustness(true);
+}

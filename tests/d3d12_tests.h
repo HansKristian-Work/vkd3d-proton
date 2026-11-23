@@ -619,3 +619,5 @@ decl_test(test_unusual_builtin_stage_io_dxbc);
 decl_test(test_unusual_builtin_stage_io_dxil);
 decl_test(test_precise_mad_dxbc);
 decl_test(test_precise_mad_dxil);
+decl_test(test_viewport_index_robustness_dxbc);
+decl_test(test_viewport_index_robustness_dxil);
