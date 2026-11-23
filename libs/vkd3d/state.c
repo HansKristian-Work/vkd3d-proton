@@ -1002,9 +1002,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
             *vk_mapping = root_signature->heap.mappings[root_signature->heap.mappings_count - 2];
             vk_mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT |
                     VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT |
-                    VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT;
-            if (d3d12_device_supports_ray_tracing_tier_1_0(root_signature->device))
-                vk_mapping->resourceMask |= VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
+                    VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT |
+                    VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
 
             if (local_root_signature)
                 vk_mapping->sourceData.shaderRecordIndex.heapOffset += bindless_state->packed_raw_buffer_offset;
@@ -1723,9 +1722,8 @@ static HRESULT d3d12_root_signature_init_global_mappings(struct d3d12_root_signa
         mapping->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
         mapping->resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT |
                 VK_SPIRV_RESOURCE_TYPE_READ_ONLY_STORAGE_BUFFER_BIT_EXT |
-                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT;
-        if (d3d12_device_supports_ray_tracing_tier_1_0(root_signature->device))
-            mapping->resourceMask |= VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
+                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_STORAGE_BUFFER_BIT_EXT |
+                VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
         mapping->source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
         mapping->descriptorSet = VKD3D_SHADER_GLOBAL_HEAP_VIRTUAL_DESCRIPTOR_SET;
         mapping->firstBinding = 0;
