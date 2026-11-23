@@ -7107,11 +7107,16 @@ static void d3d12_command_list_reset_rtv_resolves(struct d3d12_command_list *lis
     list->rtv_resolve_region_count = 0;
 }
 
+/* 0 width/height viewport is invalid usage. */
+static const VkViewport degenerate_viewport = { -1, -1, 1, 1, 0, 1 };
+/* Null scissor seems to be valid however. */
+
 static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
         ID3D12PipelineState *initial_pipeline_state)
 {
     const VkPhysicalDeviceLimits *limits = &list->device->device_info.properties2.properties.limits;
     d3d12_command_list_iface *iface = &list->ID3D12GraphicsCommandList_iface;
+    unsigned int i;
 
     list->index_buffer.dxgi_format = DXGI_FORMAT_UNKNOWN;
 
@@ -7141,6 +7146,9 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->command_buffer_pipeline = VK_NULL_HANDLE;
 
     memset(&list->dynamic_state, 0, sizeof(list->dynamic_state));
+    for (i = 0; i < ARRAY_SIZE(list->dynamic_state.viewports); i++)
+        list->dynamic_state.viewports[i] = degenerate_viewport;
+
     list->dynamic_state.blend_constants[0] = D3D12_DEFAULT_BLEND_FACTOR_RED;
     list->dynamic_state.blend_constants[1] = D3D12_DEFAULT_BLEND_FACTOR_GREEN;
     list->dynamic_state.blend_constants[2] = D3D12_DEFAULT_BLEND_FACTOR_BLUE;
@@ -8398,70 +8406,58 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     VkDepthBiasInfoEXT depth_bias_info;
     const uint32_t *stride_align_masks;
     struct vkd3d_bitmask_range range;
+    uint32_t num_bound_viewports;
     uint32_t update_vbos;
     unsigned int i;
 
     /* Make sure we only update states that are dynamic in the pipeline */
     dyn_state->dirty_flags &= list->dynamic_state.active_flags;
 
-    if (dyn_state->viewport_count)
+    /* In Vulkan, rendering beyond bound viewport count is UB, but well-defined in D3D12.
+     * Beyond the bound scissor and viewport rects, we should nop the draw somehow. */
+    num_bound_viewports = dyn_state->multiple_viewports ? ARRAY_SIZE(dyn_state->viewports) : 1;
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
     {
-        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
-        {
-            VK_CALL(vkCmdSetViewportWithCount(list->cmd.vk_command_buffer,
-                    dyn_state->viewport_count, dyn_state->viewports));
-        }
-
-        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
-        {
-            /* Rendering with OOB scissor seems to work fine in D3D12,
-             * but it's out of spec in Vulkan,
-             * and NV can crash GPU if scissor is out of bounds in some cases. */
-            VkRect2D clamped_scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
-            VkOffset2D top_left, bottom_right;
-            const VkViewport *viewport;
-            VkExtent2D max_fb_extent;
-            const VkRect2D *scissor;
-
-            max_fb_extent = list->rendering_info.info.renderArea.extent;
-
-            for (i = 0; i < dyn_state->viewport_count; i++)
-            {
-                viewport = &dyn_state->viewports[i];
-                scissor = &dyn_state->scissors[i];
-
-                /* Need to take possible negative viewport height into account */
-                top_left.x = max(scissor->offset.x, (int)(max(0.0f, viewport->x)));
-                top_left.y = max(scissor->offset.y, (int)(max(0.0f,
-                    min(viewport->y, viewport->y + viewport->height))));
-
-                bottom_right.x = min((int)max_fb_extent.width, (int)max(0.0f, viewport->x + viewport->width));
-                bottom_right.y = min((int)max_fb_extent.height, (int)max(0.0f,
-                    max(viewport->y, viewport->y + viewport->height)));
-
-                bottom_right.x = max(bottom_right.x, top_left.x);
-                bottom_right.y = max(bottom_right.y, top_left.y);
-
-                clamped_scissors[i].offset = top_left;
-                clamped_scissors[i].extent.width = min(scissor->extent.width, (uint32_t)(bottom_right.x - top_left.x));
-                clamped_scissors[i].extent.height = min(scissor->extent.height, (uint32_t)(bottom_right.y - top_left.y));
-            }
-
-            VK_CALL(vkCmdSetScissorWithCount(list->cmd.vk_command_buffer,
-                    dyn_state->viewport_count, clamped_scissors));
-        }
+        VK_CALL(vkCmdSetViewportWithCount(list->cmd.vk_command_buffer, num_bound_viewports, dyn_state->viewports));
     }
-    else
-    {
-        /* Zero viewports disables rasterization. Emit dummy viewport / scissor rects.
-         * For non-dynamic fallbacks, we force viewportCount to be at least 1. */
-        static const VkViewport dummy_vp = { 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f };
-        static const VkRect2D dummy_rect = { { 0, 0 }, { 0, 0 } };
 
-        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
-            VK_CALL(vkCmdSetViewportWithCount(list->cmd.vk_command_buffer, 1, &dummy_vp));
-        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
-            VK_CALL(vkCmdSetScissorWithCount(list->cmd.vk_command_buffer, 1, &dummy_rect));
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
+    {
+        /* Rendering with OOB scissor seems to work fine in D3D12,
+         * but it's out of spec in Vulkan,
+         * and NV can crash GPU if scissor is out of bounds in some cases. */
+        VkRect2D clamped_scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+        VkOffset2D top_left, bottom_right;
+        const VkViewport *viewport;
+        VkExtent2D max_fb_extent;
+        const VkRect2D *scissor;
+
+        max_fb_extent = list->rendering_info.info.renderArea.extent;
+
+        for (i = 0; i < num_bound_viewports; i++)
+        {
+            viewport = &dyn_state->viewports[i];
+            scissor = &dyn_state->scissors[i];
+
+            /* Need to take possible negative viewport height into account */
+            top_left.x = max(scissor->offset.x, (int)(max(0.0f, viewport->x)));
+            top_left.y = max(scissor->offset.y, (int)(max(0.0f,
+                min(viewport->y, viewport->y + viewport->height))));
+
+            bottom_right.x = min((int)max_fb_extent.width, (int)max(0.0f, viewport->x + viewport->width));
+            bottom_right.y = min((int)max_fb_extent.height, (int)max(0.0f,
+                max(viewport->y, viewport->y + viewport->height)));
+
+            bottom_right.x = max(bottom_right.x, top_left.x);
+            bottom_right.y = max(bottom_right.y, top_left.y);
+
+            clamped_scissors[i].offset = top_left;
+            clamped_scissors[i].extent.width = min(scissor->extent.width, (uint32_t)(bottom_right.x - top_left.x));
+            clamped_scissors[i].extent.height = min(scissor->extent.height, (uint32_t)(bottom_right.y - top_left.y));
+        }
+
+        VK_CALL(vkCmdSetScissorWithCount(list->cmd.vk_command_buffer, num_bound_viewports, clamped_scissors));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS)
@@ -12948,6 +12944,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
 
     if (dyn_state->viewport_count != viewport_count)
     {
+        for (i = viewport_count; i < dyn_state->viewport_count; i++)
+            dyn_state->viewports[i] = degenerate_viewport;
         dyn_state->viewport_count = viewport_count;
     }
 
@@ -12977,6 +12975,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(d3d12_command
         vk_rect->offset.y = max(rects[i].top, 0);
         vk_rect->extent.width = max(vk_rect->offset.x, rects[i].right) - vk_rect->offset.x;
         vk_rect->extent.height = max(vk_rect->offset.y, rects[i].bottom) - vk_rect->offset.y;
+    }
+
+    if (dyn_state->scissor_count != rect_count)
+    {
+        if (rect_count < dyn_state->scissor_count)
+            memset(&dyn_state->scissors[rect_count], 0, sizeof(VkRect2D) * (dyn_state->scissor_count - rect_count));
+        dyn_state->scissor_count = rect_count;
     }
 
     dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
@@ -13244,6 +13249,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
         /* If we change feedback loop state, restart the render pass so we can pick that change up. */
         if (current_feedback_loop != !!(list->current_meta_flags & VKD3D_SHADER_META_FLAG_FEEDBACK_LOOP))
             d3d12_command_list_end_current_render_pass(list, false);
+
+        if (list->dynamic_state.multiple_viewports != state->graphics.multiple_viewports)
+        {
+            list->dynamic_state.multiple_viewports = state->graphics.multiple_viewports;
+            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
+        }
     }
     else
     {

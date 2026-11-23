@@ -2342,6 +2342,7 @@ struct d3d12_graphics_pipeline_state
     unsigned int null_attachment_mask;
     unsigned int rtv_active_mask;
     unsigned int patch_vertex_count;
+    bool multiple_viewports;
     const struct vkd3d_format *dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     uint32_t dsv_plane_optimal_mask;
@@ -2888,10 +2889,12 @@ struct vkd3d_dynamic_state
     uint32_t dirty_vbos;
 
     uint32_t viewport_count;
+    uint32_t scissor_count;
     VkViewport viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     VkRect2D scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     VkSampleCountFlagBits rasterization_samples;
     uint32_t view_mask;
+    bool multiple_viewports;
 
     float blend_constants[4];
 

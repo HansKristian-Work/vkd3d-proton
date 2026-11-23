@@ -5029,6 +5029,14 @@ static HRESULT d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_s
         if (graphics->cached_desc.bytecode_stages[i] == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
             graphics->patch_vertex_count = graphics->code[i].meta.patch_vertex_count;
 
+        /* Last pre-raster stage decides if we can use multiple viewports.
+         * If the shader does not export viewport index VP 0 is always used.
+         * TODO: Technically we could just drop dynamic viewport count, but that invalidates Fossilize,
+         * and we get some extra viewport invalidation on PSO change, so keep it as-is.
+         * Either we emit 1 or 16 viewports to be compliant with D3D12 out of bounds rules here. */
+        if (graphics->cached_desc.bytecode_stages[i] != VK_SHADER_STAGE_FRAGMENT_BIT)
+            graphics->multiple_viewports = !!(graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_EXPORTS_VIEWPORT_INDEX);
+
         if ((graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_REPLACED) &&
                 device->debug_ring.active)
         {
