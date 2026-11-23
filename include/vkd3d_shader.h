@@ -87,6 +87,8 @@ typedef uint64_t vkd3d_shader_hash_t;
 #define VKD3D_SHADER_META_FLAG_FEEDBACK_LOOP (1ull << 28)
 #define VKD3D_SHADER_META_FLAG_ALLOW_WAVE32 (1ull << 29)
 #define VKD3D_SHADER_META_FLAG_EXPORTS_VIEWPORT_INDEX (1ull << 30)
+/* Bit 31 is vacant. Intentional to test that 64-bits are plumbed through. */
+#define VKD3D_SHADER_META_FLAG_USES_RAY_QUERY (1ull << 32)
 
 typedef uint64_t vkd3d_shader_meta_flags_t;
 
