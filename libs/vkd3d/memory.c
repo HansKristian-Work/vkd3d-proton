@@ -1228,25 +1228,31 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
         void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
     VkImportMemoryHostPointerInfoEXT import_info;
-    HRESULT hr = S_OK;
+    HRESULT hr;
 
     import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT;
     import_info.pNext = pNext;
     import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
     import_info.pHostPointer = host_address;
 
-    if (VKD3D_CONFIG_FLAG_IS_SET(USE_HOST_IMPORT_FALLBACK) ||
-        FAILED(hr = vkd3d_try_allocate_device_memory(device, size,
-            type_flags, type_mask, &import_info, true, allocation)))
+    if (VKD3D_CONFIG_FLAG_IS_SET(USE_HOST_IMPORT_FALLBACK))
     {
-        if (FAILED(hr))
-            WARN("Failed to import host memory, hr %#x.\n", (int)hr);
-        /* If we failed, fall back to a host-visible allocation. Generally
-         * the app will access the memory thorugh the main host pointer,
-         * so it's fine. */
-        hr = vkd3d_try_allocate_device_memory(device, size,
+        /* Only used as a workaround for drivers and kernels where importing host memory is not
+         * viable. Safe only for apps that never rely on the GPU seeing the host allocation. */
+        WARN("Using host memory import fallback.\n");
+        return vkd3d_try_allocate_device_memory(device, size,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                 type_mask, pNext, true, allocation);
+    }
+
+    /* The allocation belongs to the app, so we cannot substitute one of our own if the import
+     * fails. The app would keep using its host pointer while the GPU used different memory, and
+     * nothing would report it. Fail the allocation instead. */
+    if (FAILED(hr = vkd3d_try_allocate_device_memory(device, size,
+            type_flags, type_mask, &import_info, true, allocation)))
+    {
+        ERR("Failed to import host memory (address %p, size %"PRIu64"), hr %#x.\n",
+                host_address, (uint64_t)size, (int)hr);
     }
 
     return hr;

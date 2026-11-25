@@ -177,24 +177,35 @@ void test_open_heap_from_address(void)
             ok(!!(heap_desc.Flags & D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER), "Expected Heap desc to have SHARED_CROSS_ADAPTER flag set.\n");
             ok(!!(heap_desc.Flags & D3D12_HEAP_FLAG_SHARED), "Expected heap desc to have SHARED flag set.\n");
 
+            /* A driver is free to refuse importing the pages behind a file mapping (RADV refuses
+             * everything that is not an anonymous mapping). It must then fail the resource creation
+             * instead of silently handing out memory our own mapping does not back. */
             resource = create_placed_buffer(device, heap, 0, heap_size, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER, D3D12_RESOURCE_STATE_COPY_SOURCE);
-            ok(!!resource, "Failed to create resource.\n");
-            readback_resource = create_default_buffer(device, heap_size, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
-            ID3D12GraphicsCommandList_CopyResource(context.list, readback_resource, resource);
-            transition_resource_state(context.list, readback_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
-            get_buffer_readback_with_command_list(readback_resource, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
-            reset_command_list(context.list, context.allocator);
-            for (i = 1; i < heap_size / sizeof(uint32_t); i++)
+
+            if (!resource)
             {
-                uint32_t v = get_readback_uint(&rb, i, 0, 0);
-                todo ok(v == i, "Expected %u, got %u.\n", i, v);
-                if (v != i)
-                    break;
+                skip("Failed to create a placed buffer in a heap from a file mapping.\n");
             }
-            release_resource_readback(&rb);
+            else
+            {
+                readback_resource = create_default_buffer(device, heap_size, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyResource(context.list, readback_resource, resource);
+                transition_resource_state(context.list, readback_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                get_buffer_readback_with_command_list(readback_resource, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+                reset_command_list(context.list, context.allocator);
+                for (i = 1; i < heap_size / sizeof(uint32_t); i++)
+                {
+                    uint32_t v = get_readback_uint(&rb, i, 0, 0);
+                    ok(v == i, "Expected %u, got %u.\n", i, v);
+                    if (v != i)
+                        break;
+                }
+                release_resource_readback(&rb);
+                ID3D12Resource_Release(readback_resource);
+                ID3D12Resource_Release(resource);
+            }
+
             ID3D12Heap_Release(heap);
-            ID3D12Resource_Release(readback_resource);
-            ID3D12Resource_Release(resource);
         }
 
         UnmapViewOfFile(addr);

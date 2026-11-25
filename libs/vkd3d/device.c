@@ -7551,20 +7551,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineState(d3d12_device_i
             &IID_ID3D12PipelineState, riid, pipeline_state);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
-        d3d12_device_iface *iface,
-        const void *address,
-        SIZE_T size,
-        REFIID riid,
-        void **ppHeap)
+static HRESULT d3d12_device_open_host_heap(struct d3d12_device *device, void *address, SIZE_T size,
+        void *host_view, REFIID riid, void **ppHeap)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
     D3D12_HEAP_DESC heap_desc;
     struct d3d12_heap *object;
     HRESULT hr;
-
-    TRACE("iface %p, address %p, size %zu, iid %s, ppHeap %p\n",
-        iface, address, size, debugstr_guid(riid), ppHeap);
 
     memset(&heap_desc, 0, sizeof(heap_desc));
     heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
@@ -7580,7 +7572,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
     heap_desc.Properties.VisibleNodeMask = 1;
     heap_desc.SizeInBytes = size;
 
-    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, (void *)address, &object)))
+    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, address, host_view, &object)))
     {
         if (ppHeap)
             *ppHeap = NULL;
@@ -7590,15 +7582,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
     return return_interface(&object->ID3D12Heap_iface, &IID_ID3D12Heap, riid, ppHeap);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress1(
+        d3d12_device_iface *iface,
+        const void *address,
+        SIZE_T size,
+        REFIID riid,
+        void **ppHeap)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, address %p, size %zu, iid %s, ppHeap %p\n",
+        iface, address, size, debugstr_guid(riid), ppHeap);
+
+    return d3d12_device_open_host_heap(device, (void *)address, size, NULL, riid, ppHeap);
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_device_iface *iface,
         const void *address, REFIID riid, void **heap)
 {
 #ifdef _WIN32
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
     MEMORY_BASIC_INFORMATION info;
     size_t allocation_size;
 
     TRACE("iface %p, address %p, riid %s, heap %p\n",
-          iface, address, debugstr_guid(riid), heap);
+          iface, address, riid, heap);
 
     if (!VirtualQuery(address, &info, sizeof(info)))
     {
@@ -7626,7 +7634,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
         return E_INVALIDARG;
     }
 
-    return d3d12_device_OpenExistingHeapFromAddress1(iface, address, allocation_size, riid, heap);
+    return d3d12_device_open_host_heap(device, (void *)address, allocation_size, NULL, riid, heap);
 #else
     FIXME("OpenExistingHeapFromAddress can only be implemented in native Win32.\n");
     return E_NOTIMPL;
@@ -7637,18 +7645,36 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromFileMapping(d3
         HANDLE file_mapping, REFIID riid, void **heap)
 {
 #ifdef _WIN32
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    MEMORY_BASIC_INFORMATION info;
+    size_t allocation_size;
     void *addr;
     HRESULT hr;
+
     TRACE("iface %p, file_mapping %p, riid %s, heap %p\n",
-          iface, file_mapping, debugstr_guid(riid), heap);
+          iface, file_mapping, riid, heap);
 
     /* 0 size maps everything. */
     addr = MapViewOfFile(file_mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
     if (!addr)
         return E_INVALIDARG;
 
-    hr = d3d12_device_OpenExistingHeapFromAddress(iface, addr, riid, heap);
-    UnmapViewOfFile(addr);
+    /* A view of a file mapping does not have to be a single allocation base, but ours is. */
+    if (!VirtualQuery(addr, &info, sizeof(info)))
+    {
+        UnmapViewOfFile(addr);
+        return E_INVALIDARG;
+    }
+
+    allocation_size = info.RegionSize;
+
+    /* The heap takes ownership of the view. The host pointer is not imported until the app
+     * creates a placed resource, so the view cannot be unmapped here. The heap unmaps it
+     * when it is destroyed. */
+    hr = d3d12_device_open_host_heap(device, addr, allocation_size, addr, riid, heap);
+    if (FAILED(hr))
+        UnmapViewOfFile(addr);
+
     return hr;
 #else
     FIXME("OpenExistingHeapFromFileMapping can only be implemented in native Win32.\n");
@@ -7733,7 +7759,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap1(d3d12_device_iface *if
     if (protected_session)
         FIXME("Ignoring protected session %p.\n", protected_session);
 
-    if (FAILED(hr = d3d12_heap_create(device, desc, NULL, &object)))
+    if (FAILED(hr = d3d12_heap_create(device, desc, NULL, NULL, &object)))
     {
         *heap = NULL;
         return hr;
