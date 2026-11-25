@@ -594,8 +594,7 @@ enum vkd3d_shader_target_extension
  * where denorms really matter to visual output. */
 #define VKD3D_SHADER_QUIRK_FORCE_DENORM_LEGACY_FP16_CONVERSIONS (1ull << 40)
 
-/* For debugging. Will be removed eventually. */
-#define VKD3D_SHADER_QUIRK_LEGACY_STRUCTURIZER (1ull << 41)
+/* Bit 41 vacant */
 
 #define VKD3D_SHADER_QUIRK_LEGACY_MEMORY_MODEL_COHERENT_IMAGES (1ull << 42)
 
