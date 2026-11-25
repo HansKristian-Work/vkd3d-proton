@@ -87,6 +87,10 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 #endif
 
     vkd3d_free_memory(heap->device, &heap->device->memory_allocator, &heap->allocation);
+#ifdef _WIN32
+    if (heap->host_view)
+        UnmapViewOfFile(heap->host_view);
+#endif
     vkd3d_private_store_destroy(&heap->private_store);
     vkd3d_free(heap);
 }
@@ -404,7 +408,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
 }
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
-        void* host_address, struct d3d12_heap **heap)
+        void *host_address, void *host_view, struct d3d12_heap **heap)
 {
     struct d3d12_heap *object;
     HRESULT hr;
@@ -417,6 +421,8 @@ HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *de
         vkd3d_free(object);
         return hr;
     }
+
+    object->host_view = host_view;
 
     TRACE("Created heap %p.\n", object);
 

@@ -1061,10 +1061,15 @@ struct d3d12_heap
     struct d3d12_device *device;
     struct vkd3d_private_store private_store;
     struct d3d_destruction_notifier destruction_notifier;
+
+    /* View of a file mapping owned by this heap, see OpenExistingHeapFromFileMapping().
+     * The host pointer is not imported until a placed resource is created, so the view has
+     * to stay alive for as long as the heap exists. */
+    void *host_view;
 };
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
-        void *host_address, struct d3d12_heap **heap);
+        void *host_address, void *host_view, struct d3d12_heap **heap);
 HRESULT d3d12_device_validate_custom_heap_type(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties);
 
