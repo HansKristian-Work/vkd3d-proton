@@ -328,3 +328,161 @@ done:
 #endif
 }
 
+#ifdef _WIN32
+static void process_window_messages(void)
+{
+    MSG msg;
+
+    while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE))
+    {
+        TranslateMessage(&msg);
+        DispatchMessageA(&msg);
+    }
+}
+
+static HRESULT wait_for_present_test_result(IDXGISwapChain2 *swapchain, HRESULT expected)
+{
+    unsigned int i;
+    HRESULT hr;
+
+    for (i = 0; i < 200; i++)
+    {
+        process_window_messages();
+        if ((hr = IDXGISwapChain2_Present(swapchain, 0, DXGI_PRESENT_TEST)) == expected)
+            break;
+        vkd3d_sleep(10);
+    }
+
+    return hr;
+}
+#endif
+
+void test_frame_latency_waitable_occluded(void)
+{
+#ifndef _WIN32
+    skip("Occlusion requires a Win32 window. Skipping.\n");
+#else
+    static const unsigned int max_latency = 2;
+    IDXGISwapChain2 *swapchain = NULL;
+    IDXGISwapChain1 *swapchain1;
+    DXGI_SWAP_CHAIN_DESC1 desc;
+    struct test_context context;
+    unsigned int i, timeouts;
+    IDXGIFactory2 *factory;
+    unsigned int count;
+    HANDLE waitable;
+    HWND window;
+    HRESULT hr;
+
+    if (!init_test_context(&context, NULL))
+        return;
+
+    hr = CreateDXGIFactory1(&IID_IDXGIFactory2, (void **)&factory);
+    ok(hr == S_OK, "Failed to create factory, hr %#x.\n", (int)hr);
+
+    window = CreateWindowA("static", "vkd3d_test", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            0, 0, 320, 240, NULL, NULL, NULL, NULL);
+    ok(!!window, "Failed to create window.\n");
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 320;
+    desc.Height = 240;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    desc.BufferCount = 3;
+    desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+
+    hr = IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown *)context.queue, window, &desc, NULL, NULL, &swapchain1);
+    ok(hr == S_OK, "Failed to create swapchain, hr %#x.\n", (int)hr);
+    if (FAILED(hr))
+        goto done;
+
+    hr = IDXGISwapChain1_QueryInterface(swapchain1, &IID_IDXGISwapChain2, (void **)&swapchain);
+    ok(hr == S_OK, "Failed to query IDXGISwapChain2, hr %#x.\n", (int)hr);
+    IDXGISwapChain1_Release(swapchain1);
+    if (FAILED(hr))
+        goto done;
+
+    hr = IDXGISwapChain2_SetMaximumFrameLatency(swapchain, max_latency);
+    ok(hr == S_OK, "Failed to set maximum frame latency, hr %#x.\n", (int)hr);
+    waitable = IDXGISwapChain2_GetFrameLatencyWaitableObject(swapchain);
+    ok(!!waitable, "Failed to get frame latency waitable object.\n");
+
+    for (i = 0; i < 8; i++)
+    {
+        process_window_messages();
+        ok(WaitForSingleObject(waitable, 5000) == WAIT_OBJECT_0, "Failed to wait for frame latency object.\n");
+        hr = IDXGISwapChain2_Present(swapchain, 0, 0);
+        ok(hr == S_OK, "Failed to present, hr %#x.\n", (int)hr);
+    }
+
+    ShowWindow(window, SW_MINIMIZE);
+    if (wait_for_present_test_result(swapchain, DXGI_STATUS_OCCLUDED) != DXGI_STATUS_OCCLUDED)
+    {
+        skip("Minimized window does not report occlusion. Skipping.\n");
+        goto done_waitable;
+    }
+
+    /* An occluded Present still retires a frame. If it does not hand back the frame latency
+     * count the application acquired for it, the waitable eventually starves. */
+    for (i = 0, timeouts = 0; i < 8; i++)
+    {
+        process_window_messages();
+        if (WaitForSingleObject(waitable, 1000) == WAIT_TIMEOUT)
+            timeouts++;
+        hr = IDXGISwapChain2_Present(swapchain, 0, 0);
+        ok(hr == DXGI_STATUS_OCCLUDED, "Unexpected hr %#x.\n", (int)hr);
+    }
+    ok(!timeouts, "Frame latency waitable timed out %u times while occluded.\n", timeouts);
+
+    /* Presenting while occluded without acquiring first must not raise the count above the maximum latency. */
+    for (i = 0; i < 8; i++)
+    {
+        hr = IDXGISwapChain2_Present(swapchain, 0, 0);
+        ok(hr == DXGI_STATUS_OCCLUDED, "Unexpected hr %#x.\n", (int)hr);
+    }
+    for (count = 0; count < DXGI_MAX_SWAP_CHAIN_BUFFERS; count++)
+    {
+        if (WaitForSingleObject(waitable, 0) != WAIT_OBJECT_0)
+            break;
+    }
+    ok(count <= max_latency, "Frame latency count %u exceeds maximum latency %u.\n", count, max_latency);
+
+    ShowWindow(window, SW_RESTORE);
+    if (wait_for_present_test_result(swapchain, S_OK) != S_OK)
+    {
+        skip("Restored window still reports occlusion. Skipping.\n");
+        goto done_waitable;
+    }
+
+    /* Hand back the counts drained above, then render normally again. */
+    for (i = 0; i < count; i++)
+    {
+        hr = IDXGISwapChain2_Present(swapchain, 0, 0);
+        ok(hr == S_OK, "Failed to present, hr %#x.\n", (int)hr);
+    }
+    for (i = 0, timeouts = 0; i < 8; i++)
+    {
+        process_window_messages();
+        if (WaitForSingleObject(waitable, 1000) == WAIT_TIMEOUT)
+            timeouts++;
+        hr = IDXGISwapChain2_Present(swapchain, 0, 0);
+        ok(hr == S_OK, "Failed to present, hr %#x.\n", (int)hr);
+    }
+    ok(!timeouts, "Frame latency waitable timed out %u times after restoring.\n", timeouts);
+
+done_waitable:
+    CloseHandle(waitable);
+done:
+    wait_queue_idle(context.device, context.queue);
+    if (swapchain)
+        IDXGISwapChain2_Release(swapchain);
+    if (window)
+        DestroyWindow(window);
+    IDXGIFactory2_Release(factory);
+    destroy_test_context(&context);
+#endif
+}
+
