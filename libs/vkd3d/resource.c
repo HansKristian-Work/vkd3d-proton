@@ -166,6 +166,46 @@ static inline VkDeviceSize adjust_sparse_buffer_size(VkDeviceSize size)
     return size;
 }
 
+VkBufferUsageFlags2 vkd3d_device_get_buffer_usage(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties)
+{
+    VkBufferUsageFlags2 usage = VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
+            | VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT
+            | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT
+            | VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT
+            | VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT
+            | VK_BUFFER_USAGE_2_UNIFORM_TEXEL_BUFFER_BIT
+            | VK_BUFFER_USAGE_2_STORAGE_TEXEL_BUFFER_BIT
+            | VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT
+            | VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT
+            | VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT;
+
+    if (device->device_info.conditional_rendering_features.conditionalRendering)
+        usage |= VK_BUFFER_USAGE_2_CONDITIONAL_RENDERING_BIT_EXT;
+
+    if (device->device_info.xfb_features.transformFeedback)
+    {
+        usage |= VK_BUFFER_USAGE_2_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT
+                | VK_BUFFER_USAGE_2_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
+    }
+
+    if (device->device_info.memory_decompression_features.memoryDecompression)
+        usage |= VK_BUFFER_USAGE_2_MEMORY_DECOMPRESSION_BIT_EXT;
+
+    if (d3d12_device_supports_ray_tracing_tier_1_0(device))
+    {
+        /* Allows us to place GENERIC acceleration structures on top of VkBuffers.
+         * This should only be allowed on non-host visible heaps. UPLOAD / READBACK is banned
+         * because of resource state rules, but CUSTOM might be allowed, needs to be verified. */
+        if (!heap_properties || heap_properties->Type == D3D12_HEAP_TYPE_DEFAULT || !is_cpu_accessible_heap(heap_properties))
+            usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+        /* This is always allowed. Used for vertex/index buffer inputs to RTAS build. */
+        usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                 VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
+    }
+
+    return usage;
+}
+
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, const char *tag, VkBuffer *vk_buffer)
@@ -174,16 +214,18 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
     VkBufferDeviceAddressAlignmentAllocateInfoVALVE alignment_info;
     VkExternalMemoryBufferCreateInfo external_info;
     const bool sparse_resource = !heap_properties;
+    VkBufferUsageFlags2CreateInfo buffer_usage;
     VkBufferCreateInfo buffer_info;
-    D3D12_HEAP_TYPE heap_type;
     VkResult vr;
 
-    heap_type = heap_properties ? heap_properties->Type : D3D12_HEAP_TYPE_DEFAULT;
+    memset(&buffer_usage, 0, sizeof(buffer_usage));
+    buffer_usage.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO;
+    buffer_usage.usage = vkd3d_device_get_buffer_usage(device, heap_properties);
 
+    memset(&buffer_info, 0, sizeof(buffer_info));
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buffer_info.pNext = NULL;
-    buffer_info.flags = 0;
     buffer_info.size = desc->Width;
+    vk_prepend_struct(&buffer_info, &buffer_usage);
 
     /* This is only used by OpenExistingHeapFrom*,
      * and external host memory is the only way for us to do CROSS_ADAPTER. */
@@ -210,46 +252,6 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
             vk_prepend_struct(&buffer_info, &alignment_info);
         }
     }
-
-    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
-            | VK_BUFFER_USAGE_TRANSFER_DST_BIT
-            | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-            | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-            | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT
-            | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT
-            | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-            | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
-            | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-
-    if (device->vk_info.EXT_conditional_rendering)
-        buffer_info.usage |= VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
-
-    if (device->vk_info.EXT_transform_feedback)
-    {
-        buffer_info.usage |= VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT
-                | VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
-    }
-
-    if (d3d12_device_supports_ray_tracing_tier_1_0(device))
-    {
-        /* Allows us to place GENERIC acceleration structures on top of VkBuffers.
-         * This should only be allowed on non-host visible heaps. UPLOAD / READBACK is banned
-         * because of resource state rules, but CUSTOM might be allowed, needs to be verified. */
-        if (heap_type == D3D12_HEAP_TYPE_DEFAULT || !is_cpu_accessible_heap(heap_properties))
-            buffer_info.usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
-        /* This is always allowed. Used for vertex/index buffer inputs to RTAS build. */
-        buffer_info.usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
-    }
-
-    if (heap_type == D3D12_HEAP_TYPE_UPLOAD)
-        buffer_info.usage &= ~VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    else if (heap_type == D3D12_HEAP_TYPE_READBACK)
-    {
-        buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    }
-
-    buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     /* Buffers always have properties of D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS. */
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
@@ -11204,6 +11206,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDeviceBufferMemoryRequirements buffer_requirement_info;
     VkDeviceImageMemoryRequirements image_requirement_info;
+    VkBufferUsageFlags2CreateInfo buffer_usage;
     VkMemoryRequirements2 memory_requirements;
     struct vkd3d_memory_topology topology;
     VkBufferCreateInfo buffer_info;
@@ -11240,28 +11243,14 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     memory_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
     memory_requirements.pNext = NULL;
 
+    memset(&buffer_usage, 0, sizeof(buffer_usage));
+    buffer_usage.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO;
+    buffer_usage.usage = vkd3d_device_get_buffer_usage(device, NULL);
+
     memset(&buffer_info, 0, sizeof(buffer_info));
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_info.size = 65536;
-    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-            VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
-            VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
-            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-
-    if (device->device_info.acceleration_structure_features.accelerationStructure)
-    {
-        /* Caps are not necessarily overridden yet.
-         * Enabling RTAS should not change acceptable memory mask, but to be safe ... */
-        buffer_info.usage |=
-                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
-                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
-    }
+    vk_prepend_struct(&buffer_info, &buffer_usage);
 
     VK_CALL(vkGetDeviceBufferMemoryRequirements(device->vk_device, &buffer_requirement_info, &memory_requirements));
     buffer_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
