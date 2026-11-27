@@ -39,6 +39,7 @@ decl_test(test_create_command_list);
 decl_test(test_create_command_queue);
 decl_test(test_create_command_signature);
 decl_test(test_create_committed_resource);
+decl_test(test_custom_heap_buffer_usage);
 decl_test(test_create_heap);
 decl_test(test_create_placed_resource);
 decl_test(test_create_placed_resource_size);

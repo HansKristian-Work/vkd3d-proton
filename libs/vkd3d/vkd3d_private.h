@@ -882,6 +882,8 @@ struct vkd3d_memory_allocation
     uint32_t flags;
     VkBufferUsageFlags2KHR explicit_global_buffer_usage;
 
+    bool global_buffer_usage_restricted;
+
     uint64_t clear_semaphore_value;
 
     /* When binding anything to this heap, apply an offset to "shift" the resource into place to observe 64k alignment

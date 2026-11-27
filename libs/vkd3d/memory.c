@@ -796,6 +796,16 @@ static D3D12_HEAP_TYPE vkd3d_normalize_heap_type(const D3D12_HEAP_PROPERTIES *he
     return D3D12_HEAP_TYPE_DEFAULT;
 }
 
+static bool vkd3d_global_buffer_usage_restricted(const D3D12_HEAP_PROPERTIES *heap_properties,
+        VkBufferUsageFlags2KHR explicit_global_buffer_usage)
+{
+    /* vkd3d_create_buffer restricts implicit usage for UPLOAD and READBACK, but not
+     * for CUSTOM heaps with the same memory properties. Explicit usage overrides
+     * these restrictions and is matched separately when reusing a chunk. */
+    return !explicit_global_buffer_usage && (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD ||
+            heap_properties->Type == D3D12_HEAP_TYPE_READBACK);
+}
+
 static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, VkMemoryPropertyFlags *type_flags)
 {
     HRESULT hr;
@@ -1418,6 +1428,8 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     allocation->heap_type = vkd3d_normalize_heap_type(&info->heap_properties);
     allocation->flags = info->flags;
     allocation->explicit_global_buffer_usage = info->explicit_global_buffer_usage;
+    allocation->global_buffer_usage_restricted = vkd3d_global_buffer_usage_restricted(
+            &info->heap_properties, info->explicit_global_buffer_usage);
 
     /* This also sort of validates the heap description,
      * so we want to do this before creating any objects */
@@ -2061,12 +2073,14 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
 
     D3D12_HEAP_TYPE normalized_heap_type;
     struct vkd3d_memory_chunk *chunk;
+    bool global_buffer_usage_restricted;
     HRESULT hr;
     size_t i;
 
     heap_flags &= heap_flag_mask;
     type_mask &= memory_requirements->memoryTypeBits;
     normalized_heap_type = vkd3d_normalize_heap_type(heap_properties);
+    global_buffer_usage_restricted = vkd3d_global_buffer_usage_restricted(heap_properties, explicit_global_buffer_usage);
 
     for (i = 0; i < allocator->chunks_count; i++)
     {
@@ -2074,9 +2088,12 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
 
         /* Match heap type so that we know we get the appropriate memory property flags.
          * These types are normalized, so that different CUSTOM heaps will be considered to be different heap types.
-         * Beyond that, there's just a distinction which explicit global buffer usage we have.
+         * CUSTOM heaps do not have the implicit buffer usage restrictions of UPLOAD/READBACK.
+         * Match these restrictions independently of the normalized memory type.
+         * Beyond that, there's a distinction which explicit global buffer usage we have.
          * In practice, we're toggling between BUFFER heaps and non-BUFFER heaps here. */
         if (chunk->allocation.heap_type != normalized_heap_type ||
+                chunk->allocation.global_buffer_usage_restricted != global_buffer_usage_restricted ||
                 chunk->allocation.explicit_global_buffer_usage != explicit_global_buffer_usage)
             continue;
 

@@ -483,6 +483,100 @@ void test_create_committed_resource(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", refcount);
 }
 
+void test_custom_heap_buffer_usage(void)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *custom, *readback;
+    ID3D12DescriptorHeap *heap;
+    unsigned int i, increment;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    /* Each case uses a fresh device so the first allocation determines the chunk's
+     * buffer usage. READBACK and CUSTOM/WRITE_BACK have the same memory properties,
+     * but only CUSTOM permits the views below. Run with Vulkan validation enabled. */
+    for (i = 0; i < 3; i++)
+    {
+        vkd3d_test_set_context("Order %u", i);
+        trace("Testing %s allocation order.\n", i == 0 ? "readback-first" : i == 1 ? "custom-first" : "custom-only");
+        if (!(device = create_device()))
+        {
+            skip("Failed to create device.\n");
+            break;
+        }
+
+        custom = NULL;
+        readback = NULL;
+        if (i == 0)
+            readback = create_readback_buffer(device, 4096);
+
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+        heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+        heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resource_desc.Width = 4096;
+        resource_desc.Height = 1;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&custom);
+        if (FAILED(hr))
+        {
+            skip("Cannot create CUSTOM/WRITE_BACK buffer, hr %#x.\n", (int)hr);
+            if (readback)
+                ID3D12Resource_Release(readback);
+            ID3D12Device_Release(device);
+            break;
+        }
+
+        if (i == 1)
+            readback = create_readback_buffer(device, 4096);
+
+        heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 3);
+        handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+        increment = ID3D12Device_GetDescriptorHandleIncrementSize(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Format = DXGI_FORMAT_R32_UINT;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.Buffer.NumElements = 16;
+        ID3D12Device_CreateShaderResourceView(device, custom, &srv_desc, handle);
+
+        handle.ptr += increment;
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.Format = DXGI_FORMAT_R32_UINT;
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Buffer.NumElements = 16;
+        ID3D12Device_CreateUnorderedAccessView(device, custom, NULL, &uav_desc, handle);
+
+        handle.ptr += increment;
+        cbv_desc.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(custom);
+        cbv_desc.SizeInBytes = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+        ID3D12Device_CreateConstantBufferView(device, &cbv_desc, handle);
+        ok(ID3D12Device_GetDeviceRemovedReason(device) == S_OK, "Unexpected device removal.\n");
+
+        ID3D12DescriptorHeap_Release(heap);
+        ID3D12Resource_Release(custom);
+        if (readback)
+            ID3D12Resource_Release(readback);
+        ID3D12Device_Release(device);
+    }
+    vkd3d_test_set_context(NULL);
+}
+
 void test_create_heap(void)
 {
     D3D12_FEATURE_DATA_ARCHITECTURE architecture;
