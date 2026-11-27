@@ -1130,7 +1130,15 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
     (void)pPresentParameters;
 
     if (dxgi_vk_swap_chain_present_is_occluded(chain, PresentFlags))
+    {
+        if (!(PresentFlags & DXGI_PRESENT_TEST) && vkd3d_native_sync_handle_is_valid(chain->frame_latency_event))
+        {
+            /* Count already at max latency: the app did not acquire for this frame, take it back. */
+            if (vkd3d_native_sync_handle_release(chain->frame_latency_event, 1) >= (int)chain->frame_latency)
+                vkd3d_native_sync_handle_acquire_timeout(chain->frame_latency_event, 0);
+        }
         return DXGI_STATUS_OCCLUDED;
+    }
     if (PresentFlags & DXGI_PRESENT_TEST)
         return S_OK;
 
