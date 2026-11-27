@@ -11206,6 +11206,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDeviceBufferMemoryRequirements buffer_requirement_info;
     VkDeviceImageMemoryRequirements image_requirement_info;
+    VkBufferUsageFlags2CreateInfo buffer_usage;
     VkMemoryRequirements2 memory_requirements;
     struct vkd3d_memory_topology topology;
     VkBufferCreateInfo buffer_info;
@@ -11242,28 +11243,14 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     memory_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
     memory_requirements.pNext = NULL;
 
+    memset(&buffer_usage, 0, sizeof(buffer_usage));
+    buffer_usage.sType = VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO;
+    buffer_usage.usage = vkd3d_device_get_buffer_usage(device, NULL);
+
     memset(&buffer_info, 0, sizeof(buffer_info));
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_info.size = 65536;
-    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-            VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
-            VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
-            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-
-    if (device->device_info.acceleration_structure_features.accelerationStructure)
-    {
-        /* Caps are not necessarily overridden yet.
-         * Enabling RTAS should not change acceptable memory mask, but to be safe ... */
-        buffer_info.usage |=
-                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
-                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
-    }
+    vk_prepend_struct(&buffer_info, &buffer_usage);
 
     VK_CALL(vkGetDeviceBufferMemoryRequirements(device->vk_device, &buffer_requirement_info, &memory_requirements));
     buffer_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
