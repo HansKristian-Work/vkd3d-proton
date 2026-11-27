@@ -336,6 +336,7 @@ decl_test(test_root_parameter_preservation);
 decl_test(test_cbv_hoisting_sm51);
 decl_test(test_cbv_hoisting_dxil);
 decl_test(test_write_watch);
+decl_test(test_frame_latency_waitable_occluded);
 decl_test(test_conservative_rasterization_dxbc);
 decl_test(test_conservative_rasterization_dxil);
 decl_test(test_root_signature_priority);
